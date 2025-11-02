@@ -20,6 +20,7 @@ struct ContentView: View {
                 NavigationLink("Project Dashboard") { ProjectDashboardView(project: ensureProject()) }
                 NavigationLink("Drill String") { DrillStringListView(project: ensureProject()) }
                 NavigationLink("Annulus") { AnnulusListView(project: ensureProject()) }
+                NavigationLink("Overlap Inspector") { OverLapInspectorView(project: ensureProject()) }
                 NavigationLink("Surveys") { SurveyListView(project: ensureProject()) }
                 NavigationLink("Pressure Window") { PressureWindowView(project: ensureProject()) }
                 NavigationLink("BHP Preview") { BHPPreviewView(project: ensureProject()) }

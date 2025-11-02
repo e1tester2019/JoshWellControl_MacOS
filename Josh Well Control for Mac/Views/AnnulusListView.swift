@@ -5,7 +5,6 @@
 //  Created by Josh Sallows on 2025-11-02.
 //
 
-
 // AnnulusListView.swift
 import SwiftUI
 import SwiftData
@@ -17,27 +16,47 @@ struct AnnulusListView: View {
     @State private var selection: AnnulusSection?
     @State private var activeSection: AnnulusSection?
 
+    private var sortedSections: [AnnulusSection] {
+        project.annulus.sorted { a, b in a.topDepth_m < b.topDepth_m }
+    }
+
+    private var hasGaps: Bool {
+        let secs = sortedSections
+        guard secs.count > 1 else { return false }
+        for i in 1..<secs.count {
+            if secs[i].topDepth_m > secs[i - 1].bottomDepth_m { return true }
+        }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
             VStack {
                 List(selection: $selection) {
-                    ForEach(project.annulus) { sec in
-                        HStack {
-                            Text(sec.name)
+                    ForEach(Array(sortedSections.enumerated()), id: \.element.id) { index, sec in
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sec.name)
+                                    .font(.headline)
+                                // Gap warning (if any)
+                                let prevBottom = index > 0 ? sortedSections[index - 1].bottomDepth_m : nil
+                                if let prevBottom, sec.topDepth_m > prevBottom {
+                                    Text("Gap above: \(sec.topDepth_m - prevBottom, format: .number) m")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                                Text("Top: \(sec.topDepth_m, format: .number.precision(.fractionLength(2))) m   Bottom: \(sec.bottomDepth_m, format: .number.precision(.fractionLength(2))) m   Length: \(sec.length_m, format: .number.precision(.fractionLength(2))) m   Ann Cap: \(annularCapacity_m3(sec), format: .number.precision(.fractionLength(1))) m³ (\(annularCapacityPerM_m3perm(sec), format: .number.precision(.fractionLength(5))) m³/m)   OH Cap: \(openHoleCapacity_m3(sec), format: .number.precision(.fractionLength(1))) m³ (\(openHoleCapacityPerM_m3perm(sec), format: .number.precision(.fractionLength(5))) m³/m)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer()
                             HStack(spacing: 8) {
-                                Button("Edit") {
-                                    navigateToDetail(for: sec)
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .help("Open details")
-
-                                Button(role: .destructive) {
-                                    delete(sec)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                        .labelStyle(.iconOnly)
+                                Button("Edit") { navigateToDetail(for: sec) }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .help("Open details")
+                                Button(role: .destructive) { delete(sec) } label: {
+                                    Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
                                 }
                                 .buttonStyle(.borderless)
                                 .controlSize(.small)
@@ -48,10 +67,8 @@ struct AnnulusListView: View {
                         .tag(sec)
                     }
                     .onDelete { idx in
-                        let items = idx.map { project.annulus[$0] }
-                        project.annulus.remove(atOffsets: idx)
-                        items.forEach { modelContext.delete($0) }
-                        try? modelContext.save()
+                        let items = idx.map { sortedSections[$0] }
+                        items.forEach { delete($0) }
                     }
                 }
                 HStack {
@@ -64,18 +81,48 @@ struct AnnulusListView: View {
                 .padding()
             }
             .navigationTitle("Annulus")
+            .toolbar {
+                if hasGaps {
+                    ToolbarItemGroup {
+                        Button("Fill Gaps") { fillGaps() }
+                            .help("Extend previous section to remove gaps up to the next section")
+                    }
+                }
+            }
             .navigationDestination(item: $activeSection) { sec in
                 AnnulusDetailView(section: sec)
             }
         }
     }
 
+    private func annularCapacityPerM_m3perm(_ s: AnnulusSection) -> Double {
+        let id = max(s.innerDiameter_m, 0)
+        let od = max(s.outerDiameter_m, 0)
+        let area = max(0, (.pi * (id*id - od*od) / 4.0))
+        return area
+    }
+
+    private func annularCapacity_m3(_ s: AnnulusSection) -> Double {
+        return annularCapacityPerM_m3perm(s) * max(s.length_m, 0)
+    }
+
+    private func openHoleCapacityPerM_m3perm(_ s: AnnulusSection) -> Double {
+        let id = max(s.innerDiameter_m, 0)
+        return .pi * pow(id, 2) / 4.0
+    }
+
+    private func openHoleCapacity_m3(_ s: AnnulusSection) -> Double {
+        return openHoleCapacityPerM_m3perm(s) * max(s.length_m, 0)
+    }
+
     private func add() {
+        let nextTop = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
         let s = AnnulusSection(
             name: newName,
-            topDepth_m: 0, length_m: 100,
-            innerDiameter_m: 0.216, // 8.5 in
-            outerDiameter_m: 0.127  // 5 in DP
+            topDepth_m: nextTop,
+            length_m: 100,
+            innerDiameter_m: 0.216,
+            outerDiameter_m: 0.127
         )
         s.project = project
         project.annulus.append(s)
@@ -100,6 +147,18 @@ struct AnnulusListView: View {
     private func navigateToDetail(for section: AnnulusSection) {
         activeSection = section
     }
+
+    private func fillGaps() {
+        let secs = sortedSections
+        guard secs.count > 1 else { return }
+        for i in 1..<secs.count {
+            let prev = secs[i - 1]
+            let curr = secs[i]
+            let gap = curr.topDepth_m - prev.bottomDepth_m
+            if gap > 0 { prev.length_m += gap }
+        }
+        try? modelContext.save()
+    }
 }
 
 struct AnnulusDetailView: View {
@@ -111,7 +170,9 @@ struct AnnulusDetailView: View {
                         Section { TextField("Name", text: $section.name) }
                         Section("Placement (m)") {
                             TextField("Top MD", value: $section.topDepth_m, format: .number)
+                                .onChange(of: section.topDepth_m) { enforceNoOverlap(for: section) }
                             TextField("Length", value: $section.length_m, format: .number)
+                                .onChange(of: section.length_m) { enforceNoOverlap(for: section) }
                             Text("Bottom MD: \(section.bottomDepth_m, format: .number)")
                         }
                         Section("Geometry (m)") {
@@ -141,8 +202,21 @@ struct AnnulusDetailView: View {
                         }
                     }
         }
-        
+        .onAppear { enforceNoOverlap(for: section) }
         .navigationTitle(section.name)
+    }
+
+    private func enforceNoOverlap(for current: AnnulusSection) {
+        guard let project = current.project else { return }
+        let others = project.annulus.filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
+        let prev = others.last { $0.topDepth_m <= current.topDepth_m }
+        let next = others.first { $0.topDepth_m >= current.topDepth_m }
+        if let prev, current.topDepth_m < prev.bottomDepth_m { current.topDepth_m = prev.bottomDepth_m }
+        if current.length_m < 0 { current.length_m = 0 }
+        if let next {
+            let maxLen = max(0, next.topDepth_m - current.topDepth_m)
+            if current.length_m > maxLen { current.length_m = maxLen }
+        }
     }
 }
 

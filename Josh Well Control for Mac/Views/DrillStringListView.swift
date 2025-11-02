@@ -18,27 +18,45 @@ struct DrillStringListView: View {
     @State private var selection: DrillStringSection?
     @State private var activeSection: DrillStringSection?
 
+    private var sortedSections: [DrillStringSection] {
+        project.drillString.sorted { a, b in a.topDepth_m < b.topDepth_m }
+    }
+
+    private var hasGaps: Bool {
+        let secs = sortedSections
+        guard secs.count > 1 else { return false }
+        for i in 1..<secs.count {
+            if secs[i].topDepth_m > secs[i - 1].bottomDepth_m { return true }
+        }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
             VStack {
                 List(selection: $selection) {
-                    ForEach(project.drillString) { sec in
+                    ForEach(Array(sortedSections.enumerated()), id: \.element.id) { index, sec in
                         HStack {
-                            Text(sec.name)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(sec.name)")
+                                Text("Top: \(sec.topDepth_m, format: .number.precision(.fractionLength(2))) m   Bottom: \(sec.bottomDepth_m, format: .number.precision(.fractionLength(2))) m Length: \(sec.length_m, format: .number.precision(.fractionLength(2))) m   Cap: \(sectionCapacity_m3(sec), format: .number.precision(.fractionLength(1))) m³ (\(sectionCapacityPerM_m3perm(sec), format: .number.precision(.fractionLength(5))) m³/m)   Disp: \(sectionDisplacement_m3(sec), format: .number.precision(.fractionLength(1))) m³ (\(sectionDisplacementPerM_m3perm(sec), format: .number.precision(.fractionLength(5))) m³/m)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                let prevBottom = index > 0 ? sortedSections[index - 1].bottomDepth_m : nil
+                                if let prevBottom, sec.topDepth_m > prevBottom {
+                                    Text("Gap above: \(sec.topDepth_m - prevBottom, format: .number) m")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                            }
                             Spacer()
                             HStack(spacing: 8) {
-                                Button("Edit") {
-                                    navigateToDetail(for: sec)
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .help("Open details")
-
-                                Button(role: .destructive) {
-                                    delete(sec)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                        .labelStyle(.iconOnly)
+                                Button("Edit") { navigateToDetail(for: sec) }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .help("Open details")
+                                Button(role: .destructive) { delete(sec) } label: {
+                                    Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
                                 }
                                 .buttonStyle(.borderless)
                                 .controlSize(.small)
@@ -49,10 +67,8 @@ struct DrillStringListView: View {
                         .tag(sec)
                     }
                     .onDelete { idx in
-                        let items = idx.map { project.drillString[$0] }
-                        project.drillString.remove(atOffsets: idx)
-                        items.forEach { modelContext.delete($0) }
-                        try? modelContext.save()
+                        let items = idx.map { sortedSections[$0] }
+                        items.forEach { delete($0) }
                     }
                 }
                 HStack {
@@ -61,12 +77,19 @@ struct DrillStringListView: View {
                         add()
                     } label: {
                         Label("Add", systemImage: "plus")
-                            .labelStyle(.iconOnly)
                     }
                 }
                 .padding()
             }
             .navigationTitle("Drill String")
+            .toolbar {
+                if hasGaps {
+                    ToolbarItemGroup {
+                        Button("Fill Gaps") { fillGaps() }
+                            .help("Extend previous section to remove gaps up to the next section")
+                    }
+                }
+            }
             .navigationDestination(item: $activeSection) { sec in
                 DrillStringDetailView(section: sec)
             }
@@ -74,10 +97,14 @@ struct DrillStringListView: View {
     }
 
     private func add() {
+        // Compute next available top as the max bottom among sections
+        let nextTop = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
         let s = DrillStringSection(
             name: newName,
-            topDepth_m: 0, length_m: 100,
-            outerDiameter_m: 0.127, innerDiameter_m: 0.0953
+            topDepth_m: nextTop,
+            length_m: 100,
+            outerDiameter_m: 0.127,
+            innerDiameter_m: 0.0953
         )
         s.project = project
         project.drillString.append(s)
@@ -103,6 +130,37 @@ struct DrillStringListView: View {
     private func navigateToDetail(for section: DrillStringSection) {
         activeSection = section
     }
+
+    private func fillGaps() {
+        let sections = sortedSections
+        guard sections.count > 1 else { return }
+        for i in 1..<sections.count {
+            let prev = sections[i - 1]
+            let curr = sections[i]
+            let gap = curr.topDepth_m - prev.bottomDepth_m
+            if gap > 0 { prev.length_m += gap }
+        }
+        try? modelContext.save()
+    }
+
+    private func sectionCapacity_m3(_ s: DrillStringSection) -> Double {
+        let id = max(s.innerDiameter_m, 0)
+        let L = max(s.length_m, 0)
+        return .pi * pow(id, 2) / 4.0 * L
+    }
+    private func sectionDisplacement_m3(_ s: DrillStringSection) -> Double {
+        let od = max(s.outerDiameter_m, 0)
+        let L = max(s.length_m, 0)
+        return .pi * pow(od, 2) / 4.0 * L
+    }
+    private func sectionCapacityPerM_m3perm(_ s: DrillStringSection) -> Double {
+        let id = max(s.innerDiameter_m, 0)
+        return .pi * pow(id, 2) / 4.0
+    }
+    private func sectionDisplacementPerM_m3perm(_ s: DrillStringSection) -> Double {
+        let od = max(s.outerDiameter_m, 0)
+        return .pi * pow(od, 2) / 4.0
+    }
 }
 
 struct DrillStringDetailView: View {
@@ -111,12 +169,14 @@ struct DrillStringDetailView: View {
 
     var body: some View {
         Form {
-            Section("Identity") {
+            Section {
                 TextField("Name", text: $section.name)
             }
             Section("Placement (m)") {
                 TextField("Top MD", value: $section.topDepth_m, format: .number)
+                    .onChange(of: section.topDepth_m) { enforceNoOverlap(for: section) }
                 TextField("Length", value: $section.length_m, format: .number)
+                    .onChange(of: section.length_m) { enforceNoOverlap(for: section) }
                 Text("Bottom MD: \(section.bottomDepth_m, format: .number)")
             }
             Section("Geometry (m)") {
@@ -137,6 +197,26 @@ struct DrillStringDetailView: View {
             }
         }
         .navigationTitle(section.name)
+        .onAppear { enforceNoOverlap(for: section) }
+    }
+
+    private func enforceNoOverlap(for current: DrillStringSection) {
+        guard let project = current.project else { return }
+        // Sort others by top depth
+        let others = project.drillString.filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
+        // Find neighbors
+        let prev = others.last { $0.topDepth_m <= current.topDepth_m }
+        let next = others.first { $0.topDepth_m >= current.topDepth_m && $0.id != current.id }
+
+        // Clamp top to not cross previous bottom
+        if let prev, current.topDepth_m < prev.bottomDepth_m { current.topDepth_m = prev.bottomDepth_m }
+        // Ensure positive length
+        if current.length_m < 0 { current.length_m = 0 }
+        // Clamp length so bottom doesn't cross next top
+        if let next {
+            let maxLen = max(0, next.topDepth_m - current.topDepth_m)
+            if current.length_m > maxLen { current.length_m = maxLen }
+        }
     }
 }
 
