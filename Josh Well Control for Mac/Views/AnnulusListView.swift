@@ -329,7 +329,7 @@ struct AnnulusListView: View {
         while i < uniq.count - 1 {
             let t = uniq[i]
             var j = i + 1
-            var currentOD = odCovering(t, uniq[j])
+            let currentOD = odCovering(t, uniq[j])
             while j < uniq.count - 1 {
                 let nextOD = odCovering(uniq[j], uniq[j+1])
                 if abs(nextOD - currentOD) <= 1e-9 { j += 1 } else { break }

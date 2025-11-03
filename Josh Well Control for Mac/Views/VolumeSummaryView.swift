@@ -95,7 +95,9 @@ private struct VolumeTotals {
 
 private func computeTotals(for project: ProjectState) -> VolumeTotals {
     let dsCapacity = project.drillString.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
-    let dsDisplacement = project.drillString.reduce(0.0) { $0 + (.pi * pow(max($1.outerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
+    let dsDisplacement = project.drillString.reduce(0.0) { $0 + (.pi *
+                                                                 (pow(max($1.outerDiameter_m, 0), 2) -
+                                                                  pow(max($1.innerDiameter_m, 0), 2) ) / 4.0) * max($1.length_m, 0) }
     let dsWet = dsCapacity + dsDisplacement
 
     let openHole = project.annulus.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }

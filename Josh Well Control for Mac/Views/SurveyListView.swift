@@ -275,7 +275,7 @@ private struct SurveyRow: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
         }
-        .onChange(of: focusedField) { newValue in
+        .onChange(of: focusedField) { newValue, oldValue in
             // When focus moves away from a field, commit the previous field
             defer { lastFocused = newValue }
             switch lastFocused {

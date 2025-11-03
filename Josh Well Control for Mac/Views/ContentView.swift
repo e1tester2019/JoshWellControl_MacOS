@@ -23,6 +23,7 @@ struct ContentView: View {
                 NavigationLink("Volume Summary") { VolumeSummaryView(project: ensureProject()) }
                 NavigationLink("Surveys") { SurveyListView(project: ensureProject()) }
                 NavigationLink("Pressure Window") { PressureWindowView(project: ensureProject()) }
+                NavigationLink("Pump Schedule") { MudPlacementView(project: ensureProject()) }
                 NavigationLink("BHP Preview") { BHPPreviewView(project: ensureProject()) }
             }
             .navigationTitle("Well Control")

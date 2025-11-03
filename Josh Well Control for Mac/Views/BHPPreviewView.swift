@@ -145,10 +145,10 @@ struct BHPPreviewView: View {
             sbpUI_kPa = sbp_kPa
             recompute()
         }
-        .onChange(of: tvd) { _ in recompute() }
-        .onChange(of: flowRate_m3_min) { _ in recompute() }
-        .onChange(of: mu_app) { _ in recompute() }
-        .onChange(of: sbp_kPa) { _ in recompute() }
+        .onChange(of: tvd) { recompute() }
+        .onChange(of: flowRate_m3_min) { recompute() }
+        .onChange(of: mu_app) { recompute() }
+        .onChange(of: sbp_kPa) { recompute() }
         .navigationTitle("BHP Preview")
     }
 
