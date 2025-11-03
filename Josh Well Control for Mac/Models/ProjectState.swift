@@ -19,6 +19,7 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade) var surveys: [SurveyStation] = []
     @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection] = []
     @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection] = []
+    @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
 
     // MARK: - Single Objects
     var window: PressureWindow = PressureWindow()

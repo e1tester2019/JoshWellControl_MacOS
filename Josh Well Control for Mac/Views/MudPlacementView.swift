@@ -9,22 +9,6 @@ import SwiftUI
 import SwiftData
 
 // MARK: - Step & Layer Models
-private enum Placement: String, CaseIterable, Identifiable {
-    case annulus = "Annulus"
-    case string  = "String"
-    case both    = "Both"
-    var id: String { rawValue }
-}
-
-private struct MudStep: Identifiable, Equatable {
-    let id: UUID = UUID()
-    var name: String
-    var top_m: Double
-    var bottom_m: Double
-    var density_kgm3: Double
-    var color: Color
-    var placement: Placement
-}
 
 private enum Domain { case annulus, string }
 
@@ -47,17 +31,10 @@ struct MudPlacementView: View {
     @State private var top_m: Double = 3150
     @State private var bottom_m: Double = 6000
 
-    // Steps (editable plan). These are treated as final layers when you press "Place Layers".
-    @State private var steps: [MudStep] = [
-        MudStep(name: "Annulus Kill",  top_m: 687,  bottom_m: 1010, density_kgm3: 1800, color: .blue,   placement: .annulus),
-        MudStep(name: "Active Mud",    top_m: 1010, bottom_m: 2701, density_kgm3: 1250, color: .yellow, placement: .annulus),
-        MudStep(name: "Lube Blend",    top_m: 2701, bottom_m: 6000, density_kgm3: 1200, color: .orange, placement: .both),
-        MudStep(name: "Active Mud",    top_m: 2040, bottom_m: 2701, density_kgm3: 1250, color: .yellow, placement: .string),
-        MudStep(name: "Balance Slug",  top_m: 1705, bottom_m: 2040, density_kgm3: 1800, color: .blue,   placement: .string),
-        MudStep(name: "Active Mud",    top_m: 596,  bottom_m: 1705, density_kgm3: 1250, color: .yellow, placement: .string),
-        MudStep(name: "Dry Pipe Slug", top_m: 220,  bottom_m: 596,  density_kgm3: 2100, color: .brown,  placement: .string),
-        MudStep(name: "Air",           top_m: 0,    bottom_m: 221,  density_kgm3: 1.2,  color: .cyan,   placement: .string)
-    ]
+    // Steps persisted via SwiftData
+    @Query(sort: [SortDescriptor(\MudStep.top_m, order: .forward)])
+    private var allSteps: [MudStep]
+    private var steps: [MudStep] { allSteps.filter { $0.project === project } }
 
     // Placed (final) layers for display
     @State private var finalAnnulus: [FinalLayer] = []
@@ -87,20 +64,30 @@ struct MudPlacementView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             } else {
-                                ForEach(steps.indices, id: \.self) { i in
-                                    stepEditorRow($steps[i])
+                                ForEach(steps) { step in
+                                    StepRowView(step: step, compute: { t, b in
+                                        let r = computeVolumesBetween(top: t, bottom: b)
+                                        return (r.annular_m3, r.stringCapacity_m3, r.stringDisp_m3, r.openHole_m3)
+                                    })
                                 }
                             }
 
                             HStack(spacing: 8) {
                                 Button("Add Step") {
-                                    steps.append(MudStep(name: "Step \(steps.count + 1)", top_m: top_m, bottom_m: bottom_m, density_kgm3: 1200, color: .blue, placement: .both))
+                                    let s = MudStep(name: "Step \(steps.count + 1)",
+                                                    top_m: top_m,
+                                                    bottom_m: bottom_m,
+                                                    density_kgm3: 1200,
+                                                    color: .blue,
+                                                    placement: .both,
+                                                    project: project)
+                                    modelContext.insert(s)
                                 }
-                                Button("Sort by Top") {
-                                    steps.sort { min($0.top_m, $0.bottom_m) < min($1.top_m, $1.bottom_m) }
+                                Button("Seed Initial") {
+                                    seedInitialSteps()
                                 }
                                 Button("Clear All", role: .destructive) {
-                                    steps.removeAll()
+                                    for s in steps { modelContext.delete(s) }
                                 }
                             }
                             .controlSize(.small)
@@ -206,16 +193,22 @@ struct MudPlacementView: View {
                     GroupBox("Hydrostatic (from final layers)") {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 16) {
-                                label("Depth (m)")
-                                TextField("Depth", value: $pressureDepth_m, format: .number)
+                                label("Measured Depth (m)")
+                                TextField("(m)", value: $pressureDepth_m, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 140)
-                                Text("Computed from surface to depth using the final layers above.")
+                                Text("Computed from surface to **TVD** using final layers (MD→TVD mapped via surveys).")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            let pAnn = hydrostatic(from: finalAnnulus, to: pressureDepth_m)
-                            let pStr = hydrostatic(from: finalString,  to: pressureDepth_m)
+                            // Show the TVD that will be used in the calculation for verification
+                            // Reference: if the value above were MD, this would be the mapped TVD
+                            Text("TVD(MD)=\(fmt(mdToTVD(pressureDepth_m), 0)) m")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            let depthTVD = mdToTVD(pressureDepth_m)
+                            let pAnn = hydrostatic(from: finalAnnulus, to: depthTVD)
+                            let pStr = hydrostatic(from: finalString,  to: depthTVD)
                             HStack(spacing: 24) {
                                 resultBox(title: "Annulus P", value: pAnn, unit: "kPa")
                                 resultBox(title: "String P", value: pStr, unit: "kPa")
@@ -340,59 +333,77 @@ struct MudPlacementView: View {
 
     // MARK: - Hydrostatic calculation
     private let g_ms2 = 9.80665
-    private func hydrostatic(from layers: [FinalLayer], to depth: Double) -> Double { // kPa
-        guard depth > 0 else { return 0 }
+    /// Integrate hydrostatic head from surface to a **TVD** depth using final layers defined in **MD** (MD→TVD via surveys).
+    private func hydrostatic(from layers: [FinalLayer], to depthTVD: Double) -> Double { // kPa
+        let limitTVD = max(0, min(depthTVD, maxDepth_m))
+        guard limitTVD > 0 else { return 0 }
         var p = 0.0
-        let d = max(0, min(depth, maxDepth_m))
         for L in layers {
-            let t = max(0, L.top)
-            let b = min(d, L.bottom)
-            if b <= t { continue }
-            p += L.density * g_ms2 * (b - t) / 1000.0
+            // Convert this layer's MD bounds to TVD bounds
+            let tTVD = mdToTVD(L.top)
+            let bTVD = mdToTVD(L.bottom)
+            let lo = min(tTVD, bTVD)
+            let hi = max(tTVD, bTVD)
+            // Intersect with [0, limitTVD]
+            let segTop = max(0, lo)
+            let segBot = min(limitTVD, hi)
+            if segBot <= segTop { continue }
+            p += L.density * g_ms2 * (segBot - segTop) / 1000.0 // Pa → kPa
         }
         return p
     }
 
-    // MARK: - Row helper
-    @ViewBuilder private func stepEditorRow(_ s: Binding<MudStep>) -> some View {
-        let stepVal = s.wrappedValue
-        let vols = volumes(for: stepVal)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                TextField("Name", text: s.name)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 160)
-                ColorPicker("Color", selection: s.color)
-                    .labelsHidden()
-                    .frame(width: 44)
-                Spacer(minLength: 8)
-                label("Top (m)")
-                TextField("Top", value: s.top_m, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
-                label("Bottom (m)")
-                TextField("Bottom", value: s.bottom_m, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-                label("ρ (kg/m³)")
-                TextField("Density", value: s.density_kgm3, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
-                Picker("",selection: s.placement) {
-                    ForEach(Placement.allCases) { p in
-                        Text(p.rawValue).tag(p)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 220)
-            }
-            Text("Ann: \(fmt(vols.annular_m3)) m³   Inside: \(fmt(vols.string_m3)) m³   Disp: \(fmt(vols.disp_m3)) m³   OpenHole: \(fmt(vols.openHole_m3)) m³")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    // MARK: - Row subview for a persisted MudStep
+    private struct StepRowView: View {
+        @Bindable var step: MudStep
+        let compute: (_ top: Double, _ bottom: Double) -> (annular_m3: Double, string_m3: Double, disp_m3: Double, openHole_m3: Double)
+
+        @ViewBuilder private func rowLabel(_ s: String) -> some View {
+            Text(s).frame(width: 80, alignment: .leading)
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15)))
+
+        private func fmtLocal(_ v: Double, _ p: Int = 3) -> String { String(format: "%0.*f", p, v) }
+        var body: some View {
+            let t = min(step.top_m, step.bottom_m)
+            let b = max(step.top_m, step.bottom_m)
+            let vols = compute(t, b)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    TextField("Name", text: $step.name)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 160)
+                    ColorPicker("Color", selection: Binding(get: { step.color }, set: { step.color = $0 }))
+                        .labelsHidden()
+                        .frame(width: 44)
+                    Spacer(minLength: 8)
+                    rowLabel("Top (m)")
+                    TextField("Top", value: $step.top_m, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                    rowLabel("Bottom (m)")
+                    TextField("Bottom", value: $step.bottom_m, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 110)
+                    rowLabel("ρ (kg/m³)")
+                    TextField("Density", value: $step.density_kgm3, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    Picker("", selection: Binding(get: { step.placement }, set: { step.placement = $0 })) {
+                        ForEach(Placement.allCases) { p in
+                            Text(p.rawValue).tag(p)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                }
+                Text("Ann: \(fmtLocal(vols.annular_m3)) m³   Inside: \(fmtLocal(vols.string_m3)) m³   Disp: \(fmtLocal(vols.disp_m3)) m³   OpenHole: \(fmtLocal(vols.openHole_m3)) m³")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15)))
+        }
     }
 
     // MARK: - UI Helpers
@@ -512,9 +523,55 @@ struct MudPlacementView: View {
         }
         return false
     }
+    
+    /// Map an input MD (m) to TVD (m) using the project's surveys. Falls back to identity if surveys are missing.
+    private func mdToTVD(_ md: Double) -> Double {
+        // Expect project.surveys to hold stations with md and tvd
+        let stations = project.surveys.sorted { $0.md < $1.md }
+        guard let first = stations.first else { return md }
+        guard let last  = stations.last  else { return md }
+        let tvd0 = first.tvd ?? 0
+        let tvdN = last.tvd  ?? tvd0
+        if md <= first.md { return tvd0 }
+        if md >= last.md  { return tvdN }
+        // Linear interpolate TVD between bracketing MDs
+        for i in 0..<(stations.count - 1) {
+            let a = stations[i]
+            let b = stations[i+1]
+            if md >= a.md && md <= b.md {
+                let tvdA = a.tvd ?? 0
+                let tvdB = b.tvd ?? tvdA
+                let span = max(b.md - a.md, 1e-9)
+                let f = (md - a.md) / span
+                return tvdA + f * (tvdB - tvdA)
+            }
+        }
+        return tvdN
+    }
 
     // MARK: - Formatting
     private func fmt(_ v: Double, _ p: Int = 3) -> String { String(format: "%0.*f", p, v) }
+    
+    // MARK: - seed initial steps
+    private func seedInitialSteps() {
+        let samples: [MudStep] = [
+            MudStep(name: "Annulus Kill", top_m: 687,  bottom_m: 1010, density_kgm3: 1800, color: .blue,   placement: .annulus, project: project),
+            MudStep(name: "Active Mud",   top_m: 1010, bottom_m: 2701, density_kgm3: 1260, color: .yellow, placement: .annulus, project: project),
+            MudStep(name: "Lube Blend",   top_m: 2701, bottom_m: 6000, density_kgm3: 1260, color: .orange, placement: .both,    project: project),
+            MudStep(name: "Active Mud",   top_m: 2040, bottom_m: 2701, density_kgm3: 1260, color: .yellow, placement: .string,  project: project),
+            MudStep(name: "Balance Slug", top_m: 1705, bottom_m: 2040, density_kgm3: 1800, color: .blue,   placement: .string,  project: project),
+            MudStep(name: "Active Mud",   top_m: 596,  bottom_m: 1705, density_kgm3: 1260, color: .yellow, placement: .string,  project: project),
+            MudStep(name: "Dry Pipe Slug",top_m: 220,  bottom_m: 596,  density_kgm3: 2100, color: .brown,  placement: .string,  project: project),
+            MudStep(name: "Air",          top_m: 0,    bottom_m: 221,  density_kgm3: 1.2,  color: .cyan,   placement: .string,  project: project)
+        ]
+
+        // Avoid duplicates: skip if a step with same name+top+bottom already exists for this project
+        let existing = Set(steps.map { "\($0.name)|\($0.top_m)|\($0.bottom_m)" })
+        for s in samples {
+            let key = "\(s.name)|\(s.top_m)|\(s.bottom_m)"
+            if !existing.contains(key) { modelContext.insert(s) }
+        }
+    }
 }
 
 // MARK: - Preview
@@ -527,6 +584,7 @@ struct MudPlacementView_Previews: PreviewProvider {
             for: ProjectState.self,
                  DrillStringSection.self,
                  AnnulusSection.self,
+                 MudStep.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let ctx = container.mainContext
