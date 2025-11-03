@@ -155,3 +155,31 @@ extension AnnulusSection: AnnulusSectionLike {
     var bottomTVD_m: Double { bottomDepth_m }      // provide TVD via your surveys
     var roughness_m: Double { wallRoughness_m }
 }
+
+extension AnnulusSection {
+    /// Computes the effective annular volume for this section,
+    /// subtracting any overlapping drill string ODs.
+    func effectiveAnnularVolume(with drillStrings: [DrillStringSection]) -> Double {
+        // Collect boundaries from this section and all overlapping drill strings
+        var boundaries: [Double] = [topDepth_m, bottomDepth_m]
+        for d in drillStrings where d.bottomDepth_m > topDepth_m && d.topDepth_m < bottomDepth_m {
+            boundaries.append(max(d.topDepth_m, topDepth_m))
+            boundaries.append(min(d.bottomDepth_m, bottomDepth_m))
+        }
+        let unique = Array(Set(boundaries)).sorted()
+        guard unique.count > 1 else { return 0 }
+
+        var totalVolume = 0.0
+        for i in 0..<(unique.count - 1) {
+            let t = unique[i]
+            let b = unique[i + 1]
+            guard b > t else { continue }
+            let id = innerDiameter_m
+            // Find OD of drill string covering this slice, if any
+            let od = drillStrings.first(where: { $0.topDepth_m <= t && $0.bottomDepth_m >= b })?.outerDiameter_m ?? 0
+            let area = max(0, .pi * (id * id - od * od) / 4.0)
+            totalVolume += area * (b - t)
+        }
+        return totalVolume
+    }
+}
