@@ -30,6 +30,12 @@ final class ProjectState {
 
     // Optional ECD Mud Cap (commented out in your C#)
     // var ecdMudCap: EcdMudCapState? = nil
+    
+    var baseAnnulusDensity_kgm3: Double = 1260
+    var baseStringDensity_kgm3: Double = 1260
+    var pressureDepth_m: Double = 3200
+    
+    // Placed (final) layers for display
 
     init() {}
 }

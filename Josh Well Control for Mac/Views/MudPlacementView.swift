@@ -35,17 +35,10 @@ struct MudPlacementView: View {
     @Query(sort: [SortDescriptor(\MudStep.top_m, order: .forward)])
     private var allSteps: [MudStep]
     private var steps: [MudStep] { allSteps.filter { $0.project === project } }
-
-    // Placed (final) layers for display
+    
+    @State private var finalString: [FinalLayer] = []
     @State private var finalAnnulus: [FinalLayer] = []
-    @State private var finalString:  [FinalLayer] = []
 
-    // Base fluids for initial full column
-    @State private var baseAnnulusDensity_kgm3: Double = 1200
-    @State private var baseStringDensity_kgm3: Double = 1200
-
-    // Hydrostatic evaluation depth (defaults to TD)
-    @State private var pressureDepth_m: Double = 6000
 
     var body: some View {
         NavigationStack {
@@ -104,11 +97,11 @@ struct MudPlacementView: View {
                     GroupBox("Base fluids (initial full column)") {
                         HStack(spacing: 16) {
                             label("Annulus ρ")
-                            TextField("kg/m³", value: $baseAnnulusDensity_kgm3, format: .number)
+                            TextField("kg/m³", value: $project.baseAnnulusDensity_kgm3, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 110)
                             label("String ρ")
-                            TextField("kg/m³", value: $baseStringDensity_kgm3, format: .number)
+                            TextField("kg/m³", value: $project.baseStringDensity_kgm3, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 110)
                             Text("Used to fill the well before replacing with steps.")
@@ -194,7 +187,7 @@ struct MudPlacementView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 16) {
                                 label("Measured Depth (m)")
-                                TextField("(m)", value: $pressureDepth_m, format: .number)
+                                TextField("(m)", value: $project.pressureDepth_m, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 140)
                                 Text("Computed from surface to **TVD** using final layers (MD→TVD mapped via surveys).")
@@ -203,10 +196,10 @@ struct MudPlacementView: View {
                             }
                             // Show the TVD that will be used in the calculation for verification
                             // Reference: if the value above were MD, this would be the mapped TVD
-                            Text("TVD(MD)=\(fmt(mdToTVD(pressureDepth_m), 0)) m")
+                            Text("TVD(MD)=\(fmt(mdToTVD(project.pressureDepth_m), 0)) m")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                            let depthTVD = mdToTVD(pressureDepth_m)
+                            let depthTVD = mdToTVD(project.pressureDepth_m)
                             let pAnn = hydrostatic(from: finalAnnulus, to: depthTVD)
                             let pStr = hydrostatic(from: finalString,  to: depthTVD)
                             HStack(spacing: 24) {
@@ -231,7 +224,7 @@ struct MudPlacementView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 140)
                             }
-                            Text("Tip: Top < Bottom. Uses auto-sliced annulus and overlapping drill-string geometry.")
+                    Text("Tip: Top < Bottom. Open-hole uses [Top, Bottom]. 'Total mud in interval' solves a longer pipe-in length so volumes match after pulling the string.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -242,16 +235,24 @@ struct MudPlacementView: View {
                     let t = min(top_m, bottom_m)
                     let b = max(top_m, bottom_m)
                     let r = computeVolumesBetween(top: t, bottom: b)
+                    let equal = solvePipeInIntervalForEqualVolume(targetTop: t, targetBottom: b)
 
                     Grid(horizontalSpacing: 24, verticalSpacing: 14) {
                         GridRow {
                             resultBox(title: "Annular volume (outside)", value: r.annular_m3, unit: "m³", perM: r.annularPerM_m3perm, length: r.length_m)
                             resultBox(title: "String capacity (inside)", value: r.stringCapacity_m3, unit: "m³", perM: r.stringCapacityPerM_m3perm, length: r.length_m)
-                            resultBox(title: "String displacement", value: r.stringDisp_m3, unit: "m³", perM: r.stringDispPerM_m3perm, length: r.length_m)
+                            resultBox(title: "Wet displacement", value: r.stringDisp_m3, unit: "m³", perM: r.stringDispPerM_m3perm, length: r.length_m)
+                            resultBox(title: "Dry displacement", value: r.stringMetal_m3, unit: "m³", perM: r.stringMetalPerM_m3perm, length: r.length_m)
                         }
                         GridRow {
                             resultBox(title: "Open hole (no pipe)", value: r.openHole_m3, unit: "m³", perM: r.openHolePerM_m3perm, length: r.length_m)
-                            resultBox(title: "Total mud in interval", value: r.annular_m3 + r.stringCapacity_m3, unit: "m³")
+                            let totalMudVolume = r.annular_m3 + r.stringCapacity_m3
+                            resultBox(title: "Total mud in interval", value: totalMudVolume, unit: "m³", perM: equal.length_m > 0 ? (totalMudVolume / r.length_m) : 0, length: r.length_m)
+                            Spacer().gridCellUnsizedAxes([.horizontal, .vertical])
+                        }
+                        GridRow {
+                            resultBox(title: "Pipe-in interval length", value: equal.length_m, unit: "m")
+                            resultBox(title: "Mud top with string in", value: equal.mudTop_m, unit: "m")
                             Spacer().gridCellUnsizedAxes([.horizontal, .vertical])
                         }
                     }
@@ -284,7 +285,7 @@ struct MudPlacementView: View {
 
     /// Fill a domain with a single base layer 0..TD
     private func baseLayer(for domain: Domain) -> FinalLayer {
-        let rho = (domain == .annulus) ? baseAnnulusDensity_kgm3 : baseStringDensity_kgm3
+        let rho = (domain == .annulus) ? project.baseAnnulusDensity_kgm3 : project.baseStringDensity_kgm3
         return FinalLayer(domain: domain, top: 0, bottom: maxDepth_m, name: "Base", color: .gray.opacity(0.35), density: rho)
     }
 
@@ -328,7 +329,7 @@ struct MudPlacementView: View {
         }
         finalAnnulus = ann
         finalString  = str
-        pressureDepth_m = maxDepth_m
+        project.pressureDepth_m = maxDepth_m
     }
 
     // MARK: - Hydrostatic calculation
@@ -448,9 +449,10 @@ struct MudPlacementView: View {
         annular_m3: Double, annularPerM_m3perm: Double,
         stringCapacity_m3: Double, stringCapacityPerM_m3perm: Double,
         stringDisp_m3: Double, stringDispPerM_m3perm: Double,
-        openHole_m3: Double, openHolePerM_m3perm: Double
+        openHole_m3: Double, openHolePerM_m3perm: Double,
+        stringMetal_m3: Double, stringMetalPerM_m3perm: Double
     ) {
-        guard bottom > top else { return (0,0,0,0,0,0,0,0,0) }
+        guard bottom > top else { return (0,0,0,0,0,0,0,0,0,0,0) }
         var bounds: [Double] = [top, bottom]
         for a in project.annulus where a.bottomDepth_m > top && a.topDepth_m < bottom {
             bounds.append(max(a.topDepth_m, top))
@@ -461,9 +463,9 @@ struct MudPlacementView: View {
             bounds.append(min(d.bottomDepth_m, bottom))
         }
         let uniq = uniqueBoundaries(bounds)
-        if uniq.count < 2 { return (0,0,0,0,0,0,0,0,0) }
+        if uniq.count < 2 { return (0,0,0,0,0,0,0,0,0,0,0) }
 
-        var annular = 0.0, openHole = 0.0, strCap = 0.0, strDisp = 0.0, L = 0.0
+        var annular = 0.0, openHole = 0.0, strCap = 0.0, strDisp = 0.0, strMetal = 0.0, L = 0.0
         for i in 0..<(uniq.count - 1) {
             let t = uniq[i], b = uniq[i+1]
             guard b > t else { continue }
@@ -482,6 +484,7 @@ struct MudPlacementView: View {
                 let odStr = max(s.outerDiameter_m, 0)
                 strCap += (.pi * idStr * idStr / 4.0) * (b - t)
                 strDisp += (.pi * odStr * odStr / 4.0) * (b - t)
+                strMetal += max(0, .pi * (odStr*odStr - idStr*idStr) / 4.0) * (b - t)
             }
         }
         return (
@@ -489,8 +492,55 @@ struct MudPlacementView: View {
             annular, L>0 ? annular/L : 0,
             strCap,  L>0 ? strCap/L  : 0,
             strDisp, L>0 ? strDisp/L : 0,
-            openHole, L>0 ? openHole/L : 0
+            openHole, L>0 ? openHole/L : 0,
+            strMetal, L>0 ? strMetal/L : 0
         )
+    }
+
+    /// Compute total mud volume with pipe in between [top, bottom]
+    private func totalMudWithPipeBetween(top: Double, bottom: Double) -> (total_m3: Double, annular_m3: Double, string_m3: Double) {
+        guard bottom > top else { return (0,0,0) }
+        let r = computeVolumesBetween(top: top, bottom: bottom)
+        return (r.annular_m3 + r.stringCapacity_m3, r.annular_m3, r.stringCapacity_m3)
+    }
+
+    /// Solve the pipe-in interval length L such that the total mud (annulus + inside) over [bottom-L, bottom]
+    /// equals the open-hole volume over [targetTop, targetBottom]. Returns length, total, split, and mud-top depth.
+    private func solvePipeInIntervalForEqualVolume(targetTop: Double, targetBottom: Double, tol: Double = 1e-6, maxIter: Int = 60) -> (length_m: Double, total_m3: Double, annular_m3: Double, string_m3: Double, mudTop_m: Double) {
+        let t = min(targetTop, targetBottom)
+        let b = max(targetTop, targetBottom)
+        guard b > t else { return (0,0,0,0,b) }
+
+        // Target volume is open-hole over [t,b]
+        let target = computeVolumesBetween(top: t, bottom: b).openHole_m3
+
+        // Bracket L in [0, Lmax] where Lmax cannot exceed bottom depth (surface at 0)
+        var lo = 0.0
+        var hi = max(0.0, b) // cannot pull top above surface
+
+        // Ensure hi is sufficient to exceed target volume
+        let vHi = totalMudWithPipeBetween(top: max(0.0, b - hi), bottom: b).total_m3
+        if vHi < target {
+            // Geometry degenerate; fall back to using the target interval length so UI still behaves
+            let fallback = totalMudWithPipeBetween(top: t, bottom: b)
+            return (b - t, fallback.total_m3, fallback.annular_m3, fallback.string_m3, t)
+        }
+
+        // Bisection solve for L where V(L) = target
+        for _ in 0..<maxIter {
+            let mid = 0.5 * (lo + hi)
+            let vMid = totalMudWithPipeBetween(top: max(0.0, b - mid), bottom: b).total_m3
+            if abs(vMid - target) <= max(1e-9, tol * max(target, 1.0)) { // relative/absolute tol
+                let topWithPipe = max(0.0, b - mid)
+                let parts = totalMudWithPipeBetween(top: topWithPipe, bottom: b)
+                return (mid, vMid, parts.annular_m3, parts.string_m3, topWithPipe)
+            }
+            if vMid < target { lo = mid } else { hi = mid }
+        }
+        let L = hi
+        let topWithPipe = max(0.0, b - L)
+        let parts = totalMudWithPipeBetween(top: topWithPipe, bottom: b)
+        return (L, parts.total_m3, parts.annular_m3, parts.string_m3, topWithPipe)
     }
 
     private func volumes(for step: MudStep) -> (annular_m3: Double, string_m3: Double, disp_m3: Double, openHole_m3: Double) {
@@ -550,7 +600,7 @@ struct MudPlacementView: View {
     }
 
     // MARK: - Formatting
-    private func fmt(_ v: Double, _ p: Int = 3) -> String { String(format: "%0.*f", p, v) }
+    private func fmt(_ v: Double, _ p: Int = 5) -> String { String(format: "%0.*f", p, v) }
     
     // MARK: - seed initial steps
     private func seedInitialSteps() {
