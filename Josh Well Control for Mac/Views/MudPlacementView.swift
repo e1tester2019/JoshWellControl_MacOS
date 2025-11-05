@@ -31,10 +31,31 @@ struct MudPlacementView: View {
     @State private var top_m: Double = 3150
     @State private var bottom_m: Double = 6000
 
+    // Preview mud density for quick interval pressure/step add
+    @State private var previewDensity_kgm3: Double = 1260
+
     // Steps persisted via SwiftData
     @Query(sort: [SortDescriptor(\MudStep.top_m, order: .forward)])
     private var allSteps: [MudStep]
-    private var steps: [MudStep] { allSteps.filter { $0.project === project } }
+
+    private func placementRank(_ p: Placement) -> Int {
+        switch p {
+        case .annulus: return 0
+        case .string:  return 1
+        case .both:    return 2
+        }
+    }
+
+    private var steps: [MudStep] {
+        let filtered = allSteps.filter { $0.project === project }
+        return filtered.sorted { a, b in
+            let ra = placementRank(a.placement)
+            let rb = placementRank(b.placement)
+            if ra != rb { return ra < rb }
+            if a.top_m != b.top_m { return a.top_m < b.top_m }
+            return a.bottom_m < b.bottom_m
+        }
+    }
     
     @State private var finalString: [FinalLayer] = []
     @State private var finalAnnulus: [FinalLayer] = []
@@ -61,6 +82,8 @@ struct MudPlacementView: View {
                                     StepRowView(step: step, compute: { t, b in
                                         let r = computeVolumesBetween(top: t, bottom: b)
                                         return (r.annular_m3, r.stringCapacity_m3, r.stringDisp_m3, r.openHole_m3)
+                                    }, onDelete: { s in
+                                        modelContext.delete(s)
                                     })
                                 }
                             }
@@ -203,9 +226,9 @@ struct MudPlacementView: View {
                             let pAnn = hydrostatic(from: finalAnnulus, to: depthTVD)
                             let pStr = hydrostatic(from: finalString,  to: depthTVD)
                             HStack(spacing: 24) {
-                                resultBox(title: "Annulus P", value: pAnn, unit: "kPa")
-                                resultBox(title: "String P", value: pStr, unit: "kPa")
-                                resultBox(title: "ΔP (Ann − Str)", value: pAnn - pStr, unit: "kPa")
+                                resultBox(title: "Annulus P", value: pAnn, unit: "kPa", valueFmt: fmtP)
+                                resultBox(title: "String P", value: pStr, unit: "kPa", valueFmt: fmtP)
+                                resultBox(title: "ΔP (Ann − Str)", value: pAnn - pStr, unit: "kPa", valueFmt: fmtP)
                             }
                         }
                     }
@@ -215,18 +238,50 @@ struct MudPlacementView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 16) {
                                 label("Top (m)")
-                                TextField("Top", value: $top_m, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 140)
-                                Spacer(minLength: 24)
+                                HStack(spacing: 4) {
+                                    TextField("Top", value: $top_m, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 100)
+
+                                    Stepper("", value: $top_m, in: 0...10_000, step: 0.1)
+                                        .labelsHidden()
+                                        .frame(width: 20)
+                                }
                                 label("Bottom (m)")
-                                TextField("Bottom", value: $bottom_m, format: .number)
+                                HStack(spacing: 4) {
+                                    TextField("Bottom", value: $bottom_m, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 100)
+
+                                    Stepper("", value: $bottom_m, in: top_m...10_000, step: 0.1)
+                                        .labelsHidden()
+                                        .frame(width: 20)
+                                }
+                                label("Preview ρ")
+                                TextField("kg/m³", value: $previewDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 140)
+                                    .frame(width: 120)
+                                Spacer(minLength: 24)
                             }
-                    Text("Tip: Top < Bottom. Open-hole uses [Top, Bottom]. 'Total mud in interval' solves a longer pipe-in length so volumes match after pulling the string.")
+                            Text("Tip: Top < Bottom. Open-hole uses [Top, Bottom]. 'Total mud in interval' solves a longer pipe-in length so volumes match after pulling the string.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            // Insert preview density HStack here
+                            HStack(spacing: 12) {
+
+                                Text("Use this density to preview ΔP over the selected TVD span, or add a step from this interval.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Add Step from Interval") {
+                                    let tNow = min(top_m, bottom_m)
+                                    let bNow = max(top_m, bottom_m)
+                                    let s = MudStep(name: "Preview Step", top_m: tNow, bottom_m: bNow, density_kgm3: previewDensity_kgm3, color: .purple, placement: .both, project: project)
+                                    modelContext.insert(s)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -236,24 +291,52 @@ struct MudPlacementView: View {
                     let b = max(top_m, bottom_m)
                     let r = computeVolumesBetween(top: t, bottom: b)
                     let equal = solvePipeInIntervalForEqualVolume(targetTop: t, targetBottom: b)
+                    // TVD and pressure preview calculations
+                    let tvdTop = mdToTVD(t)
+                    let tvdBot = mdToTVD(b)
+                    let tvdSpan = abs(tvdBot - tvdTop)
+                    let dp_kPa = previewDensity_kgm3 * g_ms2 * tvdSpan / 1000.0
+                    let checksum_m3 = r.openHole_m3 - (r.annular_m3 + r.stringCapacity_m3 + r.stringMetal_m3)
 
                     Grid(horizontalSpacing: 24, verticalSpacing: 14) {
                         GridRow {
-                            resultBox(title: "Annular volume (outside)", value: r.annular_m3, unit: "m³", perM: r.annularPerM_m3perm, length: r.length_m)
-                            resultBox(title: "String capacity (inside)", value: r.stringCapacity_m3, unit: "m³", perM: r.stringCapacityPerM_m3perm, length: r.length_m)
-                            resultBox(title: "Wet displacement", value: r.stringDisp_m3, unit: "m³", perM: r.stringDispPerM_m3perm, length: r.length_m)
-                            resultBox(title: "Dry displacement", value: r.stringMetal_m3, unit: "m³", perM: r.stringMetalPerM_m3perm, length: r.length_m)
+                            resultBox(title: "Annular volume (outside)", value: r.annular_m3, unit: "m³",
+                                      perM: r.annularPerM_m3perm, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+
+                            resultBox(title: "String capacity (inside)", value: r.stringCapacity_m3, unit: "m³",
+                                      perM: r.stringCapacityPerM_m3perm, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+
+                            resultBox(title: "Wet displacement", value: r.stringDisp_m3, unit: "m³",
+                                      perM: r.stringDispPerM_m3perm, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+
+                            resultBox(title: "Dry displacement", value: r.stringMetal_m3, unit: "m³",
+                                      perM: r.stringMetalPerM_m3perm, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
                         }
                         GridRow {
-                            resultBox(title: "Open hole (no pipe)", value: r.openHole_m3, unit: "m³", perM: r.openHolePerM_m3perm, length: r.length_m)
-                            let totalMudVolume = r.annular_m3 + r.stringCapacity_m3
-                            resultBox(title: "Total mud in interval", value: totalMudVolume, unit: "m³", perM: equal.length_m > 0 ? (totalMudVolume / r.length_m) : 0, length: r.length_m)
-                            Spacer().gridCellUnsizedAxes([.horizontal, .vertical])
+                            resultBox(title: "Open hole (no pipe)", value: r.openHole_m3, unit: "m³",
+                                      perM: r.openHolePerM_m3perm, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+
+                            resultBox(title: "Total mud in interval (pipe in)", value: equal.total_m3, unit: "m³",
+                                      perM: equal.length_m > 0 ? (equal.total_m3 / equal.length_m) : 0, length: equal.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+
+                            resultBox(title: "Identity check (should be 0)", value: checksum_m3, unit: "m³",
+                                      perM: r.length_m > 0 ? (checksum_m3 / r.length_m) : 0, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
+                            resultBox(title: "Volume inside and outside", value: (r.annular_m3 + r.stringCapacity_m3), unit: "m³",
+                                      perM: r.length_m > 0 ? (r.annularPerM_m3perm + r.stringCapacityPerM_m3perm) : 0, length: r.length_m,
+                                      valueFmt: fmtCap, perMFmt: fmtCap, lengthFmt: fmtLen)
                         }
                         GridRow {
-                            resultBox(title: "Pipe-in interval length", value: equal.length_m, unit: "m")
-                            resultBox(title: "Mud top with string in", value: equal.mudTop_m, unit: "m")
-                            Spacer().gridCellUnsizedAxes([.horizontal, .vertical])
+                            resultBox(title: "Pipe-in interval length", value: equal.length_m, unit: "m", valueFmt: fmtLen)
+                            resultBox(title: "Mud top with string in", value: equal.mudTop_m, unit: "m", valueFmt: fmtLen)
+                            resultBox(title: "TVD span (top→bottom)", value: tvdSpan, unit: "m", valueFmt: fmtLen)
+                            resultBox(title: "ΔP over section (preview)", value: dp_kPa, unit: "kPa", valueFmt: fmtP)
                         }
                     }
 
@@ -358,6 +441,7 @@ struct MudPlacementView: View {
     private struct StepRowView: View {
         @Bindable var step: MudStep
         let compute: (_ top: Double, _ bottom: Double) -> (annular_m3: Double, string_m3: Double, disp_m3: Double, openHole_m3: Double)
+        let onDelete: (MudStep) -> Void
 
         @ViewBuilder private func rowLabel(_ s: String) -> some View {
             Text(s).frame(width: 80, alignment: .leading)
@@ -396,6 +480,11 @@ struct MudPlacementView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 220)
+                    Button(role: .destructive) { onDelete(step) } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete step")
                 }
                 Text("Ann: \(fmtLocal(vols.annular_m3)) m³   Inside: \(fmtLocal(vols.string_m3)) m³   Disp: \(fmtLocal(vols.disp_m3)) m³   OpenHole: \(fmtLocal(vols.openHole_m3)) m³")
                     .font(.caption)
@@ -413,14 +502,26 @@ struct MudPlacementView: View {
     }
 
     @ViewBuilder
-    private func resultBox(title: String, value: Double, unit: String, perM: Double? = nil, length: Double? = nil) -> some View {
+    private func resultBox(
+        title: String,
+        value: Double,
+        unit: String,
+        perM: Double? = nil,
+        length: Double? = nil,
+        valueFmt: ((Double) -> String)? = nil,
+        perMFmt: ((Double) -> String)? = nil,
+        lengthFmt: ((Double) -> String)? = nil
+    ) -> some View {
+        let vf = valueFmt ?? { fmt($0) }
+        let pf = perMFmt ?? { fmt($0) }
+        let lf = lengthFmt ?? { fmt($0, 0) }
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text("\(fmt(value)) \(unit)")
+            Text("\(vf(value)) \(unit)")
                 .font(.headline)
                 .monospacedDigit()
             if let perM, let L = length, L > 0 {
-                Text("(\(fmt(perM)) m³/m across \(fmt(L, 0)) m)")
+                Text("(\(pf(perM)) m³/m across \(lf(L)) m)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -601,6 +702,9 @@ struct MudPlacementView: View {
 
     // MARK: - Formatting
     private func fmt(_ v: Double, _ p: Int = 5) -> String { String(format: "%0.*f", p, v) }
+    private func fmtCap(_ v: Double) -> String { fmt(v, 5) }   // capacities/volumes to 5 dp
+    private func fmtP(_ v: Double)   -> String { fmt(v, 0) }   // pressures to 0 dp
+    private func fmtLen(_ v: Double) -> String { fmt(v, 2) }   // lengths to 2 dp
     
     // MARK: - seed initial steps
     private func seedInitialSteps() {
