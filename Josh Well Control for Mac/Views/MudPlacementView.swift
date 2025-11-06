@@ -413,6 +413,10 @@ struct MudPlacementView: View {
         finalAnnulus = ann
         finalString  = str
         project.pressureDepth_m = maxDepth_m
+        finalAnnulus = ann
+        finalString  = str
+        project.pressureDepth_m = maxDepth_m
+        persistFinalLayers(from: ann, str)
     }
 
     // MARK: - Hydrostatic calculation
@@ -725,6 +729,30 @@ struct MudPlacementView: View {
             let key = "\(s.name)|\(s.top_m)|\(s.bottom_m)"
             if !existing.contains(key) { modelContext.insert(s) }
         }
+    }
+    
+    private func persistFinalLayers(from ann: [FinalLayer], _ str: [FinalLayer]) {
+        // Clear old
+        for layer in project.finalLayers { modelContext.delete(layer) }
+
+        func save(_ lay: FinalLayer, where placement: Placement) {
+            let f = FinalFluidLayer(
+                project: project,
+                name: lay.name,
+                placement: placement,
+                topMD_m: min(lay.top, lay.bottom),
+                bottomMD_m: max(lay.top, lay.bottom),
+                density_kgm3: lay.density,
+                color: lay.color
+            )
+            modelContext.insert(f)
+        }
+
+        // Persist as placement-specific layers
+        for a in ann { save(a, where: .annulus) }
+        for s in str { save(s, where: .string) }
+
+        try? modelContext.save()
     }
 }
 

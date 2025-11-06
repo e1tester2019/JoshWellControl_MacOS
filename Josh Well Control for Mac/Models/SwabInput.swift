@@ -22,10 +22,68 @@ final class SwabInput {
     /// Casing/wellbore ID (m)
     var holeID_m: Double = 0.216      // e.g., 8½ in hole
 
+    /// If true, calculations should source geometry from Project sections (Annulus/DrillString)
+    /// rather than these fixed IDs. This lets this record behave as a global config for the project.
+    var useProjectGeometry: Bool = true
+
+    // MARK: - Rheology (Fann) and model controls
+    /// Fann viscometer readings (dial units)
+    var theta600: Double = 60
+    var theta300: Double = 40
+
+    /// Choose which rheology model to use for calculations (aligns with `modelRaw`)
+    /// .PowerLaw will use (theta600, theta300) to derive K, n; others can be added later
+
+    /// Global eccentricity multiplier (>= 1 means faster annular velocity due to eccentricity)
+    /// Note: kept `eccentricity` (0..1) below for UI; this multiplier is used by the engine.
+    var eccentricityMultiplier: Double = 1.0
+
+    // MARK: - Simulation domain controls
+    /// Calculation domain for a single point estimation
+    ///   - .swabAboveBit  : integrate from surface to bit (POOH)
+    ///   - .surgeBelowBit : integrate from bit to shoe/TD (RIH)
+    enum SwabSurgeDomain: Int, Codable { case swabAboveBit = 0, surgeBelowBit = 1 }
+    var domainRaw: Int = SwabSurgeDomain.swabAboveBit.rawValue
+    @Transient var domain: SwabSurgeDomain {
+        get { SwabSurgeDomain(rawValue: domainRaw) ?? .swabAboveBit }
+        set { domainRaw = newValue.rawValue }
+    }
+
+    /// Bit depth for single‑point estimate (MD, m)
+    var bitMD_m: Double = 3000.0
+
+    /// Lower limit for surge integration (e.g., shoe or TD) when domain == .surgeBelowBit (MD, m)
+    var surgeLowerLimitMD_m: Double = 6000.0
+
+    /// Resolution for numeric integration (m per slice)
+    var step_m: Double = 5.0
+
+    /// Hoist/run speed for swab/surge (m/min). Prefer this over `pipeVelocity_m_per_s`.
+    var hoistSpeed_m_per_min: Double = 10.0
+
+    // MARK: - Tripping simulation controls
+    enum TripDirection: Int, Codable { case pullOutOfHole = 0, runInHole = 1 }
+    var tripDirectionRaw: Int = TripDirection.pullOutOfHole.rawValue
+    @Transient var tripDirection: TripDirection {
+        get { TripDirection(rawValue: tripDirectionRaw) ?? .pullOutOfHole }
+        set { tripDirectionRaw = newValue.rawValue }
+    }
+
+    /// Start and end bit depths for a tripping simulation (MD, m)
+    var tripStartBitMD_m: Double = 6000.0
+    var tripEndBitMD_m: Double = 1000.0
+
+    /// Depth increment for the trip marching (m)
+    var tripStep_m: Double = 5.0
+
     /// Stroke length per swab cycle (m)
     var strokeLength_m: Double = 3.0
     /// Pulling or running velocity (m/s)
     var pipeVelocity_m_per_s: Double = 0.3
+    /// Legacy bridge: keep supporting m/s input, but provide preferred m/min
+    @Transient var hoistSpeed_m_per_min_from_mps: Double {
+        (pipeVelocity_m_per_s * 60.0)
+    }
     /// Strokes per minute (SPM)
     var strokesPerMinute: Double = 10.0
 
@@ -66,6 +124,11 @@ final class SwabInput {
         set { modelRaw = newValue.rawValue }
     }
 
+    /// Effective eccentricity factor combining 0..1 UI slider and explicit multiplier
+    @Transient var eccFactorEffective: Double {
+        max(1.0, 1.0 + eccentricity * 0.5) * max(1.0, eccentricityMultiplier)
+    }
+
     /// Effective annular area (m²)
     @Transient var annulusArea_m2: Double {
         let ID = holeID_m
@@ -86,6 +149,7 @@ final class SwabInput {
         return (rho * pipeVelocity_m_per_s * equivalentDiameter_m) / mu
     }
 
+    /// LEGACY: simplistic steady‑state estimate; keep for quick sanity checks only.
     /// Simplified steady-state surge pressure estimate (kPa)
     /// ΔP = f * (L/D) * (ρ * v² / 2)
     func surgePressure_kPa() -> Double {

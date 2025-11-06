@@ -20,6 +20,7 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection] = []
     @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection] = []
     @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
+    @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer] = []
 
     // MARK: - Single Objects
     var window: PressureWindow = PressureWindow()
