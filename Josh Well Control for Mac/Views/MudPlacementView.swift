@@ -22,6 +22,7 @@ private struct FinalLayer: Identifiable {
     let density: Double
 }
 
+
 // MARK: - View
 struct MudPlacementView: View {
     @Environment(\.modelContext) private var modelContext
@@ -59,6 +60,7 @@ struct MudPlacementView: View {
     
     @State private var finalString: [FinalLayer] = []
     @State private var finalAnnulus: [FinalLayer] = []
+
 
 
     var body: some View {
@@ -140,6 +142,8 @@ struct MudPlacementView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.regular)
+
+                        .help("Persist final layers and make them available to seed the numerical trip model")
 
                         Text("Fills each domain with a base fluid, then overlays steps (Annulus/String/Both).")
                             .font(.caption)

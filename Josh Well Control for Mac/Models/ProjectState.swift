@@ -41,4 +41,37 @@ final class ProjectState {
     init() {}
 }
 
+extension ProjectState {
+    /// TVD at an arbitrary MD using linear interpolation over `surveys`.
+    func tvd(of mdQuery: Double) -> Double {
+        guard !surveys.isEmpty else { return mdQuery } // fallback
+        // Sort once per call (fast enough, or cache if you like)
+        let s = surveys.sorted { $0.md < $1.md }
+
+        if mdQuery <= s.first!.md { return s.first!.tvd ?? 0 }
+        if mdQuery >= s.last!.md  { return s.last!.tvd ?? 0 }
+
+        // Binary search for bracketing indices
+        var lo = 0, hi = s.count - 1
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2
+            if s[mid].md <= mdQuery { lo = mid } else { hi = mid }
+        }
+
+        let md0 = s[lo].md,  md1 = s[hi].md
+        let tv0 = s[lo].tvd, tv1 = s[hi].tvd
+        let t = (mdQuery - md0) / max(md1 - md0, 1e-12)
+        return (tv0 ?? 0.0) + t * ((tv1 ?? 0.0) - (tv0 ?? 0.0))
+    }
+}
+
+extension ProjectState {
+    var finalAnnulusLayersSorted: [FinalFluidLayer] {
+        finalLayers.filter { $0.placement == .annulus }.sorted { $0.topMD_m < $1.topMD_m }
+    }
+    var finalStringLayersSorted: [FinalFluidLayer] {
+        finalLayers.filter { $0.placement == .string }.sorted { $0.topMD_m < $1.topMD_m }
+    }
+}
+
 

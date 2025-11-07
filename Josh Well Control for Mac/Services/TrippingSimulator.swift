@@ -58,7 +58,7 @@ struct TrippingSimulator {
 
         guard mdStep > 0 else { return [] }
 
-        var geom = ProjectGeometryService(
+        let geom = ProjectGeometryService(
             annulus: annulus,
             string: string,
             currentStringBottomMD: startBitMD
