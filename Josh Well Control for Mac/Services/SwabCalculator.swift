@@ -43,19 +43,34 @@ struct SwabCalculator {
     /// Defaults match the current placeholder logic so existing behavior is unchanged.
     init(
         plFrom600_300: @escaping PLFrom600_300 = { theta600, theta300 in
-            // Placeholder: n = ln(θ600/θ300) / ln(600/300); K = θ600 / 600^n
-            let n = log(theta600/theta300) / log(600.0/300.0)
-            let K = theta600 / pow(600.0, n)
+            // n from 600/300
+            let n = log(theta600/theta300) / log(600.0/300.0) // = ln(θ600/θ300)/ln 2
+
+            // Convert dial → shear stress (Pa) and rpm → shear rate (1/s)
+            // Fann 35: τ(Pa)=0.4788*θ ; γ(1/s)=rpm*1.703 ~ {300→511, 600→1022}
+            let tau600 = 0.4788 * theta600     // Pa
+            let gamma600 = 1022.0              // 1/s
+            // Power-law K in Pa·s^n using one point (600):
+            let K = tau600 / pow(gamma600, n)  // Pa·s^n
+
             return (K, n)
         },
         plLaminarGradient: @escaping PLLaminarGradient = { rho, K, n, Va, Dh in
-            // Mooney–Rabinowitsch wall shear rate, wall shear stress, and Metzner–Reed Re_g
+            // Guard
             let Dh = max(Dh, 1e-6)
             let Va = max(Va, 1e-12)
-            let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Va / Dh)
-            let tau_w = K * pow(gamma_w, n)
-            let dPperM = 4.0 * tau_w / Dh // Pa/m
+
+            // Mooney–Rabinowitsch wall shear rate for power-law, pipe-analogy with Dh
+            let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Va / Dh) // 1/s
+            let tau_w = K * pow(gamma_w, n)                                // Pa
+
+            // Laminar ΔP/L (Pa/m) using τw
+            let dPperM = 4.0 * tau_w / Dh
+
+            // Metzner–Reed generalized Reynolds number
             let Re_g = rho * pow(Va, 2.0 - n) * pow(Dh, n) / (K * pow(8.0, n - 1.0))
+
+            // Laminar flag (you can refine the threshold by n if you’d like)
             let laminar = Re_g < 2100.0
             return (dPperM, laminar, Re_g)
         }
@@ -80,7 +95,8 @@ struct SwabCalculator {
         step_m: Double,
         geom: GeometryService,
         traj: TrajectorySampler? = nil,
-        sabpSafety: Double = 1.15
+        sabpSafety: Double = 1.15,
+        floatIsOpen: Bool = false     // 👈 add this
     ) throws -> SwabEstimate {
 
         guard !layers.isEmpty else { throw NSError(domain: "Swab", code: 1, userInfo: [NSLocalizedDescriptionKey: "No layers."]) }
@@ -120,9 +136,16 @@ struct SwabCalculator {
 
                 let ApipeOD = .pi * Do * Do / 4.0
                 let Aann = .pi * (Dhole * Dhole - Do * Do) / 4.0
-                if Aann <= 1e-12 { md = next; continue }
 
-                let Va = max(Vpipe_mps * (ApipeOD / Aann) * max(eccentricityFactor, 1.0), 1e-12)
+                var dispA = ApipeOD  // closed-end default
+                if floatIsOpen {
+                    let Di = max(geom.pipeID_m(mdMid), 0.0001)
+                    let ApipeID = .pi * Di * Di / 4.0
+                    dispA = max(ApipeOD - ApipeID, 0)
+                }
+
+                // annular velocity
+                let Va = max(Vpipe_mps * (dispA / Aann) * max(eccentricityFactor, 1.0), 1e-12)
 
                 let rPL = _plLaminarGradient(L.rho, K, n, Va, Dh)
                 let dP = rPL.dPperM * segLen // Pa

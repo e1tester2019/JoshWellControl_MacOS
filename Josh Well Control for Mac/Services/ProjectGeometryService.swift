@@ -12,6 +12,7 @@ import Foundation
 protocol GeometryService {
     func holeOD_m(_ md: Double) -> Double
     func pipeOD_m(_ md: Double) -> Double
+    func pipeID_m(_ md: Double) -> Double
 }
 
 extension GeometryService {
@@ -70,5 +71,15 @@ final class ProjectGeometryService: GeometryService {
             return 0.0
         }
         return max(sec.outerDiameter_m, 0.0)
+    }
+    
+    /// Pipe inner diameter at MD (m). Returns 0 if above current string bottom or outside any DS section.
+    func pipeID_m(_ md: Double) -> Double {
+        // If the string hasn’t reached this depth (POOH or early RIH), there’s no ID present here.
+        guard md <= currentStringBottomMD else { return 0.0 }
+        guard let sec = string.first(where: { $0.topDepth_m <= md && md <= $0.bottomDepth_m }) else {
+            return 0.0
+        }
+        return max(sec.innerDiameter_m, 0.0)
     }
 }

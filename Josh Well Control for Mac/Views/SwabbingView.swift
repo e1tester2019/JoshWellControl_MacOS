@@ -235,7 +235,8 @@ struct SwabbingView: View {
                 step_m: step_m,
                 geom: geom,
                 traj: nil,
-                sabpSafety: 1.15
+                sabpSafety: 1.0,
+                floatIsOpen: true
             )
             self.estimate = est
         } catch {
