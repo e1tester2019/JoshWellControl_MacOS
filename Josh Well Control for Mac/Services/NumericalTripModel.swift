@@ -287,15 +287,51 @@ final class NumericalTripModel {
         for l in ann {
             StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3)
         }
-        
+
         stringStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
         for l in str {
             StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3)
         }
+
+        // --- Pre-step initial snapshot (state BEFORE any movement) ---
+        var pocket: [Layer] = []
+        let initPocketRows = snapshotPocket(pocket, bitMD: bitMD)
+        let initAnnRows = snapshotStack(annulusStack, bitMD: bitMD)
+        let initStrRows = snapshotStack(stringStack, bitMD: bitMD)
+        let initTotPocket = sum(initPocketRows)
+        let initTotAnn = sum(initAnnRows)
+        let initTotStr = sum(initStrRows)
+        var initSabpRaw = max(0.0, targetP_TD_kPa - initTotPocket.deltaP_kPa - initTotAnn.deltaP_kPa)
+        // Respect HoldSABPOpen for the initial state as well
+        if input.holdSABPOpen {
+            sabp_kPa = 0.0
+        } else {
+            sabp_kPa = max(0.0, initSabpRaw)
+        }
+        let initBitTVD = tvdOfMd(bitMD)
+        let initESD_TD = (initTotPocket.deltaP_kPa + initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
+        let initESD_Bit = max(0.0, (initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(initBitTVD, 1e-9))
+        var results: [TripStep] = [
+            TripStep(
+                bitMD_m: bitMD,
+                bitTVD_m: initBitTVD,
+                SABP_kPa: sabp_kPa,
+                SABP_kPa_Raw: initSabpRaw,
+                ESDatTD_kgpm3: initESD_TD,
+                ESDatBit_kgpm3: initESD_Bit,
+                backfillRemaining_m3: max(0.0, input.fixedBackfillVolume_m3),
+                swabDropToBit_kPa: 0.0, // pre-step snapshot
+                SABP_Dynamic_kPa: sabp_kPa, // no swab component yet
+                layersPocket: initPocketRows,
+                layersAnnulus: initAnnRows,
+                layersString: initStrRows,
+                totalsPocket: initTotPocket,
+                totalsAnnulus: initTotAnn,
+                totalsString: initTotStr
+            )
+        ]
         
         var backfillRemaining = input.fixedBackfillVolume_m3
-        var pocket: [Layer] = []
-        var results: [TripStep] = []
         
         // Helper closures
         func snapshotPocket(_ pocket: [Layer], bitMD: Double) -> [LayerRow] {
