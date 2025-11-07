@@ -2,6 +2,7 @@
 //  Josh Well Control for Mac
 //
 //  Created by Josh Sallows on 2025-11-07.
+// (assistant) Connected and ready – 2025-11-07
 //
 
 import SwiftUI
@@ -36,6 +37,8 @@ struct TripSimulationView: View {
     @State private var crackFloat_kPa: Double = 2100
     @State private var initialSABP_kPa: Double = 0
     @State private var holdSABPOpen: Bool = false
+    @State var esdText: String = "Select a step to see the outputs visually"
+
 
     // Visualization options
     @State private var colorByComposition: Bool = false
@@ -46,6 +49,7 @@ struct TripSimulationView: View {
     // MARK: - Results
     @State private var steps: [TripStep] = []
     @State private var selectedIndex: Int? = nil
+    @State private var stepSlider: Double = 0
 
     // MARK: - Body
     var body: some View {
@@ -56,6 +60,9 @@ struct TripSimulationView: View {
         }
         .padding(16)
         .onAppear(perform: bootstrapFromProject)
+        .onChange(of: selectedIndex) { _, newVal in
+            stepSlider = Double(newVal ?? 0)
+        }
     }
 
     // MARK: - Sections
@@ -94,6 +101,28 @@ struct TripSimulationView: View {
                     Toggle("Composition colors", isOn: $colorByComposition)
                 }
 
+                if !steps.isEmpty {
+                    GroupBox("Bit Depth (m)") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { stepSlider },
+                                    set: { newVal in
+                                        stepSlider = newVal
+                                        let idx = min(max(Int(round(newVal)), 0), max(steps.count - 1, 0))
+                                        selectedIndex = idx
+                                    }
+                                ),
+                                in: 0...Double(max(steps.count - 1, 0)), step: 1
+                            )
+                            Text(String(format: "%.2f m", steps[min(max(selectedIndex ?? 0, 0), max(steps.count - 1, 0))].bitMD_m))
+                                .frame(width: 72, alignment: .trailing)
+                                .monospacedDigit()
+                        }
+                        .frame(width: 240)
+                    }
+                }
+
                 Spacer()
 
                 Toggle("Show details", isOn: $showDetails)
@@ -128,9 +157,16 @@ struct TripSimulationView: View {
 
             Divider()
 
-            // RIGHT COLUMN: Well image (own column)
-            visualization
-                .frame(minWidth: 260, maxWidth: 360, maxHeight: .infinity)
+            // RIGHT COLUMN: Well image (own column) + ESD@control label
+            VStack(alignment: .center, spacing: 4) {
+                visualization
+                    .frame(minWidth: 260, maxWidth: 360, maxHeight: .infinity)
+                if !esdAtControlText.isEmpty {
+                    Text(esdAtControlText)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .padding(.top, 4)
+                }
+            }
         }
     }
 
@@ -187,103 +223,186 @@ struct TripSimulationView: View {
 
     // MARK: - Visualization
     private var visualization: some View {
-        GroupBox("Well snapshot at selected step") {
+        GroupBox("Well Snapshot") {
             GeometryReader { geo in
-                if let idx = selectedIndex, steps.indices.contains(idx) {
-                    let s = steps[idx]
-                    let ann = s.layersAnnulus
-                    let str = s.layersString
-                    let pocket = s.layersPocket
-                    let bitMD = s.bitMD_m
+                Group {
+                    if let idx = selectedIndex, steps.indices.contains(idx) {
+                        let s = steps[idx]
+                        let ann = s.layersAnnulus
+                        let str = s.layersString
+                        let pocket = s.layersPocket
+                        let bitMD = s.bitMD_m
 
-                    Canvas { ctx, size in
-                        // Three-column layout: Annulus | String | Annulus
-                        let gap: CGFloat = 8
-                        let colW = (size.width - 2*gap) / 3
-                        let annLeft  = CGRect(x: 0, y: 0, width: colW, height: size.height)
-                        let strRect  = CGRect(x: colW + gap, y: 0, width: colW, height: size.height)
-                        let annRight = CGRect(x: 2*(colW + gap), y: 0, width: colW, height: size.height)
+                        Canvas { ctx, size in
+                            // Three-column layout: Annulus | String | Annulus
+                            let gap: CGFloat = 8
+                            let colW = (size.width - 2*gap) / 3
+                            let annLeft  = CGRect(x: 0, y: 0, width: colW, height: size.height)
+                            let strRect  = CGRect(x: colW + gap, y: 0, width: colW, height: size.height)
+                            let annRight = CGRect(x: 2*(colW + gap), y: 0, width: colW, height: size.height)
 
-                        // Unified vertical scale by MD (surface→bottom, deepest MD→top) FLIPPED
-                        let maxPocketMD = pocket.map { $0.bottomMD }.max() ?? bitMD
-                        let globalMaxMD = max(bitMD, maxPocketMD)
-                        func yGlobal(_ md: Double) -> CGFloat {
-                            guard globalMaxMD > 0 else { return 0 }
-                            // Surface (0) at TOP; deeper MD increases DOWN the screen
-                            return CGFloat(md / globalMaxMD) * size.height
-                        }
-
-                        func fill(for rho: Double, color: NumericalTripModel.ColorRGBA?) -> Color {
-                            if colorByComposition, let c = color { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
-                            let t = min(max((rho - 800) / 1200, 0), 1)
-                            return Color(white: 0.3 + 0.6 * t)
-                        }
-
-                        func drawColumn(_ rows: [LayerRow], in rect: CGRect, filter: (LayerRow)->Bool) {
-                            for r in rows where filter(r) {
-                                let yTop = yGlobal(r.topMD)
-                                let yBot = yGlobal(r.bottomMD)
-                                let yMin = min(yTop, yBot)
-                                let h = max(1, abs(yBot - yTop))
-                                let sub = CGRect(x: rect.minX, y: yMin, width: rect.width, height: h)
-                                let col = fill(for: r.rho_kgpm3, color: r.color)
-                                ctx.fill(Path(sub), with: .color(col))
+                            // Unified vertical scale by MD (surface at top, deeper down)
+                            let maxPocketMD = pocket.map { $0.bottomMD }.max() ?? bitMD
+                            let globalMaxMD = max(bitMD, maxPocketMD)
+                            func yGlobal(_ md: Double) -> CGFloat {
+                                guard globalMaxMD > 0 else { return 0 }
+                                return CGFloat(md / globalMaxMD) * size.height
                             }
-                            // Outline to visually separate columns
-                            ctx.stroke(Path(rect), with: .color(.black.opacity(0.8)), lineWidth: 1)
-                        }
 
-                        // Draw annulus (left & right) and string (center), only above bit
-                        drawColumn(ann, in: annLeft,  filter: { $0.bottomMD <= bitMD })
-                        drawColumn(str, in: strRect,  filter: { $0.bottomMD <= bitMD })
-                        drawColumn(ann, in: annRight, filter: { $0.bottomMD <= bitMD })
+                            // Draw annulus (left & right) and string (center), only above bit
+                            drawColumn(&ctx, rows: ann, in: annLeft,  isAnnulus: true,  bitMD: bitMD, yGlobal: yGlobal)
+                            drawColumn(&ctx, rows: str, in: strRect,  isAnnulus: false, bitMD: bitMD, yGlobal: yGlobal)
+                            drawColumn(&ctx, rows: ann, in: annRight, isAnnulus: true,  bitMD: bitMD, yGlobal: yGlobal)
 
-                        // Pocket (below bit): show across all columns with slight transparency
-                        if !pocket.isEmpty {
-                            for r in pocket {
-                                let yTop = yGlobal(r.topMD)
-                                let yBot = yGlobal(r.bottomMD)
-                                let yMin = min(yTop, yBot)
-                                let h = max(1, abs(yBot - yTop))
-                                let col = fill(for: r.rho_kgpm3, color: r.color).opacity(0.45)
-                                let subL = CGRect(x: annLeft.minX,  y: yMin, width: annLeft.width,  height: h)
-                                let subS = CGRect(x: strRect.minX,  y: yMin, width: strRect.width,  height: h)
-                                let subR = CGRect(x: annRight.minX, y: yMin, width: annRight.width, height: h)
-                                ctx.fill(Path(subL), with: .color(col))
-                                ctx.fill(Path(subS), with: .color(col))
-                                ctx.fill(Path(subR), with: .color(col))
+                            // Pocket (below bit): draw FULL WIDTH so it covers both tracks
+                            if !pocket.isEmpty {
+                                for r in pocket {
+                                    let yTop = yGlobal(r.topMD)
+                                    let yBot = yGlobal(r.bottomMD)
+                                    let yMin = min(yTop, yBot)
+                                    let col = fillColor(rho: r.rho_kgpm3, explicit: r.color, mdMid: 0.5 * (r.topMD + r.bottomMD), isAnnulus: false)
+                                    // Snap + tiny overlap to hide hairlines
+                                    let top = floor(yMin)
+                                    let bottom = ceil(max(yTop, yBot))
+                                    var sub = CGRect(x: 0, y: top, width: size.width, height: max(1, bottom - top))
+                                    sub = sub.insetBy(dx: 0, dy: -0.25)
+                                    ctx.fill(Path(sub), with: .color(col))
+                                }
+                            }
+
+                            // Headers
+                            ctx.draw(Text("Annulus"), at: CGPoint(x: annLeft.midX,  y: 12))
+                            ctx.draw(Text("String"),  at: CGPoint(x: strRect.midX,  y: 12))
+                            ctx.draw(Text("Annulus"), at: CGPoint(x: annRight.midX, y: 12))
+
+                            // Bit marker
+                            let yBit = yGlobal(bitMD)
+                            ctx.fill(Path(CGRect(x: 0, y: yBit - 0.5, width: size.width, height: 1)), with: .color(.accentColor.opacity(0.9)))
+
+                            // Depth ticks (MD right, TVD left)
+                            let tickCount = 6
+                            for i in 0...tickCount {
+                                let md = Double(i) / Double(tickCount) * globalMaxMD
+                                let yy = yGlobal(md)
+                                let tvd = project.tvd(of: md)
+                                ctx.fill(Path(CGRect(x: size.width - 10, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
+                                ctx.draw(Text(String(format: "%.0f", md)), at: CGPoint(x: size.width - 12, y: yy - 6), anchor: .trailing)
+                                ctx.fill(Path(CGRect(x: 0, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
+                                ctx.draw(Text(String(format: "%.0f", tvd)), at: CGPoint(x: 12, y: yy - 6), anchor: .leading)
                             }
                         }
-
-                        // Headers
-                        ctx.draw(Text("Annulus"), at: CGPoint(x: annLeft.midX,  y: 12))
-                        ctx.draw(Text("String"),  at: CGPoint(x: strRect.midX,  y: 12))
-                        ctx.draw(Text("Annulus"), at: CGPoint(x: annRight.midX, y: 12))
-
-                        // Bit marker (now yGlobal maps 0 at top, increasing downward)
-                        let yBit = yGlobal(bitMD)
-                        ctx.fill(Path(CGRect(x: 0, y: yBit - 0.5, width: size.width, height: 1)), with: .color(.accentColor.opacity(0.9)))
-
-                        // Depth ticks: MD (right) and TVD (left)
-                        let tickCount = 6
-                        for i in 0...tickCount {
-                            let md = Double(i) / Double(tickCount) * globalMaxMD
-                            let yy = yGlobal(md)
-                            let tvd = project.tvd(of: md)
-                            // Right MD ticks
-                            ctx.fill(Path(CGRect(x: size.width - 10, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
-                            ctx.draw(Text(String(format: "%.0f", md)), at: CGPoint(x: size.width - 12, y: yy - 6), anchor: .trailing)
-                            // Left TVD ticks
-                            ctx.fill(Path(CGRect(x: 0, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
-                            ctx.draw(Text(String(format: "%.0f", tvd)), at: CGPoint(x: 12, y: yy - 6), anchor: .leading)
-                        }
+                    } else {
+                        ContentUnavailableView("Select a step", systemImage: "cursorarrow.click", description: Text("Choose a row on the left to see the well snapshot."))
                     }
-                } else {
-                    ContentUnavailableView("Select a step", systemImage: "cursorarrow.click", description: Text("Choose a row on the left to see the well snapshot."))
                 }
             }
             .frame(minHeight: 240)
         }
+    }
+    // MARK: - ESD @ Control TVD (label)
+    private var esdAtControlText: String {
+        guard let idx = selectedIndex, steps.indices.contains(idx) else { return "" }
+        let s = steps[idx]
+        let controlTVD = max(0.0, shoeTVD_m)
+        let bitTVD = s.bitTVD_m
+        var pressure_kPa: Double = s.SABP_kPa
+
+        if controlTVD <= bitTVD + 1e-9 {
+            var remaining = controlTVD
+            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+                let seg = min(remaining, max(0.0, min(r.bottomTVD, controlTVD) - r.topTVD))
+                if seg > 1e-9 {
+                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+                    pressure_kPa += r.deltaHydroStatic_kPa * frac
+                    remaining -= seg
+                    if remaining <= 1e-9 { break }
+                }
+            }
+        } else {
+            var remainingA = bitTVD
+            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+                let seg = min(remainingA, max(0.0, min(r.bottomTVD, bitTVD) - r.topTVD))
+                if seg > 1e-9 {
+                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+                    pressure_kPa += r.deltaHydroStatic_kPa * frac
+                    remainingA -= seg
+                    if remainingA <= 1e-9 { break }
+                }
+            }
+            var remainingP = controlTVD - bitTVD
+            for r in s.layersPocket where r.bottomTVD > r.topTVD {
+                let top = max(r.topTVD, bitTVD)
+                let bot = min(r.bottomTVD, controlTVD)
+                let seg = max(0.0, bot - top)
+                if seg > 1e-9 {
+                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+                    pressure_kPa += r.deltaHydroStatic_kPa * frac
+                    remainingP -= seg
+                    if remainingP <= 1e-9 { break }
+                }
+            }
+        }
+
+        let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
+        return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
+    }
+
+    // MARK: - Drawing helpers
+    private func hexColor(_ hex: String) -> Color? {
+        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if h.hasPrefix("#") { h.removeFirst() }
+        guard (h.count == 6 || h.count == 8), let val = UInt64(h, radix: 16) else { return nil }
+        let a, r, g, b: Double
+        if h.count == 8 {
+            a = Double((val >> 24) & 0xFF) / 255.0
+            r = Double((val >> 16) & 0xFF) / 255.0
+            g = Double((val >> 8)  & 0xFF) / 255.0
+            b = Double(val & 0xFF) / 255.0
+        } else {
+            a = 1.0
+            r = Double((val >> 16) & 0xFF) / 255.0
+            g = Double((val >> 8)  & 0xFF) / 255.0
+            b = Double(val & 0xFF) / 255.0
+        }
+        return Color(red: r, green: g, blue: b, opacity: a)
+    }
+
+    private func compositionColor(at md: Double, isAnnulus: Bool) -> Color? {
+        let src = isAnnulus ? project.finalAnnulusLayersSorted : project.finalStringLayersSorted
+        guard let lay = src.first(where: { md >= $0.topMD_m && md <= $0.bottomMD_m }) else { return nil }
+        // Support either a stored hex String or a SwiftUI Color in the model
+        let anyVal: Any? = lay.color
+        if let hex = anyVal as? String, let c = hexColor(hex) { return c }
+        if let c = anyVal as? Color { return c }
+        return nil
+    }
+
+    private func fillColor(rho: Double, explicit: NumericalTripModel.ColorRGBA?, mdMid: Double, isAnnulus: Bool) -> Color {
+        if colorByComposition {
+            if let c = explicit { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
+            if let c = compositionColor(at: mdMid, isAnnulus: isAnnulus) { return c }
+        }
+        let t = min(max((rho - 800) / 1200, 0), 1)
+        return Color(white: 0.3 + 0.6 * t)
+    }
+
+    private func drawColumn(_ ctx: inout GraphicsContext,
+                            rows: [LayerRow],
+                            in rect: CGRect,
+                            isAnnulus: Bool,
+                            bitMD: Double,
+                            yGlobal: (Double)->CGFloat) {
+        for r in rows where r.bottomMD <= bitMD {
+            let yTop = yGlobal(r.topMD)
+            let yBot = yGlobal(r.bottomMD)
+            let yMin = min(yTop, yBot)
+            let h = max(1, abs(yBot - yTop))
+            let sub = CGRect(x: rect.minX, y: yMin, width: rect.width, height: h)
+            let mdMid = 0.5 * (r.topMD + r.bottomMD)
+            let col = fillColor(rho: r.rho_kgpm3, explicit: r.color, mdMid: mdMid, isAnnulus: isAnnulus)
+            ctx.fill(Path(sub), with: .color(col))
+        }
+        ctx.stroke(Path(rect), with: .color(.black.opacity(0.8)), lineWidth: 1)
     }
 
     // MARK: - Detail (Accordion)
@@ -347,7 +466,7 @@ struct TripSimulationView: View {
             tvdMapper: { md in project.tvd(of: md) }
         )
 
-        var input = NumericalTripModel.TripInput(
+        let input = NumericalTripModel.TripInput(
             tvdOfMd: { md in project.tvd(of: md) },
             shoeTVD_m: shoeTVD_m,
             startBitMD_m: startBitMD_m,
@@ -369,6 +488,7 @@ struct TripSimulationView: View {
         let model = NumericalTripModel()
         self.steps = model.run(input, geom: geom, project: project)
         self.selectedIndex = steps.isEmpty ? nil : 0
+        self.stepSlider = 0
     }
 
     // MARK: - Subviews / helpers
