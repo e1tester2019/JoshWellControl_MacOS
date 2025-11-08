@@ -119,6 +119,8 @@ struct ProjectDashboardView: View {
                         StatBox(title: "Drill string sections", value: viewmodel.drillStringCount, caption: "Configured in this project")
                         StatBox(title: "Annulus sections", value: viewmodel.annulusCount, caption: "Configured in this project")
                         StatBox(title: "Pressure points", value: viewmodel.pressurePointCount, caption: "For pore/frac window")
+                        StatBox(title: "Survey stations", value: viewmodel.surveysCount, caption: "Imported/entered")
+                        StatBox(title: "Mud checks", value: viewmodel.mudChecksCount, caption: "Saved in this project")
                     }
                     .padding(8)
                 }
@@ -237,5 +239,7 @@ extension ProjectDashboardView {
         var drillStringCount: Int { project.drillString.count }
         var annulusCount: Int { project.annulus.count }
         var pressurePointCount: Int { project.window.points.count }
+        var surveysCount: Int { project.surveys.count }
+        var mudChecksCount: Int { project.muds.count }
     }
 }

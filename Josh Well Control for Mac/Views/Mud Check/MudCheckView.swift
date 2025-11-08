@@ -98,8 +98,18 @@ struct MudCheckView: View {
                 .disabled(selection == nil)
             Button("Delete", systemImage: "trash", role: .destructive) { if let s = selection { delete(s) } }
                 .disabled(selection == nil)
-            Button("Set Active", systemImage: "star") { if let s = selection { setActive(s) } }
+            if let s = selection {
+                Button {
+                    setActive(s)
+                } label: {
+                    Label("Set Active", systemImage: s.isActive ? "star.fill" : "star")
+                        .foregroundStyle(s.isActive ? .yellow : .primary)
+                }
                 .disabled(selection == nil)
+            } else {
+                Button("Set Active", systemImage: "star") { }
+                    .disabled(true)
+            }
         }
     }
 
@@ -144,6 +154,9 @@ struct MudCheckView: View {
     private func setActive(_ m: MudProperties) {
         // Ensure only one active mud per project
         for x in project.muds { x.isActive = (x.id == m.id) }
+        project.baseAnnulusDensity_kgm3 = m.density_kgm3
+        project.baseStringDensity_kgm3 = m.density_kgm3
+        project.activeMudDensity_kgm3 = m.density_kgm3
         try? modelContext.save()
         selection = m
     }
