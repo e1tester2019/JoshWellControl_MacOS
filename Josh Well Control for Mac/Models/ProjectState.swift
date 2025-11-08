@@ -26,6 +26,7 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection] = []
     @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
     @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer] = []
+    @Relationship(deleteRule: .cascade) var muds: [MudProperties] = []
 
     // Singletons
     var window: PressureWindow = PressureWindow()
@@ -207,4 +208,8 @@ extension ProjectState {
         try? context.save()
         return p
     }
+}
+
+extension ProjectState {
+    var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
 }

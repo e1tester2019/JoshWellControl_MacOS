@@ -5,44 +5,6 @@
 //  Created by Josh Sallows on 2025-11-02.
 //
 
-//// ContentView.swift
-//import SwiftUI
-//import SwiftData
-//
-//struct ContentView: View {
-//    @Environment(\.modelContext) private var modelContext
-//    @Query(sort: \ProjectState.id) private var projects: [ProjectState]
-//
-//    var body: some View {
-//        NavigationSplitView {
-//            List {
-//                NavigationLink("Project Dashboard") { ProjectDashboardView(project: ensureProject()) }
-//                NavigationLink("Drill String") { DrillStringListView(project: ensureProject()) }
-//                NavigationLink("Annulus") { AnnulusListView(project: ensureProject()) }
-//                NavigationLink("Volume Summary") { VolumeSummaryView(project: ensureProject()) }
-//                NavigationLink("Surveys") { SurveyListView(project: ensureProject()) }
-//                NavigationLink("Pressure Window") { PressureWindowView(project: ensureProject()) }
-//                NavigationLink("Pump Schedule") { MudPlacementView(project: ensureProject()) }
-//                NavigationLink("Swabbing") {SwabbingView(project: ensureProject())}
-//                NavigationLink("Trip Simulation") {TripSimulationView(project: ensureProject())}
-//                NavigationLink("BHP Preview") { BHPPreviewView(project: ensureProject()) }
-//            }
-//            .navigationTitle("Well Control")
-//        } detail: {
-//            ProjectDashboardView(project: ensureProject())
-//        }
-//        .task { _ = ensureProject() }
-//    }
-//
-//    private func ensureProject() -> ProjectState {
-//        if let first = projects.first { return first }
-//        let p = ProjectState()
-//        modelContext.insert(p)
-//        try? modelContext.save()
-//        return p
-//    }
-//}
-
 import SwiftUI
 import SwiftData
 import Foundation
@@ -79,7 +41,7 @@ struct ContentView: View {
     @State private var renameWellText: String = ""
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case dashboard, drillString, annulus, volumes, surveys, pressureWindow, pump, swabbing, trip, bhp
+        case dashboard, drillString, annulus, volumes, surveys, mudCheck, pressureWindow, pump, swabbing, trip, bhp
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -88,6 +50,7 @@ struct ContentView: View {
             case .annulus: return "Annulus"
             case .volumes: return "Volume Summary"
             case .surveys: return "Surveys"
+            case .mudCheck: return "Mud Check"
             case .pressureWindow: return "Pressure Window"
             case .pump: return "Pump Schedule"
             case .swabbing: return "Swabbing"
@@ -154,6 +117,8 @@ struct ContentView: View {
                             VolumeSummaryView(project: project)
                         case .surveys:
                             SurveyListView(project: project)
+                        case .mudCheck:
+                            MudCheckView(project: project)
                         case .pressureWindow:
                             PressureWindowView(project: project)
                         case .pump:
@@ -343,6 +308,7 @@ private extension ContentView {
         case .annulus: return "seal"
         case .volumes: return "chart.bar"
         case .surveys: return "map"
+        case .mudCheck: return "check"
         case .pressureWindow: return "barometer"
         case .pump: return "drop"
         case .swabbing: return "arrow.up.and.down"
