@@ -1,0 +1,176 @@
+//
+//  ProjectDashboardView.swift
+//  Josh Well Control for Mac
+//
+//  Created by Josh Sallows on 2025-11-02.
+//
+
+
+// ProjectDashboardView.swift
+import SwiftUI
+import SwiftData
+
+struct ProjectDashboardView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Bindable var project: ProjectState
+    @State private var viewmodel: ViewModel
+
+    init(project: ProjectState) {
+        self._project = Bindable(wrappedValue: project)
+        _viewmodel = State(initialValue: ViewModel(project: project))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Project") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Name").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            TextField("Project name", text: $project.window.name)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 360)
+                        }
+                        GridRow {
+                            Text("Pore safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            Stepper(value: $project.window.poreSafety_kPa, in: 0...3000, step: 50) {
+                                Text("\(Int(project.window.poreSafety_kPa))")
+                                    .monospacedDigit()
+                            }
+                        }
+                        GridRow {
+                            Text("Frac safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            Stepper(value: $project.window.fracSafety_kPa, in: 0...3000, step: 50) {
+                                Text("\(Int(project.window.fracSafety_kPa))")
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Overview") {
+                    HStack(spacing: 12) {
+                        StatBox(title: "Drill string sections", value: viewmodel.drillStringCount, caption: "Configured in this project")
+                        StatBox(title: "Annulus sections", value: viewmodel.annulusCount, caption: "Configured in this project")
+                        StatBox(title: "Pressure points", value: viewmodel.pressurePointCount, caption: "For pore/frac window")
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Defaults") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Base annulus density (kg/m³)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
+                            TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 160)
+                        }
+                        GridRow {
+                            Text("Base string density (kg/m³)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
+                            TextField("", value: $project.baseStringDensity_kgm3, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 160)
+                        }
+                        GridRow {
+                            Text("Pressure depth (MD, m)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
+                            TextField("", value: $project.pressureDepth_m, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 160)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .padding(16)
+        }
+        .navigationTitle("Project Dashboard")
+    }
+}
+
+#if DEBUG
+private struct ProjectDashboardPreview: View {
+    let container: ModelContainer
+    let project: ProjectState
+
+    init() {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        self.container = try! ModelContainer(
+            for: ProjectState.self,
+                 DrillStringSection.self,
+                 AnnulusSection.self,
+                 PressureWindow.self,
+                 PressureWindowPoint.self,
+            configurations: config
+        )
+        let ctx = container.mainContext
+        let p = ProjectState()
+        p.baseAnnulusDensity_kgm3 = 1100
+        p.baseStringDensity_kgm3 = 1100
+        p.pressureDepth_m = 2500
+        ctx.insert(p)
+
+        // Seed a couple of string and annulus sections
+        let ds1 = DrillStringSection(name: "DP 5\"", topDepth_m: 0, length_m: 1500, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
+        let ds2 = DrillStringSection(name: "DP 5\" HW", topDepth_m: 1500, length_m: 800, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
+        [ds1, ds2].forEach { s in p.drillString.append(s); ctx.insert(s) }
+
+        let a1 = AnnulusSection(name: "Surface", topDepth_m: 0,    length_m: 600, innerDiameter_m: 0.340, outerDiameter_m: 0.244)
+        let a2 = AnnulusSection(name: "Intermediate", topDepth_m: 600, length_m: 900, innerDiameter_m: 0.244, outerDiameter_m: 0.1778)
+        [a1, a2].forEach { s in s.project = p; p.annulus.append(s); ctx.insert(s) }
+
+        // Seed a few pressure window points
+        let w = p.window
+        let pw1 = PressureWindowPoint(depth_m: 500,  pore_kPa: 6000,  frac_kPa: 11000, window: w)
+        let pw2 = PressureWindowPoint(depth_m: 1500, pore_kPa: 15000, frac_kPa: 24000, window: w)
+        let pw3 = PressureWindowPoint(depth_m: 2500, pore_kPa: 22000, frac_kPa: 33000, window: w)
+        [pw1, pw2, pw3].forEach { ctx.insert($0) }
+
+        try? ctx.save()
+        self.project = p
+    }
+
+    var body: some View {
+        NavigationStack { ProjectDashboardView(project: project) }
+            .modelContainer(container)
+            .frame(width: 900, height: 600)
+    }
+}
+
+#Preview("Project Dashboard – Sample Data") {
+    ProjectDashboardPreview()
+}
+#endif
+
+private struct StatBox: View {
+    let title: String
+    let value: Int
+    let caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text("\(value)").font(.title3).bold().monospacedDigit()
+            Text(caption).font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2)))
+    }
+}
+
+
+
+
+extension ProjectDashboardView {
+    @Observable
+    class ViewModel {
+        var project: ProjectState
+        init(project: ProjectState) { self.project = project }
+
+        var drillStringCount: Int { project.drillString.count }
+        var annulusCount: Int { project.annulus.count }
+        var pressurePointCount: Int { project.window.points.count }
+    }
+}

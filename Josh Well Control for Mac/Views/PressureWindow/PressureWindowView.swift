@@ -12,18 +12,20 @@ import SwiftData
 
 struct PressureWindowView: View {
     @Environment(\.modelContext) private var modelContext
-    @Bindable var project: ProjectState
-    @State private var newDepth = 1000.0
-    @State private var newPore = 11000.0
-    @State private var newFrac = 17000.0
-    @State private var selection = Set<PressureWindowPoint.ID>()
+    let project: ProjectState
+    @State private var viewmodel: ViewModel
     @FocusState private var focusedPoint: PressureWindowPoint.ID?
+
+    init(project: ProjectState) {
+        self.project = project
+        _viewmodel = State(initialValue: ViewModel(project: project))
+    }
 
     var body: some View {
         VStack {
-            List(selection: $selection) {
+            List(selection: $viewmodel.selection) {
                 Section {
-                    ForEach(project.window.points) { row in
+                    ForEach(viewmodel.points) { row in
                         HStack(alignment: .firstTextBaseline) {
                             Text("TVD \(row.depth_m, format: .number)")
                                 .frame(width: 120, alignment: .leading)
@@ -40,7 +42,7 @@ struct PressureWindowView: View {
                                 )
                                 .focused($focusedPoint, equals: row.id)
 
-                                Text("ρ_eq: \(eqDensityString(pressure_kPa: row.pore_kPa, tvd_m: row.depth_m)) kg/m³")
+                                Text("ρ_eq: \(viewmodel.eqDensityString(pressure_kPa: row.pore_kPa, tvd_m: row.depth_m)) kg/m³")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -56,7 +58,7 @@ struct PressureWindowView: View {
                                     ),
                                     format: .number
                                 )
-                                Text("ρ_eq: \(eqDensityString(pressure_kPa: row.frac_kPa, tvd_m: row.depth_m)) kg/m³")
+                                Text("ρ_eq: \(viewmodel.eqDensityString(pressure_kPa: row.frac_kPa, tvd_m: row.depth_m)) kg/m³")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -74,7 +76,7 @@ struct PressureWindowView: View {
                                 .help("Focus pore pressure field")
 
                                 Button(role: .destructive) {
-                                    deleteRow(row)
+                                    viewmodel.deleteRow(row)
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                         .labelStyle(.iconOnly)
@@ -85,7 +87,7 @@ struct PressureWindowView: View {
                             }
                         }
                     }
-                    .onDelete(perform: deleteRows)
+                    .onDelete(perform: viewmodel.deleteRows)
                 } header: {
                     HStack {
                         Text("TVD (m)")
@@ -103,17 +105,17 @@ struct PressureWindowView: View {
             HStack {
                 Text("TVD (m)")
                     .frame(width: 120, alignment: .trailing)
-                TextField("TVD (m)", value: $newDepth, format: .number)
+                TextField("TVD (m)", value: $viewmodel.newDepth, format: .number)
                 Spacer()
                 Text("Pore (kPa)")
                     .frame(width: 120, alignment: .trailing)
-                TextField("Pore (kPa)", value: $newPore, format: .number)
+                TextField("Pore (kPa)", value: $viewmodel.newPore, format: .number)
                 Spacer()
                 Text("Frac (kPa)")
                     .frame(width: 120, alignment: .trailing)
-                TextField("Frac (kPa)", value: $newFrac, format: .number)
+                TextField("Frac (kPa)", value: $viewmodel.newFrac, format: .number)
                 Spacer()
-                Button{ addRow() } label: {
+                Button{ viewmodel.addRow() } label: {
                     Label("Add", systemImage: "plus")
                         .labelStyle(.iconOnly)
                 }
@@ -121,71 +123,77 @@ struct PressureWindowView: View {
             .padding()
         }
         .navigationTitle("Pressure Window")
-        .onDeleteCommand { deleteSelection() }
+        .onDeleteCommand { viewmodel.deleteSelection() }
+        .onAppear { viewmodel.attach(context: modelContext) }
     }
+}
 
-    private func addRow() {
-        let r = PressureWindowPoint(depth_m: newDepth, pore_kPa: newPore, frac_kPa: newFrac)
-        r.window = project.window
-        project.window.points.append(r)
-        try? modelContext.save()
-    }
+extension PressureWindowView {
+    @Observable
+    class ViewModel {
+        var project: ProjectState
+        var newDepth: Double = 1000.0
+        var newPore: Double = 11000.0
+        var newFrac: Double = 17000.0
+        var selection = Set<PressureWindowPoint.ID>()
+        private var context: ModelContext?
 
-    private func deleteRows(_ offsets: IndexSet) {
-        offsets
-            .map { project.window.points[$0] }
-            .forEach { modelContext.delete($0) }
-        try? modelContext.save()
-    }
+        init(project: ProjectState) { self.project = project }
+        func attach(context: ModelContext) { self.context = context }
 
-    private func deleteRow(_ row: PressureWindowPoint) {
-        modelContext.delete(row)
-        try? modelContext.save()
-    }
+        var points: [PressureWindowPoint] { project.window.points }
 
-    private func deleteSelection() {
-        let toDelete = project.window.points.filter { selection.contains($0.id) }
-        toDelete.forEach { modelContext.delete($0) }
-        selection.removeAll()
-        try? modelContext.save()
-    }
+        func addRow() {
+            let r = PressureWindowPoint(depth_m: newDepth, pore_kPa: newPore, frac_kPa: newFrac)
+            r.window = project.window
+            project.window.points.append(r)
+            try? context?.save()
+        }
 
-    private func eqDensityString(pressure_kPa: Double?, tvd_m: Double) -> String {
-        guard let p = pressure_kPa, tvd_m > 0 else { return "—" }
-        let rho = (p * 1000.0) / (9.80665 * tvd_m)
-        return String(format: "%.0f", rho)
+        func deleteRows(_ offsets: IndexSet) {
+            offsets
+                .map { project.window.points[$0] }
+                .forEach { context?.delete($0) }
+            try? context?.save()
+        }
+
+        func deleteRow(_ row: PressureWindowPoint) {
+            context?.delete(row)
+            try? context?.save()
+        }
+
+        func deleteSelection() {
+            let toDelete = project.window.points.filter { selection.contains($0.id) }
+            toDelete.forEach { context?.delete($0) }
+            selection.removeAll()
+            try? context?.save()
+        }
+
+        func eqDensityString(pressure_kPa: Double?, tvd_m: Double) -> String {
+            guard let p = pressure_kPa, tvd_m > 0 else { return "—" }
+            let rho = (p * 1000.0) / (9.80665 * tvd_m)
+            return String(format: "%.0f", rho)
+        }
     }
 }
 
 #if DEBUG
-import SwiftData
+private struct PressureWindowPreview: View {
+    let container: ModelContainer
+    let project: ProjectState
 
-#Preview("Pressure Window – Sample Data") {
-    do {
-        // In-memory SwiftData container for previews
+    init() {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(
+        self.container = try! ModelContainer(
             for: ProjectState.self,
-                 DrillStringSection.self,
-                 AnnulusSection.self,
                  PressureWindow.self,
                  PressureWindowPoint.self,
-                 SlugPlan.self,
-                 SlugStep.self,
-                 BackfillPlan.self,
-                 BackfillRule.self,
-                 TripSettings.self,
-                 SwabInput.self,
-                 SurveyStation.self,
             configurations: config
         )
-
-        // Seed a project and a few pressure window rows
         let context = container.mainContext
-        let project = ProjectState()
-        context.insert(project)
-
-        let w = project.window
+        let p = ProjectState()
+        context.insert(p)
+        let w = p.window
         let seed: [PressureWindowPoint] = [
             .init(depth_m: 500,  pore_kPa: 6000,  frac_kPa: 11000, window: w),
             .init(depth_m: 1000, pore_kPa: 12000, frac_kPa: 18000, window: w),
@@ -193,15 +201,20 @@ import SwiftData
         ]
         seed.forEach { context.insert($0) }
         try? context.save()
+        self.project = p
+    }
 
-        return NavigationStack {
+    var body: some View {
+        NavigationStack {
             PressureWindowView(project: project)
                 .navigationTitle("Pressure Window")
         }
         .modelContainer(container)
         .frame(width: 900, height: 500)
-    } catch {
-        return Text("Preview failed: \(error.localizedDescription)")
     }
+}
+
+#Preview("Pressure Window – Sample Data") {
+    PressureWindowPreview()
 }
 #endif

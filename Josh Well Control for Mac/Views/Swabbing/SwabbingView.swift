@@ -16,18 +16,7 @@ struct SwabbingView: View {
     // Persisted final layers for this project
     @Query private var allFinalLayers: [FinalFluidLayer]
 
-    // Inputs (focused on swab only)
-    @State private var bitMD_m: Double = 4000
-    @State private var theta600: Double = 60
-    @State private var theta300: Double = 40
-    @State private var hoistSpeed_mpermin: Double = 10      // m/min
-    @State private var eccentricityFactor: Double = 1.2     // multiplier ≥ 1
-    @State private var step_m: Double = 5                   // integration step (m)
-    enum AxisDirection: String, CaseIterable, Identifiable { case shallowToDeep = "Shallow→Deep", deepToShallow = "Deep→Shallow"; var id: String { rawValue } }
-    @State private var axisDirection: AxisDirection = .deepToShallow
-
-    // Outputs
-    @State private var estimate: SwabEstimate? = nil
+    @State private var viewmodel = ViewModel()
 
     var body: some View {
         NavigationStack {
@@ -37,20 +26,20 @@ struct SwabbingView: View {
                     GroupBox(label: Label("Inputs", systemImage: "slider.horizontal.3")) {
                         inputs
                     }
-                    if let est = estimate {
+                    if let est = viewmodel.estimate {
                         GroupBox(label: Label("Results", systemImage: "gauge")) {
                             results(est)
                         }
                     }
                     GroupBox(label: Label("Cumulative Swab vs Depth", systemImage: "chart.xyaxis.line")) {
                         HStack {
-                            Picker("X‑axis", selection: $axisDirection) {
-                                ForEach(AxisDirection.allCases) { d in Text(d.rawValue).tag(d) }
+                            Picker("X‑axis", selection: $viewmodel.axisDirection) {
+                                ForEach(SwabbingView.ViewModel.AxisDirection.allCases) { d in Text(d.rawValue).tag(d) }
                             }
                             .pickerStyle(.segmented)
                             .frame(maxWidth: 320)
                             Spacer()
-                            Button(action: compute) {
+                            Button { viewmodel.compute(project: project, layers: allFinalLayers) } label: {
                                 Label("Compute", systemImage: "play.fill")
                             }
                             .keyboardShortcut(.return)
@@ -61,13 +50,13 @@ struct SwabbingView: View {
                 }
                 .padding(16)
             }
-            .onAppear(perform: preloadDefaults)
-            .onChange(of: bitMD_m) { compute() }
-            .onChange(of: theta600) { compute() }
-            .onChange(of: theta300) { compute() }
-            .onChange(of: hoistSpeed_mpermin) { compute() }
-            .onChange(of: eccentricityFactor) { compute() }
-            .onChange(of: step_m) { compute() }
+            .onAppear { viewmodel.preloadDefaults() }
+            .onChange(of: viewmodel.bitMD_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
+            .onChange(of: viewmodel.theta600) { viewmodel.compute(project: project, layers: allFinalLayers) }
+            .onChange(of: viewmodel.theta300) { viewmodel.compute(project: project, layers: allFinalLayers) }
+            .onChange(of: viewmodel.hoistSpeed_mpermin) { viewmodel.compute(project: project, layers: allFinalLayers) }
+            .onChange(of: viewmodel.eccentricityFactor) { viewmodel.compute(project: project, layers: allFinalLayers) }
+            .onChange(of: viewmodel.step_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
             .navigationTitle("Swabbing")
         }
     }
@@ -89,60 +78,60 @@ struct SwabbingView: View {
             GridRow {
                 labeledField("Bit MD (m)") {
                     HStack(spacing: 4) {
-                        TextField("Bit MD", value: $bitMD_m, format: .number)
+                        TextField("Bit MD", value: $viewmodel.bitMD_m, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
-                        Stepper("", value: $bitMD_m, in: 0...100_000, step: 0.1)
+                        Stepper("", value: $viewmodel.bitMD_m, in: 0...100_000, step: 0.1)
                             .labelsHidden()
                             .frame(width: 20)
                     }
                 }
                 labeledField("Step (m)") {
                     HStack(spacing: 4) {
-                        TextField("Step", value: $step_m, format: .number)
+                        TextField("Step", value: $viewmodel.step_m, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
-                        Stepper("", value: $step_m, in: 0.5...50, step: 0.5)
+                        Stepper("", value: $viewmodel.step_m, in: 0.5...50, step: 0.5)
                             .labelsHidden()
                             .frame(width: 20)
                     }
                 }
                 labeledField("Hoist speed (m/min)") {
                     HStack(spacing: 4) {
-                        TextField("m/min", value: $hoistSpeed_mpermin, format: .number)
+                        TextField("m/min", value: $viewmodel.hoistSpeed_mpermin, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
-                        Stepper("", value: $hoistSpeed_mpermin, in: 0...60, step: 0.5)
+                        Stepper("", value: $viewmodel.hoistSpeed_mpermin, in: 0...60, step: 0.5)
                             .labelsHidden()
                             .frame(width: 20)
                     }
                 }
                 labeledField("Eccentricity ×") {
                     HStack(spacing: 4) {
-                        TextField("×", value: $eccentricityFactor, format: .number)
+                        TextField("×", value: $viewmodel.eccentricityFactor, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
-                        Stepper("", value: $eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                        Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
                             .labelsHidden()
                             .frame(width: 20)
                     }
                 }
                 labeledField("θ600") {
                     HStack(spacing: 4) {
-                        TextField("600", value: $theta600, format: .number)
+                        TextField("600", value: $viewmodel.theta600, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 70)
-                        Stepper("", value: $theta600, in: 1...200, step: 1)
+                        Stepper("", value: $viewmodel.theta600, in: 1...200, step: 1)
                             .labelsHidden()
                             .frame(width: 20)
                     }
                 }
                 labeledField("θ300") {
                     HStack(spacing: 4) {
-                        TextField("300", value: $theta300, format: .number)
+                        TextField("300", value: $viewmodel.theta300, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 70)
-                        Stepper("", value: $theta300, in: 1...200, step: 1)
+                        Stepper("", value: $viewmodel.theta300, in: 1...200, step: 1)
                             .labelsHidden()
                             .frame(width: 20)
                     }
@@ -165,22 +154,22 @@ struct SwabbingView: View {
 
     private var chart: some View {
         Group {
-            if let prof = estimate?.profile, !prof.isEmpty {
+            if let prof = viewmodel.estimate?.profile, !prof.isEmpty {
                 let xLabel = "Measured Depth (m)"
                 Chart(prof.sorted { $0.MD_m < $1.MD_m }) { seg in
-                    let xVal = axisDirection == .shallowToDeep ? seg.MD_m : max(bitMD_m - seg.MD_m, 0)
+                    let xVal = viewmodel.axisDirection == .shallowToDeep ? seg.MD_m : max(viewmodel.bitMD_m - seg.MD_m, 0)
                     LineMark(
                         x: .value(xLabel, xVal),
                         y: .value("Cum kPa", seg.CumSwab_kPa)
                     )
                 }
-                .chartXScale(domain: 0...max(bitMD_m, 1))
+                .chartXScale(domain: 0...max(viewmodel.bitMD_m, 1))
                 .chartXAxis {
-                    if axisDirection == .shallowToDeep {
+                    if viewmodel.axisDirection == .shallowToDeep {
                         AxisMarks(values: .automatic(desiredCount: 6)) { value in
                             if let v = value.as(Double.self) {
                                 // We plot x as distance-from-bit (0 at bit, max at surface). Show MD labels reversed.
-                                let md = max(bitMD_m - v, 0)
+                                let md = max(viewmodel.bitMD_m - v, 0)
                                 AxisGridLine()
                                 AxisTick()
                                 AxisValueLabel("\(Int(md))")
@@ -209,44 +198,6 @@ struct SwabbingView: View {
                 .frame(minHeight: 220)
             }
         }
-    }
-
-    // MARK: - Actions
-
-    private func compute() {
-        // Collect layers for this project
-        let layers = allFinalLayers.filter { $0.project === project }
-        // Geometry with pipe present down to the bit
-        let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD_m)
-        // Build DTOs above the bit only
-        let dto = LayerResolver.slice(layers,
-                                      for: project,
-                                      domain: .swabAboveBit,
-                                      bitMD: bitMD_m,
-                                      lowerLimitMD: 0)
-        do {
-            let calc = SwabCalculator() // uses defaults unless injected
-            let est = try calc.estimateFromLayersPowerLaw(
-                layers: dto,
-                theta600: theta600,
-                theta300: theta300,
-                hoistSpeed_mpermin: hoistSpeed_mpermin,
-                eccentricityFactor: eccentricityFactor,
-                step_m: step_m,
-                geom: geom,
-                traj: nil,
-                sabpSafety: 1.0,
-                floatIsOpen: true
-            )
-            self.estimate = est
-        } catch {
-            self.estimate = nil
-        }
-    }
-
-    private func preloadDefaults() {
-        // If project has a max depth or similar, you could initialize bitMD here.
-        if bitMD_m <= 0 { bitMD_m = 1000 }
     }
 
     // MARK: - UI helpers
@@ -288,10 +239,65 @@ struct SwabbingView: View {
     }
 }
 
-#Preview {
-    do {
+extension SwabbingView {
+    @Observable
+    class ViewModel {
+        // Inputs
+        var bitMD_m: Double = 4000
+        var theta600: Double = 60
+        var theta300: Double = 40
+        var hoistSpeed_mpermin: Double = 10
+        var eccentricityFactor: Double = 1.2
+        var step_m: Double = 5
+        enum AxisDirection: String, CaseIterable, Identifiable { case shallowToDeep = "Shallow→Deep", deepToShallow = "Deep→Shallow"; var id: String { rawValue } }
+        var axisDirection: AxisDirection = .deepToShallow
+
+        // Outputs
+        var estimate: SwabEstimate? = nil
+
+        func preloadDefaults() {
+            if bitMD_m <= 0 { bitMD_m = 1000 }
+        }
+
+        func compute(project: ProjectState, layers: [FinalFluidLayer]) {
+            // Scope layers to this project (in case @Query is broader)
+            let projectLayers = layers.filter { $0.project === project }
+            let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD_m)
+            let dto = LayerResolver.slice(projectLayers,
+                                          for: project,
+                                          domain: .swabAboveBit,
+                                          bitMD: bitMD_m,
+                                          lowerLimitMD: 0)
+            do {
+                let calc = SwabCalculator()
+                let est = try calc.estimateFromLayersPowerLaw(
+                    layers: dto,
+                    theta600: theta600,
+                    theta300: theta300,
+                    hoistSpeed_mpermin: hoistSpeed_mpermin,
+                    eccentricityFactor: eccentricityFactor,
+                    step_m: step_m,
+                    geom: geom,
+                    traj: nil,
+                    sabpSafety: 1.0,
+                    floatIsOpen: true
+                )
+                self.estimate = est
+            } catch {
+                self.estimate = nil
+            }
+        }
+    }
+}
+
+#if DEBUG
+private struct SwabbingPreview: View {
+    let container: ModelContainer
+    let project: ProjectState
+
+    init() {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(
+        self.container = try! ModelContainer(
             for: ProjectState.self,
                  DrillStringSection.self,
                  AnnulusSection.self,
@@ -299,15 +305,24 @@ struct SwabbingView: View {
             configurations: config
         )
         let ctx = container.mainContext
-        let project = ProjectState()
-        ctx.insert(project)
+        let p = ProjectState()
+        ctx.insert(p)
         // Seed a simple layer so the preview chart can run
-        ctx.insert(FinalFluidLayer(project: project, name: "Mud", placement: .annulus, topMD_m: 0, bottomMD_m: 3000, density_kgm3: 1260, color: .yellow))
+        ctx.insert(FinalFluidLayer(project: p, name: "Mud", placement: .annulus, topMD_m: 0, bottomMD_m: 3000, density_kgm3: 1260, color: .yellow))
         try? ctx.save()
-        return NavigationStack {
+        self.project = p
+    }
+
+    var body: some View {
+        NavigationStack {
             SwabbingView(project: project)
-        }.modelContainer(container).frame(width: 900, height: 600)
-    } catch {
-        return Text("Preview failed: \(error.localizedDescription)")
+        }
+        .modelContainer(container)
+        .frame(width: 900, height: 600)
     }
 }
+
+#Preview("Swabbing – Sample Data") {
+    SwabbingPreview()
+}
+#endif

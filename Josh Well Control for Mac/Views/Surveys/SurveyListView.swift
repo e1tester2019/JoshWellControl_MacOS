@@ -17,23 +17,25 @@ struct SurveyListView: View {
     public var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 8) {
-                header
                 List(selection: $selection) {
-                    ForEach(sortedSurveys) { s in
-                        SurveyRow(station: s, onDelete: { delete(s) }) { field in
-                            onSurveyChange(field)
+                    Section {
+                        ForEach(sortedSurveys) { s in
+                            SurveyRow(station: s, onDelete: { delete(s) }) { field in
+                                onSurveyChange(field)
+                            }
+                            .tag(s)
                         }
-                        .tag(s)
-                    }
-                    .onDelete { idx in
-                        let items = idx.map { sortedSurveys[$0] }
-                        items.forEach { delete($0) }
-                    }
+                        .onDelete { idx in
+                            let items = idx.map { sortedSurveys[$0] }
+                            items.forEach { delete($0) }
+                        }
+                    } header: { header }
                 }
+                .listStyle(.inset)
+                .scrollIndicators(.hidden)
                 .id(listVersion)
                 footer
             }
-            .padding(.horizontal)
             .navigationTitle("Surveys")
             .onAppear { recomputeTVD() }
             .fileImporter(isPresented: $showingImporter,
@@ -47,6 +49,8 @@ struct SurveyListView: View {
             } message: {
                 Text(importError ?? "unknown error")
             }
+            .toolbar { toolbar }
+            .onDeleteCommand { if let sel = selection { delete(sel) } }
         }
     }
 
@@ -252,21 +256,29 @@ private struct SurveyRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             TextField("MD", text: $mdText)
                 .frame(width: 90, alignment: .leading)
+                .textFieldStyle(.roundedBorder)
+                .monospacedDigit()
                 .focused($focusedField, equals: .md)
                 .onSubmit { commitMD() }
 
             TextField("Incl", text: $incText)
                 .frame(width: 80, alignment: .leading)
+                .textFieldStyle(.roundedBorder)
+                .monospacedDigit()
                 .focused($focusedField, equals: .inc)
                 .onSubmit { commitInc() }
 
             TextField("Azm", text: $aziText)
                 .frame(width: 80, alignment: .leading)
+                .textFieldStyle(.roundedBorder)
+                .monospacedDigit()
                 .focused($focusedField, equals: .azi)
                 .onSubmit { commitAzi() }
 
             TextField("TVD", text: $tvdText)
                 .frame(width: 90, alignment: .leading)
+                .textFieldStyle(.roundedBorder)
+                .monospacedDigit()
                 .focused($focusedField, equals: .tvd)
                 .onSubmit { commitTVD() }
 
