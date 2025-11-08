@@ -37,7 +37,10 @@ struct MudCheckView: View {
         VStack(alignment: .leading, spacing: 8) {
             List(selection: $selection) {
                 Section("Fluids") {
-                    ForEach(project.muds) { mud in
+                    let sorted = project.muds.sorted { lhs, rhs in
+                        lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                    }
+                    ForEach(sorted) { mud in
                         HStack {
                             Button(action: { setActive(mud) }) {
                                 Image(systemName: mud.isActive ? "star.fill" : "star")
@@ -56,7 +59,8 @@ struct MudCheckView: View {
                         .onTapGesture { selection = mud }
                     }
                     .onDelete { idx in
-                        let items = idx.map { project.muds[$0] }
+                        let sorted = project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                        let items = idx.map { sorted[$0] }
                         items.forEach(delete)
                     }
                 }
