@@ -19,46 +19,43 @@ struct SwabbingView: View {
     @State private var viewmodel = ViewModel()
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    GroupBox(label: Label("Inputs", systemImage: "slider.horizontal.3")) {
-                        inputs
-                    }
-                    if let est = viewmodel.estimate {
-                        GroupBox(label: Label("Results", systemImage: "gauge")) {
-                            results(est)
-                        }
-                    }
-                    GroupBox(label: Label("Cumulative Swab vs Depth", systemImage: "chart.xyaxis.line")) {
-                        HStack {
-                            Picker("X‑axis", selection: $viewmodel.axisDirection) {
-                                ForEach(SwabbingView.ViewModel.AxisDirection.allCases) { d in Text(d.rawValue).tag(d) }
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(maxWidth: 320)
-                            Spacer()
-                            Button { viewmodel.compute(project: project, layers: allFinalLayers) } label: {
-                                Label("Compute", systemImage: "play.fill")
-                            }
-                            .keyboardShortcut(.return)
-                        }
-                        .padding(.bottom, 8)
-                        chart
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                GroupBox(label: Label("Inputs", systemImage: "slider.horizontal.3")) {
+                    inputs
+                }
+                if let est = viewmodel.estimate {
+                    GroupBox(label: Label("Results", systemImage: "gauge")) {
+                        results(est)
                     }
                 }
-                .padding(16)
+                GroupBox(label: Label("Cumulative Swab vs Depth", systemImage: "chart.xyaxis.line")) {
+                    HStack {
+                        Picker("X‑axis", selection: $viewmodel.axisDirection) {
+                            ForEach(SwabbingView.ViewModel.AxisDirection.allCases) { d in Text(d.rawValue).tag(d) }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
+                        Spacer()
+                        Button { viewmodel.compute(project: project, layers: allFinalLayers) } label: {
+                            Label("Compute", systemImage: "play.fill")
+                        }
+                        .keyboardShortcut(.return)
+                    }
+                    .padding(.bottom, 8)
+                    chart
+                }
             }
-            .onAppear { viewmodel.preloadDefaults() }
-            .onChange(of: viewmodel.bitMD_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .onChange(of: viewmodel.theta600) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .onChange(of: viewmodel.theta300) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .onChange(of: viewmodel.hoistSpeed_mpermin) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .onChange(of: viewmodel.eccentricityFactor) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .onChange(of: viewmodel.step_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
-            .navigationTitle("Swabbing")
+            .padding(16)
         }
+        .onAppear { viewmodel.preloadDefaults() }
+        .onChange(of: viewmodel.bitMD_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
+        .onChange(of: viewmodel.theta600) { viewmodel.compute(project: project, layers: allFinalLayers) }
+        .onChange(of: viewmodel.theta300) { viewmodel.compute(project: project, layers: allFinalLayers) }
+        .onChange(of: viewmodel.hoistSpeed_mpermin) { viewmodel.compute(project: project, layers: allFinalLayers) }
+        .onChange(of: viewmodel.eccentricityFactor) { viewmodel.compute(project: project, layers: allFinalLayers) }
+        .onChange(of: viewmodel.step_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
     }
 
     // MARK: - Subviews

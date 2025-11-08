@@ -21,70 +21,69 @@ struct DrillStringListView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                List(selection: $viewmodel.selection) {
-                    ForEach(Array(viewmodel.sortedSections.enumerated()), id: \.element.id) { index, sec in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(sec.name)")
-                                Text(viewmodel.detailsString(sec))
+        VStack {
+            List(selection: $viewmodel.selection) {
+                ForEach(Array(viewmodel.sortedSections.enumerated()), id: \.element.id) { index, sec in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(sec.name)")
+                            Text(viewmodel.detailsString(sec))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            let prevBottom = index > 0 ? viewmodel.sortedSections[index - 1].bottomDepth_m : nil
+                            if let prevBottom, sec.topDepth_m > prevBottom {
+                                Text("Gap above: \(sec.topDepth_m - prevBottom, format: .number) m")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                let prevBottom = index > 0 ? viewmodel.sortedSections[index - 1].bottomDepth_m : nil
-                                if let prevBottom, sec.topDepth_m > prevBottom {
-                                    Text("Gap above: \(sec.topDepth_m - prevBottom, format: .number) m")
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                }
-                            }
-                            Spacer()
-                            HStack(spacing: 8) {
-                                Button("Edit") { viewmodel.navigateToDetail(for: sec) }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .help("Open details")
-                                Button(role: .destructive) { viewmodel.delete(sec) } label: {
-                                    Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .help("Delete this section")
+                                    .foregroundStyle(.red)
                             }
                         }
-                        .contentShape(Rectangle())
-                        .tag(sec)
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Button("Edit") { viewmodel.navigateToDetail(for: sec) }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .help("Open details")
+                            Button(role: .destructive) { viewmodel.delete(sec) } label: {
+                                Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .help("Delete this section")
+                        }
                     }
-                    .onDelete { idx in
-                        let items = idx.map { viewmodel.sortedSections[$0] }
-                        items.forEach { viewmodel.delete($0) }
-                    }
+                    .contentShape(Rectangle())
+                    .tag(sec)
                 }
-                HStack {
-                    TextField("New section name", text: $viewmodel.newName).textFieldStyle(.roundedBorder)
-                    Button {
-                        viewmodel.add()
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                }
-                .padding()
-            }
-            .navigationTitle("Drill String")
-            .onAppear {
-                viewmodel.attach(context: modelContext)
-            }
-            .toolbar {
-                if viewmodel.hasGaps {
-                    ToolbarItemGroup {
-                        Button("Fill Gaps") { viewmodel.fillGaps() }
-                            .help("Extend previous section to remove gaps up to the next section")
-                    }
+                .onDelete { idx in
+                    let items = idx.map { viewmodel.sortedSections[$0] }
+                    items.forEach { viewmodel.delete($0) }
                 }
             }
-            .navigationDestination(item: $viewmodel.activeSection) { sec in
-                DrillStringDetailView(section: sec)
+            HStack {
+                TextField("New section name", text: $viewmodel.newName).textFieldStyle(.roundedBorder)
+                Button {
+                    viewmodel.add()
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
             }
+            .padding()
+        }
+        .navigationTitle("Drill String")
+        .onAppear {
+            viewmodel.attach(context: modelContext)
+        }
+        .toolbar {
+            if viewmodel.hasGaps {
+                ToolbarItemGroup {
+                    Button("Fill Gaps") { viewmodel.fillGaps() }
+                        .help("Extend previous section to remove gaps up to the next section")
+                }
+            }
+        }
+        .sheet(item: $viewmodel.activeSection) { sec in
+            DrillStringDetailView(section: sec)
+                .frame(minWidth:640, minHeight: 420)
         }
     }
 }
@@ -200,7 +199,7 @@ extension DrillStringListView {
 #if DEBUG
 import SwiftData
 
-private struct DrillSTringListPreview: View {
+private struct DrillStringListPreview: View {
     let container: ModelContainer
     let project: ProjectState
     
@@ -233,6 +232,6 @@ private struct DrillSTringListPreview: View {
 }
 
 #Preview("Drill String – Sample Data") {
-    DrillSTringListPreview()
+    DrillStringListPreview()
 }
 #endif

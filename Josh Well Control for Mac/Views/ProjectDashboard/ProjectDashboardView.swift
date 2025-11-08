@@ -23,61 +23,102 @@ struct ProjectDashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Project") {
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            Text("Name").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("Project name", text: $project.window.name)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 360)
-                        }
-                        GridRow {
-                            Text("Pore safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
-                            Stepper(value: $project.window.poreSafety_kPa, in: 0...3000, step: 50) {
-                                Text("\(Int(project.window.poreSafety_kPa))")
+                HStack (spacing: 12) {
+                    GroupBox("Project") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Name").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                TextField("Project name", text: $project.name)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 360)
+                            }
+                            GridRow {
+                                Text("Pore safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                TextField("", value: $project.window.poreSafety_kPa, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Frac safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                TextField("", value: $project.window.fracSafety_kPa, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
                                     .monospacedDigit()
                             }
                         }
-                        GridRow {
-                            Text("Frac safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
-                            Stepper(value: $project.window.fracSafety_kPa, in: 0...3000, step: 50) {
-                                Text("\(Int(project.window.fracSafety_kPa))")
-                                    .monospacedDigit()
-                            }
-                        }
+                        .padding(8)
                     }
-                    .padding(8)
+                    GroupBox("Active System") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Active mud weight (kg/m³)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.activeMudDensity_kgm3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Active mud volume (m³)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.activeMudVolume_m3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Surface line volume (m³)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.surfaceLineVolume_m3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .padding(8)
+                    }
+                    GroupBox("Defaults") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Base annulus density (kg/m³)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Base string density (kg/m³)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.baseStringDensity_kgm3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Control measured depth (m)")
+                                    .frame(width: 240, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $project.pressureDepth_m, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 160)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .padding(8)
+                    }
                 }
-
                 GroupBox("Overview") {
                     HStack(spacing: 12) {
                         StatBox(title: "Drill string sections", value: viewmodel.drillStringCount, caption: "Configured in this project")
                         StatBox(title: "Annulus sections", value: viewmodel.annulusCount, caption: "Configured in this project")
                         StatBox(title: "Pressure points", value: viewmodel.pressurePointCount, caption: "For pore/frac window")
-                    }
-                    .padding(8)
-                }
-
-                GroupBox("Defaults") {
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            Text("Base annulus density (kg/m³)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 160)
-                        }
-                        GridRow {
-                            Text("Base string density (kg/m³)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("", value: $project.baseStringDensity_kgm3, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 160)
-                        }
-                        GridRow {
-                            Text("Pressure depth (MD, m)").frame(width: 240, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("", value: $project.pressureDepth_m, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 160)
-                        }
                     }
                     .padding(8)
                 }
@@ -151,6 +192,30 @@ private struct StatBox: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Text("\(value)").font(.title3).bold().monospacedDigit()
+            Text(caption).font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2)))
+    }
+}
+
+private struct InputNumberBox: View {
+    let title: String
+    @Binding var value: Double
+    let caption: String
+    let min: Double
+    let max: Double
+    let step: Double
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Stepper(value: $value, in: min...max, step: step) {
+                Text("\(value)")
+                    .monospacedDigit()
+            }
             Text(caption).font(.caption2).foregroundStyle(.secondary)
         }
         .padding(12)

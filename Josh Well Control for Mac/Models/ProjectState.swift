@@ -37,6 +37,9 @@ final class ProjectState {
     var baseAnnulusDensity_kgm3: Double = 1260
     var baseStringDensity_kgm3: Double = 1260
     var pressureDepth_m: Double = 3200
+    var activeMudDensity_kgm3: Double = 1260
+    var activeMudVolume_m3: Double = 56.5
+    var surfaceLineVolume_m3: Double = 1.4
 
     init() {}
 }

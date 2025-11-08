@@ -9,50 +9,135 @@ import SwiftUI
 import SwiftData
 
 struct AnnulusDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @Bindable var section: AnnulusSection
+
+    // MARK: - Derived (with overlapping drill string)
+    private var assumedOD_m: Double {
+        guard let project = section.project else { return 0 }
+        let top = section.topDepth_m
+        let bottom = section.bottomDepth_m
+        var maxOD = 0.0
+        for d in project.drillString where d.bottomDepth_m > top && d.topDepth_m < bottom {
+            maxOD = max(maxOD, d.outerDiameter_m)
+        }
+        return maxOD
+    }
+
+    private var flowAreaWithPipe_m2: Double {
+        let id = max(section.innerDiameter_m, 0)
+        let od = max(assumedOD_m, 0)
+        guard id > od else { return 0 }
+        return .pi * 0.25 * (id*id - od*od)
+    }
+
+    private var equivalentDeWithPipe_m: Double {
+        let id = max(section.innerDiameter_m, 0)
+        let od = max(assumedOD_m, 0)
+        return max(id - od, 0)
+    }
 
     var body: some View {
         ScrollView {
-            Form {
-                        Section { TextField("Name", text: $section.name) }
-                        Section("Placement (m)") {
-                            TextField("Top MD", value: $section.topDepth_m, format: .number)
-                                .onChange(of: section.topDepth_m) { enforceNoOverlap(for: section) }
-                            TextField("Length", value: $section.length_m, format: .number)
-                                .onChange(of: section.length_m) { enforceNoOverlap(for: section) }
-                            Text("Bottom MD: \(section.bottomDepth_m, format: .number)")
-                        }
-                        Section("Geometry (m)") {
-                            TextField("Casing/WB ID", value: $section.innerDiameter_m, format: .number)
-                            Text("String OD is auto-calculated from overlapping drill string sections")
-                                .font(.caption)
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Identity") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Name")
+                                .frame(width: 160, alignment: .trailing)
                                 .foregroundStyle(.secondary)
-                            Text("Flow area: \(section.flowArea_m2, format: .number.precision(.fractionLength(5))) m²")
-                            Text("De: \(section.equivalentDiameter_m, format: .number.precision(.fractionLength(4))) m")
-                        }
-                        Section("Fluid") {
-                            Picker("Rheology", selection: $section.rheologyModelRaw) {
-                                Text("Newtonian").tag(AnnulusSection.RheologyModel.newtonian.rawValue)
-                                Text("Bingham").tag(AnnulusSection.RheologyModel.bingham.rawValue)
-                                Text("Power Law").tag(AnnulusSection.RheologyModel.powerLaw.rawValue)
-                                Text("Herschel–Bulkley").tag(AnnulusSection.RheologyModel.herschelBulkley.rawValue)
-                            }
-                            TextField("Density (kg/m³)", value: $section.density_kg_per_m3, format: .number)
-                            Group {
-                                TextField("μ (Pa·s)", value: $section.dynamicViscosity_Pa_s, format: .number)
-                                TextField("PV (Pa·s)", value: $section.pv_Pa_s, format: .number)
-                                TextField("YP (Pa)", value: $section.yp_Pa, format: .number)
-                                TextField("n (–)", value: $section.n_powerLaw, format: .number)
-                                TextField("k (Pa·sⁿ)", value: $section.k_powerLaw_Pa_s_n, format: .number)
-                                TextField("τ₀ (Pa)", value: $section.hb_tau0_Pa, format: .number)
-                                TextField("n (HB –)", value: $section.hb_n, format: .number)
-                                TextField("k (HB Pa·sⁿ)", value: $section.hb_k_Pa_s_n, format: .number)
-                            }
+                            TextField("Name", text: $section.name)
+                                .textFieldStyle(.roundedBorder)
                         }
                     }
+                    .padding(8)
+                }
+
+                GroupBox("Placement (m)") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Top MD")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            TextField("Top MD", value: $section.topDepth_m, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .onChange(of: section.topDepth_m) { enforceNoOverlap(for: section) }
+                        }
+                        GridRow {
+                            Text("Length")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            TextField("Length", value: $section.length_m, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .onChange(of: section.length_m) { enforceNoOverlap(for: section) }
+                        }
+                        GridRow {
+                            Text("Bottom MD")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            Text("\(section.bottomDepth_m, format: .number)")
+                                .monospacedDigit()
+                        }
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Geometry (m)") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Casing/WB ID")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            TextField("ID", value: $section.innerDiameter_m, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                        }
+                        GridRow {
+                            Text("Flow area (with pipe)")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            Text("\(flowAreaWithPipe_m2, format: .number.precision(.fractionLength(5))) m²")
+                                .monospacedDigit()
+                        }
+                        GridRow {
+                            Text("Equivalent De")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            Text("\(equivalentDeWithPipe_m, format: .number.precision(.fractionLength(4))) m")
+                                .monospacedDigit()
+                        }
+                        GridRow {
+                            Text("")
+                                .frame(width: 160, alignment: .trailing)
+                            Text(assumedOD_m > 0 ? "Assuming string OD = \(assumedOD_m, format: .number.precision(.fractionLength(4))) m (max in interval)" : "No string inside this interval")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Fluids") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Fluids, rheology, and densities are configured in **Pump Schedule**.")
+                        Text("This section uses those fluids at runtime.")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                    .padding(8)
+                }
+            }
+            .padding(16)
         }
         .onAppear { enforceNoOverlap(for: section) }
         .navigationTitle(section.name)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
     }
 
     private func enforceNoOverlap(for current: AnnulusSection) {

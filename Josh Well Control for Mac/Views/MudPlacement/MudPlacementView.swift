@@ -47,8 +47,7 @@ struct MudPlacementView: View {
 
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
+        ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Mud Placement").font(.title2).bold()
                     Text("Build steps (top/bottom/ρ/name/color/where) and place them as final layers. The interval calculator uses your geometry.")
@@ -343,10 +342,8 @@ struct MudPlacementView: View {
                 }
                 .padding(16)
                 .navigationTitle("Mud Placement")
-            }
         }
         .onAppear { viewmodel.attach(context: modelContext) }
-
     }
 
     // MARK: - Final layering helpers

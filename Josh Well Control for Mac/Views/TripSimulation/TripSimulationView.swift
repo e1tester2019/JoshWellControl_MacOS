@@ -26,30 +26,7 @@ struct TripSimulationView: View {
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
 
-    // MARK: - Inputs
-    @State private var startBitMD_m: Double = 5983.28
-    @State private var endMD_m: Double = 0
-    @State private var shoeTVD_m: Double = 2910
-    @State private var step_m: Double = 100
-    @State private var baseMudDensity_kgpm3: Double = 1260
-    @State private var backfillDensity_kgpm3: Double = 1200
-    @State private var targetESDAtTD_kgpm3: Double = 1320
-    @State private var crackFloat_kPa: Double = 2100
-    @State private var initialSABP_kPa: Double = 0
-    @State private var holdSABPOpen: Bool = false
-    @State var esdText: String = "Select a step to see the outputs visually"
-
-
-    // Visualization options
-    @State private var colorByComposition: Bool = false
-
-    // Show/hide details pane
-    @State private var showDetails: Bool = false
-
-    // MARK: - Results
-    @State private var steps: [TripStep] = []
-    @State private var selectedIndex: Int? = nil
-    @State private var stepSlider: Double = 0
+    @State private var viewmodel = ViewModel()
 
     // MARK: - Body
     var body: some View {
@@ -59,9 +36,9 @@ struct TripSimulationView: View {
             content
         }
         .padding(16)
-        .onAppear(perform: bootstrapFromProject)
-        .onChange(of: selectedIndex) { _, newVal in
-            stepSlider = Double(newVal ?? 0)
+        .onAppear { viewmodel.bootstrap(from: project) }
+        .onChange(of: viewmodel.selectedIndex) { _, newVal in
+            viewmodel.stepSlider = Double(newVal ?? 0)
         }
     }
 
@@ -71,19 +48,19 @@ struct TripSimulationView: View {
             HStack(spacing: 16) {
                 GroupBox("Bit / Range") {
                     HStack {
-                        numberField("Start MD", value: $startBitMD_m)
-                        numberField("End MD", value: $endMD_m)
-                        numberField("Shoe TVD", value: $shoeTVD_m)
-                        numberField("Step (m)", value: $step_m)
+                        numberField("Start MD", value: $viewmodel.startBitMD_m)
+                        numberField("End MD", value: $viewmodel.endMD_m)
+                        numberField("Shoe TVD", value: $viewmodel.shoeTVD_m)
+                        numberField("Step (m)", value: $viewmodel.step_m)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 GroupBox("Fluids") {
                     HStack {
-                        numberField("Base ρ (kg/m³)", value: $baseMudDensity_kgpm3)
-                        numberField("Backfill ρ", value: $backfillDensity_kgpm3)
-                        numberField("Target ESD@TD", value: $targetESDAtTD_kgpm3)
+                        numberField("Base ρ (kg/m³)", value: $viewmodel.baseMudDensity_kgpm3)
+                        numberField("Backfill ρ", value: $viewmodel.backfillDensity_kgpm3)
+                        numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
                     }
                 }
             }
@@ -91,31 +68,31 @@ struct TripSimulationView: View {
             HStack(spacing: 16) {
                 GroupBox("Choke / Float") {
                     HStack {
-                        numberField("Crack Float (kPa)", value: $crackFloat_kPa)
-                        numberField("Initial SABP (kPa)", value: $initialSABP_kPa)
-                        Toggle("Hold SABP open (0)", isOn: $holdSABPOpen)
+                        numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
+                        numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
+                        Toggle("Hold SABP open (0)", isOn: $viewmodel.holdSABPOpen)
                     }
                 }
 
                 GroupBox("View") {
-                    Toggle("Composition colors", isOn: $colorByComposition)
+                    Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
                 }
 
-                if !steps.isEmpty {
+                if !viewmodel.steps.isEmpty {
                     GroupBox("Bit Depth (m)") {
                         HStack(spacing: 8) {
                             Slider(
                                 value: Binding(
-                                    get: { stepSlider },
+                                    get: { viewmodel.stepSlider },
                                     set: { newVal in
-                                        stepSlider = newVal
-                                        let idx = min(max(Int(round(newVal)), 0), max(steps.count - 1, 0))
-                                        selectedIndex = idx
+                                        viewmodel.stepSlider = newVal
+                                        let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
+                                        viewmodel.selectedIndex = idx
                                     }
                                 ),
-                                in: 0...Double(max(steps.count - 1, 0)), step: 1
+                                in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
                             )
-                            Text(String(format: "%.2f m", steps[min(max(selectedIndex ?? 0, 0), max(steps.count - 1, 0))].bitMD_m))
+                            Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
                                 .frame(width: 72, alignment: .trailing)
                                 .monospacedDigit()
                         }
@@ -125,10 +102,10 @@ struct TripSimulationView: View {
 
                 Spacer()
 
-                Toggle("Show details", isOn: $showDetails)
+                Toggle("Show details", isOn: $viewmodel.showDetails)
                     .toggleStyle(.switch)
 
-                Button("Seed from MudPlacement & Run", action: runSimulation)
+                Button("Seed from MudPlacement & Run") { viewmodel.runSimulation(project: project) }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -140,8 +117,8 @@ struct TripSimulationView: View {
             GeometryReader { g in
                 VStack(spacing: 8) {
                     stepsTable
-                        .frame(height: showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
-                    if showDetails {
+                        .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
+                    if viewmodel.showDetails {
                         ScrollView {
                             detailAccordion
                         }
@@ -173,7 +150,7 @@ struct TripSimulationView: View {
     // MARK: - Selection helpers
     private func indexOf(_ row: TripStep) -> Int? {
         // Heuristic: match by MD & TVD (good enough for selection)
-        steps.firstIndex { $0.bitMD_m == row.bitMD_m && $0.bitTVD_m == row.bitTVD_m }
+        viewmodel.steps.firstIndex { $0.bitMD_m == row.bitMD_m && $0.bitTVD_m == row.bitTVD_m }
     }
 
     private func selectableText(_ text: String, for row: TripStep, alignment: Alignment = .leading) -> some View {
@@ -181,19 +158,19 @@ struct TripSimulationView: View {
             .frame(maxWidth: .infinity, alignment: alignment)
             .contentShape(Rectangle())
             .onTapGesture {
-                if let i = indexOf(row) { selectedIndex = i }
+                if let i = indexOf(row) { viewmodel.selectedIndex = i }
             }
     }
 
     // MARK: - Steps Table
     private var stepsTable: some View {
-        Table(steps) {
+        Table(viewmodel.steps) {
             TableColumn("Bit MD") { row in
                 Text(format0(row.bitMD_m))
                     .monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onTapGesture { if let i = indexOf(row) { selectedIndex = i } }
+                    .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
             }
             .width(min: 90, ideal: 110, max: 140)
 
@@ -218,7 +195,7 @@ struct TripSimulationView: View {
             .width(min: 120, ideal: 150, max: 200)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contextMenu { Button("Re-run", action: runSimulation) }
+        .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
     }
 
     // MARK: - Visualization
@@ -226,8 +203,8 @@ struct TripSimulationView: View {
         GroupBox("Well Snapshot") {
             GeometryReader { geo in
                 Group {
-                    if let idx = selectedIndex, steps.indices.contains(idx) {
-                        let s = steps[idx]
+                    if let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) {
+                        let s = viewmodel.steps[idx]
                         let ann = s.layersAnnulus
                         let str = s.layersString
                         let pocket = s.layersPocket
@@ -301,9 +278,9 @@ struct TripSimulationView: View {
     }
     // MARK: - ESD @ Control TVD (label)
     private var esdAtControlText: String {
-        guard let idx = selectedIndex, steps.indices.contains(idx) else { return "" }
-        let s = steps[idx]
-        let controlTVD = max(0.0, shoeTVD_m)
+        guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else { return "" }
+        let s = viewmodel.steps[idx]
+        let controlTVD = max(0.0, viewmodel.shoeTVD_m)
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
 
@@ -378,7 +355,7 @@ struct TripSimulationView: View {
     }
 
     private func fillColor(rho: Double, explicit: NumericalTripModel.ColorRGBA?, mdMid: Double, isAnnulus: Bool) -> Color {
-        if colorByComposition {
+        if viewmodel.colorByComposition {
             if let c = explicit { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
             if let c = compositionColor(at: mdMid, isAnnulus: isAnnulus) { return c }
         }
@@ -408,8 +385,8 @@ struct TripSimulationView: View {
     // MARK: - Detail (Accordion)
     private var detailAccordion: some View {
         GroupBox("Step details") {
-            if let idx = selectedIndex, steps.indices.contains(idx) {
-                let s = steps[idx]
+            if let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) {
+                let s = viewmodel.steps[idx]
                 VStack(alignment: .leading, spacing: 8) {
                     DisclosureGroup("Summary") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
@@ -417,7 +394,7 @@ struct TripSimulationView: View {
                             gridRow("Bit TVD", format0(s.bitTVD_m))
                             gridRow("SABP (kPa)", format0(s.SABP_kPa))
                             gridRow("SABP Dynamic (kPa)", format0(s.SABP_Dynamic_kPa))
-                            gridRow("Target ESD@TD (kg/m³)", format0(targetESDAtTD_kgpm3))
+                            gridRow("Target ESD@TD (kg/m³)", format0(viewmodel.targetESDAtTD_kgpm3))
                             gridRow("ESD@TD (kg/m³)", format0(s.ESDatTD_kgpm3))
                             gridRow("Backfill remaining (m³)", format3(s.backfillRemaining_m3))
                         }
@@ -444,51 +421,6 @@ struct TripSimulationView: View {
                 Text("No step selected.").foregroundStyle(.secondary)
             }
         }
-    }
-
-    // MARK: - Actions
-    private func bootstrapFromProject() {
-        // Reasonable defaults derived from the project, if available
-        if let maxMD = (project.finalLayers.map { $0.bottomMD_m }.max()) {
-            startBitMD_m = maxMD
-            endMD_m = 0
-        }
-        baseMudDensity_kgpm3 = project.finalLayers.first?.density_kgm3 ?? baseMudDensity_kgpm3
-        backfillDensity_kgpm3 = baseMudDensity_kgpm3
-        targetESDAtTD_kgpm3 = baseMudDensity_kgpm3
-    }
-
-    private func runSimulation() {
-        // Geometry service seeded from project with TVD interpolation if your extension exists
-        let geom = ProjectGeometryService(
-            project: project,
-            currentStringBottomMD: startBitMD_m,
-            tvdMapper: { md in project.tvd(of: md) }
-        )
-
-        let input = NumericalTripModel.TripInput(
-            tvdOfMd: { md in project.tvd(of: md) },
-            shoeTVD_m: shoeTVD_m,
-            startBitMD_m: startBitMD_m,
-            endMD_m: endMD_m,
-            crackFloat_kPa: crackFloat_kPa,
-            step_m: step_m,
-            baseMudDensity_kgpm3: baseMudDensity_kgpm3,
-            backfillDensity_kgpm3: backfillDensity_kgpm3,
-            targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
-            initialSABP_kPa: initialSABP_kPa,
-            holdSABPOpen: holdSABPOpen
-        )
-
-        // Seed layers from persisted final placement
-        let ann = project.finalAnnulusLayersSorted
-        let str = project.finalStringLayersSorted
-
-        // Run
-        let model = NumericalTripModel()
-        self.steps = model.run(input, geom: geom, project: project)
-        self.selectedIndex = steps.isEmpty ? nil : 0
-        self.stepSlider = 0
     }
 
     // MARK: - Subviews / helpers
@@ -532,8 +464,149 @@ struct TripSimulationView: View {
     private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
 }
 
-// MARK: - Preview
-#Preview("TripSimulationView") {
-    Text("Provide a ProjectState from the app to preview TripSimulationView.")
-        .frame(width: 1200, height: 800)
+extension TripSimulationView {
+  @Observable
+  class ViewModel {
+    // Inputs
+    var startBitMD_m: Double = 5983.28
+    var endMD_m: Double = 0
+    var shoeTVD_m: Double = 2910
+    var step_m: Double = 100
+    var baseMudDensity_kgpm3: Double = 1260
+    var backfillDensity_kgpm3: Double = 1200
+    var targetESDAtTD_kgpm3: Double = 1320
+    var crackFloat_kPa: Double = 2100
+    var initialSABP_kPa: Double = 0
+    var holdSABPOpen: Bool = false
+
+    // View options
+    var colorByComposition: Bool = false
+    var showDetails: Bool = false
+
+    // Results / selection
+    var steps: [TripStep] = []
+    var selectedIndex: Int? = nil
+    var stepSlider: Double = 0
+
+    func bootstrap(from project: ProjectState) {
+      if let maxMD = project.finalLayers.map({ $0.bottomMD_m }).max() {
+        startBitMD_m = maxMD
+        endMD_m = 0
+      }
+      let base = project.finalLayers.first?.density_kgm3 ?? baseMudDensity_kgpm3
+      baseMudDensity_kgpm3 = base
+      backfillDensity_kgpm3 = base
+      targetESDAtTD_kgpm3 = base
+    }
+
+    func runSimulation(project: ProjectState) {
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: startBitMD_m,
+        tvdMapper: { md in project.tvd(of: md) }
+      )
+      let input = NumericalTripModel.TripInput(
+        tvdOfMd: { md in project.tvd(of: md) },
+        shoeTVD_m: shoeTVD_m,
+        startBitMD_m: startBitMD_m,
+        endMD_m: endMD_m,
+        crackFloat_kPa: crackFloat_kPa,
+        step_m: step_m,
+        baseMudDensity_kgpm3: baseMudDensity_kgpm3,
+        backfillDensity_kgpm3: backfillDensity_kgpm3,
+        targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
+        initialSABP_kPa: initialSABP_kPa,
+        holdSABPOpen: holdSABPOpen
+      )
+      let model = NumericalTripModel()
+      self.steps = model.run(input, geom: geom, project: project)
+      self.selectedIndex = steps.isEmpty ? nil : 0
+      self.stepSlider = 0
+    }
+
+    func esdAtControlText(project: ProjectState) -> String {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else { return "" }
+      let s = steps[idx]
+      let controlTVD = max(0.0, shoeTVD_m)
+      let bitTVD = s.bitTVD_m
+      var pressure_kPa: Double = s.SABP_kPa
+
+      if controlTVD <= bitTVD + 1e-9 {
+        var remaining = controlTVD
+        for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+          let seg = min(remaining, max(0.0, min(r.bottomTVD, controlTVD) - r.topTVD))
+          if seg > 1e-9 {
+            let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+            pressure_kPa += r.deltaHydroStatic_kPa * frac
+            remaining -= seg
+            if remaining <= 1e-9 { break }
+          }
+        }
+      } else {
+        var remainingA = bitTVD
+        for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+          let seg = min(remainingA, max(0.0, min(r.bottomTVD, bitTVD) - r.topTVD))
+          if seg > 1e-9 {
+            let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+            pressure_kPa += r.deltaHydroStatic_kPa * frac
+            remainingA -= seg
+            if remainingA <= 1e-9 { break }
+          }
+        }
+        var remainingP = controlTVD - bitTVD
+        for r in s.layersPocket where r.bottomTVD > r.topTVD {
+          let top = max(r.topTVD, bitTVD)
+          let bot = min(r.bottomTVD, controlTVD)
+          let seg = max(0.0, bot - top)
+          if seg > 1e-9 {
+            let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
+            pressure_kPa += r.deltaHydroStatic_kPa * frac
+            remainingP -= seg
+            if remainingP <= 1e-9 { break }
+          }
+        }
+      }
+
+      let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
+      return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
+    }
+  }
 }
+
+
+#if DEBUG
+private struct TripSimulationPreview: View {
+  let container: ModelContainer
+  let project: ProjectState
+
+  init() {
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    self.container = try! ModelContainer(
+      for: ProjectState.self,
+           DrillStringSection.self,
+           AnnulusSection.self,
+           FinalFluidLayer.self,
+      configurations: config
+    )
+    let ctx = container.mainContext
+    let p = ProjectState()
+    ctx.insert(p)
+    // Seed some layers so the visualization has data
+    let a1 = FinalFluidLayer(project: p, name: "Annulus Mud", placement: .annulus, topMD_m: 0, bottomMD_m: 3000, density_kgm3: 1260, color: .yellow)
+    let s1 = FinalFluidLayer(project: p, name: "String Mud", placement: .string, topMD_m: 0, bottomMD_m: 2000, density_kgm3: 1260, color: .yellow)
+    ctx.insert(a1); ctx.insert(s1)
+    try? ctx.save()
+    self.project = p
+  }
+
+  var body: some View {
+    NavigationStack { TripSimulationView(project: project) }
+      .modelContainer(container)
+      .frame(width: 1200, height: 800)
+  }
+}
+
+#Preview("Trip Simulation – Sample Data") {
+  TripSimulationPreview()
+}
+#endif

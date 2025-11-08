@@ -78,91 +78,128 @@ struct ContentView: View {
     @State private var renamingWell: Well?
     @State private var renameWellText: String = ""
 
+    private enum Pane: String, CaseIterable, Identifiable {
+        case dashboard, drillString, annulus, volumes, surveys, pressureWindow, pump, swabbing, trip, bhp
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .dashboard: return "Dashboard"
+            case .drillString: return "Drill String"
+            case .annulus: return "Annulus"
+            case .volumes: return "Volume Summary"
+            case .surveys: return "Surveys"
+            case .pressureWindow: return "Pressure Window"
+            case .pump: return "Pump Schedule"
+            case .swabbing: return "Swabbing"
+            case .trip: return "Trip Simulation"
+            case .bhp: return "BHP Preview"
+            }
+        }
+    }
+
+    @State private var selectedSection: Pane = .dashboard
+    @State private var splitVisibility: NavigationSplitViewVisibility = .doubleColumn
+
     var body: some View {
-        NavigationSplitView {
-            List(selection: $vm.selectedWell) {
-                Section("Wells") {
-                    ForEach(wells, id: \.id) { well in
-                        HStack {
-                            Text(well.name)
-                            Spacer()
-                            Text(well.createdAt, style: .date).foregroundStyle(.secondary)
-                        }
-                        .tag(well as Well?)
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            Button("Rename", systemImage: "pencil") { beginRename(well) }
-                            Button("Copy", systemImage: "doc.on.doc") { duplicateWell(from: well) }
-                            Divider()
-                            Button(role: .destructive) {
-                                if let idx = wells.firstIndex(where: { $0.id == well.id }) { deleteWells(at: IndexSet(integer: idx)) }
-                            } label: { Label("Delete", systemImage: "trash") }
-                        }
-                    }
-                    .onDelete(perform: deleteWells)
-                }
-            }
-            .navigationTitle("Wells")
-            .toolbar {
-                Button {
-                    let w = Well(name: "New Well")
-                    modelContext.insert(w)
-                    try? modelContext.save()
-                    vm.selectedWell = w
-                } label: { Label("Add Well", systemImage: "plus") }
-            }
-            .onAppear {
-                if vm.selectedWell == nil {
-                    vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
-                }
-            }
-        } content: {
-            if let well = vm.selectedWell {
-                List(selection: $vm.selectedProject) {
-                    Section("\(well.name) – Project States") {
-                        ForEach(well.projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
-                            HStack {
-                                Text(p.name)
-                                Spacer()
-                                Text(p.createdAt, style: .date).foregroundStyle(.secondary)
-                            }
-                            .tag(p as ProjectState?)
-                            .contentShape(Rectangle())
-                            .contextMenu {
-                                Button("Rename", systemImage: "pencil") { beginRename(p) }
-                                Button("Copy", systemImage: "doc.on.doc") { duplicateProject(from: p) }
-                                Divider()
-                                Button(role: .destructive) {
-                                    if let idx = index(of: p, in: well) { deleteProjects(offsets: IndexSet(integer: idx)) }
-                                } label: { Label("Delete", systemImage: "trash") }
+        NavigationSplitView(columnVisibility: $splitVisibility) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let _ = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
+                    GroupBox("Views") {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 8)], spacing: 8) {
+                            ForEach(Pane.allCases) { sec in
+                                Button {
+                                    selectedSection = sec
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: icon(for: sec))
+                                        Text(sec.title)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .buttonBorderShape(.roundedRectangle)
+                                .tint(selectedSection == sec ? .accentColor : .secondary)
+                                .background(selectedSection == sec ? Color.accentColor.opacity(0.12) : .clear)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(selectedSection == sec ? Color.accentColor : Color.secondary.opacity(0.6), lineWidth: selectedSection == sec ? 1.5 : 1)
+                                )
+                                .opacity(selectedSection == sec ? 1.0 : 0.92)
+                                .animation(.default, value: selectedSection)
                             }
                         }
-                        .onDelete { indexSet in deleteProjects(offsets: indexSet) }
+                        .padding(8)
                     }
+                } else {
+                    Text("Select or create a well")
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
                 }
-                .toolbar {
-                    Button {
-                        guard let w = vm.selectedWell else { return }
-                        let p = ProjectState()
-                        p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
-                        p.well = w
-                        w.projects.append(p)
-                        try? modelContext.save()
-                        vm.selectedProject = p
-                    } label: { Label("Add Project", systemImage: "plus") }
-                }
-                .navigationTitle("Projects")
-            } else {
-                Text("Select or create a well")
+                Spacer(minLength: 0)
             }
+            .padding([.horizontal, .top], 12)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
-            if let project = vm.selectedProject {
-                ProjectDashboardView(project: project)
-            } else if let well = vm.selectedWell, let first = well.projects.first {
-                ProjectDashboardView(project: first)
-            } else {
-                Text("Select a project")
+            Group {
+                if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
+                    Group {
+                        switch selectedSection {
+                        case .dashboard:
+                            ProjectDashboardView(project: project)
+                        case .drillString:
+                            DrillStringListView(project: project)
+                        case .annulus:
+                            AnnulusListView(project: project)
+                        case .volumes:
+                            VolumeSummaryView(project: project)
+                        case .surveys:
+                            SurveyListView(project: project)
+                        case .pressureWindow:
+                            PressureWindowView(project: project)
+                        case .pump:
+                            MudPlacementView(project: project)
+                        case .swabbing:
+                            SwabbingView(project: project)
+                        case .trip:
+                            TripSimulationView(project: project)
+                        case .bhp:
+                            BHPPreviewView(project: project)
+                        }
+                    }
+                    .id(project.id) // force rebuild when project changes
+                } else {
+                    VStack(spacing: 12) {
+                        Text("No selection").font(.title3).bold()
+                        Text("Create a well and a project state to get started.")
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            Button("New Well", systemImage: "plus") {
+                                let w = Well(name: "New Well")
+                                modelContext.insert(w)
+                                try? modelContext.save()
+                                vm.selectedWell = w
+                                vm.selectedProject = w.projects.first
+                            }
+                            if vm.selectedWell != nil {
+                                Button("New Project State", systemImage: "doc.badge.plus") {
+                                    guard let w = vm.selectedWell else { return }
+                                    let p = ProjectState()
+                                    p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+                                    p.well = w
+                                    w.projects.append(p)
+                                    try? modelContext.save()
+                                    vm.selectedProject = p
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding(24)
+                }
             }
+            .navigationSplitViewColumnWidth(min: 720, ideal: 1080, max: 2000)
+            .toolbar { detailToolbar }
+            .navigationTitle(selectedSection.title)
         }
         .sheet(item: $renamingProject) { project in
             VStack(spacing: 12) {
@@ -195,6 +232,19 @@ struct ContentView: View {
             }
             .padding(20)
             .onAppear { renameWellText = well.name }
+        }
+        .onAppear {
+            if vm.selectedWell == nil {
+                vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
+            }
+        }
+        .onChange(of: vm.selectedWell) { _, newVal in
+            vm.selectedProject = newVal?.projects.first
+        }
+        .onChange(of: vm.selectedProject) { _, newVal in
+            if newVal == nil, let w = vm.selectedWell {
+                vm.selectedProject = w.projects.first
+            }
         }
     }
 }
@@ -284,5 +334,114 @@ private extension ContentView {
         try? modelContext.save()
         vm.selectedWell = w
         vm.selectedProject = w.projects.first
+    }
+    
+    private func icon(for pane: Pane) -> String {
+        switch pane {
+        case .dashboard: return "speedometer"
+        case .drillString: return "wrench.and.screwdriver"
+        case .annulus: return "seal"
+        case .volumes: return "chart.bar"
+        case .surveys: return "map"
+        case .pressureWindow: return "barometer"
+        case .pump: return "drop"
+        case .swabbing: return "arrow.up.and.down"
+        case .trip: return "figure.walk"
+        case .bhp: return "waveform"
+        }
+    }
+}
+
+private extension ContentView {
+    @ToolbarContentBuilder
+    var detailToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: 8) {
+                // Well picker menu
+                Menu {
+                    ForEach(wells, id: \.id) { w in
+                        Button {
+                            vm.selectedWell = w
+                            vm.selectedProject = w.projects.first
+                        } label: {
+                            if vm.selectedWell?.id == w.id { Image(systemName: "checkmark") }
+                            Text(w.name)
+                        }
+                    }
+                } label: {
+                    Label(vm.selectedWell?.name ?? "Well", systemImage: "square.grid.2x2")
+                }
+
+                // Project picker menu
+                if let well = vm.selectedWell {
+                    Menu {
+                        ForEach(well.projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
+                            Button { vm.selectedProject = p } label: {
+                                if vm.selectedProject?.id == p.id { Image(systemName: "checkmark") }
+                                Text(p.name)
+                            }
+                        }
+                    } label: {
+                        Label(vm.selectedProject?.name ?? "Project", systemImage: "folder")
+                    }
+                }
+            }
+        }
+        ToolbarItem { // Add menu
+            Menu {
+                Button("New Well", systemImage: "plus") {
+                    let w = Well(name: "New Well")
+                    modelContext.insert(w)
+                    try? modelContext.save()
+                    vm.selectedWell = w
+                    vm.selectedProject = w.projects.first
+                }
+                Button("New Project State", systemImage: "doc.badge.plus") {
+                    guard let w = vm.selectedWell else { return }
+                    let p = ProjectState()
+                    p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+                    p.well = w
+                    w.projects.append(p)
+                    try? modelContext.save()
+                    vm.selectedProject = p
+                }
+            } label: {
+                Label("Add", systemImage: "plus")
+            }
+        }
+        ToolbarItem { // Manage menu
+            Menu {
+                if let well = vm.selectedWell {
+                    Section("Well") {
+                        Button("Rename Well", systemImage: "pencil") { beginRename(well) }
+                        Button("Duplicate Well", systemImage: "doc.on.doc") { duplicateWell(from: well) }
+                        Button(role: .destructive) { deleteCurrentWell() } label: { Label("Delete Well", systemImage: "trash") }
+                    }
+                }
+                if let project = vm.selectedProject {
+                    Section("Project State") {
+                        Button("Rename Project", systemImage: "pencil") { beginRename(project) }
+                        Button("Duplicate Project", systemImage: "doc.on.doc") { duplicateProject(from: project) }
+                        Button(role: .destructive) { deleteCurrentProject() } label: { Label("Delete Project", systemImage: "trash") }
+                    }
+                }
+            } label: {
+                Label("Actions", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+}
+
+
+private extension ContentView {
+    func deleteCurrentWell() {
+        guard let w = vm.selectedWell, let idx = wells.firstIndex(where: { $0.id == w.id }) else { return }
+        deleteWells(at: IndexSet(integer: idx))
+    }
+
+    func deleteCurrentProject() {
+        guard let well = vm.selectedWell, let p = vm.selectedProject,
+              let idx = well.projects.sorted(by: { $0.createdAt < $1.createdAt }).firstIndex(where: { $0.id == p.id }) else { return }
+        deleteProjects(offsets: IndexSet(integer: idx))
     }
 }

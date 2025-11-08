@@ -20,23 +20,19 @@ struct VolumeSummaryView: View {
     var body: some View {
         let totals = viewmodel.computeTotals()
 
-        NavigationStack {
+        ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Volume Summary").font(.title2).bold()
 
-                Grid(horizontalSpacing: 20, verticalSpacing: 20) {
-                    GridRow {
-                        VolumeBox(title: "Drill String Capacity", value: totals.dsCapacity_m3, caption: "Inner fluid capacity volume (m³)", fmt3: viewmodel.fmt3)
-                        VolumeBox(title: "Drill String Displacement", value: totals.dsDisplacement_m3, caption: "Metal displacement volume (m³)", fmt3: viewmodel.fmt3)
-                        VolumeBox(title: "Wet Displacement", value: totals.dsWet_m3, caption: "Capacity + Displacement (m³)", fmt3: viewmodel.fmt3)
-                    }
-                    GridRow {
-                        VolumeBox(title: "Annular Volume (with pipe)", value: totals.annularWithPipe_m3, caption: "Annulus volume accounting for drill string (m³)", fmt3: viewmodel.fmt3)
-                        VolumeBox(title: "Open Hole Volume (no pipe)", value: totals.openHole_m3, caption: "Annulus/casing capacity ignoring pipe (m³)", fmt3: viewmodel.fmt3)
-                        Spacer().gridCellUnsizedAxes([.horizontal, .vertical])
-                    }
+                // Adaptive grid of summary boxes
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16) {
+                    VolumeBox(title: "Drill String Capacity", value: totals.dsCapacity_m3, caption: "Inner fluid capacity volume (m³)", fmt3: viewmodel.fmt3)
+                    VolumeBox(title: "Drill String Displacement", value: totals.dsDisplacement_m3, caption: "Metal displacement volume (m³)", fmt3: viewmodel.fmt3)
+                    VolumeBox(title: "Wet Displacement", value: totals.dsWet_m3, caption: "Capacity + Displacement (m³)", fmt3: viewmodel.fmt3)
+                    VolumeBox(title: "Annular Volume (with pipe)", value: totals.annularWithPipe_m3, caption: "Annulus volume accounting for drill string (m³)", fmt3: viewmodel.fmt3)
+                    VolumeBox(title: "Open Hole Volume (no pipe)", value: totals.openHole_m3, caption: "Annulus/casing capacity ignoring pipe (m³)", fmt3: viewmodel.fmt3)
                 }
-                .padding()
+                .padding(.top, 4)
 
                 if !totals.slices.isEmpty {
                     Divider()
@@ -55,10 +51,9 @@ struct VolumeSummaryView: View {
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding()
-            .navigationTitle("Volume Summary")
         }
     }
 }

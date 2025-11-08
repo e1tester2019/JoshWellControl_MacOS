@@ -20,8 +20,7 @@ struct AnnulusListView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack {
+        VStack {
                 List(selection: $viewmodel.selection) {
                     ForEach(Array(viewmodel.sortedSections.enumerated()), id: \.element.id) { index, sec in
                         HStack(alignment: .firstTextBaseline) {
@@ -86,12 +85,13 @@ struct AnnulusListView: View {
                     }
                 }
             }
-            .navigationDestination(item: $viewmodel.activeSection) { sec in
+            .sheet(item: $viewmodel.activeSection) { sec in
                 AnnulusDetailView(section: sec)
+                    .frame(minWidth: 640, minHeight: 420)
             }
         }
     }
-}
+
 
 extension AnnulusListView {
     @Observable
