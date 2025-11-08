@@ -141,8 +141,8 @@ struct SurveyListView: View {
     }
 
     private func add() {
-        let lastSurvey = sortedSurveys.last ?? SurveyStation(md: 0, inc: 0, azi: 0)
-        let s = SurveyStation(md: lastSurvey.md + 30, inc: lastSurvey.inc, azi: lastSurvey.azi)
+        let lastSurvey = sortedSurveys.last ?? SurveyStation(md: 0, inc: 0, azi: 0, tvd: nil)
+        let s = SurveyStation(md: lastSurvey.md + 30, inc: lastSurvey.inc, azi: lastSurvey.azi, tvd: lastSurvey.tvd)
         project.surveys.append(s)
         modelContext.insert(s)
         try? modelContext.save()
@@ -207,7 +207,7 @@ struct SurveyListView: View {
             let azmVal = toDouble(row[azmKey])
             let tvdVal = toDouble(row[tvdKey])
 
-            let s = SurveyStation(md: mdVal ?? 0, inc: incVal ?? 0, azi: azmVal ?? 0)
+            let s = SurveyStation(md: mdVal ?? 0, inc: incVal ?? 0, azi: azmVal ?? 0, tvd: tvdVal)
             s.tvd = tvdVal
 
             created.append(s)
@@ -380,39 +380,37 @@ private enum CSVParser {
 }
 
 #if DEBUG
-#Preview("Surveys – Sample Data") {
-    do {
+private struct SurveyListPreview: View {
+    let container: ModelContainer
+    let project: ProjectState
+
+    init() {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(
+        // Use try! in preview-only code to avoid do/catch in the result builder
+        self.container = try! ModelContainer(
             for: ProjectState.self,
                  SurveyStation.self,
-                 DrillStringSection.self,
-                 AnnulusSection.self,
-                 PressureWindow.self,
-                 PressureWindowPoint.self,
-                 SlugPlan.self,
-                 SlugStep.self,
-                 BackfillPlan.self,
-                 BackfillRule.self,
-                 TripSettings.self,
-                 SwabInput.self,
             configurations: config
         )
         let ctx = container.mainContext
-        let project = ProjectState()
-        ctx.insert(project)
-        // Seed a few stations
-        let s1 = SurveyStation(md: 0, inc: 0, azi: 0); s1.tvd = 0
-        let s2 = SurveyStation(md: 500, inc: 5, azi: 45); s2.tvd = 498
-        let s3 = SurveyStation(md: 1000, inc: 10, azi: 90); s3.tvd = 980
-        [s1,s2,s3].forEach { project.surveys.append($0); ctx.insert($0) }
+        let p = ProjectState()
+        ctx.insert(p)
+        let s1 = SurveyStation(md: 0, inc: 0, azi: 0, tvd: 0)
+        let s2 = SurveyStation(md: 500, inc: 5, azi: 45, tvd: 498)
+        let s3 = SurveyStation(md: 1000, inc: 10, azi: 90, tvd: 980)
+        [s1, s2, s3].forEach { p.surveys.append($0); ctx.insert($0) }
         try? ctx.save()
+        self.project = p
+    }
 
-        return NavigationStack { SurveyListView(project: project) }
+    var body: some View {
+        NavigationStack { SurveyListView(project: project) }
             .modelContainer(container)
             .frame(width: 760, height: 520)
-    } catch {
-        return Text("Preview failed: \(error.localizedDescription)")
     }
 }
 #endif
+
+#Preview("Surveys – Sample Data") {
+    SurveyListPreview()
+}

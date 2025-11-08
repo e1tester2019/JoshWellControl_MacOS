@@ -15,13 +15,6 @@ protocol TrajectorySampler {
 
 struct TripDirection { enum Kind { case pullOutOfHole, runInHole } }
 
-struct TripSample {
-    let bitMD: Double
-    let total_kPa: Double
-    let recommendedSABP_kPa: Double
-    let nonLaminar: Bool
-}
-
 struct TrippingSimulator {
     let calc = SwabCalculator()
 
@@ -94,7 +87,7 @@ struct TrippingSimulator {
                 traj: traj,
                 sabpSafety: 1.15
             )
-            return .init(bitMD: bitMD,
+            return .init(bitMD_m: bitMD, tvd_m: (traj?.TVDofMD(bitMD) ?? bitMD),
                          total_kPa: estimate.totalSwab_kPa,
                          recommendedSABP_kPa: estimate.recommendedSABP_kPa,
                          nonLaminar: estimate.nonLaminarFlag)

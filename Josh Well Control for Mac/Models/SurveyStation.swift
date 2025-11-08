@@ -14,9 +14,10 @@ final class SurveyStation {
     var azi: Double
     var tvd: Double?
 
-    init(md: Double, inc: Double, azi: Double) {
+    init(md: Double, inc: Double, azi: Double, tvd: Double?) {
         self.md = md
         self.inc = inc
         self.azi = azi
+        self.tvd = tvd
     }
 }
