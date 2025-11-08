@@ -35,6 +35,7 @@ struct MudPlacementView: View {
 
     // Preview mud density for quick interval pressure/step add
     @State private var previewDensity_kgm3: Double = 1260
+    @State private var intervalMudID: UUID? = nil
 
     init(project: ProjectState) {
         self._project = Bindable(wrappedValue: project)
@@ -68,7 +69,7 @@ struct MudPlacementView: View {
                                         return (r.annular_m3, r.stringCapacity_m3, r.stringDisp_m3, r.openHole_m3)
                                     }, onDelete: { s in
                                         viewmodel.deleteStep(s)
-                                    })
+                                    }, muds: viewmodel.mudsSortedByName)
                                 }
                             }
 
@@ -244,10 +245,22 @@ struct MudPlacementView: View {
                                         .labelsHidden()
                                         .frame(width: 20)
                                 }
-                                label("Preview ρ")
-                                TextField("kg/m³", value: $previewDensity_kgm3, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 120)
+                                label("Preview mud")
+                                Picker("", selection: Binding<UUID?>(
+                                    get: { intervalMudID ?? viewmodel.mudsSortedByName.first?.id },
+                                    set: { newID in
+                                        intervalMudID = newID
+                                        if let id = newID, let m = viewmodel.mudsSortedByName.first(where: { $0.id == id }) {
+                                            previewDensity_kgm3 = m.density_kgm3
+                                        }
+                                    }
+                                )) {
+                                    ForEach(viewmodel.mudsSortedByName, id: \.id) { m in
+                                        Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                                    }
+                                }
+                                .frame(width: 260)
+                                .pickerStyle(.menu)
                                 Spacer(minLength: 24)
                             }
                             Text("Tip: Top < Bottom. Open-hole uses [Top, Bottom]. 'Total mud in interval' solves a longer pipe-in length so volumes match after pulling the string.")
@@ -255,8 +268,7 @@ struct MudPlacementView: View {
                                 .foregroundStyle(.secondary)
                             // Insert preview density HStack here
                             HStack(spacing: 12) {
-
-                                Text("Use this density to preview ΔP over the selected TVD span, or add a step from this interval.")
+                                Text("Use this mud to preview ΔP over the selected TVD span, or add a step from this interval.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Spacer()
@@ -343,7 +355,13 @@ struct MudPlacementView: View {
                 .padding(16)
                 .navigationTitle("Mud Placement")
         }
-        .onAppear { viewmodel.attach(context: modelContext) }
+        .onAppear {
+            viewmodel.attach(context: modelContext)
+            if intervalMudID == nil { intervalMudID = viewmodel.mudsSortedByName.first?.id }
+            if let id = intervalMudID, let m = viewmodel.mudsSortedByName.first(where: { $0.id == id }) {
+                previewDensity_kgm3 = m.density_kgm3
+            }
+        }
     }
 
     // MARK: - Final layering helpers
@@ -434,6 +452,7 @@ struct MudPlacementView: View {
         @Bindable var step: MudStep
         let compute: (_ top: Double, _ bottom: Double) -> (annular_m3: Double, string_m3: Double, disp_m3: Double, openHole_m3: Double)
         let onDelete: (MudStep) -> Void
+        let muds: [MudProperties]
 
         @ViewBuilder private func rowLabel(_ s: String) -> some View {
             Text(s).frame(width: 80, alignment: .leading)
@@ -461,10 +480,24 @@ struct MudPlacementView: View {
                     TextField("Bottom", value: $step.bottom_m, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 110)
-                    rowLabel("ρ (kg/m³)")
-                    TextField("Density", value: $step.density_kgm3, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
+                    rowLabel("Mud")
+                    Picker("", selection: Binding<UUID?>(
+                        get: {
+                            // choose the mud whose density is closest to the step density
+                            muds.min(by: { abs($0.density_kgm3 - step.density_kgm3) < abs($1.density_kgm3 - step.density_kgm3) })?.id
+                        },
+                        set: { newID in
+                            if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                step.density_kgm3 = m.density_kgm3
+                            }
+                        }
+                    )) {
+                        ForEach(muds, id: \.id) { m in
+                            Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                        }
+                    }
+                    .frame(width: 260)
+                    .pickerStyle(.menu)
                     Picker("", selection: Binding(get: { step.placement }, set: { step.placement = $0 })) {
                         ForEach(Placement.allCases) { p in
                             Text(p.rawValue).tag(p)
@@ -764,6 +797,9 @@ extension MudPlacementView {
     class ViewModel {
         var project: ProjectState
         private var context: ModelContext?
+        var mudsSortedByName: [MudProperties] {
+            project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
 
         init(project: ProjectState) { self.project = project }
         func attach(context: ModelContext) { self.context = context }
