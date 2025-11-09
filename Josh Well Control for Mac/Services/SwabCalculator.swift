@@ -83,46 +83,97 @@ struct SwabCalculator {
         let rho_kgpm3: Double
         let topMD_m: Double
         let bottomMD_m: Double
+        // Optional rheology inputs per-layer
+        // Prefer K/n if available; else theta600/theta300; else fall back to global if provided
+        let K_Pa_s_n: Double?
+        let n_powerLaw: Double?
+        let theta600: Double?
+        let theta300: Double?
+        
+        init(rho_kgpm3: Double,
+             topMD_m: Double,
+             bottomMD_m: Double,
+             K_Pa_s_n: Double? = nil,
+             n_powerLaw: Double? = nil,
+             theta600: Double? = nil,
+             theta300: Double? = nil) {
+            self.rho_kgpm3 = rho_kgpm3
+            self.topMD_m = topMD_m
+            self.bottomMD_m = bottomMD_m
+            self.K_Pa_s_n = K_Pa_s_n
+            self.n_powerLaw = n_powerLaw
+            self.theta600 = theta600
+            self.theta300 = theta300
+        }
     }
 
     /// Use injected closures for rheology calculations.
     func estimateFromLayersPowerLaw(
         layers: [LayerDTO],
-        theta600: Double,
-        theta300: Double,
+        theta600: Double? = nil,
+        theta300: Double? = nil,
         hoistSpeed_mpermin: Double,
         eccentricityFactor: Double,
         step_m: Double,
         geom: GeometryService,
         traj: TrajectorySampler? = nil,
         sabpSafety: Double = 1.15,
-        floatIsOpen: Bool = false     // 👈 add this
+        floatIsOpen: Bool = false
     ) throws -> SwabEstimate {
 
         guard !layers.isEmpty else { throw NSError(domain: "Swab", code: 1, userInfo: [NSLocalizedDescriptionKey: "No layers."]) }
-        guard theta600 > 0, theta300 > 0 else { throw NSError(domain: "Swab", code: 2, userInfo: [NSLocalizedDescriptionKey: "Need 600/300."]) }
         guard hoistSpeed_mpermin > 0 else { throw NSError(domain: "Swab", code: 3, userInfo: [NSLocalizedDescriptionKey: "Hoist speed must be > 0 (m/min)."]) }
         guard step_m > 0 else { throw NSError(domain: "Swab", code: 4, userInfo: [NSLocalizedDescriptionKey: "Step must be > 0."]) }
 
-        let (K, n) = _plFrom600_300(theta600, theta300)
+        // Optional global fallback rheology
+        var globalK_n: (K: Double, n: Double)? = nil
+        if let t600 = theta600, let t300 = theta300, t600 > 0, t300 > 0 {
+            globalK_n = _plFrom600_300(t600, t300)
+        }
+
         let Vpipe_mps = hoistSpeed_mpermin / 60.0
 
-        // deep → shallow ordering
-        var ordered = [(rho: Double, deep: Double, shal: Double)]()
-        ordered.reserveCapacity(layers.count)
+        // Prepare per-layer rheology (K,n) for each segment
+        struct LayerResolved {
+            let rho: Double
+            let deep: Double
+            let shal: Double
+            let K: Double
+            let n: Double
+        }
+
+        var resolved: [LayerResolved] = []
+        resolved.reserveCapacity(layers.count)
         for L in layers {
             let deep = max(L.topMD_m, L.bottomMD_m)
             let shal = min(L.topMD_m, L.bottomMD_m)
-            ordered.append((L.rho_kgpm3, deep, shal))
+
+            // Priority: explicit K/n → per-layer 600/300 → global 600/300 → error
+            var Kn: (Double, Double)? = nil
+            if let K = L.K_Pa_s_n, let n = L.n_powerLaw, K > 0, n > 0 {
+                Kn = (K, n)
+            } else if let t600 = L.theta600, let t300 = L.theta300, t600 > 0, t300 > 0 {
+                Kn = _plFrom600_300(t600, t300)
+            } else if let g = globalK_n {
+                Kn = g
+            }
+
+            guard let (K, n) = Kn else {
+                throw NSError(domain: "Swab", code: 5, userInfo: [NSLocalizedDescriptionKey: "Missing rheology for layer spanning MD \(shal)–\(deep). Provide K/n or 600/300 (globally or per-layer)."])
+            }
+
+            resolved.append(LayerResolved(rho: L.rho_kgpm3, deep: deep, shal: shal, K: K, n: n))
         }
-        ordered.sort { $0.deep > $1.deep }
+
+        // deep → shallow ordering
+        resolved.sort { $0.deep > $1.deep }
 
         var prof: [SwabSegmentResult] = []
-        prof.reserveCapacity(Int(ceil((ordered.first?.deep ?? 0) / step_m)))
+        prof.reserveCapacity(Int(ceil((resolved.first?.deep ?? 0) / step_m)))
         var cumSwab_Pa: Double = 0
         var anyNonLaminar = false
 
-        for L in ordered {
+        for L in resolved {
             var md = L.deep
             while md > L.shal + 1e-12 {
                 let next = max(md - step_m, L.shal)
@@ -147,7 +198,7 @@ struct SwabCalculator {
                 // annular velocity
                 let Va = max(Vpipe_mps * (dispA / Aann) * max(eccentricityFactor, 1.0), 1e-12)
 
-                let rPL = _plLaminarGradient(L.rho, K, n, Va, Dh)
+                let rPL = _plLaminarGradient(L.rho, L.K, L.n, Va, Dh)
                 let dP = rPL.dPperM * segLen // Pa
                 cumSwab_Pa += dP
                 if !rPL.laminar { anyNonLaminar = true }

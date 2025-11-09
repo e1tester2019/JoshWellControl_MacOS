@@ -50,7 +50,7 @@ struct TripSimulationView: View {
                     HStack {
                         numberField("Start MD", value: $viewmodel.startBitMD_m)
                         numberField("End MD", value: $viewmodel.endMD_m)
-                        numberField("Shoe TVD", value: $viewmodel.shoeTVD_m)
+                        numberField("Control TVD", value: $viewmodel.shoeTVD_m)
                         numberField("Step (m)", value: $viewmodel.step_m)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

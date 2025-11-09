@@ -20,6 +20,7 @@ private struct FinalLayer: Identifiable {
     let name: String
     let color: Color
     let density: Double
+    let mud: MudProperties?
 }
 
 
@@ -41,9 +42,6 @@ struct MudPlacementView: View {
         self._project = Bindable(wrappedValue: project)
         _viewmodel = State(initialValue: ViewModel(project: project))
     }
-    
-    @State private var finalString: [FinalLayer] = []
-    @State private var finalAnnulus: [FinalLayer] = []
 
 
 
@@ -135,14 +133,26 @@ struct MudPlacementView: View {
                     }
 
                     // Final placed layers table
-                    if !finalString.isEmpty || !finalAnnulus.isEmpty {
+                    if !project.finalLayers.isEmpty {
                         GroupBox("Final spotted fluids (base + steps)") {
                             HStack(alignment: .top, spacing: 24) {
 
                                 // String column
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("String layers").font(.caption).foregroundStyle(.secondary)
-                                    ForEach(finalString) { lay in
+                                    let stringLayers = project.finalLayers
+                                        .filter { $0.placement == .string || $0.placement == .both }
+                                        .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
+                                    ForEach(stringLayers, id: \.id) { L in
+                                        let lay = FinalLayer(
+                                            domain: .string,
+                                            top: min(L.topMD_m, L.bottomMD_m),
+                                            bottom: max(L.topMD_m, L.bottomMD_m),
+                                            name: L.name,
+                                            color: L.color,
+                                            density: L.density_kgm3,
+                                            mud: L.mud
+                                        )
                                         let vol = volumeForLayer(lay)
                                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                                             Rectangle().fill(lay.color).frame(width: 16, height: 12).cornerRadius(2)
@@ -168,7 +178,19 @@ struct MudPlacementView: View {
                                 // Annulus column
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Annulus layers").font(.caption).foregroundStyle(.secondary)
-                                    ForEach(finalAnnulus) { lay in
+                                    let annulusLayers = project.finalLayers
+                                        .filter { $0.placement == .annulus || $0.placement == .both }
+                                        .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
+                                    ForEach(annulusLayers, id: \.id) { L in
+                                        let lay = FinalLayer(
+                                            domain: .annulus,
+                                            top: min(L.topMD_m, L.bottomMD_m),
+                                            bottom: max(L.topMD_m, L.bottomMD_m),
+                                            name: L.name,
+                                            color: L.color,
+                                            density: L.density_kgm3,
+                                            mud: L.mud
+                                        )
                                         let vol = volumeForLayer(lay)
                                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                                             Rectangle().fill(lay.color).frame(width: 16, height: 12).cornerRadius(2)
@@ -211,8 +233,39 @@ struct MudPlacementView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                             let depthTVD = viewmodel.mdToTVD(project.pressureDepth_m)
-                            let pAnn = hydrostatic(from: finalAnnulus, to: depthTVD)
-                            let pStr = hydrostatic(from: finalString,  to: depthTVD)
+                            // Build working layer arrays from persisted ProjectState so hydrostatic survives reloads
+                            let annLayers: [FinalLayer] = project.finalLayers
+                                .filter { $0.placement == .annulus || $0.placement == .both }
+                                .map { L in
+                                    FinalLayer(
+                                        domain: .annulus,
+                                        top: min(L.topMD_m, L.bottomMD_m),
+                                        bottom: max(L.topMD_m, L.bottomMD_m),
+                                        name: L.name,
+                                        color: L.color,
+                                        density: L.density_kgm3,
+                                        mud: L.mud
+                                    )
+                                }
+                                .sorted { $0.top < $1.top }
+
+                            let strLayers: [FinalLayer] = project.finalLayers
+                                .filter { $0.placement == .string || $0.placement == .both }
+                                .map { L in
+                                    FinalLayer(
+                                        domain: .string,
+                                        top: min(L.topMD_m, L.bottomMD_m),
+                                        bottom: max(L.topMD_m, L.bottomMD_m),
+                                        name: L.name,
+                                        color: L.color,
+                                        density: L.density_kgm3,
+                                        mud: L.mud
+                                    )
+                                }
+                                .sorted { $0.top < $1.top }
+
+                            let pAnn = hydrostatic(from: annLayers, to: depthTVD)
+                            let pStr = hydrostatic(from: strLayers, to: depthTVD)
                             HStack(spacing: 24) {
                                 resultBox(title: "Annulus P", value: pAnn, unit: "kPa", valueFmt: fmtP)
                                 resultBox(title: "String P", value: pStr, unit: "kPa", valueFmt: fmtP)
@@ -375,7 +428,7 @@ struct MudPlacementView: View {
     /// Fill a domain with a single base layer 0..TD
     private func baseLayer(for domain: Domain) -> FinalLayer {
         let rho = (domain == .annulus) ? project.baseAnnulusDensity_kgm3 : project.baseStringDensity_kgm3
-        return FinalLayer(domain: domain, top: 0, bottom: maxDepth_m, name: "Base", color: .gray.opacity(0.35), density: rho)
+        return FinalLayer(domain: domain, top: 0, bottom: maxDepth_m, name: "Base", color: .gray.opacity(0.35), density: rho, mud: nil)
     }
 
     /// Overlay `newLay` onto `layers` by replacing covered intervals (slicing where needed)
@@ -389,16 +442,16 @@ struct MudPlacementView: View {
             } else {
                 // left remainder
                 if L.top < t {
-                    out.append(FinalLayer(domain: L.domain, top: L.top, bottom: t, name: L.name, color: L.color, density: L.density))
+                    out.append(FinalLayer(domain: L.domain, top: L.top, bottom: t, name: L.name, color: L.color, density: L.density, mud: L.mud))
                 }
                 // right remainder
                 if L.bottom > b {
-                    out.append(FinalLayer(domain: L.domain, top: b, bottom: L.bottom, name: L.name, color: L.color, density: L.density))
+                    out.append(FinalLayer(domain: L.domain, top: b, bottom: L.bottom, name: L.name, color: L.color, density: L.density, mud: L.mud))
                 }
                 // overlapped middle will be replaced by newLay below
             }
         }
-        out.append(FinalLayer(domain: newLay.domain, top: t, bottom: b, name: newLay.name, color: newLay.color, density: newLay.density))
+        out.append(FinalLayer(domain: newLay.domain, top: t, bottom: b, name: newLay.name, color: newLay.color, density: newLay.density, mud: newLay.mud))
         // normalize order
         out.sort { $0.top < $1.top }
         layers = out
@@ -406,22 +459,38 @@ struct MudPlacementView: View {
 
     /// Rebuild finalAnnulus/finalString from base fill + user steps
     private func rebuildFinalFromBase() {
+        // Helper: choose a mud by closest density when a step has none
+        func bestMudMatch(forDensity rho: Double) -> MudProperties? {
+            project.muds.min(by: { abs($0.density_kgm3 - rho) < abs($1.density_kgm3 - rho) })
+        }
+
         var ann: [FinalLayer] = [ baseLayer(for: .annulus) ]
         var str: [FinalLayer] = [ baseLayer(for: .string) ]
+
         for s in viewmodel.steps {
             let t = min(s.top_m, s.bottom_m)
             let b = max(s.top_m, s.bottom_m)
-            let layA = FinalLayer(domain: .annulus, top: t, bottom: b, name: s.name, color: s.color, density: s.density_kgm3)
-            let layS = FinalLayer(domain: .string,  top: t, bottom: b, name: s.name, color: s.color, density: s.density_kgm3)
+            let chosenMud = s.mud ?? bestMudMatch(forDensity: s.density_kgm3)
+
+            let layA = FinalLayer(domain: .annulus,
+                                   top: t, bottom: b,
+                                   name: s.name,
+                                   color: s.color,
+                                   density: s.density_kgm3,
+                                   mud: chosenMud)
+
+            let layS = FinalLayer(domain: .string,
+                                   top: t, bottom: b,
+                                   name: s.name,
+                                   color: s.color,
+                                   density: s.density_kgm3,
+                                   mud: chosenMud)
+
             if s.placement == .annulus || s.placement == .both { overlay(&ann, with: layA) }
             if s.placement == .string  || s.placement == .both { overlay(&str, with: layS) }
         }
-        finalAnnulus = ann
-        finalString  = str
-        project.pressureDepth_m = maxDepth_m
-        finalAnnulus = ann
-        finalString  = str
-        project.pressureDepth_m = maxDepth_m
+
+        // Persist to SwiftData (keeps mud link if available)
         viewmodel.persistFinalLayers(from: ann, str)
     }
 
@@ -489,6 +558,7 @@ struct MudPlacementView: View {
                         set: { newID in
                             if let id = newID, let m = muds.first(where: { $0.id == id }) {
                                 step.density_kgm3 = m.density_kgm3
+                                step.mud = m
                             }
                         }
                     )) {
@@ -800,6 +870,47 @@ extension MudPlacementView {
         var mudsSortedByName: [MudProperties] {
             project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
+        
+        /// Load persisted final layers from ProjectState into the in-view arrays so the UI reflects saved state on launch
+        private func loadFinalFromProject() {
+            let layers = project.finalLayers
+
+            // Annulus
+            let ann: [FinalLayer] = layers.compactMap { L in
+                switch L.placement {
+                case .annulus, .both:
+                    return FinalLayer(
+                        domain: .annulus,
+                        top: min(L.topMD_m, L.bottomMD_m),
+                        bottom: max(L.topMD_m, L.bottomMD_m),
+                        name: L.name,
+                        color: L.color,
+                        density: L.density_kgm3,
+                        mud: L.mud
+                    )
+                default:
+                    return nil
+                }
+            }.sorted { $0.top < $1.top }
+
+            // String
+            let str: [FinalLayer] = layers.compactMap { L in
+                switch L.placement {
+                case .string, .both:
+                    return FinalLayer(
+                        domain: .string,
+                        top: min(L.topMD_m, L.bottomMD_m),
+                        bottom: max(L.topMD_m, L.bottomMD_m),
+                        name: L.name,
+                        color: L.color,
+                        density: L.density_kgm3,
+                        mud: L.mud
+                    )
+                default:
+                    return nil
+                }
+            }.sorted { $0.top < $1.top }
+        }
 
         init(project: ProjectState) { self.project = project }
         func attach(context: ModelContext) { self.context = context }
@@ -814,6 +925,7 @@ extension MudPlacementView {
                 return a.bottom_m < b.bottom_m
             }
         }
+        
         private func placementRank(_ p: Placement) -> Int {
             switch p { case .annulus: return 0; case .string: return 1; case .both: return 2 }
         }
@@ -971,7 +1083,8 @@ extension MudPlacementView {
                     topMD_m: min(lay.top, lay.bottom),
                     bottomMD_m: max(lay.top, lay.bottom),
                     density_kgm3: lay.density,
-                    color: lay.color
+                    color: lay.color,
+                    mud: lay.mud
                 )
                 context?.insert(f)
             }

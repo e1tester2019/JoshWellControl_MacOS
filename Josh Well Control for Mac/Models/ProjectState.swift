@@ -176,7 +176,8 @@ extension ProjectState {
                 density_kgm3: m0.density_kgm3,
                 colorHex: m0.colorHex,
                 placementRaw: m0.placementRaw,
-                project: p
+                project: p,
+                mud: m0.mud
             )
             p.mudSteps.append(m)
         }

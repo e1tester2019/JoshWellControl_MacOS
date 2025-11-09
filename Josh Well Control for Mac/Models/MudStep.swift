@@ -49,6 +49,8 @@ final class MudStep {
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
     
+    @Relationship var mud: MudProperties?   // ← optional
+    
     // Designated initializer (raw storage)
     init(name: String,
          top_m: Double,
@@ -56,7 +58,8 @@ final class MudStep {
          density_kgm3: Double,
          colorHex: String,
          placementRaw: String,
-         project: ProjectState?) {
+         project: ProjectState?,
+         mud: MudProperties? = nil) {
         self.name = name
         self.top_m = top_m
         self.bottom_m = bottom_m
@@ -64,6 +67,7 @@ final class MudStep {
         self.colorHex = colorHex
         self.placementRaw = placementRaw
         self.project = project
+        self.mud = mud
     }
 
     // Convenience initializer (typed Color & Placement)
@@ -73,14 +77,16 @@ final class MudStep {
                             density_kgm3: Double,
                             color: Color,
                             placement: Placement,
-                            project: ProjectState?) {
+                            project: ProjectState?,
+                            mud: MudProperties? = nil) {
         self.init(name: name,
                   top_m: top_m,
                   bottom_m: bottom_m,
                   density_kgm3: density_kgm3,
                   colorHex: color.toHexRGB() ?? "#007AFF",  // default system blue
                   placementRaw: placement.rawValue,
-                  project: project)
+                  project: project,
+                  mud: mud)
     }
 }
 

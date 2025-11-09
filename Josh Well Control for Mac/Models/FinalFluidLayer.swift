@@ -14,6 +14,7 @@ final class FinalFluidLayer {
     // Relationships
     @Relationship(inverse: \ProjectState.finalLayers)
     var project: ProjectState?
+    @Relationship var mud: MudProperties?   // ← optional link back to the mud check
 
     // Metadata
     var name: String
@@ -40,7 +41,8 @@ final class FinalFluidLayer {
          bottomMD_m: Double,
          density_kgm3: Double,
          color: Color,
-         createdAt: Date = .now)
+         createdAt: Date = .now,
+         mud: MudProperties? = nil)         // ← new param
     {
         self.project = project
         self.name = name
@@ -50,6 +52,7 @@ final class FinalFluidLayer {
         self.density_kgm3 = density_kgm3
         (self.colorR, self.colorG, self.colorB, self.colorA) = color.rgba
         self.createdAt = createdAt
+        self.mud = mud                      // ← store it
     }
 
     var color: Color { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
