@@ -41,7 +41,7 @@ struct ContentView: View {
     @State private var renameWellText: String = ""
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case dashboard, drillString, annulus, volumes, surveys, mudCheck, pressureWindow, pump, swabbing, trip, bhp
+        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pump, swabbing, trip, bhp
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -51,6 +51,7 @@ struct ContentView: View {
             case .volumes: return "Volume Summary"
             case .surveys: return "Surveys"
             case .mudCheck: return "Mud Check"
+            case .mixingCalc: return "Mixing Calculator"
             case .pressureWindow: return "Pressure Window"
             case .pump: return "Pump Schedule"
             case .swabbing: return "Swabbing"
@@ -119,6 +120,8 @@ struct ContentView: View {
                             SurveyListView(project: project)
                         case .mudCheck:
                             MudCheckView(project: project)
+                        case .mixingCalc:
+                            MixingCalculatorView(project: project)
                         case .pressureWindow:
                             PressureWindowView(project: project)
                         case .pump:
@@ -308,7 +311,8 @@ private extension ContentView {
         case .annulus: return "seal"
         case .volumes: return "chart.bar"
         case .surveys: return "map"
-        case .mudCheck: return "check"
+        case .mudCheck: return "checkmark.diamond"
+        case .mixingCalc: return "tornado"
         case .pressureWindow: return "barometer"
         case .pump: return "drop"
         case .swabbing: return "arrow.up.and.down"
