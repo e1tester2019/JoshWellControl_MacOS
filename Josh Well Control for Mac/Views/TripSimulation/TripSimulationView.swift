@@ -73,6 +73,8 @@ struct TripSimulationView: View {
                         Toggle("Hold SABP open (0)", isOn: $viewmodel.holdSABPOpen)
                     }
                 }
+                // Keep this group compact vertically so it doesn't stretch when the layout updates
+                .frame(height: 80)
 
                 GroupBox("View") {
                     Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
@@ -112,37 +114,42 @@ struct TripSimulationView: View {
     }
 
     private var content: some View {
-        HStack(spacing: 12) {
-            // LEFT COLUMN: Steps (top) + Details (bottom when shown)
-            GeometryReader { g in
-                VStack(spacing: 8) {
-                    stepsTable
-                        .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
-                    if viewmodel.showDetails {
-                        ScrollView {
-                            detailAccordion
+        GeometryReader { geo in
+            HStack(spacing: 12) {
+                // LEFT COLUMN: Steps (top) + Details (bottom when shown)
+                GeometryReader { g in
+                    VStack(spacing: 8) {
+                        stepsTable
+                            .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
+                        if viewmodel.showDetails {
+                            ScrollView {
+                                detailAccordion
+                            }
+                            .frame(height: max(0, g.size.height * 0.5 - 4))
+                        } else {
+                            // Reserve 0 height when hidden
+                            Color.clear.frame(height: 0)
                         }
-                        .frame(height: max(0, g.size.height * 0.5 - 4))
-                    } else {
-                        // Reserve 0 height when hidden
-                        Color.clear.frame(height: 0)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .frame(maxHeight: .infinity)
+
+                Divider()
+
+                // RIGHT COLUMN: Well image (own column) + ESD@control label
+                VStack(alignment: .center, spacing: 4) {
+                    visualization
+                        .frame(maxHeight: .infinity)
+                    if !esdAtControlText.isEmpty {
+                        Text(esdAtControlText)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .padding(.top, 4)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-            .frame(minWidth: 720, maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            // RIGHT COLUMN: Well image (own column) + ESD@control label
-            VStack(alignment: .center, spacing: 4) {
-                visualization
-                    .frame(minWidth: 260, maxWidth: 360, maxHeight: .infinity)
-                if !esdAtControlText.isEmpty {
-                    Text(esdAtControlText)
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .padding(.top, 4)
-                }
+                // Give the visualization about 1/3 of the available width, but don't let it get too narrow
+                .frame(width: max(260, geo.size.width / 3))
+                .frame(maxHeight: .infinity)
             }
         }
     }
@@ -425,11 +432,13 @@ struct TripSimulationView: View {
 
     // MARK: - Subviews / helpers
     private func numberField(_ title: String, value: Binding<Double>) -> some View {
-        HStack(spacing: 6) {
-            Text(title).frame(width: 130, alignment: .trailing)
+        HStack(spacing: 4) {
+            Text(title)
+                .frame(width: 110, alignment: .trailing)
+                .lineLimit(1)
             TextField(title, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 120)
+                .frame(width: 90)
         }
     }
 
