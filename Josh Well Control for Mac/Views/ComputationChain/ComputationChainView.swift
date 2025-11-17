@@ -40,7 +40,7 @@ struct ComputationChainView: View {
     private var libraryColumn: some View {
         List {
             Section("Supported Computations") {
-                ForEach(ChainComputationType.allCases) { type in
+                ForEach(ChainComputationType.allCases, id: \.self) { type in
                     let descriptor = type.descriptor
                     Button {
                         viewModel.addNode(ofType: type)
@@ -48,7 +48,7 @@ struct ComputationChainView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: descriptor.symbolName)
                                 .frame(width: 24)
-                                .foregroundStyle(.accentColor)
+                                .foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(descriptor.title)
                                     .font(.headline)
@@ -228,7 +228,7 @@ struct ComputationChainView: View {
     private var sharedTag: some View {
         Text("Shared")
             .font(.caption2)
-            .foregroundStyle(.accentColor)
+            .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(
