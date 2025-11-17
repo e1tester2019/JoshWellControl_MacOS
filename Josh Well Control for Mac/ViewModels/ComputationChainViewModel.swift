@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 struct ChainNode: Identifiable {
     let id = UUID()

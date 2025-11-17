@@ -31,7 +31,7 @@ struct ProjectDashboardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 16)], spacing: 16) {
                     WellSection(title: "Project", icon: "target", subtitle: "Name and pressure window safety margins.") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
@@ -190,7 +190,7 @@ private struct ProjectDashboardPreview: View {
     var body: some View {
         NavigationStack { ProjectDashboardView(project: project) }
             .modelContainer(container)
-            .frame(width: 900, height: 600)
+            .frame(width: 2000, height: 600)
     }
 }
 

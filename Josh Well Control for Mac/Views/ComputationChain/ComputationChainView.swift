@@ -30,7 +30,7 @@ struct ComputationChainView: View {
                 Button(role: .destructive) {
                     viewModel.resetChain()
                 } label: {
-                    Label("Clear Chain", systemName: "trash")
+                    Label("Clear Chain", systemImage: "trash")
                 }
                 .disabled(viewModel.nodes.isEmpty)
             }
