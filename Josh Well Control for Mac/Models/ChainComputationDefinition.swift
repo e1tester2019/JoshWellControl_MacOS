@@ -16,8 +16,18 @@ final class ChainComputationDefinition {
     var symbolName: String
     var builtinKey: String?
     var isUserDefined: Bool
-    @Attribute(.transformable(by: .json)) var inputs: [ChainVariablePayload]
-    @Attribute(.transformable(by: .json)) var outputs: [ChainVariablePayload]
+    @Attribute(.externalStorage) private var inputsBlob: Data
+    @Attribute(.externalStorage) private var outputsBlob: Data
+
+    var inputs: [ChainVariablePayload] {
+        get { Self.decodePayloads(from: inputsBlob) }
+        set { inputsBlob = Self.encodePayloads(newValue) }
+    }
+
+    var outputs: [ChainVariablePayload] {
+        get { Self.decodePayloads(from: outputsBlob) }
+        set { outputsBlob = Self.encodePayloads(newValue) }
+    }
 
     init(
         identifier: String = UUID().uuidString,
@@ -35,8 +45,21 @@ final class ChainComputationDefinition {
         self.symbolName = symbolName
         self.builtinKey = builtinKey
         self.isUserDefined = isUserDefined
-        self.inputs = inputs
-        self.outputs = outputs
+        self.inputsBlob = Self.encodePayloads(inputs)
+        self.outputsBlob = Self.encodePayloads(outputs)
+    }
+}
+
+private extension ChainComputationDefinition {
+    static func encodePayloads(_ payloads: [ChainVariablePayload]) -> Data {
+        let encoder = JSONEncoder()
+        return (try? encoder.encode(payloads)) ?? Data()
+    }
+
+    static func decodePayloads(from data: Data) -> [ChainVariablePayload] {
+        guard !data.isEmpty else { return [] }
+        let decoder = JSONDecoder()
+        return (try? decoder.decode([ChainVariablePayload].self, from: data)) ?? []
     }
 }
 
