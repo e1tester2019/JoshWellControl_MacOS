@@ -11,15 +11,15 @@ import Combine
 
 struct ChainNode: Identifiable {
     let id = UUID()
-    let type: ChainComputationType
+    let descriptor: ChainComputationDescriptor
     var inputText: [String: String]
     var outputs: [String: Double] = [:]
     var validationMessage: String? = nil
 
-    init(type: ChainComputationType, prefill: [String: Double] = [:]) {
-        self.type = type
+    init(descriptor: ChainComputationDescriptor, prefill: [String: Double] = [:]) {
+        self.descriptor = descriptor
         var dict: [String: String] = [:]
-        for input in type.descriptor.inputs {
+        for input in descriptor.inputs {
             if let value = prefill[input.key] {
                 dict[input.key] = Self.format(value: value)
             } else {
@@ -28,8 +28,6 @@ struct ChainNode: Identifiable {
         }
         self.inputText = dict
     }
-
-    var descriptor: ChainComputationDescriptor { type.descriptor }
 
     mutating func applyPrefill(from context: [String: Double]) {
         for input in descriptor.inputs where input.isShared {
@@ -63,9 +61,10 @@ final class ComputationChainViewModel: ObservableObject {
     @Published var sharedValues: [String: Double]
     @Published var selectedNodeID: ChainNode.ID?
 
-    private let seedValues: [String: Double]
+    private var projectSeed: [String: Double]
+    private var customSeed: [String: Double]
 
-    init(project: ProjectState) {
+    init(project: ProjectState, customValues: [String: Double] = [:]) {
         var seed: [String: Double] = [:]
         let tvd = project.pressureDepth_m
         let density = project.baseAnnulusDensity_kgm3
@@ -81,12 +80,13 @@ final class ComputationChainViewModel: ObservableObject {
         seed["sbp_kPa"] = 0
         seed["frictionGrad_kPa_per_m"] = 0
         seed["targetBHP_kPa"] = 0
-        self.seedValues = seed
-        self.sharedValues = seed
+        self.projectSeed = seed
+        self.customSeed = customValues
+        self.sharedValues = seed.merging(customValues) { _, new in new }
     }
 
-    func addNode(ofType type: ChainComputationType) {
-        let node = ChainNode(type: type, prefill: sharedValues)
+    func addNode(descriptor: ChainComputationDescriptor) {
+        let node = ChainNode(descriptor: descriptor, prefill: sharedValues)
         nodes.append(node)
         selectedNodeID = node.id
         recomputeChain()
@@ -104,8 +104,17 @@ final class ComputationChainViewModel: ObservableObject {
 
     func resetChain() {
         nodes.removeAll()
-        sharedValues = seedValues
+        sharedValues = initialContext
         selectedNodeID = nil
+    }
+
+    func updateCustomSeed(_ values: [String: Double]) {
+        customSeed = values
+        recomputeChain()
+    }
+
+    private var initialContext: [String: Double] {
+        projectSeed.merging(customSeed) { _, new in new }
     }
 
     func node(with id: ChainNode.ID?) -> ChainNode? {
@@ -136,14 +145,14 @@ final class ComputationChainViewModel: ObservableObject {
     }
 
     private func recomputeChain() {
-        var context = seedValues
+        var context = initialContext
         for idx in nodes.indices {
             var node = nodes[idx]
             node.applyPrefill(from: context)
             let descriptor = node.descriptor
             let parsed = node.parsedInputs()
             if parsed.count == descriptor.inputs.count {
-                let outputs = descriptor.compute(parsed)
+                let outputs = descriptor.run(inputs: parsed, context: context)
                 node.outputs = outputs
                 node.validationMessage = nil
 
