@@ -5,8 +5,6 @@
 //  Created by Josh Sallows on 2025-11-02.
 //
 
-
-// PressureWindowView.swift
 import SwiftUI
 import SwiftData
 
@@ -22,109 +20,185 @@ struct PressureWindowView: View {
     }
 
     var body: some View {
-        VStack {
-            List(selection: $viewmodel.selection) {
-                Section {
-                    ForEach(viewmodel.points) { row in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("TVD \(row.depth_m, format: .number)")
-                                .frame(width: 120, alignment: .leading)
-
-                            // Pore column
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField(
-                                    "Pore (kPa)",
-                                    value: Binding<Double>(
-                                        get: { row.pore_kPa ?? 0 },
-                                        set: { row.pore_kPa = $0 }
-                                    ),
-                                    format: .number
-                                )
-                                .focused($focusedPoint, equals: row.id)
-
-                                Text("ρ_eq: \(viewmodel.eqDensityString(pressure_kPa: row.pore_kPa, tvd_m: row.depth_m)) kg/m³")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                WellSection(
+                    title: "Pressure Envelope",
+                    icon: "waveform.path.ecg",
+                    subtitle: "Track pore & fracture gradients versus TVD."
+                ) {
+                    if viewmodel.points.isEmpty {
+                        Text("No reference points yet. Use the form below to seed pore/frac pairs.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-
-                            // Frac column
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField(
-                                    "Frac (kPa)",
-                                    value: Binding<Double>(
-                                        get: { row.frac_kPa ?? 0 },
-                                        set: { row.frac_kPa = $0 }
-                                    ),
-                                    format: .number
+                    } else {
+                        VStack(spacing: 12) {
+                            headerRow
+                            ForEach(viewmodel.points) { point in
+                                PressurePointRow(
+                                    point: point,
+                                    eqDensityString: viewmodel.eqDensityString,
+                                    focus: $focusedPoint,
+                                    onDelete: { viewmodel.deleteRow(point) }
                                 )
-                                Text("ρ_eq: \(viewmodel.eqDensityString(pressure_kPa: row.frac_kPa, tvd_m: row.depth_m)) kg/m³")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Spacer()
-
-                            // Inline row actions
-                            HStack(spacing: 8) {
-                                Button("Edit") {
-                                    focusedPoint = row.id
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .help("Focus pore pressure field")
-
-                                Button(role: .destructive) {
-                                    viewmodel.deleteRow(row)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                        .labelStyle(.iconOnly)
-                                }
-                                .buttonStyle(.borderless)
-                                .controlSize(.small)
-                                .help("Delete this row")
                             }
                         }
                     }
-                    .onDelete(perform: viewmodel.deleteRows)
-                } header: {
-                    HStack {
-                        Text("TVD (m)")
-                            .frame(width: 120, alignment: .leading)
-                        Text("Pore (kPa) • ρ_eq (kg/m³)")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("Frac (kPa) • ρ_eq (kg/m³)")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                }
+
+                WellSection(
+                    title: "Add Reference Point",
+                    icon: "plus.circle.fill",
+                    subtitle: "Seed a pore/frac pair at a target TVD."
+                ) {
+                    addRowForm
+                }
+            }
+            .padding(24)
+        }
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .navigationTitle("Pressure Window")
+        .onAppear { viewmodel.attach(context: modelContext) }
+    }
+
+    private var headerRow: some View {
+        HStack {
+            Text("TVD (m)")
+                .frame(width: 120, alignment: .leading)
+            Text("Pore (kPa) • ρ_eq (kg/m³)")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Frac (kPa) • ρ_eq (kg/m³)")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer().frame(width: 64)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var addRowForm: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text("TVD (m)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("TVD (m)", value: $viewmodel.newDepth, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+                        .monospacedDigit()
+                }
+                GridRow {
+                    Text("Pore (kPa)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("Pore (kPa)", value: $viewmodel.newPore, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+                        .monospacedDigit()
+                }
+                GridRow {
+                    Text("Frac (kPa)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("Frac (kPa)", value: $viewmodel.newFrac, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+                        .monospacedDigit()
+                }
+            }
+
+            Button {
+                viewmodel.addRow()
+            } label: {
+                Label("Add Point", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+private struct PressurePointRow: View {
+    @Bindable var point: PressureWindowPoint
+    let eqDensityString: (Double?, Double) -> String
+    let focus: FocusState<PressureWindowPoint.ID?>.Binding
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Text("TVD \(point.depth_m, format: .number)")
+                .monospacedDigit()
+                .frame(width: 120, alignment: .leading)
+                .font(.subheadline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Pore (kPa)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 2)
-                }
+                TextField(
+                    "Pore (kPa)",
+                    value: optionalBinding(\PressureWindowPoint.pore_kPa),
+                    format: .number
+                )
+                .textFieldStyle(.roundedBorder)
+                .focused(focus, equals: point.id)
+                Text("ρ_eq: \(eqDensityString(point.pore_kPa, point.depth_m)) kg/m³")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            HStack {
-                Text("TVD (m)")
-                    .frame(width: 120, alignment: .trailing)
-                TextField("TVD (m)", value: $viewmodel.newDepth, format: .number)
-                Spacer()
-                Text("Pore (kPa)")
-                    .frame(width: 120, alignment: .trailing)
-                TextField("Pore (kPa)", value: $viewmodel.newPore, format: .number)
-                Spacer()
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Frac (kPa)")
-                    .frame(width: 120, alignment: .trailing)
-                TextField("Frac (kPa)", value: $viewmodel.newFrac, format: .number)
-                Spacer()
-                Button{ viewmodel.addRow() } label: {
-                    Label("Add", systemImage: "plus")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(
+                    "Frac (kPa)",
+                    value: optionalBinding(\PressureWindowPoint.frac_kPa),
+                    format: .number
+                )
+                .textFieldStyle(.roundedBorder)
+                Text("ρ_eq: \(eqDensityString(point.frac_kPa, point.depth_m)) kg/m³")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 16)
+
+            VStack(spacing: 8) {
+                Button {
+                    focus.wrappedValue = point.id
+                } label: {
+                    Label("Focus", systemImage: "pencil")
                         .labelStyle(.iconOnly)
                 }
+                .buttonStyle(.borderless)
+                .help("Focus pore pressure field")
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
             }
-            .padding()
         }
-        .navigationTitle("Pressure Window")
-        .onDeleteCommand { viewmodel.deleteSelection() }
-        .onAppear { viewmodel.attach(context: modelContext) }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.gray.opacity(0.25))
+        )
+    }
+
+    private func optionalBinding(_ keyPath: ReferenceWritableKeyPath<PressureWindowPoint, Double?>) -> Binding<Double> {
+        Binding(
+            get: { point[keyPath: keyPath] ?? 0 },
+            set: { point[keyPath: keyPath] = $0 }
+        )
     }
 }
 
@@ -135,13 +209,14 @@ extension PressureWindowView {
         var newDepth: Double = 1000.0
         var newPore: Double = 11000.0
         var newFrac: Double = 17000.0
-        var selection = Set<PressureWindowPoint.ID>()
         private var context: ModelContext?
 
         init(project: ProjectState) { self.project = project }
         func attach(context: ModelContext) { self.context = context }
 
-        var points: [PressureWindowPoint] { project.window.points }
+        var points: [PressureWindowPoint] {
+            project.window.points.sorted { $0.depth_m < $1.depth_m }
+        }
 
         func addRow() {
             let r = PressureWindowPoint(depth_m: newDepth, pore_kPa: newPore, frac_kPa: newFrac)
@@ -150,22 +225,8 @@ extension PressureWindowView {
             try? context?.save()
         }
 
-        func deleteRows(_ offsets: IndexSet) {
-            offsets
-                .map { project.window.points[$0] }
-                .forEach { context?.delete($0) }
-            try? context?.save()
-        }
-
         func deleteRow(_ row: PressureWindowPoint) {
             context?.delete(row)
-            try? context?.save()
-        }
-
-        func deleteSelection() {
-            let toDelete = project.window.points.filter { selection.contains($0.id) }
-            toDelete.forEach { context?.delete($0) }
-            selection.removeAll()
             try? context?.save()
         }
 
