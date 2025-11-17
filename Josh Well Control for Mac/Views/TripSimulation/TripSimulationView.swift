@@ -70,7 +70,7 @@ struct TripSimulationView: View {
                     HStack {
                         numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
                         numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                        Toggle("Hold SABP open (0)", isOn: $viewmodel.holdSABPOpen)
+                        Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
                     }
                 }
                 // Keep this group compact vertically so it doesn't stretch when the layout updates
