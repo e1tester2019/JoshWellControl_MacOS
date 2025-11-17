@@ -205,7 +205,7 @@ struct SwabCalculator {
 
                 prof.append(SwabSegmentResult(
                     MD_m: next,
-                    TVD_m: traj?.TVDofMD(mdMid) ?? 0.0,
+                    TVD_m: traj?.TVDofMD(mdMid) ?? mdMid,
                     Dh_m: Dh,
                     Va_mps: Va,
                     dPperM_PaPerM: rPL.dPperM,
