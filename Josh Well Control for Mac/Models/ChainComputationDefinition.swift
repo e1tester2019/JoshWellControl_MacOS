@@ -16,16 +16,16 @@ final class ChainComputationDefinition {
     var symbolName: String
     var builtinKey: String?
     var isUserDefined: Bool
-    @Attribute(.externalStorage) private var inputsBlob: Data = Data()
-    @Attribute(.externalStorage) private var outputsBlob: Data = Data()
+    @Attribute(.externalStorage) private var inputsBlob: Data
+    @Attribute(.externalStorage) private var outputsBlob: Data
 
     var inputs: [ChainVariablePayload] {
-        get { Self.decodePayloads(inputsBlob) }
+        get { Self.decodePayloads(from: inputsBlob) }
         set { inputsBlob = Self.encodePayloads(newValue) }
     }
 
     var outputs: [ChainVariablePayload] {
-        get { Self.decodePayloads(outputsBlob) }
+        get { Self.decodePayloads(from: outputsBlob) }
         set { outputsBlob = Self.encodePayloads(newValue) }
     }
 
@@ -56,7 +56,7 @@ private extension ChainComputationDefinition {
         return (try? encoder.encode(payloads)) ?? Data()
     }
 
-    static func decodePayloads(_ data: Data) -> [ChainVariablePayload] {
+    static func decodePayloads(from data: Data) -> [ChainVariablePayload] {
         guard !data.isEmpty else { return [] }
         let decoder = JSONDecoder()
         return (try? decoder.decode([ChainVariablePayload].self, from: data)) ?? []

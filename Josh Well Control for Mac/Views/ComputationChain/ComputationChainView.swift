@@ -8,7 +8,6 @@
 import SwiftData
 import SwiftUI
 
-@MainActor
 struct ComputationChainView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ChainComputationDefinition.title) private var storedDefinitions: [ChainComputationDefinition]
@@ -208,39 +207,24 @@ struct ComputationChainView: View {
 
                 Section("Inputs") {
                     ForEach(node.descriptor.inputs) { input in
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Text(input.label)
-                                    .fontWeight(.semibold)
                                 if input.isShared { sharedTag }
                             }
-
-                            if let example = input.placeholder, !example.isEmpty {
-                                Text("Example: \(example)")
+                            if let note = input.footnote {
+                                Text(note)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-
-                            if let sharedHint = sharedValueHint(for: input.key) {
-                                Text("Shared value on file: \(sharedHint)")
-                                    .font(.caption2)
-                                    .foregroundStyle(Color.accentColor)
-                            }
-
                             HStack(spacing: 8) {
-                                TextField("Enter value", text: viewModel.binding(for: node.id, key: input.key))
+                                TextField(input.placeholder ?? "Value", text: viewModel.binding(for: node.id, key: input.key))
                                     .textFieldStyle(.roundedBorder)
                                     .multilineTextAlignment(.trailing)
                                 if let unit = input.unit {
                                     Text(unit)
                                         .foregroundStyle(.secondary)
                                 }
-                            }
-
-                            if let note = input.footnote {
-                                Text(note)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
                             }
                         }
                         .padding(.vertical, 4)
@@ -322,11 +306,6 @@ struct ComputationChainView: View {
             )
         }
         return dict
-    }
-
-    private func sharedValueHint(for key: String) -> String? {
-        guard let value = viewModel.sharedValues[key] else { return nil }
-        return formatValue(value)
     }
 
     private var availableDescriptors: [ChainComputationDescriptor] {

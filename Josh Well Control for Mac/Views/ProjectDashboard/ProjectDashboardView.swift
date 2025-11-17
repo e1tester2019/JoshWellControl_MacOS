@@ -22,38 +22,52 @@ struct ProjectDashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack (spacing: 12) {
-                    GroupBox("Project") {
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Project Dashboard")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Text("Curate project inputs, system defaults, and a snapshot of the work already captured.")
+                        .foregroundStyle(.secondary)
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
+                    WellSection(title: "Project", icon: "target", subtitle: "Name and pressure window safety margins.") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
-                                Text("Name").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                Text("Name")
+                                    .frame(width: 140, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
                                 TextField("Project name", text: $project.name)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 360)
                             }
                             GridRow {
-                                Text("Pore safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                Text("Pore safety (kPa)")
+                                    .frame(width: 140, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.poreSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 160)
                                     .monospacedDigit()
                             }
                             GridRow {
-                                Text("Frac safety (kPa)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                                Text("Frac safety (kPa)")
+                                    .frame(width: 140, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.fracSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 160)
                                     .monospacedDigit()
                             }
                         }
-                        .padding(8)
                     }
-                    GroupBox("Active System") {
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+
+                    WellSection(title: "Active System", icon: "drop.fill", subtitle: "Current active pit & surface volumes.") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Active mud weight (kg/m³)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -62,7 +76,7 @@ struct ProjectDashboardView: View {
                             }
                             GridRow {
                                 Text("Active mud volume (m³)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -71,7 +85,7 @@ struct ProjectDashboardView: View {
                             }
                             GridRow {
                                 Text("Surface line volume (m³)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.surfaceLineVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -79,13 +93,13 @@ struct ProjectDashboardView: View {
                                     .monospacedDigit()
                             }
                         }
-                        .padding(8)
                     }
-                    GroupBox("Defaults") {
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+
+                    WellSection(title: "Defaults", icon: "slider.horizontal.3", subtitle: "Column densities and control depth seeds.") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Base annulus density (kg/m³)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -94,7 +108,7 @@ struct ProjectDashboardView: View {
                             }
                             GridRow {
                                 Text("Base string density (kg/m³)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseStringDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -103,7 +117,7 @@ struct ProjectDashboardView: View {
                             }
                             GridRow {
                                 Text("Control measured depth (m)")
-                                    .frame(width: 240, alignment: .trailing)
+                                    .frame(width: 220, alignment: .trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.pressureDepth_m, format: .number)
                                     .textFieldStyle(.roundedBorder)
@@ -111,22 +125,22 @@ struct ProjectDashboardView: View {
                                     .monospacedDigit()
                             }
                         }
-                        .padding(8)
                     }
                 }
-                GroupBox("Overview") {
-                    HStack(spacing: 12) {
-                        StatBox(title: "Drill string sections", value: viewmodel.drillStringCount, caption: "Configured in this project")
-                        StatBox(title: "Annulus sections", value: viewmodel.annulusCount, caption: "Configured in this project")
-                        StatBox(title: "Pressure points", value: viewmodel.pressurePointCount, caption: "For pore/frac window")
-                        StatBox(title: "Survey stations", value: viewmodel.surveysCount, caption: "Imported/entered")
-                        StatBox(title: "Mud checks", value: viewmodel.mudChecksCount, caption: "Saved in this project")
+
+                WellSection(title: "Overview", icon: "rectangle.grid.2x2", subtitle: "At-a-glance counters across each workspace.") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
+                        MetricCard(title: "Drill string sections", value: "\(viewmodel.drillStringCount)", caption: "Configured", icon: "cable.connector.horizontal")
+                        MetricCard(title: "Annulus sections", value: "\(viewmodel.annulusCount)", caption: "Configured", icon: "circle.grid.hex")
+                        MetricCard(title: "Pressure points", value: "\(viewmodel.pressurePointCount)", caption: "Pore/Frac window", icon: "waveform.path.ecg")
+                        MetricCard(title: "Survey stations", value: "\(viewmodel.surveysCount)", caption: "Imported/entered", icon: "ruler")
+                        MetricCard(title: "Mud checks", value: "\(viewmodel.mudChecksCount)", caption: "Lab results", icon: "testtube.2")
                     }
-                    .padding(8)
                 }
             }
-            .padding(16)
+            .padding(24)
         }
+        .background(Color(nsColor: .underPageBackgroundColor))
         .navigationTitle("Project Dashboard")
     }
 }
@@ -185,23 +199,6 @@ private struct ProjectDashboardPreview: View {
 }
 #endif
 
-private struct StatBox: View {
-    let title: String
-    let value: Int
-    let caption: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text("\(value)").font(.title3).bold().monospacedDigit()
-            Text(caption).font(.caption2).foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2)))
-    }
-}
 
 private struct InputNumberBox: View {
     let title: String
