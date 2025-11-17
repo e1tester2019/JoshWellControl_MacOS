@@ -80,6 +80,22 @@ struct TripSimulationView: View {
                     Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
                 }
 
+                GroupBox("Trip speed") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Average (m/s)")
+                                .frame(width: 110, alignment: .trailing)
+                            TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 90)
+                        }
+                        Text(tripSpeedDirectionText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in. Durations and rates use the magnitude while direction comes from other controls.")
+
                 if !viewmodel.steps.isEmpty {
                     GroupBox("Bit Depth (m)") {
                         HStack(spacing: 8) {
@@ -471,6 +487,19 @@ struct TripSimulationView: View {
     private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
+
+    private var tripSpeedBinding: Binding<Double> {
+        Binding(
+            get: { project.settings.tripSpeed_m_per_s },
+            set: { project.settings.tripSpeed_m_per_s = $0 }
+        )
+    }
+
+    private var tripSpeedDirectionText: String {
+        project.settings.tripSpeed_m_per_s >= 0
+            ? "Positive = Pull out of hole"
+            : "Negative = Run in hole"
+    }
 }
 
 extension TripSimulationView {

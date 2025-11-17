@@ -8,6 +8,9 @@
 
 import Foundation
 import SwiftData
+#if DEBUG
+import SwiftUI
+#endif
 
 @Model
 final class TripSettings {
@@ -15,7 +18,9 @@ final class TripSettings {
     var name: String = "Trip Settings"
 
     // MARK: - Trip speed / movement
-    /// Average tripping speed (m/s) — positive = upward (pull out), negative = downward (run in)
+    /// Average tripping speed (m/s). Positive values represent pulling out (up-hole) while negative values
+    /// represent running in (down-hole). Duration calculations always use the magnitude; the sign is consumed by
+    /// higher-level direction settings.
     var tripSpeed_m_per_s: Double = 0.3
 
     /// Stand length (m)
@@ -62,10 +67,12 @@ final class TripSettings {
 
     // MARK: - Derived / Helper Methods
 
-    /// Duration (s) to pull one stand at current speed (including pause)
+    /// Duration (s) to move one stand at current speed (including pause). Uses the magnitude so both pull-out and run-in
+    /// trips consume identical time for the same absolute speed.
     @Transient var timePerStand_s: Double {
-        guard tripSpeed_m_per_s > 0 else { return 0 }
-        let moveTime = standLength_m / tripSpeed_m_per_s
+        let speed = abs(tripSpeed_m_per_s)
+        guard speed > 0 else { return 0 }
+        let moveTime = standLength_m / speed
         return moveTime + pauseBetweenStands_s
     }
 
@@ -85,3 +92,42 @@ final class TripSettings {
         density_kg_per_m3 >= minECDDensity_kg_per_m3 && density_kg_per_m3 <= maxECDDensity_kg_per_m3
     }
 }
+
+#if DEBUG
+private struct TripSettingsSpeedPreview: View {
+    let pullOut: TripSettings
+    let runIn: TripSettings
+
+    init() {
+        let base = TripSettings()
+        base.tripSpeed_m_per_s = 0.4
+        base.standLength_m = 27
+        base.pauseBetweenStands_s = 5
+        pullOut = base
+
+        let reversed = TripSettings()
+        reversed.tripSpeed_m_per_s = -base.tripSpeed_m_per_s
+        reversed.standLength_m = base.standLength_m
+        reversed.pauseBetweenStands_s = base.pauseBetweenStands_s
+        runIn = reversed
+    }
+
+    var body: some View {
+        List {
+            Section("Pull-out (+0.4 m/s)") {
+                Text(String(format: "Time/stand: %.1f s", pullOut.timePerStand_s))
+                Text(String(format: "Trip rate: %.1f m/hr", pullOut.tripRate_m_per_hr))
+            }
+            Section("Run-in (-0.4 m/s)") {
+                Text(String(format: "Time/stand: %.1f s", runIn.timePerStand_s))
+                Text(String(format: "Trip rate: %.1f m/hr", runIn.tripRate_m_per_hr))
+            }
+        }
+        .frame(width: 320, height: 200)
+    }
+}
+
+#Preview("Trip speed direction handling") {
+    TripSettingsSpeedPreview()
+}
+#endif
