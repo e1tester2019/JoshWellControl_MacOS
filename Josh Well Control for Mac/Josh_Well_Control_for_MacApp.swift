@@ -29,7 +29,9 @@ struct Josh_Well_Control_for_MacApp: App {
             SwabInput.self,
             MudStep.self,
             FinalFluidLayer.self,
-            MudProperties.self
+            MudProperties.self,
+            ChainComputationDefinition.self,
+            ChainSharedVariable.self
         ])
     }
 }
