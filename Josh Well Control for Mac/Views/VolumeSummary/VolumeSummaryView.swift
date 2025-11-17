@@ -21,59 +21,50 @@ struct VolumeSummaryView: View {
         let totals = viewmodel.computeTotals()
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Volume Summary").font(.title2).bold()
-
-                // Adaptive grid of summary boxes
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16) {
-                    VolumeBox(title: "Drill String Capacity", value: totals.dsCapacity_m3, caption: "Inner fluid capacity volume (m³)", fmt3: viewmodel.fmt3)
-                    VolumeBox(title: "Drill String Displacement", value: totals.dsDisplacement_m3, caption: "Metal displacement volume (m³)", fmt3: viewmodel.fmt3)
-                    VolumeBox(title: "Wet Displacement", value: totals.dsWet_m3, caption: "Capacity + Displacement (m³)", fmt3: viewmodel.fmt3)
-                    VolumeBox(title: "Annular Volume (with pipe)", value: totals.annularWithPipe_m3, caption: "Annulus volume accounting for drill string (m³)", fmt3: viewmodel.fmt3)
-                    VolumeBox(title: "Open Hole Volume (no pipe)", value: totals.openHole_m3, caption: "Annulus/casing capacity ignoring pipe (m³)", fmt3: viewmodel.fmt3)
-                }
-                .padding(.top, 4)
-
-                if !totals.slices.isEmpty {
-                    Divider()
-                    Text("Depth Breakdown").font(.headline)
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(totals.slices) { s in
-                            HStack {
-                                Text("\(viewmodel.fmt0(s.top))–\(viewmodel.fmt0(s.bottom)) m")
-                                    .frame(width: 180, alignment: .leading)
-                                Text("Area: \(viewmodel.fmt3(s.area_m2)) m²  Volume: \(viewmodel.fmt3(s.volume_m3)) m³")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
+            VStack(alignment: .leading, spacing: 24) {
+                WellSection(title: "Volume Summary", icon: "cube.box.fill", subtitle: "Holistic drill string and annulus volumes pulled from your geometry.") {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 14)], spacing: 14) {
+                        MetricCard(title: "Drill String Capacity", value: "\(viewmodel.fmt3(totals.dsCapacity_m3)) m³", caption: "Inner fluid capacity", icon: "internaldrive")
+                        MetricCard(title: "Drill String Displacement", value: "\(viewmodel.fmt3(totals.dsDisplacement_m3)) m³", caption: "Steel displacement", icon: "shippingbox")
+                        MetricCard(title: "Wet Displacement", value: "\(viewmodel.fmt3(totals.dsWet_m3)) m³", caption: "Capacity + displacement", icon: "drop")
+                        MetricCard(title: "Annulus w/ pipe", value: "\(viewmodel.fmt3(totals.annularWithPipe_m3)) m³", caption: "Pipe-in-hole volume", icon: "circle.grid.cross")
+                        MetricCard(title: "Open hole", value: "\(viewmodel.fmt3(totals.openHole_m3)) m³", caption: "Casing/formation capacity", icon: "ruler")
                     }
                 }
 
-                Spacer(minLength: 0)
+                if !totals.slices.isEmpty {
+                    WellSection(title: "Depth Breakdown", icon: "chart.bar.fill", subtitle: "Intervals formed by string + annulus overlaps.") {
+                        let slices = totals.slices
+                        VStack(spacing: 10) {
+                            HStack {
+                                Text("Depth Range (m)")
+                                Spacer()
+                                Text("Area • Volume")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                            ForEach(Array(slices.enumerated()), id: \.element.id) { idx, s in
+                                HStack {
+                                    Text("\(viewmodel.fmt0(s.top))–\(viewmodel.fmt0(s.bottom))")
+                                        .frame(width: 160, alignment: .leading)
+                                    Spacer()
+                                    Text("\(viewmodel.fmt3(s.area_m2)) m²  •  \(viewmodel.fmt3(s.volume_m3)) m³")
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                if idx < slices.count - 1 {
+                                    Divider()
+                                        .opacity(0.15)
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            .padding()
+            .padding(24)
         }
-    }
-}
-
-private struct VolumeBox: View {
-    let title: String
-    let value: Double
-    let caption: String
-    let fmt3: (Double) -> String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text("\(fmt3(value)) m³").font(.title3).bold().monospacedDigit()
-            Text(caption).font(.caption2).foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2)))
     }
 }
 
