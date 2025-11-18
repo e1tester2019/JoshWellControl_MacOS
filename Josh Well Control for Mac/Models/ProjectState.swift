@@ -215,3 +215,219 @@ extension ProjectState {
     var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
 }
 
+// MARK: - Export to Dictionary and JSON
+
+extension ProjectState {
+    /// A dictionary representation of the entire ProjectState suitable for JSON serialization.
+    /// This includes:
+    /// - Scalar properties (name, id, densities, volumes, timestamps)
+    /// - Arrays of child objects (surveys, drillString, annulus, mudSteps, finalLayers, muds) as arrays of dictionaries
+    /// - Singletons (window, slug, backfill, settings, swab) represented as dictionaries of their scalar fields
+    var exportDictionary: [String: Any] {
+        var dict: [String: Any] = [:]
+
+        // Scalars
+        dict["id"] = id.uuidString
+        dict["name"] = name
+        dict["createdAt"] = ISO8601DateFormatter().string(from: createdAt)
+        dict["updatedAt"] = ISO8601DateFormatter().string(from: updatedAt)
+        dict["basedOnProjectID"] = basedOnProjectID?.uuidString
+
+        dict["baseAnnulusDensity_kgm3"] = baseAnnulusDensity_kgm3
+        dict["baseStringDensity_kgm3"] = baseStringDensity_kgm3
+        dict["pressureDepth_m"] = pressureDepth_m
+        dict["activeMudDensity_kgm3"] = activeMudDensity_kgm3
+        dict["activeMudVolume_m3"] = activeMudVolume_m3
+        dict["surfaceLineVolume_m3"] = surfaceLineVolume_m3
+
+        // Collections serialized as dictionaries
+        dict["surveys"] = surveys.map { $0.exportDictionary }
+        dict["drillString"] = drillString.map { $0.exportDictionary }
+        dict["annulus"] = annulus.map { $0.exportDictionary }
+        dict["mudSteps"] = mudSteps.map { $0.exportDictionary }
+        dict["finalLayers"] = finalLayers.map { $0.exportDictionary }
+        dict["muds"] = muds.map { $0.exportDictionary }
+
+        // Singletons serialized as dictionaries
+        //dict["window"] = window.exportDictionary
+        //dict["slug"] = slug.exportDictionary
+        //dict["backfill"] = backfill.exportDictionary
+        //dict["settings"] = settings.exportDictionary
+        //dict["swab"] = swab.exportDictionary
+
+        return dict
+    }
+
+    /// Convenience method to get JSON string representation of the project state.
+    /// Returns nil if encoding fails.
+    func exportJSON(prettyPrinted: Bool = true) -> String? {
+        let dict = exportDictionary
+        guard JSONSerialization.isValidJSONObject(dict) else {
+            NSLog("Export JSON: invalid object graph. Ensure all values are JSON types.")
+            return nil
+        }
+        let options: JSONSerialization.WritingOptions = prettyPrinted ? [.prettyPrinted, .sortedKeys] : []
+        do {
+            let data = try JSONSerialization.data(withJSONObject: dict, options: options)
+            return String(data: data, encoding: .utf8)
+        } catch {
+            NSLog("Export JSON: encoding error: \(error)")
+            return nil
+        }
+    }
+}
+
+// MARK: - Export Dictionary for related models
+
+extension SurveyStation {
+    var exportDictionary: [String: Any] {
+        [
+            "md": md,
+            "inc": inc,
+            "azi": azi,
+            "tvd": tvd ?? NSNull()
+        ]
+    }
+}
+
+extension DrillStringSection {
+    var exportDictionary: [String: Any] {
+        [
+            "name": name,
+            "topDepth_m": topDepth_m,
+            "length_m": length_m,
+            "outerDiameter_m": outerDiameter_m,
+            "innerDiameter_m": innerDiameter_m,
+            "toolJointOD_m": toolJointOD_m,
+            "jointLength_m": jointLength_m,
+            "grade": grade,
+            "steelDensity_kg_per_m3": steelDensity_kg_per_m3,
+            "unitWeight_kg_per_m": unitWeight_kg_per_m,
+            "internalRoughness_m": internalRoughness_m
+        ]
+    }
+}
+
+extension AnnulusSection {
+    var exportDictionary: [String: Any] {
+        [
+            "name": name,
+            "topDepth_m": topDepth_m,
+            "length_m": length_m,
+            "innerDiameter_m": innerDiameter_m,
+            "outerDiameter_m": outerDiameter_m,
+            "inclination_deg": inclination_deg,
+            "wallRoughness_m": wallRoughness_m,
+            "rheologyModel": rheologyModel.rawValue,
+            "density_kg_per_m3": density_kg_per_m3,
+            "dynamicViscosity_Pa_s": dynamicViscosity_Pa_s,
+            "pv_Pa_s": pv_Pa_s,
+            "yp_Pa": yp_Pa,
+            "n_powerLaw": n_powerLaw,
+            "k_powerLaw_Pa_s_n": k_powerLaw_Pa_s_n,
+            "hb_tau0_Pa": hb_tau0_Pa,
+            "hb_n": hb_n,
+            "hb_k_Pa_s_n": hb_k_Pa_s_n,
+            "cuttingsVolFrac": cuttingsVolFrac
+        ]
+    }
+}
+
+extension MudStep {
+    var exportDictionary: [String: Any] {
+        [
+            "name": name,
+            "top_m": top_m,
+            "bottom_m": bottom_m,
+            "density_kgm3": density_kgm3,
+            "colorHex": colorHex,
+            "placementRaw": placementRaw,
+            "mudID": mud?.id.uuidString ?? NSNull()
+        ]
+    }
+}
+
+extension FinalFluidLayer {
+    var exportDictionary: [String: Any] {
+        [
+            "name": name,
+            "placement": placement.rawValue,
+            "topMD_m": topMD_m,
+            "bottomMD_m": bottomMD_m,
+            "density_kgm3": density_kgm3,
+            "color": [
+                "r": colorR,
+                "g": colorG,
+                "b": colorB,
+                "a": colorA
+            ],
+            "createdAt": ISO8601DateFormatter().string(from: createdAt),
+            "mudID": mud?.id.uuidString ?? NSNull()
+        ]
+    }
+}
+
+extension MudProperties {
+    var exportDictionary: [String: Any] {
+        [
+            "id": id.uuidString,
+            "name": name,
+            "isActive": isActive,
+            "density_kgm3": density_kgm3,
+            // Add other relevant scalar properties as needed
+        ]
+    }
+}
+
+//extension PressureWindow {
+//    var exportDictionary: [String: Any] {
+//        [
+//            "minPressure_Pa": minPressure_Pa,
+//            "maxPressure_Pa": maxPressure_Pa,
+//            "minDepth_m": minDepth_m,
+//            "maxDepth_m": maxDepth_m
+//            // Add other scalar properties if any
+//        ]
+//    }
+//}
+
+//extension SlugPlan {
+//    var exportDictionary: [String: Any] {
+//        [
+//            "slugLength_m": slugLength_m,
+//            "slugFrequency_min": slugFrequency_min
+//            // Add other scalar properties if any
+//        ]
+//    }
+//}
+
+//extension BackfillPlan {
+//    var exportDictionary: [String: Any] {
+//        [
+//            "backfillVolume_m3": backfillVolume_m3,
+//            "backfillDensity_kgm3": backfillDensity_kgm3
+//            // Add other scalar properties if any
+//        ]
+//    }
+//}
+
+//extension TripSettings {
+//    var exportDictionary: [String: Any] {
+//        [
+//            "tripSpeed_m_per_min": tripSpeed_m_per_min,
+//            "tripPumpRate_L_per_min": tripPumpRate_L_per_min
+//            // Add other scalar properties if any
+//        ]
+//    }
+//}
+
+//extension SwabInput {
+//    var exportDictionary: [String: Any] {
+//        [
+//            "swabSpeed_m_per_min": swabSpeed_m_per_min,
+//            "swabPumpRate_L_per_min": swabPumpRate_L_per_min
+//            // Add other scalar properties if any
+//        ]
+//    }
+//}
+

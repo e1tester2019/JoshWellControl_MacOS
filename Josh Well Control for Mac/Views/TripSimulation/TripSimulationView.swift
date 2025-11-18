@@ -7,6 +7,8 @@
 
 import SwiftUI
 import SwiftData
+import AppKit // Import AppKit for NSSavePanel support
+import UniformTypeIdentifiers
 
 typealias TripStep = NumericalTripModel.TripStep
 typealias LayerRow = NumericalTripModel.LayerRow
@@ -27,6 +29,8 @@ struct TripSimulationView: View {
     @Bindable var project: ProjectState
 
     @State private var viewmodel = ViewModel()
+    @State private var showingExportErrorAlert = false
+    @State private var exportErrorMessage = ""
 
     // MARK: - Body
     var body: some View {
@@ -40,6 +44,9 @@ struct TripSimulationView: View {
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
         }
+        .alert("Export Error", isPresented: $showingExportErrorAlert, actions: { Button("OK", role: .cancel) {} }) {
+            Text(exportErrorMessage)
+        }
     }
 
     // MARK: - Sections
@@ -50,7 +57,7 @@ struct TripSimulationView: View {
                     HStack {
                         numberField("Start MD", value: $viewmodel.startBitMD_m)
                         numberField("End MD", value: $viewmodel.endMD_m)
-                        numberField("Control TVD", value: $viewmodel.shoeTVD_m)
+                        numberField("Control MD", value: controlMDBinding)
                         numberField("Step (m)", value: $viewmodel.step_m)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -125,6 +132,41 @@ struct TripSimulationView: View {
 
                 Button("Seed from MudPlacement & Run") { viewmodel.runSimulation(project: project) }
                     .buttonStyle(.borderedProminent)
+                
+                // MARK: - New Export Project JSON Button
+                // This button allows the user to export the current project data as JSON to a file.
+                Button("Export Project JSON") {
+                    exportProjectJSON()
+                }
+                .buttonStyle(.bordered)
+                .help("Export the current project's data as a JSON file.")
+            }
+        }
+    }
+
+    // MARK: - Export Project JSON Feature
+    private func exportProjectJSON() {
+        // Obtain the JSON string from the project
+        guard let jsonString = project.exportJSON() else {
+            exportErrorMessage = "Failed to generate project JSON."
+            showingExportErrorAlert = true
+            return
+        }
+        
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "ProjectExport.json"
+        panel.canCreateDirectories = true
+        
+        // Present the NSSavePanel synchronously on the main thread
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try jsonString.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                // Present an alert if writing fails
+                exportErrorMessage = "Failed to export project JSON: \(error.localizedDescription)"
+                showingExportErrorAlert = true
+                NSLog("Error exporting project JSON: \(error)")
             }
         }
     }
@@ -299,11 +341,13 @@ struct TripSimulationView: View {
             .frame(minHeight: 240)
         }
     }
-    // MARK: - ESD @ Control TVD (label)
+    // MARK: - ESD @ Control MD (label)
     private var esdAtControlText: String {
         guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else { return "" }
         let s = viewmodel.steps[idx]
-        let controlTVD = max(0.0, viewmodel.shoeTVD_m)
+        let rawControlMD = max(0.0, viewmodel.shoeMD_m)
+        let clampedControlMD = min(rawControlMD, controlMDLimit)
+        let controlTVD = project.tvd(of: clampedControlMD)
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
 
@@ -434,10 +478,9 @@ struct TripSimulationView: View {
                     DisclosureGroup("Pocket (below bit)") {
                         layerTable(s.layersPocket)
                     }
-                    DisclosureGroup("Debug / KVs") {
-                        Text("No debug rows available from the model.")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    DisclosureGroup("ESD@control debug") {
+                        let rows = esdDebugRows(project: project, step: s)
+                        debugTable(rows)
                     }
                 }
             } else {
@@ -483,10 +526,117 @@ struct TripSimulationView: View {
         .frame(minHeight: 120)
     }
 
+    // Live ESD@control diagnostics
+    private func esdDebugRows(project: ProjectState, step s: TripStep) -> [KVRow] {
+        let controlMDRaw = max(0.0, viewmodel.shoeMD_m)
+        let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
+        let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+        let candidates = [annMax, dsMax].filter { $0 > 0 }
+        let limit = candidates.min() ?? 0
+        let controlMD = min(controlMDRaw, limit)
+        let controlTVD = project.tvd(of: controlMD)
+        let bitTVD = s.bitTVD_m
+        let eps = 1e-9
+        var pressure_kPa: Double = s.SABP_kPa
+        var hydroAnn_kPa = 0.0
+        var hydroPocket_kPa = 0.0
+        var coveredAnn_m = 0.0
+        var coveredPocket_m = 0.0
+
+        if controlTVD <= bitTVD + eps {
+            var remaining = controlTVD
+            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+                let seg = min(remaining, max(0.0, min(r.bottomTVD, controlTVD) - r.topTVD))
+                if seg > eps {
+                    let denom = max(eps, r.bottomTVD - r.topTVD)
+                    let frac = seg / denom
+                    let dP = r.deltaHydroStatic_kPa * frac
+                    hydroAnn_kPa += dP
+                    pressure_kPa += dP
+                    coveredAnn_m += seg
+                    remaining -= seg
+                    if remaining <= eps { break }
+                }
+            }
+        } else {
+            var remainingA = bitTVD
+            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
+                let seg = min(remainingA, max(0.0, min(r.bottomTVD, bitTVD) - r.topTVD))
+                if seg > eps {
+                    let denom = max(eps, r.bottomTVD - r.topTVD)
+                    let frac = seg / denom
+                    let dP = r.deltaHydroStatic_kPa * frac
+                    hydroAnn_kPa += dP
+                    pressure_kPa += dP
+                    coveredAnn_m += seg
+                    remainingA -= seg
+                    if remainingA <= eps { break }
+                }
+            }
+            var remainingP = controlTVD - bitTVD
+            for r in s.layersPocket where r.bottomTVD > r.topTVD {
+                let top = max(r.topTVD, bitTVD)
+                let bot = min(r.bottomTVD, controlTVD)
+                let seg = max(0.0, bot - top)
+                if seg > eps {
+                    let denom = max(eps, r.bottomTVD - r.topTVD)
+                    let frac = seg / denom
+                    let dP = r.deltaHydroStatic_kPa * frac
+                    hydroPocket_kPa += dP
+                    pressure_kPa += dP
+                    coveredPocket_m += seg
+                    remainingP -= seg
+                    if remainingP <= eps { break }
+                }
+            }
+        }
+
+        let esdAtControl = pressure_kPa / 0.00981 / max(eps, controlTVD)
+        let uniformESD = viewmodel.baseMudDensity_kgpm3 + s.SABP_kPa / (0.00981 * max(eps, controlTVD))
+        let coverageMismatch = controlTVD - (coveredAnn_m + coveredPocket_m)
+
+        var rows: [KVRow] = []
+        rows.append(KVRow(key: "Control MD (m)", value: format0(controlMD)))
+        rows.append(KVRow(key: "Control TVD (m)", value: format0(controlTVD)))
+        rows.append(KVRow(key: "Bit TVD (m)", value: format0(bitTVD)))
+        rows.append(KVRow(key: "SABP (kPa)", value: format0(s.SABP_kPa)))
+        rows.append(KVRow(key: "Hydro annulus (kPa)", value: format0(hydroAnn_kPa)))
+        if hydroPocket_kPa > eps {
+            rows.append(KVRow(key: "Hydro pocket (kPa)", value: format0(hydroPocket_kPa)))
+        }
+        rows.append(KVRow(key: "Pressure at control (kPa)", value: format0(pressure_kPa)))
+        rows.append(KVRow(key: "ESD@control (kg/m³)", value: format1(esdAtControl)))
+        rows.append(KVRow(key: "Uniform ESD (base ρ) (kg/m³)", value: format1(uniformESD)))
+        rows.append(KVRow(key: "Covered TVD annulus (m)", value: format1(coveredAnn_m)))
+        if coveredPocket_m > eps {
+            rows.append(KVRow(key: "Covered TVD pocket (m)", value: format1(coveredPocket_m)))
+        }
+        rows.append(KVRow(key: "Coverage mismatch (m)", value: format1(coverageMismatch)))
+        return rows
+    }
+
     // MARK: - Formatters
     private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
+
+    // Clamp Control MD to not exceed geometry
+    private var controlMDLimit: Double {
+        let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
+        let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+        let candidates = [annMax, dsMax].filter { $0 > 0 }
+        return candidates.min() ?? 0
+    }
+
+    private var controlMDBinding: Binding<Double> {
+        Binding(
+            get: { min(max(0, viewmodel.shoeMD_m), controlMDLimit) },
+            set: { newVal in
+                let clamped = min(max(0, newVal), controlMDLimit)
+                viewmodel.shoeMD_m = clamped
+            }
+        )
+    }
 
     private var tripSpeedBinding: Binding<Double> {
         Binding(
@@ -508,7 +658,7 @@ extension TripSimulationView {
     // Inputs
     var startBitMD_m: Double = 5983.28
     var endMD_m: Double = 0
-    var shoeTVD_m: Double = 2910
+    var shoeMD_m: Double = 2910
     var step_m: Double = 100
     var baseMudDensity_kgpm3: Double = 1260
     var backfillDensity_kgpm3: Double = 1200
@@ -545,7 +695,7 @@ extension TripSimulationView {
       )
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in project.tvd(of: md) },
-        shoeTVD_m: shoeTVD_m,
+        shoeTVD_m: project.tvd(of: shoeMD_m),
         startBitMD_m: startBitMD_m,
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
@@ -563,13 +713,19 @@ extension TripSimulationView {
     }
 
     func esdAtControlText(project: ProjectState) -> String {
+      let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
+      let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+      let candidates = [annMax, dsMax].filter { $0 > 0 }
+      let limit = candidates.min()
+      let controlMDRaw = max(0.0, shoeMD_m)
+      let controlMD = min(controlMDRaw, limit ?? controlMDRaw)
+      let controlTVD = project.tvd(of: controlMD)
+
       guard let idx = selectedIndex, steps.indices.contains(idx) else { return "" }
       let s = steps[idx]
-      let controlTVD = max(0.0, shoeTVD_m)
-      let bitTVD = s.bitTVD_m
       var pressure_kPa: Double = s.SABP_kPa
 
-      if controlTVD <= bitTVD + 1e-9 {
+      if controlTVD <= s.bitTVD_m + 1e-9 {
         var remaining = controlTVD
         for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
           let seg = min(remaining, max(0.0, min(r.bottomTVD, controlTVD) - r.topTVD))
@@ -581,9 +737,9 @@ extension TripSimulationView {
           }
         }
       } else {
-        var remainingA = bitTVD
+        var remainingA = s.bitTVD_m
         for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
-          let seg = min(remainingA, max(0.0, min(r.bottomTVD, bitTVD) - r.topTVD))
+          let seg = min(remainingA, max(0.0, min(r.bottomTVD, s.bitTVD_m) - r.topTVD))
           if seg > 1e-9 {
             let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
             pressure_kPa += r.deltaHydroStatic_kPa * frac
@@ -591,9 +747,9 @@ extension TripSimulationView {
             if remainingA <= 1e-9 { break }
           }
         }
-        var remainingP = controlTVD - bitTVD
+        var remainingP = controlTVD - s.bitTVD_m
         for r in s.layersPocket where r.bottomTVD > r.topTVD {
-          let top = max(r.topTVD, bitTVD)
+          let top = max(r.topTVD, s.bitTVD_m)
           let bot = min(r.bottomTVD, controlTVD)
           let seg = max(0.0, bot - top)
           if seg > 1e-9 {
@@ -648,3 +804,7 @@ private struct TripSimulationPreview: View {
   TripSimulationPreview()
 }
 #endif
+
+
+
+
