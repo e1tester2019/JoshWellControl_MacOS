@@ -30,8 +30,6 @@ struct Josh_Well_Control_for_MacApp: App {
             MudStep.self,
             FinalFluidLayer.self,
             MudProperties.self,
-            ChainComputationDefinition.self,
-            ChainSharedVariable.self
         ])
     }
 }

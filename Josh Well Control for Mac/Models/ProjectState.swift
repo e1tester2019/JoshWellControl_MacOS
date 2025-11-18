@@ -214,3 +214,4 @@ extension ProjectState {
 extension ProjectState {
     var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
 }
+

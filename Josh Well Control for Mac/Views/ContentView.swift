@@ -41,7 +41,7 @@ struct ContentView: View {
     @State private var renameWellText: String = ""
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pump, swabbing, trip, bhp, computationChain
+        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pump, swabbing, trip, bhp
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -57,7 +57,6 @@ struct ContentView: View {
             case .swabbing: return "Swabbing"
             case .trip: return "Trip Simulation"
             case .bhp: return "BHP Preview"
-            case .computationChain: return "Computation Chain"
             }
         }
     }
@@ -66,7 +65,7 @@ struct ContentView: View {
     @State private var splitVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $splitVisibility) {
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 if let _ = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
                     GroupBox("Views") {
@@ -103,8 +102,8 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .padding([.horizontal, .top], 12)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
-        } detail: {
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+            
             Group {
                 if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
                     Group {
@@ -133,8 +132,6 @@ struct ContentView: View {
                             TripSimulationView(project: project)
                         case .bhp:
                             BHPPreviewView(project: project)
-                        case .computationChain:
-                            ComputationChainView(project: project)
                         }
                     }
                     .id(project.id) // force rebuild when project changes
@@ -168,9 +165,9 @@ struct ContentView: View {
                     .padding(24)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 720, ideal: 1080, max: 2000)
-            .toolbar { detailToolbar }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle(selectedSection.title)
+            .toolbar { detailToolbar }
         }
         .sheet(item: $renamingProject) { project in
             VStack(spacing: 12) {
@@ -321,7 +318,6 @@ private extension ContentView {
         case .swabbing: return "arrow.up.and.down"
         case .trip: return "figure.walk"
         case .bhp: return "waveform"
-        case .computationChain: return "link"
         }
     }
 }
