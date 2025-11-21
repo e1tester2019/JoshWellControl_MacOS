@@ -112,6 +112,12 @@ extension ProjectState {
     func deepClone(into well: Well, using context: ModelContext) -> ProjectState {
         let p = shallowClone(into: well, using: context)
 
+        p.activeMudDensity_kgm3 = self.activeMudDensity_kgm3
+        p.activeMudVolume_m3 = self.activeMudVolume_m3
+        p.surfaceLineVolume_m3 = self.surfaceLineVolume_m3
+        p.basedOnProjectID = self.id
+        p.createdAt = .now
+
         // Surveys
         for s0 in self.surveys {
             let s = SurveyStation(
@@ -177,9 +183,31 @@ extension ProjectState {
                 colorHex: m0.colorHex,
                 placementRaw: m0.placementRaw,
                 project: p,
-                mud: m0.mud
+                mud: (m0.mud.flatMap { old in p.muds.first(where: { $0.name == old.name && abs($0.density_kgm3 - old.density_kgm3) < 1e-9 }) })
             )
             p.mudSteps.append(m)
+        }
+
+        // Muds (clone per-project fluids)
+        for m0 in self.muds {
+            let m = MudProperties(
+                name: m0.name,
+                density_kgm3: m0.density_kgm3,
+                pv_Pa_s: m0.pv_Pa_s,
+                yp_Pa: m0.yp_Pa,
+                n_powerLaw: m0.n_powerLaw,
+                k_powerLaw_Pa_s_n: m0.k_powerLaw_Pa_s_n,
+                tau0_Pa: m0.tau0_Pa,
+                rheologyModel: m0.rheologyModel,
+                gel10s_Pa: m0.gel10s_Pa,
+                gel10m_Pa: m0.gel10m_Pa,
+                thermalExpCoeff_perC: m0.thermalExpCoeff_perC,
+                compressibility_perkPa: m0.compressibility_perkPa,
+                gasCutFraction: m0.gasCutFraction,
+                project: p
+            )
+            m.isActive = m0.isActive
+            p.muds.append(m)
         }
 
         // Final layers
@@ -192,13 +220,13 @@ extension ProjectState {
                 bottomMD_m: f0.bottomMD_m,
                 density_kgm3: f0.density_kgm3,
                 color: f0.color,
-                createdAt: f0.createdAt
+                createdAt: f0.createdAt,
+                mud: (f0.mud.flatMap { old in p.muds.first(where: { $0.name == old.name && abs($0.density_kgm3 - old.density_kgm3) < 1e-9 }) })
             )
             p.finalLayers.append(f)
         }
 
-        // Singletons (best-effort copy of scalars). If these are structs/value types this is fine.
-        // If they are reference types and you want true deep copies, mirror the field-by-field approach above.
+        // NOTE: These are assigned by value if value types; if reference types, this is a shallow copy.
         p.window = self.window
         p.slug = self.slug
         p.backfill = self.backfill

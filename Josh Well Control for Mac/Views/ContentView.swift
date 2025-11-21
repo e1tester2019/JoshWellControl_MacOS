@@ -251,7 +251,8 @@ private extension ContentView {
     func duplicateProject(from source: ProjectState) {
         guard let well = source.well else { return }
         // Minimal duplicate now — deep copy can be added later
-        let p = ProjectState()
+        let p = source.deepClone(into: well, using: modelContext)
+        vm.selectedProject = p
         p.name = source.name + " (Copy)"
         p.baseAnnulusDensity_kgm3 = source.baseAnnulusDensity_kgm3
         p.baseStringDensity_kgm3 = source.baseStringDensity_kgm3
@@ -303,7 +304,24 @@ private extension ContentView {
         vm.selectedWell = w
         vm.selectedProject = w.projects.first
     }
-    
+
+    func openMaterialTransferEditor() {
+        guard let well = vm.selectedWell else { return }
+        // Choose latest transfer or create one
+        let transfer: MaterialTransfer
+        if let latest = well.transfers.sorted(by: { $0.date > $1.date }).first {
+            transfer = latest
+        } else {
+            transfer = well.createTransfer(context: modelContext)
+        }
+        // Build a host window
+        let host = WindowHost(title: "Material Transfer #\(transfer.number)") {
+            MaterialTransferEditorView(well: well, transfer: transfer)
+                .frame(minWidth: 900, minHeight: 600)
+        }
+        host.show()
+    }
+
     private func icon(for pane: Pane) -> String {
         switch pane {
         case .dashboard: return "speedometer"
@@ -386,6 +404,7 @@ private extension ContentView {
                         Button("Rename Well", systemImage: "pencil") { beginRename(well) }
                         Button("Duplicate Well", systemImage: "doc.on.doc") { duplicateWell(from: well) }
                         Button(role: .destructive) { deleteCurrentWell() } label: { Label("Delete Well", systemImage: "trash") }
+                        Button("Material Transfer…", systemImage: "doc.richtext") { openMaterialTransferEditor() }
                     }
                 }
                 if let project = vm.selectedProject {
