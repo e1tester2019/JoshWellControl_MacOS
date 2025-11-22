@@ -42,7 +42,10 @@ struct MaterialTransferReportView: View {
                         headerKV("Country:", transfer.country ?? "")
                         headerKV("Province:", transfer.province ?? "")
                         headerKV("Activity:", transfer.activity ?? "")
-                        headerKV("AFE #:", transfer.afeNumber ?? "")
+                        headerKV("AFE #:", well.afeNumber ?? "")
+                    }
+                    if let ship = transfer.shippingCompany, !ship.isEmpty {
+                        headerKV("Shipping Company:", ship)
                     }
                     if let surf = transfer.surfaceLocation, !surf.isEmpty {
                         headerKV("Surface:", surf)
@@ -65,6 +68,7 @@ struct MaterialTransferReportView: View {
                     }
                 }
                 .padding(6)
+                .background(Color.white)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color.black, lineWidth: 1.5)
@@ -104,84 +108,84 @@ struct MaterialTransferReportView: View {
             // Top row: qty, $/unit, description, total (with small labels)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Quantity").font(.caption).foregroundStyle(.secondary)
-                    Text("\(Int(item.quantity))")
+                    Text("Quantity").font(.caption).foregroundColor(.gray)
+                    Text("\(Int(item.quantity))").foregroundColor(.black)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("$/Unit").font(.caption).foregroundStyle(.secondary)
-                    Text(currency(item.unitPrice ?? 0))
+                    Text("$/Unit").font(.caption).foregroundColor(.gray)
+                    Text(currency(item.unitPrice ?? 0)).foregroundColor(.black)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Description").font(.caption).foregroundStyle(.secondary)
-                    Text(item.descriptionText)
+                    Text("Description").font(.caption).foregroundColor(.gray)
+                    Text(item.descriptionText).foregroundColor(.black)
                 }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("Total").font(.caption).foregroundStyle(.secondary)
-                    Text(currency(total)).font(.headline)
+                    Text("Total").font(.caption).foregroundColor(.gray)
+                    Text(currency(total)).font(.headline).foregroundColor(.black)
                 }
             }
 
             // Details (full width)
             if let details = item.detailText, !details.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Details").font(.caption).foregroundStyle(.secondary)
-                    Text(details)
+                    Text("Details").font(.caption).foregroundColor(.gray)
+                    Text(details).foregroundColor(.black)
                 }
             }
 
             // Receiver Address (full width)
             if let addr = item.receiverAddress, !addr.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Receiver Address").font(.caption).foregroundStyle(.secondary)
-                    Text(addr)
+                    Text("Receiver Address").font(.caption).foregroundColor(.gray)
+                    Text(addr).foregroundColor(.black)
                 }
             }
 
             // Account Code + Condition
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Account Code").font(.caption).foregroundStyle(.secondary)
-                    Text(item.accountCode ?? (transfer.accountCode ?? ""))
+                    Text("Account Code").font(.caption).foregroundColor(.gray)
+                    Text(item.accountCode ?? (transfer.accountCode ?? "")).foregroundColor(.black)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Condition").font(.caption).foregroundStyle(.secondary)
-                    Text(item.conditionCode ?? "")
+                    Text("Condition").font(.caption).foregroundColor(.gray)
+                    Text(item.conditionCode ?? "").foregroundColor(.black)
                 }
             }
 
             // Receiver Phone
             if let phone = item.receiverPhone, !phone.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Receiver Phone").font(.caption).foregroundStyle(.secondary)
-                    Text(phone)
+                    Text("Receiver Phone").font(.caption).foregroundColor(.secondary)
+                    Text(phone).foregroundColor(.black)
                 }
             }
 
             // To Loc/AFE/Vendor + Transported By
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("To Loc/AFE/Vendor").font(.caption).foregroundStyle(.secondary)
-                    Text(item.vendorOrTo ?? (transfer.destinationName ?? ""))
+                    Text("To Loc/AFE/Vendor").font(.caption).foregroundColor(.gray)
+                    Text(item.vendorOrTo ?? (transfer.destinationName ?? "")).foregroundColor(.black)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Transported By").font(.caption).foregroundStyle(.secondary)
-                    Text(item.transportedBy ?? (transfer.transportedBy ?? ""))
+                    Text("Truck #").font(.caption).foregroundColor(.gray)
+                    Text(item.transportedBy ?? (transfer.transportedBy ?? "")).foregroundColor(.black)
                 }
             }
 
             // Est. Weight
             if let w = item.estimatedWeight, w > 0 {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Est. Weight (lb)").font(.caption).foregroundStyle(.secondary)
-                    Text(String(format: "%.0f", w))
+                    Text("Est. Weight (lb)").font(.caption).foregroundColor(.gray)
+                    Text(String(format: "%.0f", w)).foregroundColor(.black)
                 }
             }
         }
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.black.opacity(0.03))
+                .fill(Color.white)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -298,13 +302,36 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
     window.displayIfNeeded()
     hostingView.display()
 
-    // Helper to try vector capture for a given rect
-    func vectorPDFSlice(in rect: CGRect) -> Data? {
-        let data = hostingView.dataWithPDF(inside: rect)
-        return data.count > 1000 && data.starts(with: Array("%PDF".utf8)) ? data : nil
+    // Helper: create a hosting view sized to intrinsic height at fixed width
+    func makeHostingView<V: View>(_ swiftUIView: V, width: CGFloat) -> NSHostingView<V> {
+        let hv = NSHostingView(rootView: swiftUIView)
+        hv.translatesAutoresizingMaskIntoConstraints = false
+        let temp = NSView(frame: CGRect(x: 0, y: 0, width: width, height: 10))
+        temp.addSubview(hv)
+        NSLayoutConstraint.activate([
+            hv.leadingAnchor.constraint(equalTo: temp.leadingAnchor),
+            hv.trailingAnchor.constraint(equalTo: temp.trailingAnchor),
+            hv.topAnchor.constraint(equalTo: temp.topAnchor),
+            hv.widthAnchor.constraint(equalToConstant: width)
+        ])
+        temp.layoutSubtreeIfNeeded()
+        let size = hv.fittingSize
+        hv.frame = CGRect(x: 0, y: 0, width: width, height: max(size.height, 1))
+        temp.frame = hv.frame
+        hv.layoutSubtreeIfNeeded()
+        return hv
     }
 
-    // Prepare a PDF context to assemble all pages
+    // Helper: cache an NSView's display into a CGImage
+    func captureCGImage(from view: NSView) -> CGImage? {
+        let bounds = view.bounds
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        rep.size = bounds.size
+        view.cacheDisplay(in: bounds, to: rep)
+        return rep.cgImage
+    }
+
+    // Prepare PDF context
     let data = NSMutableData()
     var mediaBox = CGRect(origin: .zero, size: pageSize)
     guard let consumer = CGDataConsumer(data: data as CFMutableData),
@@ -313,40 +340,154 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
         return nil
     }
 
-    // Iterate pages by slicing the content vertically
-    let pageCount = Int(ceil(contentHeight / pageSize.height))
-    for pageIndex in 0..<pageCount {
-        let sliceOriginY = CGFloat(pageIndex) * pageSize.height
-        let sliceRect = CGRect(x: 0, y: sliceOriginY, width: pageSize.width, height: pageSize.height)
+    // Build header view (reuse on every page)
+    guard let rpt = view as? MaterialTransferReportView else {
+        ctx.closePDF()
+        window.orderOut(nil)
+        return data as Data
+    }
 
-        // Try vector capture first
-        if let sliceData = vectorPDFSlice(in: sliceRect),
-           let provider = CGDataProvider(data: sliceData as CFData),
-           let page = CGPDFDocument(provider)?.page(at: 1) {
-            ctx.beginPDFPage(nil)
-            // Draw the captured vector page into the current page's bounds
-            let pageBox = page.getBoxRect(.mediaBox)
-            let scaleX = pageSize.width / pageBox.width
-            let scaleY = pageSize.height / pageBox.height
-            ctx.saveGState()
-            ctx.translateBy(x: 0, y: 0)
-            ctx.scaleBy(x: scaleX, y: scaleY)
-            ctx.drawPDFPage(page)
-            ctx.restoreGState()
+    let availableWidth = pageSize.width
+    let contentAreaHeight = pageSize.height
+
+    let headerHV = makeHostingView(
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Material Transfer Report")
+                .font(.system(size: 20, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .center)
+            VStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    rpt.headerKV("Operator:", rpt.transfer.operatorName ?? "")
+                    Spacer(minLength: 16)
+                    rpt.headerKV("M.T.#:", "\(rpt.transfer.number)")
+                    rpt.headerKV("Date:", DateFormatter.localizedString(from: rpt.transfer.date, dateStyle: .medium, timeStyle: .none))
+                }
+                HStack(alignment: .firstTextBaseline) {
+                    rpt.headerKV("UWI:", rpt.well.uwi ?? "")
+                    Spacer(minLength: 16)
+                    rpt.headerKV("Well Name:", rpt.well.name)
+                }
+                HStack(alignment: .firstTextBaseline) {
+                    rpt.headerKV("Country:", rpt.transfer.country ?? "")
+                    rpt.headerKV("Province:", rpt.transfer.province ?? "")
+                    rpt.headerKV("Activity:", rpt.transfer.activity ?? "")
+                    rpt.headerKV("AFE #:", rpt.well.afeNumber ?? "")
+                }
+                if let ship = rpt.transfer.shippingCompany, !ship.isEmpty {
+                    rpt.headerKV("Shipping Company:", ship)
+                }
+                if let surf = rpt.transfer.surfaceLocation, !surf.isEmpty {
+                    rpt.headerKV("Surface:", surf)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.black.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.black, lineWidth: 1.75)
+            )
+        }
+        .foregroundStyle(.black)
+        .padding(.horizontal, rpt.margin)
+        .padding(.top, rpt.margin)
+    , width: availableWidth)
+
+    // Build item card captures
+    var cards: [(image: CGImage, height: CGFloat)] = []
+    for item in rpt.transfer.items {
+        let cardHV = makeHostingView(rpt.itemCard(item), width: availableWidth - 2 * rpt.margin)
+        if let cg = captureCGImage(from: cardHV) {
+            cards.append((cg, cardHV.bounds.height))
+        }
+    }
+
+    // If no cards, render header-only page
+    if cards.isEmpty {
+        if let headerCG = captureCGImage(from: headerHV) {
+            ctx.beginPDFPage(nil as CFDictionary?)
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fill(CGRect(origin: .zero, size: pageSize))
+            ctx.setStrokeColor(NSColor.black.cgColor)
+            ctx.setLineWidth(1)
+            ctx.stroke(CGRect(origin: .zero, size: pageSize))
+            let headerRect = CGRect(x: 0, y: contentAreaHeight - headerHV.bounds.height, width: availableWidth, height: headerHV.bounds.height)
+            ctx.draw(headerCG, in: headerRect)
+            // Last-page footer timestamp
+            let footerText = "Generated " + DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            let att = NSAttributedString(string: footerText, attributes: attrs)
+            let size = att.size()
+            let rect = CGRect(x: availableWidth - size.width - rpt.margin, y: 8, width: size.width, height: size.height)
+            att.draw(in: rect)
             ctx.endPDFPage()
-            continue
+        }
+        ctx.closePDF()
+        window.orderOut(nil)
+        return data as Data
+    }
+
+    // Pagination: header + full cards only
+    var index = 0
+    while index < cards.count {
+        ctx.beginPDFPage(nil as CFDictionary?)
+        // Background + border
+        ctx.setFillColor(NSColor.white.cgColor)
+        ctx.fill(CGRect(origin: .zero, size: pageSize))
+        ctx.setStrokeColor(NSColor.black.cgColor)
+        ctx.setLineWidth(1)
+        ctx.stroke(CGRect(origin: .zero, size: pageSize))
+
+        // Header
+        if let headerCG = captureCGImage(from: headerHV) {
+            let headerRect = CGRect(x: 0, y: contentAreaHeight - headerHV.bounds.height, width: availableWidth, height: headerHV.bounds.height)
+            ctx.draw(headerCG, in: headerRect)
+            var yCursor = headerRect.minY - 8
+
+            // Place cards
+            while index < cards.count {
+                let card = cards[index]
+                let needed = card.height
+                let willHaveMore = (index + 1) < cards.count
+                let footerReserve: CGFloat = willHaveMore ? 28 : 0
+                if (yCursor - needed - footerReserve) < 0 { break }
+                let cardRect = CGRect(x: rpt.margin, y: yCursor - needed, width: availableWidth - 2 * rpt.margin, height: needed)
+                ctx.draw(card.image, in: cardRect)
+                yCursor = cardRect.minY - 8
+                index += 1
+            }
+
+            // Footer
+            if index < cards.count {
+                // continued…
+                let continuedHV = makeHostingView(
+                    HStack { Spacer(); Text("continued…").font(.footnote).foregroundStyle(.secondary) }
+                        .padding(.horizontal, rpt.margin)
+                        .padding(.bottom, rpt.margin)
+                , width: availableWidth)
+                if let continuedCG = captureCGImage(from: continuedHV) {
+                    let continuedRect = CGRect(x: 0, y: 0, width: availableWidth, height: continuedHV.bounds.height)
+                    ctx.draw(continuedCG, in: continuedRect)
+                }
+            } else {
+                // Last page timestamp
+                let footerText = "Generated " + DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                    .foregroundColor: NSColor.secondaryLabelColor
+                ]
+                let att = NSAttributedString(string: footerText, attributes: attrs)
+                let size = att.size()
+                let rect = CGRect(x: availableWidth - size.width - rpt.margin, y: 8, width: size.width, height: size.height)
+                att.draw(in: rect)
+            }
         }
 
-        // Fallback: bitmap snapshot for this page slice
-        guard let rep = hostingView.bitmapImageRepForCachingDisplay(in: sliceRect) else {
-            continue
-        }
-        rep.size = pageSize
-        hostingView.cacheDisplay(in: sliceRect, to: rep)
-        guard let cgImage = rep.cgImage else { continue }
-
-        ctx.beginPDFPage(nil)
-        ctx.draw(cgImage, in: CGRect(origin: .zero, size: pageSize))
         ctx.endPDFPage()
     }
 

@@ -11,11 +11,11 @@ final class MaterialTransfer {
     var destinationName: String? = nil  // To Loc/AFE/Vendor
     var destinationAddress: String? = nil
     var activity: String? = nil         // e.g., Drilling, Completions
-    var afeNumber: String? = nil
     var province: String? = nil
     var country: String? = nil
     var surfaceLocation: String? = nil
-    var transportedBy: String? = nil    // Truck # / company
+    var transportedBy: String? = nil    // Truck #
+    var shippingCompany: String? = nil
     var accountCode: String? = nil      // Default for lines when not set
     var operatorName: String? = nil     // Company/Operator string
     var notes: String? = nil

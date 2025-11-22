@@ -15,15 +15,17 @@ final class Well {
     @Attribute(.unique) var id: UUID = UUID()
     var name: String = "New Well"
     var uwi: String? = nil
+    var afeNumber: String? = nil
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade) var projects: [ProjectState] = []
     @Relationship(deleteRule: .cascade) var transfers: [MaterialTransfer] = []
 
-    init(name: String = "New Well", uwi: String? = nil) {
+    init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil) {
         self.name = name
         self.uwi = uwi
+        self.afeNumber = afeNumber
     }
 }
 
@@ -107,6 +109,9 @@ extension Well {
         wellDetailsLines.append("Well Name: \(name)")
         if let uwi = uwi {
             wellDetailsLines.append("UWI: \(uwi)")
+        }
+        if let afe = afeNumber {
+            wellDetailsLines.append("AFE Number: \(afe)")
         }
         // Attempt to get province/country from projects if any have these properties
         // As ProjectState details are unknown, skip province/country fields
@@ -296,3 +301,4 @@ extension Well {
         return data as Data
     }
 }
+

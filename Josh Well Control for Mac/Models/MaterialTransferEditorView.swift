@@ -9,8 +9,6 @@ struct MaterialTransferEditorView: View {
     @Bindable var transfer: MaterialTransfer
 
     @State private var selection: MaterialTransferItem? = nil
-    @State private var showingExportPanel = false
-    @State private var exportError: String? = nil
     @State private var expandedItems: Set<UUID> = []
     @State private var detailsHeights: [UUID: CGFloat] = [:]
     @State private var addressHeights: [UUID: CGFloat] = [:]
@@ -30,18 +28,11 @@ struct MaterialTransferEditorView: View {
         .padding(16)
         .frame(minWidth: 900, minHeight: 600)
         .navigationTitle("Material Transfer #\(transfer.number)")
-        .alert("Export Error", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportError ?? "Unknown error")
-        }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 Button { addItem() } label: { Label("Add Item", systemImage: "plus") }
                 Button("Save") { try? modelContext.save() }
                 Button { previewPDF() } label: { Label("Preview PDF", systemImage: "doc.text.magnifyingglass") }
-                Button { exportPDF() } label: { Label("Export PDF", systemImage: "square.and.arrow.up") }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
             }
         }
     }
@@ -54,8 +45,8 @@ struct MaterialTransferEditorView: View {
                     Text("Operator:").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
                     TextField("Operator", text: Binding(get: { transfer.operatorName ?? "" }, set: { transfer.operatorName = $0 }))
                         .textFieldStyle(.roundedBorder)
-                    Text("AFE #:").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
-                    TextField("AFE #", text: Binding(get: { transfer.afeNumber ?? "" }, set: { transfer.afeNumber = $0 }))
+                    Text("Country:").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                    TextField("Country", text: Binding(get: { transfer.country ?? "" }, set: { transfer.country = $0 }))
                         .textFieldStyle(.roundedBorder)
                 }
                 GridRow {
@@ -67,10 +58,18 @@ struct MaterialTransferEditorView: View {
                         .labelsHidden()
                 }
                 GridRow {
+                    Text("Province:").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                    TextField("Province", text: Binding(get: { transfer.province ?? "" }, set: { transfer.province = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                    Text("Shipping Company:").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                    TextField("Shipping Company", text: Binding(get: { transfer.shippingCompany ?? "" }, set: { transfer.shippingCompany = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
                     Text("Destination:").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
                     TextField("To Loc/AFE/Vendor", text: Binding(get: { transfer.destinationName ?? "" }, set: { transfer.destinationName = $0 }))
                         .textFieldStyle(.roundedBorder)
-                    Text("Transported By:").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                    Text("Truck #:").frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
                     TextField("Truck / Company", text: Binding(get: { transfer.transportedBy ?? "" }, set: { transfer.transportedBy = $0 }))
                         .textFieldStyle(.roundedBorder)
                 }
@@ -192,7 +191,7 @@ struct MaterialTransferEditorView: View {
                                             TextField("Destination", text: Binding(get: { item.vendorOrTo ?? (transfer.destinationName ?? "") }, set: { item.vendorOrTo = $0 }))
                                                 .textFieldStyle(.roundedBorder)
                                             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                                Text("Transported By").font(.caption).foregroundStyle(.secondary)
+                                                Text("Truck #").font(.caption).foregroundStyle(.secondary)
                                                 TextField("Truck / Company", text: Binding(get: { item.transportedBy ?? (transfer.transportedBy ?? "") }, set: { item.transportedBy = $0 }))
                                                     .textFieldStyle(.roundedBorder)
                                             }
@@ -311,42 +310,17 @@ struct MaterialTransferEditorView: View {
         let host = WindowHost(title: "Preview – Material Transfer #\(transfer.number)") {
             #if os(macOS)
             MaterialTransferReportPreview(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
                 .id(UUID()) // force fresh render in case the host caches content
             #else
             MaterialTransferReportView(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
                 .id(UUID())
             #endif
         }
         host.show()
-    }
-
-    private func exportPDF() {
-        let page = CGSize(width: 612, height: 792)
-        // Persist any pending edits so the report reflects the latest values
-        try? modelContext.save()
-
-        #if os(macOS)
-        // Use the actual report view for export
-        let reportView = MaterialTransferReportView(well: well, transfer: transfer)
-            .id(UUID()) // force fresh render for export
-
-        if let data = pdfDataForView(reportView, pageSize: page) {
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.pdf]
-            panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
-            panel.canCreateDirectories = true
-
-            if panel.runModal() == .OK, let url = panel.url {
-                do {
-                    try data.write(to: url)
-                } catch {
-                    exportError = error.localizedDescription
-                }
-            }
-        } else {
-            exportError = "Failed to generate PDF"
-        }
-        #endif
     }
 }
 
@@ -359,14 +333,17 @@ struct MaterialTransferEditorView: View {
     let t = MaterialTransfer(number: 2)
     t.operatorName = "Tourmaline Oil Corp."
     t.activity = "Drilling"
-    t.country = "Canada"; t.province = "Alberta"; t.surfaceLocation = "14-21-055-22W5"; t.afeNumber = "25D2566"
-    t.destinationName = "SCS Fishing"; t.transportedBy = "roughneck"
+    t.country = "Canada"
+    t.province = "Alberta"
+    t.shippingCompany = "FastShip Inc."
+    t.destinationName = "SCS Fishing"
+    t.transportedBy = "Truck #42"
     t.accountCode = "3320-3210 - Drilling-Equipment- Downhole Rental"
     t.well = w
     w.transfers.append(t)
     ctx.insert(t)
     let i1 = MaterialTransferItem(quantity: 1, descriptionText: "1 guardian tripped 13 pin serial # VG1045")
-    i1.accountCode = t.accountCode; i1.conditionCode = "B - Used"; i1.unitPrice = 0; i1.vendorOrTo = "SCS Fishing"; i1.transportedBy = "roughneck"; i1.transfer = t
+    i1.accountCode = t.accountCode; i1.conditionCode = "B - Used"; i1.unitPrice = 0; i1.vendorOrTo = "SCS Fishing"; i1.transportedBy = "Truck #42"; i1.transfer = t
     t.items.append(i1)
     ctx.insert(i1)
     return MaterialTransferEditorView(well: w, transfer: t)

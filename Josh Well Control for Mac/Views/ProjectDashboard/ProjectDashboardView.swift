@@ -5,7 +5,6 @@
 //  Created by Josh Sallows on 2025-11-02.
 //
 
-
 // ProjectDashboardView.swift
 import SwiftUI
 import SwiftData
@@ -14,6 +13,7 @@ struct ProjectDashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
     @State private var viewmodel: ViewModel
+    @State private var newTransferToEdit: MaterialTransfer?
 
     init(project: ProjectState) {
         self._project = Bindable(wrappedValue: project)
@@ -59,6 +59,49 @@ struct ProjectDashboardView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 160)
                                     .monospacedDigit()
+                            }
+                        }
+                    }
+
+                    WellSection(title: "Well", icon: "oilcan", subtitle: "Identity and accounting") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                                GridRow {
+                                    Text("UWI")
+                                        .frame(width: 140, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    TextField(
+                                        "UWI",
+                                        text: Binding(
+                                            get: { project.well?.uwi ?? "" },
+                                            set: { newValue in
+                                                if let well = project.well {
+                                                    well.uwi = newValue
+                                                }
+                                            }
+                                        )
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 360)
+                                }
+                                GridRow {
+                                    Text("AFE #")
+                                        .frame(width: 140, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    TextField(
+                                        "AFE #",
+                                        text: Binding(
+                                            get: { project.well?.afeNumber ?? "" },
+                                            set: { newValue in
+                                                if let well = project.well {
+                                                    well.afeNumber = newValue
+                                                }
+                                            }
+                                        )
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 360)
+                                }
                             }
                         }
                     }
@@ -140,6 +183,15 @@ struct ProjectDashboardView: View {
             }
             .padding(24)
         }
+        .sheet(item: $newTransferToEdit, content: { transfer in
+            if let well = project.well {
+                MaterialTransferEditorView(well: well, transfer: transfer)
+                    .frame(minWidth: 700, minHeight: 500)
+            } else {
+                Text("No well available")
+                    .padding()
+            }
+        })
         .background(Color(nsColor: .underPageBackgroundColor))
         .navigationTitle("Project Dashboard")
     }
@@ -240,3 +292,4 @@ extension ProjectDashboardView {
         var mudChecksCount: Int { project.muds.count }
     }
 }
+

@@ -404,7 +404,13 @@ private extension ContentView {
                         Button("Rename Well", systemImage: "pencil") { beginRename(well) }
                         Button("Duplicate Well", systemImage: "doc.on.doc") { duplicateWell(from: well) }
                         Button(role: .destructive) { deleteCurrentWell() } label: { Label("Delete Well", systemImage: "trash") }
-                        Button("Material Transfer…", systemImage: "doc.richtext") { openMaterialTransferEditor() }
+                        Button("Material Transfers…", systemImage: "doc.richtext") {
+                            let host = WindowHost(title: "Material Transfers – \(well.name)") {
+                                NavigationStack { MaterialTransferListView(well: well) }
+                                    .frame(minWidth: 700, minHeight: 480)
+                            }
+                            host.show()
+                        }
                     }
                 }
                 if let project = vm.selectedProject {
