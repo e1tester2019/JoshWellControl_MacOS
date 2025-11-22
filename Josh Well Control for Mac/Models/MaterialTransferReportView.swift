@@ -1,6 +1,7 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+import UniformTypeIdentifiers
 #endif
 
 struct MaterialTransferReportView: View {
@@ -54,7 +55,7 @@ struct MaterialTransferReportView: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.gray.opacity(0.85), lineWidth: 1.75)
+                        .stroke(Color.black, lineWidth: 1.75)
                 )
 
                 // Outgoing transfers table replaced with card-based layout
@@ -66,7 +67,7 @@ struct MaterialTransferReportView: View {
                 .padding(6)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.gray.opacity(0.75), lineWidth: 1.5)
+                        .stroke(Color.black, lineWidth: 1.5)
                 )
 
                 Spacer()
@@ -79,21 +80,25 @@ struct MaterialTransferReportView: View {
             }
             .padding(.horizontal, margin)
             .padding(.vertical, margin)
-            .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
+            .frame(width: pageSize.width, alignment: .topLeading)
             .foregroundStyle(.black)
         }
-        .frame(width: pageSize.width, height: pageSize.height)
+        .frame(width: pageSize.width)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(Color.black, lineWidth: 1)
+        )
     }
 
     // MARK: - Subviews
-    private func headerKV(_ k: String, _ v: String) -> some View {
+    func headerKV(_ k: String, _ v: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(k).font(.caption).foregroundStyle(.secondary)
             Text(v).font(.body)
         }
     }
 
-    private func itemCard(_ item: MaterialTransferItem) -> some View {
+    func itemCard(_ item: MaterialTransferItem) -> some View {
         let total = (item.unitPrice ?? 0) * item.quantity
         return VStack(alignment: .leading, spacing: 6) {
             // Top row: qty, $/unit, description, total (with small labels)
@@ -180,18 +185,174 @@ struct MaterialTransferReportView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.gray.opacity(0.8), lineWidth: 1.5)
+                .stroke(Color.black, lineWidth: 1.5)
         )
     }
 }
 
+#if os(macOS)
+struct MaterialTransferReportPreview: View {
+    var well: Well
+    var transfer: MaterialTransfer
+    @State private var exportError: String? = nil
+
+    private let pageSize = CGSize(width: 612, height: 792)
+
+    private var report: MaterialTransferReportView {
+        MaterialTransferReportView(well: well, transfer: transfer)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Preview – Material Transfer #\(transfer.number)")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    export()
+                } label: {
+                    Label("Export PDF", systemImage: "square.and.arrow.up")
+                }
+            }
+            .padding(8)
+            Divider()
+            ScrollView {
+                report
+            }
+        }
+        .alert("Export Error", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "Unknown error")
+        }
+    }
+
+    private func export() {
+        if let data = pdfDataForView(report, pageSize: pageSize) {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
+            panel.canCreateDirectories = true
+            if panel.runModal() == .OK, let url = panel.url {
+                do { try data.write(to: url) } catch { exportError = error.localizedDescription }
+            }
+        } else {
+            exportError = "Failed to generate PDF"
+        }
+    }
+}
+#endif
+
 // MARK: - PDF rendering helper (macOS)
 #if os(macOS)
 func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
-    let hosting = NSHostingView(rootView: AnyView(view).frame(width: pageSize.width, height: pageSize.height))
-    hosting.frame = CGRect(origin: .zero, size: pageSize)
-    let data = hosting.dataWithPDF(inside: hosting.bounds)
-    return data
+    // Create a hosting view sized to the content's intrinsic height and the given page width
+    // We'll paginate by capturing page-sized vertical slices.
+    let root = AnyView(
+        view
+            .frame(width: pageSize.width) // constrain width to page width
+            .fixedSize(horizontal: false, vertical: true) // allow height to expand
+    )
+
+    let hostingView = NSHostingView(rootView: root)
+    hostingView.translatesAutoresizingMaskIntoConstraints = false
+
+    // Build a temporary offscreen window to layout the content at full height
+    let window = NSWindow(
+        contentRect: CGRect(origin: .zero, size: pageSize),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: true
+    )
+    window.isOpaque = true
+    window.hasShadow = false
+    window.backgroundColor = .white
+    window.contentView = NSView(frame: CGRect(origin: .zero, size: pageSize))
+    window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+
+    guard let container = window.contentView else { return nil }
+    container.addSubview(hostingView)
+
+    // Pin hostingView to container with fixed width and flexible height
+    NSLayoutConstraint.activate([
+        hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        hostingView.topAnchor.constraint(equalTo: container.topAnchor),
+        hostingView.widthAnchor.constraint(equalToConstant: pageSize.width)
+    ])
+
+    // Ask AppKit to compute the fitting size (intrinsic height) for the content at this width
+    // Ensure layout and display have occurred before measuring
+    container.layoutSubtreeIfNeeded()
+    hostingView.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+
+    let fittingSize = hostingView.fittingSize
+    let contentHeight = max(fittingSize.height, pageSize.height)
+
+    hostingView.frame = CGRect(x: 0, y: 0, width: pageSize.width, height: contentHeight)
+    container.frame = hostingView.frame
+
+    hostingView.needsLayout = true
+    hostingView.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+    hostingView.display()
+
+    // Helper to try vector capture for a given rect
+    func vectorPDFSlice(in rect: CGRect) -> Data? {
+        let data = hostingView.dataWithPDF(inside: rect)
+        return data.count > 1000 && data.starts(with: Array("%PDF".utf8)) ? data : nil
+    }
+
+    // Prepare a PDF context to assemble all pages
+    let data = NSMutableData()
+    var mediaBox = CGRect(origin: .zero, size: pageSize)
+    guard let consumer = CGDataConsumer(data: data as CFMutableData),
+          let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+        window.orderOut(nil)
+        return nil
+    }
+
+    // Iterate pages by slicing the content vertically
+    let pageCount = Int(ceil(contentHeight / pageSize.height))
+    for pageIndex in 0..<pageCount {
+        let sliceOriginY = CGFloat(pageIndex) * pageSize.height
+        let sliceRect = CGRect(x: 0, y: sliceOriginY, width: pageSize.width, height: pageSize.height)
+
+        // Try vector capture first
+        if let sliceData = vectorPDFSlice(in: sliceRect),
+           let provider = CGDataProvider(data: sliceData as CFData),
+           let page = CGPDFDocument(provider)?.page(at: 1) {
+            ctx.beginPDFPage(nil)
+            // Draw the captured vector page into the current page's bounds
+            let pageBox = page.getBoxRect(.mediaBox)
+            let scaleX = pageSize.width / pageBox.width
+            let scaleY = pageSize.height / pageBox.height
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: 0)
+            ctx.scaleBy(x: scaleX, y: scaleY)
+            ctx.drawPDFPage(page)
+            ctx.restoreGState()
+            ctx.endPDFPage()
+            continue
+        }
+
+        // Fallback: bitmap snapshot for this page slice
+        guard let rep = hostingView.bitmapImageRepForCachingDisplay(in: sliceRect) else {
+            continue
+        }
+        rep.size = pageSize
+        hostingView.cacheDisplay(in: sliceRect, to: rep)
+        guard let cgImage = rep.cgImage else { continue }
+
+        ctx.beginPDFPage(nil)
+        ctx.draw(cgImage, in: CGRect(origin: .zero, size: pageSize))
+        ctx.endPDFPage()
+    }
+
+    ctx.closePDF()
+    window.orderOut(nil)
+    return data as Data
 }
 #endif
 

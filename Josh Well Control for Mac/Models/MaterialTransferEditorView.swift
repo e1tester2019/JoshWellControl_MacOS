@@ -307,10 +307,15 @@ struct MaterialTransferEditorView: View {
         // Ensure latest edits are persisted before previewing
         try? modelContext.save()
 
-        // Use a fresh instance of the report view so it reflects current state
+        // Use a fresh instance of the preview container so it reflects current state
         let host = WindowHost(title: "Preview – Material Transfer #\(transfer.number)") {
-            MaterialTransferReportView(well: well, transfer: transfer)
+            #if os(macOS)
+            MaterialTransferReportPreview(well: well, transfer: transfer)
                 .id(UUID()) // force fresh render in case the host caches content
+            #else
+            MaterialTransferReportView(well: well, transfer: transfer)
+                .id(UUID())
+            #endif
         }
         host.show()
     }
@@ -321,6 +326,7 @@ struct MaterialTransferEditorView: View {
         try? modelContext.save()
 
         #if os(macOS)
+        // Use the actual report view for export
         let reportView = MaterialTransferReportView(well: well, transfer: transfer)
             .id(UUID()) // force fresh render for export
 
@@ -329,6 +335,7 @@ struct MaterialTransferEditorView: View {
             panel.allowedContentTypes = [.pdf]
             panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
             panel.canCreateDirectories = true
+
             if panel.runModal() == .OK, let url = panel.url {
                 do {
                     try data.write(to: url)
