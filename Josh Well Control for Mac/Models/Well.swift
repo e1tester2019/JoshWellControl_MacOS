@@ -16,16 +16,18 @@ final class Well {
     var name: String = "New Well"
     var uwi: String? = nil
     var afeNumber: String? = nil
+    var requisitioner: String? = nil
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade) var projects: [ProjectState] = []
     @Relationship(deleteRule: .cascade) var transfers: [MaterialTransfer] = []
 
-    init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil) {
+    init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name
         self.uwi = uwi
         self.afeNumber = afeNumber
+        self.requisitioner = requisitioner
     }
 }
 

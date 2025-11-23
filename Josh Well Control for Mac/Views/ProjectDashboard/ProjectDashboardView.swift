@@ -8,6 +8,9 @@
 // ProjectDashboardView.swift
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 struct ProjectDashboardView: View {
     @Environment(\.modelContext) private var modelContext
@@ -67,6 +70,24 @@ struct ProjectDashboardView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                                 GridRow {
+                                    Text("Well Name")
+                                        .frame(width: 140, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    TextField(
+                                        "Well Name",
+                                        text: Binding(
+                                            get: { project.well?.name ?? "" },
+                                            set: { newValue in
+                                                if let well = project.well {
+                                                    well.name = newValue
+                                                }
+                                            }
+                                        )
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 360)
+                                }
+                                GridRow {
                                     Text("UWI")
                                         .frame(width: 140, alignment: .trailing)
                                         .foregroundStyle(.secondary)
@@ -101,6 +122,31 @@ struct ProjectDashboardView: View {
                                     )
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: 360)
+                                }
+                                GridRow {
+                                    Text("Requisitioner")
+                                        .frame(width: 140, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    TextField(
+                                        "Requisitioner",
+                                        text: Binding(
+                                            get: { project.well?.requisitioner ?? "" },
+                                            set: { newValue in
+                                                if let well = project.well {
+                                                    well.requisitioner = newValue
+                                                }
+                                            }
+                                        )
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 360)
+                                }
+                                GridRow {
+                                    Button {
+                                        copyProjectInfoToClipboard()
+                                    } label: {
+                                        Label("Copy Info", systemImage: "doc.on.doc")
+                                    }
                                 }
                             }
                         }
@@ -278,6 +324,30 @@ private struct InputNumberBox: View {
 
 
 
+
+
+
+extension ProjectDashboardView {
+    /// Builds the multiline string representing key project and well info.
+    fileprivate func makeProjectInfoString() -> String {
+        let well = project.well
+        return """
+        Well: \(well?.name ?? "-")
+        UWI: \(well?.uwi ?? "-")
+        AFE: \(well?.afeNumber ?? "-")
+        Requisitioner: \(well?.requisitioner ?? "-")
+        """
+    }
+
+    /// Copies the project info string to the macOS clipboard.
+    fileprivate func copyProjectInfoToClipboard() {
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(makeProjectInfoString(), forType: .string)
+        #endif
+    }
+}
 
 extension ProjectDashboardView {
     @Observable
