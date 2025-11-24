@@ -23,6 +23,7 @@ final class RentalItem {
     var name: String
     var detail: String?
     var serialNumber: String?
+    var used: Bool = false
 
     /// Optional quick-entry window; if `usageDates` is empty, `totalDays` falls back to inclusive days between start and end.
     var startDate: Date?
@@ -45,6 +46,7 @@ final class RentalItem {
         name: String = "Rental",
         detail: String? = nil,
         serialNumber: String? = nil,
+        used: Bool = false,
         startDate: Date? = nil,
         endDate: Date? = nil,
         usageDates: [Date] = [],
@@ -56,11 +58,11 @@ final class RentalItem {
         self.name = name
         self.detail = detail
         self.serialNumber = serialNumber
-        self.startDate = startDate
-        self.endDate = endDate
-        // Normalize to start-of-day and ensure uniqueness
         let norm = usageDates.map { Calendar.current.startOfDay(for: $0) }
         self.usageDates = Array(Set(norm)).sorted()
+        self.used = used
+        self.startDate = startDate
+        self.endDate = endDate
         self.onLocation = onLocation
         self.invoiced = invoiced
         self.costPerDay = costPerDay
@@ -96,3 +98,4 @@ final class RentalItem {
         }
     }
 }
+

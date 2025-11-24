@@ -20,6 +20,10 @@ final class MaterialTransfer {
     var operatorName: String? = nil     // Company/Operator string
     var notes: String? = nil
 
+    // Workflow flags
+    var isShippingOut: Bool = false     // This transfer ships items out of location
+    var isShippedBack: Bool = false     // Items have been shipped back to vendor
+
     @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem] = []
 
     // Back link to Well
@@ -38,12 +42,13 @@ final class MaterialTransferItem {
     var quantity: Double = 1
     var descriptionText: String = ""
     var accountCode: String? = nil
-    var conditionCode: String? = nil    // e.g., A-New, B-Used
+    var conditionCode: String? = nil    // e.g., New, Used, Damaged
     var unitPrice: Double? = nil        // $ / Unit
     var vendorOrTo: String? = nil       // To Loc/AFE/Vendor (per line override)
     var transportedBy: String? = nil    // per line override
 
     var detailText: String? = nil       // Additional item details
+    var serialNumber: String? = nil     // Equipment serial number
     var receiverPhone: String? = nil    // Contact phone for receiver
     var receiverAddress: String? = nil  // Receiver address
     var estimatedWeight: Double? = nil  // Estimated weight in pounds
@@ -59,3 +64,4 @@ final class MaterialTransferItem {
         self.descriptionText = descriptionText
     }
 }
+
