@@ -22,6 +22,7 @@ final class Well {
 
     @Relationship(deleteRule: .cascade) var projects: [ProjectState] = []
     @Relationship(deleteRule: .cascade) var transfers: [MaterialTransfer] = []
+    @Relationship(deleteRule: .cascade) var rentals: [RentalItem] = []
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name

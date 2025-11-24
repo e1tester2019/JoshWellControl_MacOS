@@ -14,47 +14,52 @@ struct MaterialTransferListView: View {
                 Spacer()
                 Button("New Transfer", systemImage: "plus") { addTransfer() }
             }
-            HStack(spacing: 12) {
-                Text("M.T.#").font(.caption).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
-                Text("Date").font(.caption).foregroundStyle(.secondary).frame(width: 140, alignment: .leading)
-                Text("Country").font(.caption).foregroundStyle(.secondary).frame(width: 120, alignment: .leading)
-                Text("Province").font(.caption).foregroundStyle(.secondary).frame(width: 120, alignment: .leading)
-                Text("Shipping Company").font(.caption).foregroundStyle(.secondary).frame(minWidth: 160, alignment: .leading)
-                Spacer(minLength: 12)
-                Text("Total").font(.caption).foregroundStyle(.secondary).frame(width: 120, alignment: .trailing)
-            }
-            .padding(.horizontal, 4)
             List(selection: $selection) {
                 ForEach(well.transfers.sorted(by: { $0.date > $1.date })) { t in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("#\(t.number)")
-                            .monospacedDigit()
-                            .frame(width: 60, alignment: .leading)
-                        DatePicker("", selection: Binding(get: { t.date }, set: { t.date = $0 }), displayedComponents: .date)
-                            .labelsHidden()
-                            .frame(width: 140, alignment: .leading)
-                        TextField("Country", text: Binding(get: { t.country ?? "" }, set: { t.country = $0 }))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                        TextField("Province", text: Binding(get: { t.province ?? "" }, set: { t.province = $0 }))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                        TextField("Shipping Company", text: Binding(get: { t.shippingCompany ?? "" }, set: { t.shippingCompany = $0 }))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(minWidth: 160)
-                        Spacer(minLength: 12)
-                        let total = t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }
-                        Text(String(format: "$%.2f", total))
-                            .monospacedDigit()
-                            .frame(width: 120, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("#\(t.number)")
+                                .font(.headline)
+                                .monospacedDigit()
+                            DatePicker("", selection: Binding(get: { t.date }, set: { t.date = $0 }), displayedComponents: .date)
+                                .labelsHidden()
+                                .frame(width: 160)
+                            Spacer(minLength: 12)
+                            Text(String(format: "$%.2f", t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
+                                .font(.headline)
+                                .monospacedDigit()
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            TextField("Country", text: Binding(get: { t.country ?? "" }, set: { t.country = $0 }))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 180)
+                            TextField("Province", text: Binding(get: { t.province ?? "" }, set: { t.province = $0 }))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 180)
+                            TextField("Shipping Company", text: Binding(get: { t.shippingCompany ?? "" }, set: { t.shippingCompany = $0 }))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(minWidth: 240)
+                            Spacer()
+                            Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
+                                .buttonStyle(.bordered)
+                        }
                     }
-                    .contentShape(Rectangle())
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill((selection?.id == t.id) ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke((selection?.id == t.id) ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: (selection?.id == t.id) ? 1.5 : 1)
+                    )
                     .onTapGesture { selection = t }
                     .contextMenu {
                         Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
                         Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
                         Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
                     }
+                    .listRowSeparator(.hidden)
                 }
                 .onDelete { idx in
                     let arr = well.transfers.sorted(by: { $0.date > $1.date })

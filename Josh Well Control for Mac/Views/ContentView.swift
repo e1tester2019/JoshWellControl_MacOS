@@ -41,7 +41,7 @@ struct ContentView: View {
     @State private var renameWellText: String = ""
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pump, swabbing, trip, bhp
+        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pump, swabbing, trip, bhp, rentals, transfers
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -57,6 +57,8 @@ struct ContentView: View {
             case .swabbing: return "Swabbing"
             case .trip: return "Trip Simulation"
             case .bhp: return "BHP Preview"
+            case .rentals: return "Rentals"
+            case .transfers: return "Material Transfers"
             }
         }
     }
@@ -132,6 +134,18 @@ struct ContentView: View {
                             TripSimulationView(project: project)
                         case .bhp:
                             BHPPreviewView(project: project)
+                        case .rentals:
+                            if let well = project.well {
+                                RentalItemsView(well: well)
+                            } else {
+                                Text("No well available")
+                            }
+                        case .transfers:
+                            if let well = project.well {
+                                MaterialTransferListView(well: well)
+                            } else {
+                                Text("No well available")
+                            }
                         }
                     }
                     .id(project.id) // force rebuild when project changes
@@ -336,6 +350,8 @@ private extension ContentView {
         case .swabbing: return "arrow.up.and.down"
         case .trip: return "figure.walk"
         case .bhp: return "waveform"
+        case .rentals: return "tray.full"
+        case .transfers: return "doc.richtext"
         }
     }
 }
@@ -404,12 +420,8 @@ private extension ContentView {
                         Button("Rename Well", systemImage: "pencil") { beginRename(well) }
                         Button("Duplicate Well", systemImage: "doc.on.doc") { duplicateWell(from: well) }
                         Button(role: .destructive) { deleteCurrentWell() } label: { Label("Delete Well", systemImage: "trash") }
-                        Button("Material Transfers…", systemImage: "doc.richtext") {
-                            let host = WindowHost(title: "Material Transfers – \(well.name)") {
-                                NavigationStack { MaterialTransferListView(well: well) }
-                                    .frame(minWidth: 700, minHeight: 480)
-                            }
-                            host.show()
+                        Button("Material Transfers", systemImage: "doc.richtext") {
+                            selectedSection = .transfers
                         }
                     }
                 }
@@ -440,3 +452,4 @@ private extension ContentView {
         deleteProjects(offsets: IndexSet(integer: idx))
     }
 }
+
