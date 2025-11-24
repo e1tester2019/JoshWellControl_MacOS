@@ -38,8 +38,8 @@ struct MaterialTransferEditorView: View {
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 Button { addItem() } label: { Label("Add Item", systemImage: "plus") }
-                Button { showAddFromRentals = true } label: { Label("Add From Rentals…", systemImage: "shippingbox.and.arrow.up") }
-                Button { showCreateRentals = true } label: { Label("Create Rentals From Lines…", systemImage: "shippingbox.and.arrow.down") }
+                Button { showAddFromRentals = true } label: { Label("Add From Rentals…", systemImage: "shippingbox") }
+                Button { showCreateRentals = true } label: { Label("Create Rentals From Lines…", systemImage: "") }
                 Button { showAffectedList = true } label: { Label("Preview Changes", systemImage: "eye") }
                 Button("Save") { try? modelContext.save() }
                 Button { previewPDF() } label: { Label("Preview PDF", systemImage: "doc.text.magnifyingglass") }
