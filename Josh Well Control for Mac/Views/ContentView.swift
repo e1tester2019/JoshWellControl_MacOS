@@ -228,6 +228,7 @@ struct ContentView: View {
                 vm.selectedProject = w.projects.first
             }
         }
+        .environment(\.locale, Locale(identifier: "en_GB"))
     }
 }
 

@@ -94,6 +94,7 @@ struct MaterialTransferListView: View {
     private func openEditor(_ t: MaterialTransfer) {
         let host = WindowHost(title: "Material Transfer #\(t.number)") {
             MaterialTransferEditorView(well: well, transfer: t)
+                .environment(\.locale, Locale(identifier: "en_GB"))
                 .frame(minWidth: 900, minHeight: 600)
         }
         host.show()

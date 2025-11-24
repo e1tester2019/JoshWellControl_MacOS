@@ -1,5 +1,10 @@
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct RentalItemsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -26,6 +31,8 @@ struct RentalItemsView: View {
                         .contentShape(Rectangle())
                         .contextMenu {
                             Button("Edit Details", systemImage: "square.and.pencil") { openEditor(r) }
+                            Button("Copy Summary", systemImage: "doc.on.doc") { copySummary(r) }
+                            Button("Copy Well + Rental", systemImage: "doc.on.clipboard") { copyWellPlusRental(r) }
                             Button(role: .destructive) { delete(r) } label: { Label("Delete", systemImage: "trash") }
                         }
                 }
@@ -79,9 +86,105 @@ struct RentalItemsView: View {
     private func openEditor(_ r: RentalItem) {
         let host = WindowHost(title: "Rental – \(r.name)") {
             RentalDetailEditor(rental: r)
+                .environment(\.locale, Locale(identifier: "en_GB"))
                 .frame(minWidth: 720, minHeight: 520)
         }
         host.show()
+    }
+
+    private func copySummary(_ r: RentalItem) {
+        // Build the same summary as RentalCard
+        let cal = Calendar.current
+        let dates: [Date]
+        if !r.usageDates.isEmpty {
+            dates = r.usageDates.map { cal.startOfDay(for: $0) }.sorted()
+        } else if let s = r.startDate, let e = r.endDate {
+            var out: [Date] = []
+            var day = cal.startOfDay(for: min(s, e))
+            let end = cal.startOfDay(for: max(s, e))
+            while day <= end { out.append(day); day = cal.date(byAdding: .day, value: 1, to: day) ?? day }
+            dates = out
+        } else {
+            dates = []
+        }
+        let df = DateFormatter(); df.dateStyle = .medium; df.timeStyle = .none
+        var parts: [String] = []
+        if !dates.isEmpty {
+            var start = dates[0]; var prev = dates[0]
+            func push() {
+                if start == prev { parts.append(df.string(from: start)) } else { parts.append("\(df.string(from: start))–\(df.string(from: prev))") }
+            }
+            for d in dates.dropFirst() {
+                if let next = cal.date(byAdding: .day, value: 1, to: prev), cal.isDate(d, inSameDayAs: next) { prev = d } else { push(); start = d; prev = d }
+            }
+            push()
+        }
+        let total = !dates.isEmpty ? dates.count : r.totalDays
+        var lines: [String] = []
+        lines.append("Tool: \(r.name)")
+        if let d = r.detail, !d.isEmpty { lines.append("Desc: \(d)") }
+        if let sn = r.serialNumber, !sn.isEmpty { lines.append("SN: \(sn)") }
+        if !parts.isEmpty { lines.append("Days: \(parts.joined(separator: "; ")) (total: \(total))") } else { lines.append("Days: (total: \(total))") }
+        let summary = lines.joined(separator: "\n")
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        #else
+        UIPasteboard.general.string = summary
+        #endif
+    }
+
+    private func copyWellPlusRental(_ r: RentalItem) {
+        // Well header
+        let wellName = well.name
+        let uwi = well.uwi ?? ""
+        let afe = well.afeNumber ?? ""
+        let req = well.requisitioner ?? ""
+        let wellHeader = "Well Name: \(wellName)\nUWI: \(uwi)\nAFE: \(afe)\nRequisitioner: \(req)"
+
+        // Rental summary (condensed ranges + total)
+        let cal = Calendar.current
+        let dates: [Date]
+        if !r.usageDates.isEmpty {
+            dates = r.usageDates.map { cal.startOfDay(for: $0) }.sorted()
+        } else if let s = r.startDate, let e = r.endDate {
+            var out: [Date] = []
+            var day = cal.startOfDay(for: min(s, e))
+            let end = cal.startOfDay(for: max(s, e))
+            while day <= end { out.append(day); day = cal.date(byAdding: .day, value: 1, to: day) ?? day }
+            dates = out
+        } else {
+            dates = []
+        }
+        let df = DateFormatter(); df.dateStyle = .medium; df.timeStyle = .none
+        var parts: [String] = []
+        if !dates.isEmpty {
+            var start = dates[0]; var prev = dates[0]
+            func push() {
+                if start == prev { parts.append(df.string(from: start)) }
+                else { parts.append("\(df.string(from: start))–\(df.string(from: prev))") }
+            }
+            for d in dates.dropFirst() {
+                if let next = cal.date(byAdding: .day, value: 1, to: prev), cal.isDate(d, inSameDayAs: next) { prev = d } else { push(); start = d; prev = d }
+            }
+            push()
+        }
+        let total = !dates.isEmpty ? dates.count : r.totalDays
+        var rentalLines: [String] = []
+        rentalLines.append("Tool: \(r.name)")
+        if let d = r.detail, !d.isEmpty { rentalLines.append("Desc: \(d)") }
+        if let sn = r.serialNumber, !sn.isEmpty { rentalLines.append("SN: \(sn)") }
+        if !parts.isEmpty { rentalLines.append("Days: \(parts.joined(separator: "; ")) (total: \(total))") } else { rentalLines.append("Days: (total: \(total))") }
+        let rentalSummary = rentalLines.joined(separator: "\n")
+
+        // Combined
+        let combined = wellHeader + "\n\n" + rentalSummary
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(combined, forType: .string)
+        #else
+        UIPasteboard.general.string = combined
+        #endif
     }
 }
 
@@ -122,6 +225,13 @@ private struct RentalCard: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                 }
+                Button {
+                    copySummary()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .help("Copy rental summary")
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -178,6 +288,79 @@ private struct RentalCard: View {
         }
         rental.usageDates = days
         try? modelContext.save()
+    }
+
+    private func copySummary() { copySummary(for: rental) }
+
+    private func copySummary(for r: RentalItem) {
+        let summary = rentalSummaryString(for: r)
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        #else
+        UIPasteboard.general.string = summary
+        #endif
+    }
+
+    private func rentalSummaryString(for r: RentalItem) -> String {
+        let name = r.name
+        let desc = r.detail?.isEmpty == false ? r.detail! : ""
+        let sn = r.serialNumber?.isEmpty == false ? r.serialNumber! : ""
+        let dates = normalizedDates(for: r)
+        let ranges = condensedRangesString(from: dates)
+        let total = dates.count > 0 ? dates.count : r.totalDays
+        var lines: [String] = []
+        lines.append("Tool: \(name)")
+        if !desc.isEmpty { lines.append("Desc: \(desc)") }
+        if !sn.isEmpty { lines.append("SN: \(sn)") }
+        if !ranges.isEmpty { lines.append("Days: \(ranges) (total: \(total))") } else { lines.append("Days: (total: \(total))") }
+        return lines.joined(separator: "\n")
+    }
+
+    private func normalizedDates(for r: RentalItem) -> [Date] {
+        let cal = Calendar.current
+        if !r.usageDates.isEmpty {
+            return r.usageDates.map { cal.startOfDay(for: $0) }.sorted()
+        }
+        guard let s = r.startDate, let e = r.endDate else { return [] }
+        var out: [Date] = []
+        var day = cal.startOfDay(for: min(s, e))
+        let end = cal.startOfDay(for: max(s, e))
+        while day <= end {
+            out.append(day)
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return out
+    }
+
+    private func condensedRangesString(from dates: [Date]) -> String {
+        guard !dates.isEmpty else { return "" }
+        let cal = Calendar.current
+        let dfShort = DateFormatter(); dfShort.dateStyle = .medium; dfShort.timeStyle = .none
+        var parts: [String] = []
+        var start = dates[0]
+        var prev = dates[0]
+        func pushCurrent() {
+            if start == prev {
+                parts.append(dfShort.string(from: start))
+            } else {
+                let left = dfShort.string(from: start)
+                let right = dfShort.string(from: prev)
+                parts.append("\(left)–\(right)")
+            }
+        }
+        for d in dates.dropFirst() {
+            if let next = cal.date(byAdding: .day, value: 1, to: prev), cal.isDate(d, inSameDayAs: next) {
+                prev = d
+            } else {
+                pushCurrent()
+                start = d
+                prev = d
+            }
+        }
+        pushCurrent()
+        return parts.joined(separator: "; ")
     }
 }
 
@@ -319,6 +502,15 @@ private struct RentalDetailEditor: View {
             }
         }
         .onDisappear { try? modelContext.save() }
+        .toolbar {
+            ToolbarItemGroup(placement: .automatic) {
+                Button {
+                    copyWellPlusRental()
+                } label: {
+                    Label("Copy Well + Rental", systemImage: "doc.on.clipboard")
+                }
+            }
+        }
     }
 
     private func addToday() { rental.toggleUsage(on: Date()); try? modelContext.save() }
@@ -347,6 +539,54 @@ private struct RentalDetailEditor: View {
         try? modelContext.save()
     }
     private func dateString(_ d: Date) -> String { let df = DateFormatter(); df.dateStyle = .medium; return df.string(from: d) }
+
+    private func copyWellPlusRental() {
+        let wellName = rental.well?.name ?? ""
+        let uwi = rental.well?.uwi ?? ""
+        let afe = rental.well?.afeNumber ?? ""
+        let req = rental.well?.requisitioner ?? ""
+        let wellHeader = "Well Name: \(wellName)\nUWI: \(uwi)\nAFE: \(afe)\nRequisitioner: \(req)"
+
+        let cal = Calendar.current
+        let dates: [Date]
+        if !rental.usageDates.isEmpty {
+            dates = rental.usageDates.map { cal.startOfDay(for: $0) }.sorted()
+        } else if let s = rental.startDate, let e = rental.endDate {
+            var out: [Date] = []
+            var day = cal.startOfDay(for: min(s, e))
+            let end = cal.startOfDay(for: max(s, e))
+            while day <= end { out.append(day); day = cal.date(byAdding: .day, value: 1, to: day) ?? day }
+            dates = out
+        } else {
+            dates = []
+        }
+        let df = DateFormatter(); df.dateStyle = .medium; df.timeStyle = .none
+        var parts: [String] = []
+        if !dates.isEmpty {
+            var start = dates[0]; var prev = dates[0]
+            func push() {
+                if start == prev { parts.append(df.string(from: start)) }
+                else { parts.append("\(df.string(from: start))–\(df.string(from: prev))") }
+            }
+            for d in dates.dropFirst() {
+                if let next = cal.date(byAdding: .day, value: 1, to: prev), cal.isDate(d, inSameDayAs: next) { prev = d } else { push(); start = d; prev = d }
+            }
+            push()
+        }
+        let total = !dates.isEmpty ? dates.count : rental.totalDays
+        var rentalLines: [String] = []
+        rentalLines.append("Tool: \(rental.name)")
+        if let d = rental.detail, !d.isEmpty { rentalLines.append("Desc: \(d)") }
+        if let sn = rental.serialNumber, !sn.isEmpty { rentalLines.append("SN: \(sn)") }
+        if !parts.isEmpty { rentalLines.append("Days: \(parts.joined(separator: "; ")) (total: \(total))") } else { rentalLines.append("Days: (total: \(total))") }
+        let combined = wellHeader + "\n\n" + rentalLines.joined(separator: "\n")
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(combined, forType: .string)
+        #else
+        UIPasteboard.general.string = combined
+        #endif
+    }
 }
 
 // Simple flow layout for chips

@@ -332,7 +332,7 @@ extension ProjectDashboardView {
     fileprivate func makeProjectInfoString() -> String {
         let well = project.well
         return """
-        Well: \(well?.name ?? "-")
+        Well Name: \(well?.name ?? "-")
         UWI: \(well?.uwi ?? "-")
         AFE: \(well?.afeNumber ?? "-")
         Requisitioner: \(well?.requisitioner ?? "-")
