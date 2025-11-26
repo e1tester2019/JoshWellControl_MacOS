@@ -315,6 +315,12 @@ struct PumpScheduleView: View {
                     Text(String(format: "%.0f m", controlTVDForDisplay)).monospacedDigit()
                 }
                 Divider()
+#if DEBUG
+Button("Debug Annulus Stack (Visual HP)") {
+    vm.debugCurrentAnnulus(project: project)
+}
+.buttonStyle(.bordered)
+#endif
                 // Outputs
                 let h = vm.hydraulicsForCurrent(project: project)
                 VStack(alignment: .leading, spacing: 6) {
@@ -387,7 +393,7 @@ struct PumpScheduleView: View {
         var controlDepthMode: ControlDepthMode { get { ControlDepthMode(rawValue: controlDepthModeRaw) ?? .bit } set { controlDepthModeRaw = newValue.rawValue } }
 
         func currentStage(project: ProjectState) -> Stage? { stages.isEmpty ? nil : stages[stageDisplayIndex] }
-        func currentStageMud(project: ProjectState) -> MudProperties? { currentStage(project: project)?.mud }
+        func currentStageMud(project: ProjectState) -> MudProperties? { print("\(currentStage(project: project)?.mud?.density_kgm3 ?? 0)"); return currentStage(project: project)?.mud }
 
         func buildStages(project: ProjectState) {
             stages.removeAll()
@@ -396,6 +402,8 @@ struct PumpScheduleView: View {
                 project.drillString.map { $0.bottomDepth_m }.max() ?? 0
             )
             let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+            
+            let activeMud = project.activeMud
             // Annulus first – order by shallow to deep (top MD ascending)
             let ann = project.finalLayers.filter { $0.placement == .annulus || $0.placement == .both }
                 .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
@@ -404,7 +412,7 @@ struct PumpScheduleView: View {
                 let b = max(L.topMD_m, L.bottomMD_m)
                 let vol = geom.volumeInAnnulus_m3(t, b)
                 let col = L.mud?.color ?? L.color
-                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus, mud: L.mud))
+                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus, mud: L.mud ?? activeMud))
             }
             // Then string – order deepest to shallowest as per spec
             let str = project.finalLayers.filter { $0.placement == .string || $0.placement == .both }
@@ -415,7 +423,7 @@ struct PumpScheduleView: View {
                 let b = max(L.topMD_m, L.bottomMD_m)
                 let vol = geom.volumeInString_m3(t, b)
                 let col = L.mud?.color ?? L.color
-                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .string, mud: L.mud))
+                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .string, mud: L.mud ?? activeMud))
             }
             stageIndex = 0
             progress = 0
@@ -486,7 +494,7 @@ struct PumpScheduleView: View {
             return (merge(remaining), parcels)
         }
 
-        private func injectAtSurfaceString(_ segs: [Seg], length: Double, color: Color, bitMD: Double) -> [Seg] {
+        private func injectAtSurfaceString(_ segs: [Seg], length: Double, color: Color, mud: MudProperties?, bitMD: Double) -> [Seg] {
             let L = max(0, length)
             guard L > 1e-9 else { return segs }
             // Shift down by L and clip to [0, bitMD]
@@ -494,10 +502,12 @@ struct PumpScheduleView: View {
             for s in segs {
                 let nt = min(bitMD, s.top + L)
                 let nb = min(bitMD, s.bottom + L)
-                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud)) }
+                if nb > nt + 1e-9 {
+                    shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud))
+                }
             }
-            // Insert new parcel at top
-            let head = Seg(top: 0, bottom: min(bitMD, L), color: color, mud: currentStageMud(project: segs.first?.mud?.project ?? ProjectState()))
+            // Insert new parcel at top with the stage's mud (this is what will later exit the bit)
+            let head = Seg(top: 0, bottom: min(bitMD, L), color: color, mud: mud)
             shifted.append(head)
             return merge(shifted)
         }
@@ -562,7 +572,7 @@ struct PumpScheduleView: View {
                 // Determine exiting parcels from string before shifting
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
                 let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
-                string = injectAtSurfaceString(string, length: Ls, color: st.color, bitMD: bitMD)
+                string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
                 annulus = pushUpFromBitAnnulus(annulus, parcels: taken.parcels, bitMD: bitMD, geom: geom)
             }
             // Apply current stage partially
@@ -571,7 +581,7 @@ struct PumpScheduleView: View {
                 let pV = max(0, min(pumpedV, st.totalVolume_m3))
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
                 let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
-                string = injectAtSurfaceString(string, length: Ls, color: st.color, bitMD: bitMD)
+                string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
                 annulus = pushUpFromBitAnnulus(annulus, parcels: taken.parcels, bitMD: bitMD, geom: geom)
             }
             return (string, annulus)
@@ -584,6 +594,70 @@ struct PumpScheduleView: View {
             let bhp_kPa: Double
             let ecd_kgm3: Double
         }
+
+        #if DEBUG
+        /// Debug snapshot based directly on the visual annulus stack.
+        /// Uses the same segments and TVD mapping as the Well Snapshot view
+        /// to compute per-layer and total hydrostatic pressure.
+        func debugCurrentAnnulus(project: ProjectState) {
+            let bitMD = max(
+                project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
+                project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            )
+
+            let stg = currentStage(project: project)
+            let totalV = stg?.totalVolume_m3 ?? 0
+            let pumpedV = max(0.0, min(progress * max(totalV, 0), totalV))
+
+            // Same stack as the visual
+            let stacks = stacksFor(project: project,
+                                   stageIndex: stageDisplayIndex,
+                                   pumpedV: pumpedV)
+
+            print("===== Annulus Stack Debug (Visual-Based HP) =====")
+            print("Stage index: \(stageDisplayIndex) name: \(stg?.name ?? "<none>")")
+            print(String(format: "Bit MD: %.1f m", bitMD))
+            print(String(format: "Pumped volume: %.3f m³ (of %.3f m³)",
+                         pumpedV, totalV))
+            print("-- Annulus segments (as drawn) --")
+
+            let g = 9.80665
+            var totalHydrostatic_Pa: Double = 0
+
+            for (i, seg) in stacks.annulus.enumerated() {
+                let mudName = seg.mud?.name ?? "<active / unknown>"
+                let rho = seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3
+
+                // Use the same mapping as the visual: MD -> TVD
+                let tvdTop = project.tvd(of: seg.top)
+                let tvdBot = project.tvd(of: seg.bottom)
+                let dTVD   = max(0.0, tvdBot - tvdTop)
+
+                let dP = rho * g * dTVD
+                totalHydrostatic_Pa += dP
+
+                let colorDescription = String(describing: seg.color)
+
+                print(String(
+                    format: "[%02d] MD %.1f–%.1f m, TVD %.1f–%.1f m, dTVD = %.1f m, mud = %@, ρ = %.0f kg/m³, dP = %.0f kPa, color = %@",
+                    i,
+                    seg.top,
+                    seg.bottom,
+                    tvdTop,
+                    tvdBot,
+                    dTVD,
+                    mudName,
+                    rho,
+                    dP / 1000.0,
+                    colorDescription
+                ))
+            }
+
+            print(String(format: "Total hydrostatic from visual stack: %.0f kPa",
+                         totalHydrostatic_Pa / 1000.0))
+            print("===== End Annulus Stack Debug =====")
+        }
+        #endif
 
         func hydraulicsForCurrent(project: ProjectState) -> HydraulicsReadout {
             // Guard
@@ -623,7 +697,7 @@ struct PumpScheduleView: View {
                 let tvdTop = project.tvd(of: topMD)
                 let tvdBot = project.tvd(of: botMD)
                 let dTVD = max(0.0, tvdBot - tvdTop)
-                let rho = seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3
+                let rho = seg.mud?.density_kgm3 ?? 1260
                 hydrostatic_Pa += rho * g * dTVD
 
                 // Friction: along the flow path (MD)
