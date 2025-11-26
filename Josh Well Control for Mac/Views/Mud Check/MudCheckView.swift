@@ -398,6 +398,60 @@ private struct MudEditor: View {
                                     .controlSize(.small)
                             }
 
+                            // Geometry-specific Power Law fits (optional)
+                            GridRow {
+                                Text("n (pipe) – optional")
+                                    .frame(width: LABEL_W, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: Binding(
+                                    get: { mud.n_pipe ?? 0 },
+                                    set: { mud.n_pipe = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(maxWidth: .infinity)
+                                .controlSize(.small)
+                            }
+                            GridRow {
+                                Text("K (pipe, Pa·sⁿ) – optional")
+                                    .frame(width: LABEL_W, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: Binding(
+                                    get: { mud.K_pipe ?? 0 },
+                                    set: { mud.K_pipe = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(maxWidth: .infinity)
+                                .controlSize(.small)
+                            }
+                            GridRow {
+                                Text("n (annulus) – optional")
+                                    .frame(width: LABEL_W, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: Binding(
+                                    get: { mud.n_annulus ?? 0 },
+                                    set: { mud.n_annulus = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(maxWidth: .infinity)
+                                .controlSize(.small)
+                            }
+                            GridRow {
+                                Text("K (annulus, Pa·sⁿ) – optional")
+                                    .frame(width: LABEL_W, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: Binding(
+                                    get: { mud.K_annulus ?? 0 },
+                                    set: { mud.K_annulus = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(maxWidth: .infinity)
+                                .controlSize(.small)
+                            }
+
                             GridRow {
                                 Text("600 rpm dial").frame(width: LABEL_W, alignment: .trailing).foregroundStyle(.secondary)
                                 TextField("", value: Binding(get: { mud.dial600 ?? 0 }, set: { mud.dial600 = $0 }), format: .number)
@@ -436,6 +490,12 @@ private struct MudEditor: View {
                 }
             }
             .padding(12)
+        }
+        .onChange(of: mud.dial600) { _, _ in
+            applyFannToMud()
+        }
+        .onChange(of: mud.dial300) { _, _ in
+            applyFannToMud()
         }
     }
 }

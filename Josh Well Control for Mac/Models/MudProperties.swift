@@ -42,6 +42,13 @@ final class MudProperties {
     var dial600: Double?   // 600 rpm dial
     var dial300: Double?   // 300 rpm dial
 
+    // Optional geometry-specific Power Law parameters (from mud report)
+    // If provided, these override the generic 600/300 Fann fit.
+    var n_pipe: Double?        // n value for pipe flow
+    var K_pipe: Double?        // k value for pipe flow (Pa·sⁿ)
+    var n_annulus: Double?     // n value for annular flow
+    var K_annulus: Double?     // k value for annular flow (Pa·sⁿ)
+
     // Computed SwiftUI Color bridge
     var color: Color {
         get { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }

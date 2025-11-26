@@ -324,12 +324,80 @@ Button("Debug Annulus Stack (Visual HP)") {
                 // Outputs
                 let h = vm.hydraulicsForCurrent(project: project)
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text("Hydrostatic").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.hydrostatic_kPa)).monospacedDigit() }
-                    HStack { Text("Friction").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.friction_kPa)).monospacedDigit() }
-                    HStack { Text("SBP").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.sbp_kPa)).monospacedDigit() }
+                    HStack {
+                        Text("Hydrostatic Annulus")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", (h.annulusAtControl_Pa - h.annulusFriction_kPa * 1000.0 - h.sbp_kPa * 1000.0) / 1000.0)) // show hydrostatic-only
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("Friction (annulus)")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", h.annulusFriction_kPa)).monospacedDigit()
+                    }
+                    HStack {
+                        Text("Hydrostatic String")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", (h.stringAtControl_Pa - h.stringFriction_kPa * 1000.0) / 1000.0)) // show hydrostatic-only
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("Friction (string)")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", h.stringFriction_kPa)).monospacedDigit()
+                    }
+                    HStack {
+                        Text("Total friction")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", h.totalFriction_kPa)).monospacedDigit()
+                    }
+                    HStack {
+                        Text("Annulus at control")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        // hydrostatic + friction + SBP
+                        Text(String(format: "%.0f kPa", h.annulusAtControl_Pa / 1000.0)).monospacedDigit()
+                    }
+                    HStack {
+                        Text("String at control")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        // hydrostatic + friction (no SBP on string side)
+                        Text(String(format: "%.0f kPa", h.stringAtControl_Pa / 1000.0)).monospacedDigit()
+                    }
                     Divider()
-                    HStack { Text("BHP").frame(width: 120, alignment: .trailing).font(.headline); Text(String(format: "%.0f kPa", h.bhp_kPa)).font(.headline).monospacedDigit() }
-                    HStack { Text("ECD").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kg/m³", h.ecd_kgm3)).monospacedDigit() }
+                    HStack {
+                        Text("SBP")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", h.sbp_kPa)).monospacedDigit()
+                    }
+                    Divider()
+                    HStack {
+                        Text("BHP")
+                            .frame(width: 140, alignment: .trailing)
+                            .font(.headline)
+                        Text(String(format: "%.0f kPa", h.bhp_kPa))
+                            .font(.headline)
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("TCP (total circ)")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kPa", h.tcp_kPa)).monospacedDigit()
+                    }
+                    HStack {
+                        Text("ECD")
+                            .frame(width: 140, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f kg/m³", h.ecd_kgm3)).monospacedDigit()
+                    }
                 }
             }
             .padding(4)
@@ -588,10 +656,15 @@ Button("Debug Annulus Stack (Visual HP)") {
         }
 
         struct HydraulicsReadout {
-            let hydrostatic_kPa: Double
-            let friction_kPa: Double
+            let annulusAtControl_Pa: Double
+            let stringAtControl_Pa: Double
+            let annulusFriction_kPa: Double
+            let stringFriction_kPa: Double
+            let totalFriction_kPa: Double
             let sbp_kPa: Double
             let bhp_kPa: Double
+            /// Total circulating pressure at surface (string + annulus friction + SBP)
+            let tcp_kPa: Double
             let ecd_kgm3: Double
         }
 
@@ -673,20 +746,23 @@ Button("Debug Annulus Stack (Visual HP)") {
             }()
             let controlTVD = project.tvd(of: controlMD)
             let g = 9.80665
-
+            
             // Build current stacks to know which fluids are where
             let stg = currentStage(project: project)
             let totalV = stg?.totalVolume_m3 ?? 0
             let pumpedV = max(0.0, min(progress * max(totalV, 0), totalV))
             let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedV)
-
+            
             // Helper to get annulus area and fluid density at MD
             let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
-
+            
             // Segment-exact hydrostatic (TVD) and segment-wise friction (MD)
-            var hydrostatic_Pa: Double = 0
-            var friction_Pa: Double = 0
-
+            var annulusHydrostatic_Pa: Double = 0
+            var stringHydrostatic_Pa: Double = 0
+            var annulusFriction_Pa: Double = 0
+            var stringFriction_Pa: Double = 0
+            
+            
             // Clip each annulus segment to [0, controlMD] and integrate
             for seg in stacks.annulus {
                 let topMD = max(0.0, min(seg.top, controlMD))
@@ -698,7 +774,7 @@ Button("Debug Annulus Stack (Visual HP)") {
                 let tvdBot = project.tvd(of: botMD)
                 let dTVD = max(0.0, tvdBot - tvdTop)
                 let rho = seg.mud?.density_kgm3 ?? 1260
-                hydrostatic_Pa += rho * g * dTVD
+                annulusHydrostatic_Pa += rho * g * dTVD
 
                 // Friction: along the flow path (MD)
                 let dMD = botMD - topMD
@@ -711,38 +787,112 @@ Button("Debug Annulus Stack (Visual HP)") {
                     let Aann = .pi * (Dhole * Dhole - Do * Do) / 4.0
                     let Va = Q_m3s / max(Aann, 1e-12)
 
-                    // Power-law K/n from mud 600/300 if available
+                    // Power-law K/n: prefer annulus-specific lab fit if available,
+                    // otherwise fall back to 600/300 universal fit.
                     var K: Double = 0
                     var n: Double = 1
-                    if let m = seg.mud, let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
-                        n = log(t600/t300) / log(600.0/300.0)
-                        let tau600 = 0.4788 * t600
-                        let gamma600 = 1022.0
-                        K = tau600 / pow(gamma600, n)
+                    if let m = seg.mud {
+                        if let nAnn = m.n_annulus, let KAnn = m.K_annulus {
+                            n = nAnn
+                            K = KAnn
+                        } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
+                            n = log(t600/t300) / log(600.0/300.0)
+                            let tau600 = 0.4788 * t600
+                            let gamma600 = 1022.0
+                            K = tau600 / pow(gamma600, n)
+                        }
                     }
                     // Mooney–Rabinowitsch laminar ΔP/L (Pa/m)
                     let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Va / Dh)
                     let tau_w = K > 0 ? K * pow(gamma_w, n) : 0
                     let dPperM = 4.0 * tau_w / Dh
-                    friction_Pa += dPperM * dMD
+                    annulusFriction_Pa += dPperM * dMD
                 }
             }
+            
+            // Clip each string segment to [0, controlMD] and integrate friction inside the drill string
+            for seg in stacks.string {
+                let topMD = max(0.0, min(seg.top, controlMD))
+                let botMD = max(0.0, min(seg.bottom, controlMD))
+                if botMD <= topMD { continue }
 
-            let hydro_kPa = hydrostatic_Pa / 1000.0
-            let fric_kPa = friction_Pa / 1000.0
+                let tvdTop = project.tvd(of: topMD)
+                let tvdBot = project.tvd(of: botMD)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                let rhoString = seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3
+                stringHydrostatic_Pa += rhoString * g * dTVD
 
-            // MPD SBP to hit target EMD at control depth
+                let dMD = botMD - topMD
+                let Q_m3s = max(pumpRate_m3permin, 0) / 60.0
+                if Q_m3s > 0 && dMD > 0 {
+                    let mdMid = 0.5 * (topMD + botMD)
+
+                    // Internal flow: use pipe ID and internal flow area
+                    let Di = max(geom.pipeID_m(mdMid), 0.001)   // <— if your geometry API uses a different name, adjust this
+                    let Apipe = .pi * Di * Di / 4.0
+                    let Vp = Q_m3s / max(Apipe, 1e-12)
+
+                    // Power-law K/n: prefer pipe-specific lab fit if available,
+                    // otherwise fall back to 600/300 universal fit.
+                    var K: Double = 0
+                    var n: Double = 1
+                    if let m = seg.mud {
+                        if let nPipe = m.n_pipe, let KPipe = m.K_pipe {
+                            n = nPipe
+                            K = KPipe
+                        } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
+                            n = log(t600/t300) / log(600.0/300.0)
+                            let tau600 = 0.4788 * t600
+                            let gamma600 = 1022.0
+                            K = tau600 / pow(gamma600, n)
+                        }
+                    }
+                    // Mooney–Rabinowitsch laminar ΔP/L (Pa/m) for pipe flow
+                    let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Vp / Di)
+                    let tau_w = K > 0 ? K * pow(gamma_w, n) : 0
+                    let dPperM = 4.0 * tau_w / Di
+                    stringFriction_Pa += dPperM * dMD
+                }
+            }
+            
+            let ann_kPa = annulusFriction_Pa / 1000.0
+            let str_kPa = stringFriction_Pa / 1000.0
+            let totalFric_kPa = ann_kPa + str_kPa
+            
+            // MPD SBP to hit target EMD at control depth.
+            // For bottomhole pressure, only annulus friction contributes (string friction is upstream of the bit).
             var sbp_kPa: Double = 0
             if mpdEnabled {
                 let targetBHP_Pa = max(0, targetEMD_kgm3) * g * controlTVD
-                let currentBHP_Pa = hydrostatic_Pa + friction_Pa
+                let currentBHP_Pa = annulusHydrostatic_Pa + annulusFriction_Pa
                 sbp_kPa = max(0, (targetBHP_Pa - currentBHP_Pa) / 1000.0)
             }
-            let bhp_kPa = hydro_kPa + fric_kPa + sbp_kPa
-
-            let ecd_kgm3 = controlTVD > 0 ? ((hydrostatic_Pa + friction_Pa + sbp_kPa * 1000.0) / (g * controlTVD)) : 0
-
-            return HydraulicsReadout(hydrostatic_kPa: hydro_kPa, friction_kPa: fric_kPa, sbp_kPa: sbp_kPa, bhp_kPa: bhp_kPa, ecd_kgm3: ecd_kgm3)
+            
+            let annulusAtControl_Pa = annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0
+            let stringAtControl_Pa  = stringHydrostatic_Pa + stringFriction_Pa
+            let deltaStringMinusAnnulus_kPa = (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0
+            
+            let bhp_kPa = (annulusHydrostatic_Pa / 1000) + sbp_kPa
+            
+            // Total circulating pressure at surface: all friction + any surface backpressure.
+            let tcp_kPa = totalFric_kPa + sbp_kPa
+            
+            // ECD at control depth: only hydrostatic + annulus friction + SBP affect downhole pressure.
+            let ecd_kgm3 = controlTVD > 0
+            ? ((annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0) / (g * controlTVD))
+            : 0
+            
+            return HydraulicsReadout(
+                annulusAtControl_Pa: annulusAtControl_Pa,
+                stringAtControl_Pa: stringAtControl_Pa,
+                annulusFriction_kPa: ann_kPa,
+                stringFriction_kPa: str_kPa,
+                totalFriction_kPa: totalFric_kPa,
+                sbp_kPa: sbp_kPa,
+                bhp_kPa: bhp_kPa,
+                tcp_kPa: tcp_kPa,
+                ecd_kgm3: ecd_kgm3
+            )
         }
 
         func maxDepthMD(project: ProjectState) -> Double {
