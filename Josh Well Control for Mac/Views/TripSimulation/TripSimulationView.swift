@@ -39,7 +39,7 @@ struct TripSimulationView: View {
             Divider()
             content
         }
-        .padding(16)
+        .padding(12)
         .onAppear { viewmodel.bootstrap(from: project) }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
@@ -52,7 +52,7 @@ struct TripSimulationView: View {
     // MARK: - Sections
     private var headerInputs: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 GroupBox("Bit / Range") {
                     HStack {
                         numberField("Start MD", value: $viewmodel.startBitMD_m)
@@ -65,14 +65,36 @@ struct TripSimulationView: View {
 
                 GroupBox("Fluids") {
                     HStack {
-                        numberField("Base ρ (kg/m³)", value: $viewmodel.baseMudDensity_kgpm3)
-                        numberField("Backfill ρ", value: $viewmodel.backfillDensity_kgpm3)
-                        numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
+                        Text("Base ρ (kg/m³)")
+                            .frame(width: 110, alignment: .trailing)
+                        let active = project.activeMud
+                        Text(active.map { "\($0.name) – \(format0($0.density_kgm3))" } ?? "None")
+                            .frame(width: 160, alignment: .leading)
+                            .monospacedDigit()
                     }
+                    HStack {
+                        Text("Backfill mud")
+                            .frame(width: 110, alignment: .trailing)
+                        Picker("", selection: Binding(get: { viewmodel.backfillMudID }, set: { newID in
+                            viewmodel.backfillMudID = newID
+                            if let id = newID, let m = project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).first(where: { $0.id == id }) {
+                                viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                            } else {
+                                viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                            }
+                        })) {
+                            ForEach(project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                                Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                            }
+                        }
+                        .frame(width: 240)
+                        .pickerStyle(.menu)
+                    }
+                    numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
                 }
             }
 
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 GroupBox("Choke / Float") {
                     HStack {
                         numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
@@ -91,10 +113,10 @@ struct TripSimulationView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Average (m/s)")
-                                .frame(width: 110, alignment: .trailing)
+                                .frame(width: 100, alignment: .trailing)
                             TextField("Trip speed", value: tripSpeedBinding, format: .number)
                                 .textFieldStyle(.roundedBorder)
-                                .frame(width: 90)
+                                .frame(width: 80)
                         }
                         Text(tripSpeedDirectionText)
                             .font(.caption)
@@ -206,7 +228,7 @@ struct TripSimulationView: View {
                     }
                 }
                 // Give the visualization about 1/3 of the available width, but don't let it get too narrow
-                .frame(width: max(260, geo.size.width / 3))
+                .frame(width: max(220, geo.size.width / 3.8))
                 .frame(maxHeight: .infinity)
             }
         }
@@ -237,27 +259,27 @@ struct TripSimulationView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
             }
-            .width(min: 90, ideal: 110, max: 140)
+            .width(min: 80, ideal: 100, max: 120)
 
             TableColumn("Bit TVD") { row in
                 selectableText(format0(row.bitTVD_m), for: row)
             }
-            .width(min: 90, ideal: 110, max: 140)
+            .width(min: 80, ideal: 100, max: 120)
 
             TableColumn("SABP kPa") { row in
                 selectableText(format0(row.SABP_kPa), for: row)
             }
-            .width(min: 90, ideal: 110, max: 140)
+            .width(min: 80, ideal: 100, max: 120)
 
             TableColumn("ESD@TD kg/m³") { row in
                 selectableText(format0(row.ESDatTD_kgpm3), for: row)
             }
-            .width(min: 110, ideal: 140, max: 180)
+            .width(min: 100, ideal: 120, max: 150)
 
             TableColumn("Swab Drop kPa") { row in
                 selectableText(format0(row.swabDropToBit_kPa), for: row)
             }
-            .width(min: 120, ideal: 150, max: 200)
+            .width(min: 100, ideal: 130, max: 170)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
@@ -493,11 +515,11 @@ struct TripSimulationView: View {
     private func numberField(_ title: String, value: Binding<Double>) -> some View {
         HStack(spacing: 4) {
             Text(title)
-                .frame(width: 110, alignment: .trailing)
+                .frame(width: 100, alignment: .trailing)
                 .lineLimit(1)
             TextField(title, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 90)
+                .frame(width: 80)
         }
     }
 
@@ -667,6 +689,9 @@ extension TripSimulationView {
     var initialSABP_kPa: Double = 0
     var holdSABPOpen: Bool = false
 
+    // New property for backfill mud selection
+    var backfillMudID: UUID? = nil
+
     // View options
     var colorByComposition: Bool = false
     var showDetails: Bool = false
@@ -681,10 +706,11 @@ extension TripSimulationView {
         startBitMD_m = maxMD
         endMD_m = 0
       }
-      let base = project.finalLayers.first?.density_kgm3 ?? baseMudDensity_kgpm3
-      baseMudDensity_kgpm3 = base
-      backfillDensity_kgpm3 = base
-      targetESDAtTD_kgpm3 = base
+      let baseActive = project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
+      baseMudDensity_kgpm3 = baseActive
+      backfillDensity_kgpm3 = baseActive
+      backfillMudID = project.activeMud?.id
+      targetESDAtTD_kgpm3 = baseActive
     }
 
     func runSimulation(project: ProjectState) {
@@ -700,8 +726,12 @@ extension TripSimulationView {
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
         step_m: step_m,
-        baseMudDensity_kgpm3: baseMudDensity_kgpm3,
-        backfillDensity_kgpm3: backfillDensity_kgpm3,
+        baseMudDensity_kgpm3: (project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
+        backfillDensity_kgpm3: (
+            (backfillMudID.flatMap { id in project.muds.first(where: { $0.id == id })?.density_kgm3 })
+            ?? project.activeMud?.density_kgm3
+            ?? backfillDensity_kgpm3
+        ),
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen
@@ -804,6 +834,8 @@ private struct TripSimulationPreview: View {
   TripSimulationPreview()
 }
 #endif
+
+
 
 
 

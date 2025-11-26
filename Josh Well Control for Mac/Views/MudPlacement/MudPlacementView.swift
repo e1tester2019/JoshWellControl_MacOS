@@ -104,7 +104,7 @@ struct MudPlacementView: View {
                     }
 
                     GroupBox("Base fluids (initial full column)") {
-                        HStack(spacing: 16) {
+                        HStack(spacing: 12) {
                             label("Annulus ρ")
                             TextField("kg/m³", value: $project.baseAnnulusDensity_kgm3, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -137,7 +137,7 @@ struct MudPlacementView: View {
                     // Final placed layers table
                     if !project.finalLayers.isEmpty {
                         GroupBox("Final spotted fluids (base + steps)") {
-                            HStack(alignment: .top, spacing: 24) {
+                            HStack(alignment: .top, spacing: 16) {
 
                                 // String column
                                 VStack(alignment: .leading, spacing: 8) {
@@ -279,7 +279,7 @@ struct MudPlacementView: View {
                     // Interval calculator inputs
                     GroupBox("Interval") {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 16) {
+                            HStack(spacing: 12) {
                                 label("Top (m)")
                                 HStack(spacing: 4) {
                                     TextField("Top", value: $top_m, format: .number)
@@ -314,7 +314,7 @@ struct MudPlacementView: View {
                                         Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
                                     }
                                 }
-                                .frame(width: 260)
+                                .frame(width: 220)
                                 .pickerStyle(.menu)
                                 Spacer(minLength: 24)
                             }
@@ -408,7 +408,7 @@ struct MudPlacementView: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(16)
+                .padding(12)
                 .navigationTitle("Mud Placement")
         }
         .onAppear {
@@ -567,7 +567,7 @@ struct MudPlacementView: View {
                             Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
                         }
                     }
-                    .frame(width: 260)
+                    .frame(width: 220)
                     .pickerStyle(.menu)
                     Picker("", selection: Binding(get: { step.placement }, set: { step.placement = $0 })) {
                         ForEach(Placement.allCases) { p in
@@ -575,7 +575,7 @@ struct MudPlacementView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 220)
+                    .frame(width: 200)
                     Button(role: .destructive) { onDelete(step) } label: {
                         Image(systemName: "trash")
                     }
