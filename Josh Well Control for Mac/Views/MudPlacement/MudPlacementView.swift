@@ -73,13 +73,15 @@ struct MudPlacementView: View {
 
                             HStack(spacing: 8) {
                                 Button("Add Step") {
+                                    let active = project.activeMud
                                     let s = MudStep(name: "Step \(viewmodel.steps.count + 1)",
                                                     top_m: top_m,
                                                     bottom_m: bottom_m,
-                                                    density_kgm3: 1200,
-                                                    color: .blue,
+                                                    density_kgm3: active?.density_kgm3 ?? 1200,
+                                                    color: active?.color ?? .blue,
                                                     placement: .both,
-                                                    project: project)
+                                                    project: project,
+                                                    mud: active)
                                     project.mudSteps.append(s)
                                     modelContext.insert(s)
                                 }
@@ -328,7 +330,8 @@ struct MudPlacementView: View {
                                 Button("Add Step from Interval") {
                                     let tNow = min(top_m, bottom_m)
                                     let bNow = max(top_m, bottom_m)
-                                    let s = MudStep(name: "Preview Step", top_m: tNow, bottom_m: bNow, density_kgm3: previewDensity_kgm3, color: .purple, placement: .both, project: project)
+                                    let chosenMud = viewmodel.mudsSortedByName.first(where: { $0.id == intervalMudID })
+                                    let s = MudStep(name: "Preview Step", top_m: tNow, bottom_m: bNow, density_kgm3: chosenMud?.density_kgm3 ?? previewDensity_kgm3, color: chosenMud?.color ?? .purple, placement: .both, project: project, mud: chosenMud)
                                     project.mudSteps.append(s)
                                     modelContext.insert(s)
                                 }
@@ -427,8 +430,10 @@ struct MudPlacementView: View {
 
     /// Fill a domain with a single base layer 0..TD
     private func baseLayer(for domain: Domain) -> FinalLayer {
-        let rho = (domain == .annulus) ? project.baseAnnulusDensity_kgm3 : project.baseStringDensity_kgm3
-        return FinalLayer(domain: domain, top: 0, bottom: maxDepth_m, name: "Base", color: .gray.opacity(0.35), density: rho, mud: nil)
+        let active = project.activeMud
+        let rho = (domain == .annulus) ? (active?.density_kgm3 ?? project.baseAnnulusDensity_kgm3) : (active?.density_kgm3 ?? project.baseStringDensity_kgm3)
+        let col = active?.color ?? Color.gray.opacity(0.35)
+        return FinalLayer(domain: domain, top: 0, bottom: maxDepth_m, name: "Base", color: col, density: rho, mud: active)
     }
 
     /// Overlay `newLay` onto `layers` by replacing covered intervals (slicing where needed)
@@ -459,30 +464,25 @@ struct MudPlacementView: View {
 
     /// Rebuild finalAnnulus/finalString from base fill + user steps
     private func rebuildFinalFromBase() {
-        // Helper: choose a mud by closest density when a step has none
-        func bestMudMatch(forDensity rho: Double) -> MudProperties? {
-            project.muds.min(by: { abs($0.density_kgm3 - rho) < abs($1.density_kgm3 - rho) })
-        }
-
         var ann: [FinalLayer] = [ baseLayer(for: .annulus) ]
         var str: [FinalLayer] = [ baseLayer(for: .string) ]
 
         for s in viewmodel.steps {
             let t = min(s.top_m, s.bottom_m)
             let b = max(s.top_m, s.bottom_m)
-            let chosenMud = s.mud ?? bestMudMatch(forDensity: s.density_kgm3)
+            let chosenMud = s.mud
 
             let layA = FinalLayer(domain: .annulus,
                                    top: t, bottom: b,
                                    name: s.name,
-                                   color: s.color,
+                                   color: chosenMud?.color ?? s.color,
                                    density: s.density_kgm3,
                                    mud: chosenMud)
 
             let layS = FinalLayer(domain: .string,
                                    top: t, bottom: b,
                                    name: s.name,
-                                   color: s.color,
+                                   color: chosenMud?.color ?? s.color,
                                    density: s.density_kgm3,
                                    mud: chosenMud)
 
@@ -537,9 +537,12 @@ struct MudPlacementView: View {
                     TextField("Name", text: $step.name)
                         .textFieldStyle(.roundedBorder)
                         .frame(minWidth: 160)
-                    ColorPicker("Color", selection: Binding(get: { step.color }, set: { step.color = $0 }))
-                        .labelsHidden()
-                        .frame(width: 44)
+                    // Color is derived from the selected MudProperties; not editable here
+                    Rectangle()
+                        .fill(step.mud?.color ?? step.color)
+                        .frame(width: 24, height: 16)
+                        .cornerRadius(3)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.gray.opacity(0.3)))
                     Spacer(minLength: 8)
                     rowLabel("Top (m)")
                     TextField("Top", value: $step.top_m, format: .number)
@@ -551,14 +554,12 @@ struct MudPlacementView: View {
                         .frame(width: 110)
                     rowLabel("Mud")
                     Picker("", selection: Binding<UUID?>(
-                        get: {
-                            // choose the mud whose density is closest to the step density
-                            muds.min(by: { abs($0.density_kgm3 - step.density_kgm3) < abs($1.density_kgm3 - step.density_kgm3) })?.id
-                        },
+                        get: { step.mud?.id },
                         set: { newID in
                             if let id = newID, let m = muds.first(where: { $0.id == id }) {
-                                step.density_kgm3 = m.density_kgm3
                                 step.mud = m
+                                step.density_kgm3 = m.density_kgm3
+                                step.colorHex = m.color.toHexRGB() ?? step.colorHex
                             }
                         }
                     )) {
@@ -1094,3 +1095,4 @@ extension MudPlacementView {
         }
     }
 }
+

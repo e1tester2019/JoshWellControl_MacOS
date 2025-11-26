@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI
 
 @Model
 final class MudProperties {
@@ -30,10 +31,32 @@ final class MudProperties {
     var compressibility_perkPa: Double?
     var gasCutFraction: Double?
     var isActive: Bool = false
+    
+    // Persisted UI color (RGBA 0..1)
+    var colorR: Double = 0.8
+    var colorG: Double = 0.8
+    var colorB: Double = 0.0
+    var colorA: Double = 1.0
 
     // Fann viscometer dial readings (dimensionless)
     var dial600: Double?   // 600 rpm dial
     var dial300: Double?   // 300 rpm dial
+
+    // Computed SwiftUI Color bridge
+    var color: Color {
+        get { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
+        set {
+            #if canImport(AppKit)
+            let ns = NSColor(newValue)
+            if let rgb = ns.usingColorSpace(.sRGB) {
+                colorR = Double(rgb.redComponent)
+                colorG = Double(rgb.greenComponent)
+                colorB = Double(rgb.blueComponent)
+                colorA = Double(rgb.alphaComponent)
+            }
+            #endif
+        }
+    }
 
     // MARK: - Unit-convenience accessors (bridge UI units ↔ storage in SI)
     /// PV stored in Pa·s, but mud checks often show mPa·s (≈ cP). These bridge both ways.
@@ -63,6 +86,7 @@ final class MudProperties {
          gasCutFraction: Double? = nil,
          dial600: Double? = nil,
          dial300: Double? = nil,
+         color: Color = .yellow,
          project: ProjectState? = nil) {
         self.name = name
         self.density_kgm3 = density_kgm3
@@ -80,6 +104,20 @@ final class MudProperties {
         self.project = project
         self.dial600 = dial600
         self.dial300 = dial300
+        // set color components
+        #if canImport(AppKit)
+        let ns = NSColor(color)
+        if let rgb = ns.usingColorSpace(.sRGB) {
+            self.colorR = Double(rgb.redComponent)
+            self.colorG = Double(rgb.greenComponent)
+            self.colorB = Double(rgb.blueComponent)
+            self.colorA = Double(rgb.alphaComponent)
+        } else {
+            self.colorR = 0.8; self.colorG = 0.8; self.colorB = 0.0; self.colorA = 1.0
+        }
+        #else
+        self.colorR = 0.8; self.colorG = 0.8; self.colorB = 0.0; self.colorA = 1.0
+        #endif
     }
 
     // Effective density with simple T/P/gas-cut correction (optional; nil means "use inputs")

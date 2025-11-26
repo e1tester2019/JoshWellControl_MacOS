@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI
 
 @Model
 final class ProjectState {
@@ -118,7 +119,34 @@ extension ProjectState {
         p.basedOnProjectID = self.id
         p.createdAt = .now
 
-        // Surveys
+        // --- Clone MUDS first and build an old->new map by ID ---
+        var mudMap: [UUID: MudProperties] = [:]
+        for m0 in self.muds {
+            let m = MudProperties(
+                name: m0.name,
+                density_kgm3: m0.density_kgm3,
+                pv_Pa_s: m0.pv_Pa_s,
+                yp_Pa: m0.yp_Pa,
+                n_powerLaw: m0.n_powerLaw,
+                k_powerLaw_Pa_s_n: m0.k_powerLaw_Pa_s_n,
+                tau0_Pa: m0.tau0_Pa,
+                rheologyModel: m0.rheologyModel,
+                gel10s_Pa: m0.gel10s_Pa,
+                gel10m_Pa: m0.gel10m_Pa,
+                thermalExpCoeff_perC: m0.thermalExpCoeff_perC,
+                compressibility_perkPa: m0.compressibility_perkPa,
+                gasCutFraction: m0.gasCutFraction,
+                dial600: m0.dial600,
+                dial300: m0.dial300,
+                color: Color(red: m0.colorR, green: m0.colorG, blue: m0.colorB, opacity: m0.colorA),
+                project: p
+            )
+            m.isActive = m0.isActive
+            p.muds.append(m)
+            mudMap[m0.id] = m
+        }
+
+        // --- Surveys ---
         for s0 in self.surveys {
             let s = SurveyStation(
                 md: s0.md,
@@ -128,7 +156,7 @@ extension ProjectState {
             p.surveys.append(s)
         }
 
-        // Drill string
+        // --- Drill string ---
         for d0 in self.drillString {
             let d = DrillStringSection(
                 name: d0.name,
@@ -147,7 +175,7 @@ extension ProjectState {
             p.drillString.append(d)
         }
 
-        // Annulus
+        // --- Annulus ---
         for a0 in self.annulus {
             let a = AnnulusSection(
                 name: a0.name,
@@ -173,9 +201,10 @@ extension ProjectState {
             p.annulus.append(a)
         }
 
-        // Mud steps
+        // --- Mud steps (attach mud by ID map) ---
         for m0 in self.mudSteps {
-            let m = MudStep(
+            let linked: MudProperties? = m0.mud.flatMap { old in mudMap[old.id] }
+            let s = MudStep(
                 name: m0.name,
                 top_m: m0.top_m,
                 bottom_m: m0.bottom_m,
@@ -183,35 +212,14 @@ extension ProjectState {
                 colorHex: m0.colorHex,
                 placementRaw: m0.placementRaw,
                 project: p,
-                mud: (m0.mud.flatMap { old in p.muds.first(where: { $0.name == old.name && abs($0.density_kgm3 - old.density_kgm3) < 1e-9 }) })
+                mud: linked
             )
-            p.mudSteps.append(m)
+            p.mudSteps.append(s)
         }
 
-        // Muds (clone per-project fluids)
-        for m0 in self.muds {
-            let m = MudProperties(
-                name: m0.name,
-                density_kgm3: m0.density_kgm3,
-                pv_Pa_s: m0.pv_Pa_s,
-                yp_Pa: m0.yp_Pa,
-                n_powerLaw: m0.n_powerLaw,
-                k_powerLaw_Pa_s_n: m0.k_powerLaw_Pa_s_n,
-                tau0_Pa: m0.tau0_Pa,
-                rheologyModel: m0.rheologyModel,
-                gel10s_Pa: m0.gel10s_Pa,
-                gel10m_Pa: m0.gel10m_Pa,
-                thermalExpCoeff_perC: m0.thermalExpCoeff_perC,
-                compressibility_perkPa: m0.compressibility_perkPa,
-                gasCutFraction: m0.gasCutFraction,
-                project: p
-            )
-            m.isActive = m0.isActive
-            p.muds.append(m)
-        }
-
-        // Final layers
+        // --- Final layers (attach mud by ID map) ---
         for f0 in self.finalLayers {
+            let linked: MudProperties? = f0.mud.flatMap { old in mudMap[old.id] }
             let f = FinalFluidLayer(
                 project: p,
                 name: f0.name,
@@ -221,12 +229,12 @@ extension ProjectState {
                 density_kgm3: f0.density_kgm3,
                 color: f0.color,
                 createdAt: f0.createdAt,
-                mud: (f0.mud.flatMap { old in p.muds.first(where: { $0.name == old.name && abs($0.density_kgm3 - old.density_kgm3) < 1e-9 }) })
+                mud: linked
             )
             p.finalLayers.append(f)
         }
 
-        // NOTE: These are assigned by value if value types; if reference types, this is a shallow copy.
+        // --- Singletons ---
         p.window = self.window
         p.slug = self.slug
         p.backfill = self.backfill
@@ -241,6 +249,10 @@ extension ProjectState {
 
 extension ProjectState {
     var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
+}
+
+extension ProjectState {
+    var activeMudColor: Color { activeMud?.color ?? Color.gray.opacity(0.35) }
 }
 
 // MARK: - Export to Dictionary and JSON
@@ -402,6 +414,12 @@ extension MudProperties {
             "name": name,
             "isActive": isActive,
             "density_kgm3": density_kgm3,
+            "color": [
+                "r": colorR,
+                "g": colorG,
+                "b": colorB,
+                "a": colorA
+            ]
             // Add other relevant scalar properties as needed
         ]
     }

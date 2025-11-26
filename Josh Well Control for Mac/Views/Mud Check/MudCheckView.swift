@@ -49,6 +49,12 @@ struct MudCheckView: View {
                             .buttonStyle(.plain)
                             .help("Set Active Mud")
 
+                            Rectangle()
+                                .fill(mud.color)
+                                .frame(width: 14, height: 10)
+                                .cornerRadius(2)
+                                .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.black.opacity(0.15)))
+
                             Text(mud.name)
                             Spacer()
                             Text("\(Int(mud.density_kgm3)) kg/m³")
@@ -125,7 +131,7 @@ struct MudCheckView: View {
     }
 
     private func addMud() {
-        let m = MudProperties(name: "New Mud", density_kgm3: 1100, rheologyModel: "Bingham", project: project)
+        let m = MudProperties(name: "New Mud", density_kgm3: 1100, rheologyModel: "Bingham", dial600: nil, dial300: nil, color: .yellow, project: project)
         project.muds.append(m)
         modelContext.insert(m)
         try? modelContext.save()
@@ -149,6 +155,7 @@ struct MudCheckView: View {
             gasCutFraction: m0.gasCutFraction,
             project: project
         )
+        m.colorR = m0.colorR; m.colorG = m0.colorG; m.colorB = m0.colorB; m.colorA = m0.colorA
         project.muds.append(m)
         modelContext.insert(m)
         try? modelContext.save()
@@ -234,6 +241,17 @@ private struct MudEditor: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
+                GroupBox("Appearance") {
+                    HStack(spacing: 12) {
+                        Text("Color").frame(width: LABEL_W, alignment: .trailing).foregroundStyle(.secondary)
+                        ColorPicker("", selection: Binding(get: { mud.color }, set: { mud.color = $0 }))
+                            .labelsHidden()
+                            .frame(width: 44)
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
                     GroupBox("Density & Environment") {
                         Grid(alignment: .leading, horizontalSpacing: HSPACE, verticalSpacing: VSPACE) {
