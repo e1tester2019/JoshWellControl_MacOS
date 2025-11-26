@@ -13,6 +13,7 @@ struct PumpScheduleView: View {
             HStack(alignment: .top, spacing: 12) {
                 allStagesInfo.frame(maxWidth: .infinity, alignment: .topLeading)
                 visualization.frame(maxWidth: 900)
+                hydraulicsPanel.frame(width: 320)
             }
             Divider()
         }
@@ -222,8 +223,8 @@ struct PumpScheduleView: View {
                 let pumpedV = max(0.0, min(vm.progress * max(totalV, 0), totalV))
                 Canvas { ctx, size in
                     let stacks = vm.stacksFor(project: project, stageIndex: vm.stageDisplayIndex, pumpedV: pumpedV)
-                    let stringSegs: [Seg] = stacks.string.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color) }
-                    let annulusSegs: [Seg] = stacks.annulus.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color) }
+                    let stringSegs: [Seg] = stacks.string.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color, mud: $0.mud) }
+                    let annulusSegs: [Seg] = stacks.annulus.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color, mud: $0.mud) }
 
                     // Draw columns
                     let bitMD = maxDepth
@@ -264,6 +265,71 @@ struct PumpScheduleView: View {
         .frame(maxWidth: 900)
     }
 
+    private var hydraulicsPanel: some View {
+        GroupBox("Hydraulics") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Inputs
+                HStack {
+                    Text("Pump rate")
+                        .frame(width: 120, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("m³/min", value: $vm.pumpRate_m3permin, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .monospacedDigit()
+                    Text("m³/min").foregroundStyle(.secondary)
+                }
+                Toggle("Managed pressure drilling (MPD)", isOn: $vm.mpdEnabled)
+                HStack {
+                    Text("Target EMD")
+                        .frame(width: 120, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("kg/m³", value: $vm.targetEMD_kgm3, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .monospacedDigit()
+                    Text("kg/m³").foregroundStyle(.secondary)
+                }
+                Picker("Control depth", selection: $vm.controlDepthModeRaw) {
+                        Text("Bit").tag(0)
+                        Text("Custom").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+
+                HStack {
+                    Text("Control MD")
+                        .frame(width: 120, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("m", value: $vm.controlMD_m, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .monospacedDigit()
+                    Text("m").foregroundStyle(.secondary)
+                }
+                .disabled(vm.controlDepthMode != .custom)
+                
+                let controlMDForDisplay = (vm.controlDepthMode == .bit) ? vm.maxDepthMD(project: project) : vm.controlMD_m
+                let controlTVDForDisplay = project.tvd(of: controlMDForDisplay)
+                HStack {
+                    Text("Control TVD").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
+                    Text(String(format: "%.0f m", controlTVDForDisplay)).monospacedDigit()
+                }
+                Divider()
+                // Outputs
+                let h = vm.hydraulicsForCurrent(project: project)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { Text("Hydrostatic").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.hydrostatic_kPa)).monospacedDigit() }
+                    HStack { Text("Friction").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.friction_kPa)).monospacedDigit() }
+                    HStack { Text("SBP").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kPa", h.sbp_kPa)).monospacedDigit() }
+                    Divider()
+                    HStack { Text("BHP").frame(width: 120, alignment: .trailing).font(.headline); Text(String(format: "%.0f kPa", h.bhp_kPa)).font(.headline).monospacedDigit() }
+                    HStack { Text("ECD").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary); Text(String(format: "%.0f kg/m³", h.ecd_kgm3)).monospacedDigit() }
+                }
+            }
+            .padding(4)
+        }
+    }
+
     private var maxDepth: Double {
         max(
             project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
@@ -279,6 +345,7 @@ struct PumpScheduleView: View {
         var topMD: Double
         var bottomMD: Double
         var color: Color
+        var mud: MudProperties?
     }
 
     private func drawColumn(_ ctx: inout GraphicsContext, layers: [Seg], in rect: CGRect, yGlobal: (Double)->CGFloat) {
@@ -297,12 +364,31 @@ struct PumpScheduleView: View {
     @Observable
     class ViewModel {
         enum Side { case annulus, string }
-        struct Stage { let name: String; let color: Color; let totalVolume_m3: Double; let side: Side }
+        struct Stage {
+            let name: String
+            let color: Color
+            let totalVolume_m3: Double
+            let side: Side
+            let mud: MudProperties?
+        }
         var stages: [Stage] = []
         var stageIndex: Int = 0
         var progress: Double = 0
         var stageDisplayIndex: Int { min(max(stageIndex, 0), max(stages.count - 1, 0)) }
+
+        // Hydraulics inputs
+        var pumpRate_m3permin: Double = 0.50
+        var mpdEnabled: Bool = false
+        var targetEMD_kgm3: Double = 1300
+        var controlMD_m: Double = 0
+
+        enum ControlDepthMode: Int, Codable { case bit = 0, custom }
+        var controlDepthModeRaw: Int = ControlDepthMode.bit.rawValue
+        var controlDepthMode: ControlDepthMode { get { ControlDepthMode(rawValue: controlDepthModeRaw) ?? .bit } set { controlDepthModeRaw = newValue.rawValue } }
+
         func currentStage(project: ProjectState) -> Stage? { stages.isEmpty ? nil : stages[stageDisplayIndex] }
+        func currentStageMud(project: ProjectState) -> MudProperties? { currentStage(project: project)?.mud }
+
         func buildStages(project: ProjectState) {
             stages.removeAll()
             let bitMD = max(
@@ -318,7 +404,7 @@ struct PumpScheduleView: View {
                 let b = max(L.topMD_m, L.bottomMD_m)
                 let vol = geom.volumeInAnnulus_m3(t, b)
                 let col = L.mud?.color ?? L.color
-                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus))
+                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus, mud: L.mud))
             }
             // Then string – order deepest to shallowest as per spec
             let str = project.finalLayers.filter { $0.placement == .string || $0.placement == .both }
@@ -329,12 +415,15 @@ struct PumpScheduleView: View {
                 let b = max(L.topMD_m, L.bottomMD_m)
                 let vol = geom.volumeInString_m3(t, b)
                 let col = L.mud?.color ?? L.color
-                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .string))
+                stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .string, mud: L.mud))
             }
             stageIndex = 0
             progress = 0
         }
-        func bootstrap(project: ProjectState) { buildStages(project: project) }
+        func bootstrap(project: ProjectState) {
+            buildStages(project: project)
+            controlMD_m = project.pressureDepth_m
+        }
         func nextStageOrWrap() {
             if progress >= 0.9999 { stageIndex = min(stageIndex + 1, max(stages.count - 1, 0)); progress = 0 }
             else { progress = 1 }
@@ -344,7 +433,12 @@ struct PumpScheduleView: View {
             else { progress = 0 }
         }
 
-        struct Seg { var top: Double; var bottom: Double; var color: Color }
+        struct Seg {
+            var top: Double
+            var bottom: Double
+            var color: Color
+            var mud: MudProperties?
+        }
 
         private func merge(_ segs: [Seg]) -> [Seg] {
             let tol = 1e-6
@@ -366,10 +460,10 @@ struct PumpScheduleView: View {
             return out
         }
 
-        private func takeFromBottom(_ segs: [Seg], length: Double, bitMD: Double, geom: ProjectGeometryService) -> (remaining: [Seg], parcels: [(volume_m3: Double, color: Color)]) {
+        private func takeFromBottom(_ segs: [Seg], length: Double, bitMD: Double, geom: ProjectGeometryService) -> (remaining: [Seg], parcels: [(volume_m3: Double, color: Color, mud: MudProperties?)]) {
             let tol = 1e-9
             var need = max(0, length)
-            var parcels: [(Double, Color)] = []
+            var parcels: [(Double, Color, MudProperties?)] = []
             var remaining: [Seg] = []
             let ordered = segs.sorted { $0.top < $1.top }
             // Walk from bottom toward surface
@@ -381,11 +475,11 @@ struct PumpScheduleView: View {
                 let sliceTop = max(0, s.bottom - take)
                 let sliceBot = s.bottom
                 let vol = geom.volumeInString_m3(sliceTop, sliceBot)
-                parcels.append((vol, s.color))
+                parcels.append((vol, s.color, s.mud))
                 need -= take
                 // Keep the upper part if any remains
                 if span - take > tol {
-                    remaining.insert(Seg(top: s.top, bottom: s.bottom - take, color: s.color), at: 0)
+                    remaining.insert(Seg(top: s.top, bottom: s.bottom - take, color: s.color, mud: s.mud), at: 0)
                 }
             }
             // If we still need more, we've consumed everything; otherwise the earlier loop inserted untouched upper segments when need dropped to zero.
@@ -400,10 +494,10 @@ struct PumpScheduleView: View {
             for s in segs {
                 let nt = min(bitMD, s.top + L)
                 let nb = min(bitMD, s.bottom + L)
-                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color)) }
+                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud)) }
             }
             // Insert new parcel at top
-            let head = Seg(top: 0, bottom: min(bitMD, L), color: color)
+            let head = Seg(top: 0, bottom: min(bitMD, L), color: color, mud: currentStageMud(project: segs.first?.mud?.project ?? ProjectState()))
             shifted.append(head)
             return merge(shifted)
         }
@@ -425,7 +519,7 @@ struct PumpScheduleView: View {
             return 0.5 * (lo + hi)
         }
 
-        private func pushUpFromBitAnnulus(_ segs: [Seg], parcels: [(volume_m3: Double, color: Color)], bitMD: Double, geom: ProjectGeometryService) -> [Seg] {
+        private func pushUpFromBitAnnulus(_ segs: [Seg], parcels: [(volume_m3: Double, color: Color, mud: MudProperties?)], bitMD: Double, geom: ProjectGeometryService) -> [Seg] {
             var current = segs
             guard !parcels.isEmpty else { return current }
             // Compute lengths for each parcel and total length
@@ -437,14 +531,14 @@ struct PumpScheduleView: View {
             for s in current {
                 let nt = max(0, s.top - totalL)
                 let nb = max(0, s.bottom - totalL)
-                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color)) }
+                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud)) }
             }
             // Insert the batch at the bottom, contiguous from [bit-totalL, bit]
             var cursorTop = max(0, bitMD - totalL)
             for (i, p) in parcels.enumerated() {
                 let L = max(0, lengths[i])
                 guard L > 1e-9 else { continue }
-                let seg = Seg(top: cursorTop, bottom: min(bitMD, cursorTop + L), color: p.color)
+                let seg = Seg(top: cursorTop, bottom: min(bitMD, cursorTop + L), color: p.color, mud: p.mud)
                 shifted.append(seg)
                 cursorTop += L
             }
@@ -459,8 +553,8 @@ struct PumpScheduleView: View {
             )
             let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
             let base = project.activeMud?.color ?? Color.gray.opacity(0.35)
-            var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: base)]
-            var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: base)]
+            var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: base, mud: project.activeMud)]
+            var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: base, mud: project.activeMud)]
             // Apply all previous stages fully
             for i in 0..<max(0, min(stageIndex, stages.count)) {
                 let st = stages[i]
@@ -481,6 +575,107 @@ struct PumpScheduleView: View {
                 annulus = pushUpFromBitAnnulus(annulus, parcels: taken.parcels, bitMD: bitMD, geom: geom)
             }
             return (string, annulus)
+        }
+
+        struct HydraulicsReadout {
+            let hydrostatic_kPa: Double
+            let friction_kPa: Double
+            let sbp_kPa: Double
+            let bhp_kPa: Double
+            let ecd_kgm3: Double
+        }
+
+        func hydraulicsForCurrent(project: ProjectState) -> HydraulicsReadout {
+            // Guard
+            let bitMD = max(
+                project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
+                project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            )
+            let controlMD: Double = {
+                switch controlDepthMode {
+                case .bit: return bitMD
+                case .custom: return max(0.0, min(controlMD_m, bitMD))
+                }
+            }()
+            let controlTVD = project.tvd(of: controlMD)
+            let g = 9.80665
+
+            // Build current stacks to know which fluids are where
+            let stg = currentStage(project: project)
+            let totalV = stg?.totalVolume_m3 ?? 0
+            let pumpedV = max(0.0, min(progress * max(totalV, 0), totalV))
+            let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedV)
+
+            // Helper to get annulus area and fluid density at MD
+            let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+
+            // Segment-exact hydrostatic (TVD) and segment-wise friction (MD)
+            var hydrostatic_Pa: Double = 0
+            var friction_Pa: Double = 0
+
+            // Clip each annulus segment to [0, controlMD] and integrate
+            for seg in stacks.annulus {
+                let topMD = max(0.0, min(seg.top, controlMD))
+                let botMD = max(0.0, min(seg.bottom, controlMD))
+                if botMD <= topMD { continue }
+
+                // Hydrostatic: integrate rho*g*dTVD between the TVDs of the clipped segment
+                let tvdTop = project.tvd(of: topMD)
+                let tvdBot = project.tvd(of: botMD)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                let rho = seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3
+                hydrostatic_Pa += rho * g * dTVD
+
+                // Friction: along the flow path (MD)
+                let dMD = botMD - topMD
+                let Q_m3s = max(pumpRate_m3permin, 0) / 60.0
+                if Q_m3s > 0 && dMD > 0 {
+                    let mdMid = 0.5 * (topMD + botMD)
+                    let Do = max(geom.pipeOD_m(mdMid), 0.001)
+                    let Dhole = max(geom.holeOD_m(mdMid), Do + 0.0001)
+                    let Dh = max(Dhole - Do, 1e-6)
+                    let Aann = .pi * (Dhole * Dhole - Do * Do) / 4.0
+                    let Va = Q_m3s / max(Aann, 1e-12)
+
+                    // Power-law K/n from mud 600/300 if available
+                    var K: Double = 0
+                    var n: Double = 1
+                    if let m = seg.mud, let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
+                        n = log(t600/t300) / log(600.0/300.0)
+                        let tau600 = 0.4788 * t600
+                        let gamma600 = 1022.0
+                        K = tau600 / pow(gamma600, n)
+                    }
+                    // Mooney–Rabinowitsch laminar ΔP/L (Pa/m)
+                    let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Va / Dh)
+                    let tau_w = K > 0 ? K * pow(gamma_w, n) : 0
+                    let dPperM = 4.0 * tau_w / Dh
+                    friction_Pa += dPperM * dMD
+                }
+            }
+
+            let hydro_kPa = hydrostatic_Pa / 1000.0
+            let fric_kPa = friction_Pa / 1000.0
+
+            // MPD SBP to hit target EMD at control depth
+            var sbp_kPa: Double = 0
+            if mpdEnabled {
+                let targetBHP_Pa = max(0, targetEMD_kgm3) * g * controlTVD
+                let currentBHP_Pa = hydrostatic_Pa + friction_Pa
+                sbp_kPa = max(0, (targetBHP_Pa - currentBHP_Pa) / 1000.0)
+            }
+            let bhp_kPa = hydro_kPa + fric_kPa + sbp_kPa
+
+            let ecd_kgm3 = controlTVD > 0 ? ((hydrostatic_Pa + friction_Pa + sbp_kPa * 1000.0) / (g * controlTVD)) : 0
+
+            return HydraulicsReadout(hydrostatic_kPa: hydro_kPa, friction_kPa: fric_kPa, sbp_kPa: sbp_kPa, bhp_kPa: bhp_kPa, ecd_kgm3: ecd_kgm3)
+        }
+
+        func maxDepthMD(project: ProjectState) -> Double {
+            max(
+                project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
+                project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            )
         }
     }
 }
