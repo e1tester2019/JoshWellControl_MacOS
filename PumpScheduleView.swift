@@ -9,8 +9,12 @@ struct PumpScheduleView: View {
     var body: some View {
         VStack(spacing: 12) {
             header
+            stageInfo
+            HStack(alignment: .top, spacing: 12) {
+                allStagesInfo.frame(maxWidth: .infinity, alignment: .topLeading)
+                visualization.frame(maxWidth: 900)
+            }
             Divider()
-            visualization
         }
         .padding(12)
         .onAppear { vm.bootstrap(project: project) }
@@ -25,26 +29,198 @@ struct PumpScheduleView: View {
             if let stg = vm.currentStage(project: project) {
                 Rectangle().fill(stg.color).frame(width: 16, height: 12).cornerRadius(2)
                 Text(stg.name).font(.caption)
+                Text(stg.side == .annulus ? "Annulus" : "String")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.gray.opacity(0.15)))
+                    .foregroundStyle(.secondary)
                 Text("\(vm.stageDisplayIndex + 1)/\(vm.stages.count)").font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("No stages").font(.caption).foregroundStyle(.secondary)
             }
             Button(action: { vm.prevStageOrWrap() }) { Label("Previous", systemImage: "chevron.left") }
                 .disabled(vm.stages.isEmpty)
-            Slider(value: $vm.progress, in: 0...1)
+            VStack(alignment: .leading, spacing: 2) {
+                Slider(value: $vm.progress, in: 0...1)
+                    .frame(width: 260)
+                HStack(spacing: 6) {
+                    if !vm.stages.isEmpty {
+                        Text("Step \(vm.stageDisplayIndex + 1) of \(vm.stages.count)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    let pct = vm.stages.isEmpty ? 0.0 : vm.progress * 100.0
+                    Text(String(format: "%.0f%%", pct))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 .frame(width: 260)
+            }
             Button(action: { vm.nextStageOrWrap() }) { Label("Next", systemImage: "chevron.right") }
                 .disabled(vm.stages.isEmpty)
         }
     }
 
+    private var stageInfo: some View {
+        GroupBox("Stage Info") {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                if let stg = vm.currentStage(project: project) {
+                    HStack(spacing: 8) {
+                        Rectangle().fill(stg.color).frame(width: 18, height: 14).cornerRadius(3)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stg.name).font(.headline)
+                            Text(stg.side == .annulus ? "Annulus" : "String").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Divider().frame(height: 28)
+                    Group {
+                        let totalV: Double = max(0.0, stg.totalVolume_m3)
+                        let pumpedV: Double = max(0.0, min(vm.progress * totalV, totalV))
+                        let remainingV: Double = max(0.0, totalV - pumpedV)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text("Pumped:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", pumpedV)).monospacedDigit()
+                            }
+                            HStack(spacing: 8) {
+                                Text("Remaining:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", remainingV)).monospacedDigit()
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text("Total:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", totalV)).monospacedDigit()
+                            }
+                            HStack(spacing: 8) {
+                                Text("Progress:")
+                                    .foregroundStyle(.secondary)
+                                let pct: Double = (totalV > 0 ? (pumpedV/totalV) : 0) * 100.0
+                                Text(String(format: "%.0f%%", pct)).monospacedDigit()
+                            }
+                        }
+                    }
+                    Spacer()
+                } else {
+                    Text("No stage selected").foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+    
+    private var allStagesInfo: some View {
+        GroupBox("All Stages") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(vm.stages.indices, id: \.self) { idx in
+                    let stg = vm.stages[idx]
+                    // Compute pumped/remaining for this stage based on current index/progress
+                    let totalV: Double = max(0.0, stg.totalVolume_m3)
+                    let pumpedFrac: Double = idx < vm.stageDisplayIndex ? 1.0 : (idx == vm.stageDisplayIndex ? max(0.0, min(vm.progress, 1.0)) : 0.0)
+                    let pumpedV: Double = pumpedFrac * totalV
+                    let remainingV: Double = max(0.0, totalV - pumpedV)
+
+                    HStack(alignment: .firstTextBaseline, spacing: 16) {
+                        HStack(spacing: 8) {
+                            Rectangle().fill(stg.color).frame(width: 14, height: 12).cornerRadius(3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stg.name).font(.headline)
+                                Text(stg.side == .annulus ? "Annulus" : "String").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Divider().frame(height: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text("Pumped:").foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", pumpedV)).monospacedDigit()
+                            }
+                            HStack(spacing: 8) {
+                                Text("Remaining:").foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", remainingV)).monospacedDigit()
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text("Total:").foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", totalV)).monospacedDigit()
+                            }
+                            HStack(spacing: 8) {
+                                Text("Progress:").foregroundStyle(.secondary)
+                                let pct: Double = (totalV > 0 ? pumpedV/totalV : 0) * 100.0
+                                Text(String(format: "%.0f%%", pct)).monospacedDigit()
+                            }
+                        }
+                        Spacer()
+                        if idx == vm.stageDisplayIndex {
+                            Text("Current")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                        }
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(idx == vm.stageDisplayIndex ? Color.accentColor.opacity(0.5) : Color.gray.opacity(0.2), lineWidth: 1))
+                }
+            }
+        }
+    }
+
+    /*
+    private var stepsStrip: some View {
+        GroupBox("Stages") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: 12) {
+                    ForEach(vm.stages.indices, id: \.self) { idx in
+                        let stg = vm.stages[idx]
+                        Button(action: { vm.stageIndex = idx; vm.progress = 0 }) {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    Circle().fill(idx == vm.stageDisplayIndex ? stg.color.opacity(0.9) : stg.color.opacity(0.5))
+                                        .frame(width: 22, height: 22)
+                                    Text("\(idx + 1)")
+                                        .font(.caption2).bold()
+                                        .foregroundStyle(.white)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(stg.name)
+                                        .font(.subheadline)
+                                        .lineLimit(1)
+                                    Text(stg.side == .annulus ? "Annulus" : "String")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(idx == vm.stageDisplayIndex ? Color.accentColor.opacity(0.08) : Color.gray.opacity(0.06))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(idx == vm.stageDisplayIndex ? Color.accentColor.opacity(0.5) : Color.gray.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+    */
+
     private var visualization: some View {
         GroupBox("Well Snapshot") {
             GeometryReader { geo in
+                let stage = vm.currentStage(project: project)
+                let totalV = stage?.totalVolume_m3 ?? 0
+                let pumpedV = max(0.0, min(vm.progress * max(totalV, 0), totalV))
                 Canvas { ctx, size in
-                    let stage = vm.currentStage(project: project)
-                    let totalV = stage?.totalVolume_m3 ?? 0
-                    let pumpedV = max(0.0, min(vm.progress * max(totalV, 0), totalV))
                     let stacks = vm.stacksFor(project: project, stageIndex: vm.stageDisplayIndex, pumpedV: pumpedV)
                     let stringSegs: [Seg] = stacks.string.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color) }
                     let annulusSegs: [Seg] = stacks.annulus.map { Seg(topMD: $0.top, bottomMD: $0.bottom, color: $0.color) }
@@ -85,6 +261,7 @@ struct PumpScheduleView: View {
             }
             .frame(minHeight: 260)
         }
+        .frame(maxWidth: 900)
     }
 
     private var maxDepth: Double {
