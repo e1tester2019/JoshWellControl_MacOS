@@ -29,7 +29,7 @@ final class PressureWindow {
     var points: [PressureWindowPoint] = []
 
     // Link back to project
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.window)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState.window)
     var project: ProjectState?
 
     init() {}
@@ -160,3 +160,4 @@ final class PressureWindowPoint {
         self.window = window
     }
 }
+

@@ -15,56 +15,43 @@ struct MaterialTransferListView: View {
                 Button("New Transfer", systemImage: "plus") { addTransfer() }
             }
             List(selection: $selection) {
-                ForEach(well.transfers.sorted(by: { $0.date > $1.date })) { t in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("#\(t.number)")
-                                .font(.headline)
-                                .monospacedDigit()
-                            DatePicker("", selection: Binding(get: { t.date }, set: { t.date = $0 }), displayedComponents: .date)
-                                .labelsHidden()
-                                .frame(width: 160)
-                            Spacer(minLength: 12)
-                            Text(String(format: "$%.2f", t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
-                                .font(.headline)
-                                .monospacedDigit()
-                        }
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            TextField("Country", text: Binding(get: { t.country ?? "" }, set: { t.country = $0 }))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 180)
-                            TextField("Province", text: Binding(get: { t.province ?? "" }, set: { t.province = $0 }))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 180)
-                            TextField("Shipping Company", text: Binding(get: { t.shippingCompany ?? "" }, set: { t.shippingCompany = $0 }))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(minWidth: 240)
-                            Spacer()
-                            Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
-                                .buttonStyle(.bordered)
-                        }
+                // Group transfers by outgoing/incoming
+                let sorted = well.transfers.sorted(by: { $0.date > $1.date })
+                let outgoing = sorted.filter { $0.isShippingOut }
+                let incoming = sorted.filter { !$0.isShippingOut }
+
+                Section(header: Text("Outgoing").font(.headline)) {
+                    ForEach(outgoing) { t in
+                        transferRow(t)
+                            .onTapGesture { selection = t }
+                            .contextMenu {
+                                Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
+                                Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
+                                Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
+                            }
+                            .listRowSeparator(.hidden)
                     }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill((selection?.id == t.id) ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke((selection?.id == t.id) ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: (selection?.id == t.id) ? 1.5 : 1)
-                    )
-                    .onTapGesture { selection = t }
-                    .contextMenu {
-                        Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
-                        Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
-                        Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
+                    .onDelete { idx in
+                        let items = idx.map { outgoing[$0] }
+                        items.forEach(delete)
                     }
-                    .listRowSeparator(.hidden)
                 }
-                .onDelete { idx in
-                    let arr = well.transfers.sorted(by: { $0.date > $1.date })
-                    let items = idx.map { arr[$0] }
-                    items.forEach(delete)
+
+                Section(header: Text("Incoming").font(.headline)) {
+                    ForEach(incoming) { t in
+                        transferRow(t)
+                            .onTapGesture { selection = t }
+                            .contextMenu {
+                                Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
+                                Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
+                                Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
+                            }
+                            .listRowSeparator(.hidden)
+                    }
+                    .onDelete { idx in
+                        let items = idx.map { incoming[$0] }
+                        items.forEach(delete)
+                    }
                 }
             }
             .listStyle(.inset)
@@ -78,6 +65,47 @@ struct MaterialTransferListView: View {
         }
         .padding(12)
         .navigationTitle("Material Transfers")
+    }
+
+    @ViewBuilder
+    private func transferRow(_ t: MaterialTransfer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("#\(t.number)")
+                    .font(.headline)
+                    .monospacedDigit()
+                DatePicker("", selection: Binding(get: { t.date }, set: { t.date = $0 }), displayedComponents: .date)
+                    .labelsHidden()
+                    .frame(width: 160)
+                Spacer(minLength: 12)
+                Text(String(format: "$%.2f", t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
+                    .font(.headline)
+                    .monospacedDigit()
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                TextField("Country", text: Binding(get: { t.country ?? "" }, set: { t.country = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+                TextField("Province", text: Binding(get: { t.province ?? "" }, set: { t.province = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+                TextField("Shipping Company", text: Binding(get: { t.shippingCompany ?? "" }, set: { t.shippingCompany = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 240)
+                Spacer()
+                Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill((selection?.id == t.id) ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke((selection?.id == t.id) ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: (selection?.id == t.id) ? 1.5 : 1)
+        )
     }
 
     private func addTransfer() {

@@ -23,7 +23,7 @@ final class SlugPlan {
     var notes: String? = nil
 
     // Relationship back to project (inverse declared only on this side)
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.slug)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState.slug)
     var project: ProjectState?
 
     /// One or more slug steps (e.g., a viscous spacer + heavy slug)
@@ -133,3 +133,4 @@ final class SlugStep {
         return dRho * g * covered
     }
 }
+

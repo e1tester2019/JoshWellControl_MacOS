@@ -60,7 +60,7 @@ final class TripSettings {
     var stopOnLimit: Bool = true
 
     // MARK: - Relationships
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.settings)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState.settings)
     var project: ProjectState?
 
     init() {}
@@ -131,3 +131,4 @@ private struct TripSettingsSpeedPreview: View {
     TripSettingsSpeedPreview()
 }
 #endif
+

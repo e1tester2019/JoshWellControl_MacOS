@@ -113,7 +113,7 @@ final class SwabInput {
     var surfacePressure_kPa: Double = 0.0
 
     // MARK: - Relationship
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.swab)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState.swab)
     var project: ProjectState?
 
     init() {}
@@ -170,3 +170,4 @@ final class SwabInput {
         else { return 0.3164 / pow(Re, 0.25) }              // Blasius turbulent
     }
 }
+

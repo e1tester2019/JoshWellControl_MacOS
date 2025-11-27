@@ -26,7 +26,7 @@ final class BackfillPlan {
     var notes: String? = nil
 
     // Relationship back to project (define inverse only on this side to avoid macro loops)
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.backfill)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState.backfill)
     var project: ProjectState?
 
     /// Rule set—ordered. First matching rule is used.
@@ -145,3 +145,4 @@ final class BackfillRule {
         fluidDensityOverride_kg_per_m3 ?? 0
     }
 }
+

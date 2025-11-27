@@ -42,7 +42,15 @@ struct MaterialTransferEditorView: View {
                 Button { showCreateRentals = true } label: { Label("Create Rentals From Lines…", systemImage: "") }
                 Button { showAffectedList = true } label: { Label("Preview Changes", systemImage: "eye") }
                 Button("Save") { try? modelContext.save() }
-                Button { previewPDF() } label: { Label("Preview PDF", systemImage: "doc.text.magnifyingglass") }
+                Button {
+                    // Block preview if any item is missing receiver address
+                    let missing = transfer.items.contains { ($0.receiverAddress?.isEmpty ?? true) }
+                    if missing {
+                        updateAlertMessage = "One or more items are missing a Receiver Address. Please fill them in before previewing/exporting."
+                    } else {
+                        previewPDF()
+                    }
+                } label: { Label("Preview PDF", systemImage: "doc.text.magnifyingglass") }
             }
         }
         .sheet(isPresented: $showAddFromRentals) {
@@ -191,135 +199,194 @@ struct MaterialTransferEditorView: View {
                 }
 
                 List(selection: $selection) {
-                    ForEach(transfer.items) { item in
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Header row: qty + description + total + actions
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Quantity").font(.caption).foregroundStyle(.secondary)
-                                    TextField("Qty", value: Binding(get: { item.quantity }, set: { item.quantity = $0 }), format: .number)
-                                        .frame(width: 80)
-                                        .textFieldStyle(.roundedBorder)
-                                        .monospacedDigit()
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("$/Unit").font(.caption).foregroundStyle(.secondary)
-                                    TextField("0", value: Binding(get: { item.unitPrice ?? 0 }, set: { item.unitPrice = $0 }), format: .number)
-                                        .frame(width: 140)
-                                        .textFieldStyle(.roundedBorder)
-                                        .monospacedDigit()
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Description").font(.caption).foregroundStyle(.secondary)
-                                    TextField("Description", text: Binding(get: { item.descriptionText }, set: { item.descriptionText = $0 }))
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                                Spacer(minLength: 12)
-                                let total = (item.unitPrice ?? 0) * item.quantity
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text("Total").font(.caption).foregroundStyle(.secondary)
-                                    Text(String(format: "$%.2f", total))
-                                        .font(.headline)
-                                        .monospacedDigit()
-                                }
-                                // Per-card actions
-                                Button { duplicate(item) } label: { Image(systemName: "doc.on.doc") }
-                                    .buttonStyle(.borderless)
-                                    .help("Duplicate")
-                                Button(role: .destructive) { delete(item) } label: { Image(systemName: "trash") }
-                                    .buttonStyle(.borderless)
-                                    .help("Delete")
-                                // Disclosure toggle
-                                Button {
-                                    if expandedItems.contains(item.id) { expandedItems.remove(item.id) } else { expandedItems.insert(item.id) }
-                                } label: {
-                                    Label(expandedItems.contains(item.id) ? "Hide" : "More", systemImage: expandedItems.contains(item.id) ? "chevron.up" : "chevron.down")
-                                }
-                                .buttonStyle(.borderless)
-                            }
+                    let sortedItems = transfer.items.sorted { lhs, rhs in
+                        if lhs.quantity != rhs.quantity { return lhs.quantity > rhs.quantity }
+                        let lw = lhs.estimatedWeight ?? 0
+                        let rw = rhs.estimatedWeight ?? 0
+                        if lw != rw { return lw > rw }
+                        return lhs.descriptionText.localizedCaseInsensitiveCompare(rhs.descriptionText) == .orderedAscending
+                    }
+                    
+                    // Group by receiver address key while preserving sorted order within groups
+                    let groups: [(key: String, items: [MaterialTransferItem])] = {
+                        var order: [String] = []
+                        var buckets: [String: [MaterialTransferItem]] = [:]
+                        for it in sortedItems {
+                            let key = (it.receiverAddress?.isEmpty == false) ? it.receiverAddress! : "(No Receiver Address)"
+                            if buckets[key] == nil { order.append(key); buckets[key] = [] }
+                            buckets[key]?.append(it)
+                        }
+                        return order.map { ($0, buckets[$0] ?? []) }
+                    }()
 
-                            // Expanded section with additional fields
-                            if expandedItems.contains(item.id) {
+                    ForEach(groups, id: \.key) { group in
+                        Section {
+                            GroupBox(label: Text(group.key)) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                                        GridRow {
-                                            Text("Details").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            AutoGrowingEditor(text: Binding(get: { item.detailText ?? "" }, set: { item.detailText = $0 }),
-                                                              height: Binding(get: { detailsHeights[item.id] ?? 80 }, set: { detailsHeights[item.id] = $0 }),
-                                                              minHeight: 80)
-                                                .gridCellColumns(2)
-                                        }
-                                        GridRow {
-                                            Text("Receiver Address").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            AutoGrowingEditor(text: Binding(get: { item.receiverAddress ?? "" }, set: { item.receiverAddress = $0 }),
-                                                              height: Binding(get: { addressHeights[item.id] ?? 80 }, set: { addressHeights[item.id] = $0 }),
-                                                              minHeight: 80)
-                                                .gridCellColumns(2)
-                                        }
-                                        GridRow {
-                                            Text("Account Code").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            TextField("3320-3210", text: Binding(get: { item.accountCode ?? (transfer.accountCode ?? "") }, set: { item.accountCode = $0 }))
-                                                .textFieldStyle(.roundedBorder)
-                                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                                Text("Condition").font(.caption).foregroundStyle(.secondary)
-                                                Picker("Condition", selection: Binding(get: {
-                                                    (item.conditionCode ?? "New").capitalized
-                                                }, set: { newVal in
-                                                    item.conditionCode = newVal
-                                                })) {
-                                                    Text("New").tag("New")
-                                                    Text("Used").tag("Used")
-                                                    Text("Damaged").tag("Damaged")
+                                    ForEach(group.items) { item in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            // Header row: qty + description + total + actions
+                                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text("Quantity").font(.caption).foregroundStyle(.secondary)
+                                                    TextField("Qty", value: Binding(get: { item.quantity }, set: { item.quantity = $0 }), format: .number)
+                                                        .frame(width: 80)
+                                                        .textFieldStyle(.roundedBorder)
+                                                        .monospacedDigit()
                                                 }
-                                                .pickerStyle(.segmented)
-                                                .frame(maxWidth: 280)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text("$/Unit").font(.caption).foregroundStyle(.secondary)
+                                                    TextField("0", value: Binding(get: { item.unitPrice ?? 0 }, set: { item.unitPrice = $0 }), format: .number)
+                                                        .frame(width: 140)
+                                                        .textFieldStyle(.roundedBorder)
+                                                        .monospacedDigit()
+                                                }
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text("Description").font(.caption).foregroundStyle(.secondary)
+                                                    TextField("Description", text: Binding(get: { item.descriptionText }, set: { item.descriptionText = $0 }))
+                                                        .textFieldStyle(.roundedBorder)
+                                                }
+                                                Spacer(minLength: 12)
+                                                let total = (item.unitPrice ?? 0) * item.quantity
+                                                VStack(alignment: .trailing, spacing: 2) {
+                                                    Text("Total").font(.caption).foregroundStyle(.secondary)
+                                                    Text(String(format: "$%.2f", total))
+                                                        .font(.headline)
+                                                        .monospacedDigit()
+                                                }
+                                                Button { duplicate(item) } label: { Image(systemName: "doc.on.doc") }
+                                                    .buttonStyle(.borderless)
+                                                    .help("Duplicate")
+                                                Button(role: .destructive) { delete(item) } label: { Image(systemName: "trash") }
+                                                    .buttonStyle(.borderless)
+                                                    .help("Delete")
+                                                Button {
+                                                    if expandedItems.contains(item.id) { expandedItems.remove(item.id) } else { expandedItems.insert(item.id) }
+                                                } label: {
+                                                    Label(expandedItems.contains(item.id) ? "Hide" : "More", systemImage: expandedItems.contains(item.id) ? "chevron.up" : "chevron.down")
+                                                }
+                                                .buttonStyle(.borderless)
+                                            }
+
+                                            if expandedItems.contains(item.id) {
+                                                VStack(alignment: .leading, spacing: 8) {
+                                                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                                                        GridRow {
+                                                            Text("Details").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            AutoGrowingEditor(text: Binding(get: { item.detailText ?? "" }, set: { item.detailText = $0 }),
+                                                                              height: Binding(get: { detailsHeights[item.id] ?? 80 }, set: { detailsHeights[item.id] = $0 }),
+                                                                              minHeight: 80)
+                                                                .gridCellColumns(2)
+                                                        }
+                                                        GridRow {
+                                                            Text("Receiver Address").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            AutoGrowingEditor(text: Binding(get: { item.receiverAddress ?? "" }, set: { item.receiverAddress = $0 }),
+                                                                              height: Binding(get: { addressHeights[item.id] ?? 80 }, set: { addressHeights[item.id] = $0 }),
+                                                                              minHeight: 80)
+                                                                .gridCellColumns(2)
+                                                        }
+                                                        GridRow {
+                                                            Text("Account Code").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            TextField("3320-3210", text: Binding(get: { item.accountCode ?? (transfer.accountCode ?? "") }, set: { item.accountCode = $0 }))
+                                                                .textFieldStyle(.roundedBorder)
+                                                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                                                Text("Condition").font(.caption).foregroundStyle(.secondary)
+                                                                Picker("Condition", selection: Binding(get: {
+                                                                    (item.conditionCode ?? "New").capitalized
+                                                                }, set: { newVal in
+                                                                    item.conditionCode = newVal
+                                                                })) {
+                                                                    Text("New").tag("New")
+                                                                    Text("Used").tag("Used")
+                                                                    Text("Damaged").tag("Damaged")
+                                                                }
+                                                                .pickerStyle(.segmented)
+                                                                .frame(maxWidth: 280)
+                                                            }
+                                                        }
+                                                        GridRow {
+                                                            Text("Serial Number").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            TextField("e.g., VG1045", text: Binding(get: { item.serialNumber ?? "" }, set: { item.serialNumber = $0.isEmpty ? nil : $0 }))
+                                                                .textFieldStyle(.roundedBorder)
+                                                            Spacer(minLength: 0)
+                                                        }
+                                                        GridRow {
+                                                            Text("Receiver Phone").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            TextField("(555) 555-5555", text: Binding(get: { item.receiverPhone ?? "" }, set: { item.receiverPhone = Self.formatPhone($0) }))
+                                                                .textFieldStyle(.roundedBorder)
+                                                            Spacer(minLength: 0)
+                                                            Spacer(minLength: 0)
+                                                        }
+                                                        GridRow {
+                                                            Text("To Loc/AFE/Vendor").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            TextField("Destination", text: Binding(get: { item.vendorOrTo ?? (transfer.destinationName ?? "") }, set: { item.vendorOrTo = $0 }))
+                                                                .textFieldStyle(.roundedBorder)
+                                                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                                                Text("Truck #").font(.caption).foregroundStyle(.secondary)
+                                                                TextField("Truck / Company", text: Binding(get: { item.transportedBy ?? (transfer.transportedBy ?? "") }, set: { item.transportedBy = $0 }))
+                                                                    .textFieldStyle(.roundedBorder)
+                                                            }
+                                                        }
+                                                        GridRow {
+                                                            Text("Est. Weight (lb)").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
+                                                            TextField("0", value: Binding(get: { item.estimatedWeight ?? 0 }, set: { item.estimatedWeight = max(0, $0) }), format: .number)
+                                                                .textFieldStyle(.roundedBorder)
+                                                            Spacer(minLength: 0)
+                                                        }
+                                                    }
+                                                }
+                                                .transition(.opacity.combined(with: .move(edge: .top)))
                                             }
                                         }
-                                        GridRow {
-                                            Text("Serial Number").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            TextField("e.g., VG1045", text: Binding(get: { item.serialNumber ?? "" }, set: { item.serialNumber = $0.isEmpty ? nil : $0 }))
-                                                .textFieldStyle(.roundedBorder)
-                                            Spacer(minLength: 0)
-                                        }
-                                        GridRow {
-                                            Text("Receiver Phone").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            TextField("(555) 555-5555", text: Binding(get: { item.receiverPhone ?? "" }, set: { item.receiverPhone = Self.formatPhone($0) }))
-                                                .textFieldStyle(.roundedBorder)
-                                            Spacer(minLength: 0)
-                                            Spacer(minLength: 0)
-                                        }
-                                        GridRow {
-                                            Text("To Loc/AFE/Vendor").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            TextField("Destination", text: Binding(get: { item.vendorOrTo ?? (transfer.destinationName ?? "") }, set: { item.vendorOrTo = $0 }))
-                                                .textFieldStyle(.roundedBorder)
-                                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                                Text("Truck #").font(.caption).foregroundStyle(.secondary)
-                                                TextField("Truck / Company", text: Binding(get: { item.transportedBy ?? (transfer.transportedBy ?? "") }, set: { item.transportedBy = $0 }))
-                                                    .textFieldStyle(.roundedBorder)
-                                            }
-                                        }
-                                        GridRow {
-                                            Text("Est. Weight (lb)").frame(width: 130, alignment: .trailing).foregroundStyle(.secondary)
-                                            TextField("0", value: Binding(get: { item.estimatedWeight ?? 0 }, set: { item.estimatedWeight = max(0, $0) }), format: .number)
-                                                .textFieldStyle(.roundedBorder)
-                                            Spacer(minLength: 0)
-                                        }
+                                        .padding(10)
+                                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
+                                        .listRowSeparator(.hidden)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { selection = item }
+                                        .tag(item as MaterialTransferItem?)
+                                    }
+                                    // Group subtotal footer
+                                    Divider()
+                                    let gQty = group.items.reduce(0) { $0 + $1.quantity }
+                                    let gWeight = group.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                                    let gValue = group.items.reduce(0.0) { $0 + Double(($1.unitPrice ?? 0) * $1.quantity) }
+                                    HStack {
+                                        Text("Subtotal qty:").foregroundStyle(.secondary)
+                                        Text("\(Int(gQty))").monospacedDigit()
+                                        Spacer()
+                                        Text("Subtotal weight (lb):").foregroundStyle(.secondary)
+                                        Text(String(format: "%.0f", gWeight)).monospacedDigit()
+                                        Spacer()
+                                        Text("Subtotal value:").foregroundStyle(.secondary)
+                                        Text(String(format: "$%.2f", gValue)).monospacedDigit()
                                     }
                                 }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
-                        .listRowSeparator(.hidden)
-                        .contentShape(Rectangle())
-                        .onTapGesture { selection = item }
-                        .tag(item as MaterialTransferItem?)
                     }
-                    .onDelete { idx in
-                        let items = idx.map { transfer.items[$0] }
-                        items.forEach { delete($0) }
+                    
+                    // Totals footer
+                    Section {
+                        let totalItems = transfer.items.count
+                        let totalQty = transfer.items.reduce(0) { $0 + $1.quantity }
+                        let totalWeight = transfer.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                        HStack {
+                            Text("Total items:")
+                                .foregroundStyle(.secondary)
+                            Text("\(totalItems)")
+                                .monospacedDigit()
+                            Spacer()
+                            Text("Total qty:")
+                                .foregroundStyle(.secondary)
+                            Text("\(Int(totalQty))")
+                                .monospacedDigit()
+                            Spacer()
+                            Text("Total weight (lb):")
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.0f", totalWeight))
+                                .monospacedDigit()
+                        }
                     }
                 }
                 .listStyle(.inset)

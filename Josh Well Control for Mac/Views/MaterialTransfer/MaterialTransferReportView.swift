@@ -53,26 +53,100 @@ struct MaterialTransferReportView: View {
                 }
                 .padding(10)
                 .background(
-                    RoundedRectangle(cornerRadius: 10)
+                    Rectangle()
                         .fill(Color.black.opacity(0.03))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    Rectangle()
                         .stroke(Color.black, lineWidth: 1.75)
                 )
 
-                // Outgoing transfers table replaced with card-based layout
+                // Items with footer totals (no rounded border for cleaner print)
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(transfer.items) { item in
-                        itemCard(item)
+                    // Group items by receiver address while preserving original order within each group
+                    let items = transfer.items
+                    let groups: [(key: String, items: [MaterialTransferItem])] = {
+                        // Use an ordered dictionary approach to preserve first-seen order of addresses
+                        var order: [String] = []
+                        var buckets: [String: [MaterialTransferItem]] = [:]
+                        for it in items {
+                            let key = (it.receiverAddress?.isEmpty == false) ? it.receiverAddress! : "(No Receiver Address)"
+                            if buckets[key] == nil { order.append(key); buckets[key] = [] }
+                            buckets[key]?.append(it)
+                        }
+                        return order.map { ($0, buckets[$0] ?? []) }
+                    }()
+
+                    ForEach(Array(groups.enumerated()), id: \.1.key) { gIdx, group in
+                        GroupBox(label: Text(group.key)) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(group.items.enumerated()), id: \.1.id) { idx, item in
+                                    // Maintain alternating row background per group
+                                    itemCard(item, index: idx)
+                                }
+                                // Group subtotal footer
+                                Divider()
+                                let gQty = group.items.reduce(0) { $0 + $1.quantity }
+                                let gWeight = group.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                                let gValue = group.items.reduce(0.0) { $0 + Double(($1.unitPrice ?? 0) * $1.quantity) }
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text("Subtotal qty:")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(gQty))")
+                                        .font(.body)
+                                    Spacer()
+                                    Text("Subtotal weight (lb):")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f", gWeight))
+                                        .font(.body)
+                                    Spacer()
+                                    Text("Subtotal value:")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(currency(gValue))
+                                        .font(.body)
+                                }
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+
+                    // Footer totals
+                    let totalItems = transfer.items.count
+                    let totalQty = transfer.items.reduce(0) { $0 + $1.quantity }
+                    let totalWeight = transfer.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                    let totalValue = transfer.items.reduce(0.0) { $0 + Double(($1.unitPrice ?? 0) * $1.quantity) }
+                    Divider()
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Total items:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(totalItems)")
+                            .font(.body)
+                        Spacer()
+                        Text("Total qty:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(totalQty))")
+                            .font(.body)
+                        Spacer()
+                        Text("Total weight (lb):")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f", totalWeight))
+                            .font(.body)
+                        Spacer()
+                        Text("Total value:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(currency(totalValue))
+                            .font(.body)
                     }
                 }
                 .padding(6)
                 .background(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.black, lineWidth: 1.5)
-                )
 
                 Spacer()
                 HStack {
@@ -102,8 +176,10 @@ struct MaterialTransferReportView: View {
         }
     }
 
-    func itemCard(_ item: MaterialTransferItem) -> some View {
+    func itemCard(_ item: MaterialTransferItem, index: Int = 0) -> some View {
         let total = (item.unitPrice ?? 0) * item.quantity
+        let alt = (index % 2 == 1)
+        let bg = alt ? Color.black.opacity(0.03) : Color.white
         return VStack(alignment: .leading, spacing: 6) {
             // Top row: qty, $/unit, description, total (with small labels)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -184,12 +260,12 @@ struct MaterialTransferReportView: View {
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white)
+            Rectangle()
+                .fill(bg)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.black, lineWidth: 1.5)
+            Rectangle()
+                .stroke(Color.black, lineWidth: 1.0)
         )
     }
 }
@@ -232,6 +308,13 @@ struct MaterialTransferReportPreview: View {
     }
 
     private func export() {
+        // Validate receiver addresses before export
+        let missingAddr = transfer.items.filter { ($0.receiverAddress?.isEmpty ?? true) }
+        if !missingAddr.isEmpty {
+            exportError = "One or more items are missing a Receiver Address. Please fill in all Receiver Addresses before exporting."
+            return
+        }
+        
         if let data = pdfDataForView(report, pageSize: pageSize) {
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.pdf]
@@ -496,4 +579,3 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
     return data as Data
 }
 #endif
-
