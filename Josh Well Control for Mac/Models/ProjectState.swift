@@ -28,6 +28,7 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
     @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer] = []
     @Relationship(deleteRule: .cascade) var muds: [MudProperties] = []
+    @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage] = []
 
     // Singletons
     var window: PressureWindow = PressureWindow()

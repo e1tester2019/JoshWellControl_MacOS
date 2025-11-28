@@ -128,9 +128,9 @@ struct ContentView: View {
                         case .pressureWindow:
                             PressureWindowView(project: project)
                         case .pumpSchedule:
-                            PumpScheduleView(project: project)
-                        case .pump:
                             MudPlacementView(project: project)
+                        case .pump:
+                            PumpScheduleView(project: project)
                         case .swabbing:
                             SwabbingView(project: project)
                         case .trip:

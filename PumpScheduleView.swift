@@ -2,6 +2,12 @@ import SwiftUI
 import SwiftData
 import Observation
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 struct PumpScheduleView: View {
     @Bindable var project: ProjectState
     @State private var vm = ViewModel()
@@ -10,6 +16,9 @@ struct PumpScheduleView: View {
         VStack(spacing: 12) {
             header
             stageInfo
+            if vm.sourceMode == .program {
+                programEditor
+            }
             HStack(alignment: .top, spacing: 12) {
                 allStagesInfo.frame(maxWidth: .infinity, alignment: .topLeading)
                 visualization.frame(maxWidth: 900)
@@ -24,8 +33,19 @@ struct PumpScheduleView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text("Pump staged parcels from final layers: annulus first, then string.")
+            Text(vm.sourceMode == .finalLayers ? "Pump staged parcels from final layers: annulus first, then string." : "Pump program: volume-based stages down the string, up the annulus, to surface.")
                 .foregroundStyle(.secondary)
+            Picker("Mode", selection: $vm.sourceModeRaw) {
+                Text("Final Layers").tag(PumpScheduleView.ViewModel.SourceMode.finalLayers.rawValue)
+                Text("Program").tag(PumpScheduleView.ViewModel.SourceMode.program.rawValue)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 240)
+            .onChange(of: vm.sourceModeRaw) { _, _ in
+                vm.buildStages(project: project)
+            }
+            Button("Apply Program") { vm.buildStages(project: project) }
+                .disabled(vm.sourceMode != .program)
             Spacer()
             if let stg = vm.currentStage(project: project) {
                 Rectangle().fill(stg.color).frame(width: 16, height: 12).cornerRadius(2)
@@ -112,7 +132,181 @@ struct PumpScheduleView: View {
             .padding(.vertical, 4)
         }
     }
-    
+
+    private var programEditor: some View {
+        GroupBox("Program Stages (string in)") {
+            VStack(alignment: .leading, spacing: 8) {
+                if vm.program.isEmpty {
+                    Text("No program stages. Add one below.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    List {
+                        ForEach(vm.program) { stg in
+                            let muds = project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                            ProgramStageRow(
+                                stage: stg,
+                                muds: muds,
+                                onUpdate: { updated in
+                                    if let i = vm.program.firstIndex(where: { $0.id == updated.id }) {
+                                        vm.program[i] = updated
+                                        vm.saveProgram(to: project)
+                                    }
+                                },
+                                onDelete: {
+                                    vm.program.removeAll { $0.id == stg.id }
+                                    vm.saveProgram(to: project)
+                                }
+                            )
+                        }
+                        .onMove { indices, newOffset in
+                            vm.program.move(fromOffsets: indices, toOffset: newOffset)
+                            vm.saveProgram(to: project)
+                        }
+                        .onDelete { indexSet in
+                            vm.program.remove(atOffsets: indexSet)
+                            vm.saveProgram(to: project)
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                    .listStyle(.plain)
+                }
+                HStack(spacing: 8) {
+                    Button("Add Stage") {
+                        let mud = project.activeMud
+                        vm.program.append(ViewModel.ProgramStage(
+                            id: UUID(),
+                            name: "Stage \(vm.program.count + 1)",
+                            mudID: mud?.id,
+                            color: mud?.color ?? .blue,
+                            volume_m3: 5.0,
+                            pumpRate_m3permin: nil
+                        ))
+                        vm.saveProgram(to: project)
+                    }
+                    Button("Clear All", role: .destructive) {
+                        vm.program.removeAll()
+                        vm.saveProgram(to: project)
+                    }
+                    Spacer()
+                    Button("Apply Program") { vm.buildStages(project: project) }
+                        .buttonStyle(.borderedProminent)
+                }
+                .controlSize(.small)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    // MARK: - Program Stage Row (isolated to keep bindings simple for the compiler)
+    private struct ProgramStageRow: View {
+        let stage: PumpScheduleView.ViewModel.ProgramStage
+        let muds: [MudProperties]
+        let onUpdate: (PumpScheduleView.ViewModel.ProgramStage) -> Void
+        let onDelete: () -> Void
+
+        @State private var name: String
+        @State private var mudID: UUID?
+        @State private var color: Color
+        @State private var volume_m3: Double
+        @State private var rate_m3min: Double
+
+        init(stage: PumpScheduleView.ViewModel.ProgramStage,
+             muds: [MudProperties],
+             onUpdate: @escaping (PumpScheduleView.ViewModel.ProgramStage) -> Void,
+             onDelete: @escaping () -> Void) {
+            self.stage = stage
+            self.muds = muds
+            self.onUpdate = onUpdate
+            self.onDelete = onDelete
+            _name = State(initialValue: stage.name)
+            _mudID = State(initialValue: stage.mudID)
+            _color = State(initialValue: stage.color)
+            _volume_m3 = State(initialValue: stage.volume_m3)
+            _rate_m3min = State(initialValue: stage.pumpRate_m3permin ?? 0)
+        }
+
+        var body: some View {
+            let selectedMud = muds.first(where: { $0.id == mudID })
+            HStack(spacing: 8) {
+                // Color swatch (mud color if selected, otherwise stage color)
+                Rectangle()
+                    .fill(selectedMud?.color ?? color)
+                    .frame(width: 18, height: 14)
+                    .cornerRadius(3)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.gray.opacity(0.3)))
+
+                // Name
+                TextField("Name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 160)
+
+                // Mud picker
+                Picker("", selection: Binding<UUID?>(
+                    get: { mudID },
+                    set: { newID in
+                        mudID = newID
+                        if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                            color = m.color
+                        }
+                        pushUpdate()
+                    }
+                )) {
+                    ForEach(muds, id: \.id) { m in
+                        Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                    }
+                }
+                .frame(width: 240)
+                .pickerStyle(.menu)
+
+                // Volume
+                HStack(spacing: 4) {
+                    Text("Volume")
+                        .frame(width: 60, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("m³", value: $volume_m3, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                    Text("m³").foregroundStyle(.secondary)
+                }
+
+                // Optional per-stage rate
+                HStack(spacing: 4) {
+                    Text("Rate")
+                        .frame(width: 40, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    TextField("m³/min", value: $rate_m3min, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                    Text("m³/min").foregroundStyle(.secondary)
+                }
+
+                Button(role: .destructive) { onDelete() } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Delete stage")
+            }
+            .padding(6)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
+            .onChange(of: name) { _ in pushUpdate() }
+            .onChange(of: volume_m3) { _ in pushUpdate() }
+            .onChange(of: rate_m3min) { _ in pushUpdate() }
+        }
+
+        private func pushUpdate() {
+            let updated = PumpScheduleView.ViewModel.ProgramStage(
+                id: stage.id,
+                name: name,
+                mudID: mudID,
+                color: color,
+                volume_m3: volume_m3,
+                pumpRate_m3permin: rate_m3min
+            )
+            onUpdate(updated)
+        }
+    }
+
     private var allStagesInfo: some View {
         GroupBox("All Stages") {
             VStack(alignment: .leading, spacing: 8) {
@@ -460,17 +654,98 @@ Button("Debug Annulus Stack (Visual HP)") {
         var controlDepthModeRaw: Int = ControlDepthMode.bit.rawValue
         var controlDepthMode: ControlDepthMode { get { ControlDepthMode(rawValue: controlDepthModeRaw) ?? .bit } set { controlDepthModeRaw = newValue.rawValue } }
 
+        // Source mode: build from final layers (existing) or from a custom program of volume-based stages
+        enum SourceMode: Int, Codable { case finalLayers = 0, program = 1 }
+        var sourceModeRaw: Int = SourceMode.finalLayers.rawValue
+        var sourceMode: SourceMode {
+            get { SourceMode(rawValue: sourceModeRaw) ?? .finalLayers }
+            set { sourceModeRaw = newValue.rawValue }
+        }
+
+        // Program stages (volume-based) to pump down the string
+        struct ProgramStage: Identifiable {
+            let id: UUID
+            var name: String
+            var mudID: UUID?
+            var color: Color
+            var volume_m3: Double
+            var pumpRate_m3permin: Double?
+        }
+        var program: [ProgramStage] = []
+
+        func loadProgram(from project: ProjectState) {
+            program = project.programStages
+                .sorted { $0.orderIndex < $1.orderIndex }
+                .map { s in
+                    ProgramStage(
+                        id: s.id,
+                        name: s.name,
+                        mudID: s.mud?.id,
+                        color: s.color,
+                        volume_m3: s.volume_m3,
+                        pumpRate_m3permin: s.pumpRate_m3permin
+                    )
+                }
+        }
+
+        func saveProgram(to project: ProjectState) {
+            // Build a lookup of existing models by id
+            var byID: [UUID: PumpProgramStage] = [:]
+            for s in project.programStages { byID[s.id] = s }
+
+            // Track the next order index
+            let maxOrder = project.programStages.map { $0.orderIndex }.max() ?? -1
+            var nextOrder = maxOrder + 1
+
+            // Delete removed
+            let desiredIDs = Set(program.map { $0.id })
+            project.programStages.removeAll { !desiredIDs.contains($0.id) }
+
+            // Update existing and add new, maintaining orderIndex
+            for stage in program {
+                if let existing = byID[stage.id] {
+                    existing.name = stage.name
+                    existing.volume_m3 = stage.volume_m3
+                    existing.pumpRate_m3permin = stage.pumpRate_m3permin
+                    existing.color = stage.color
+                    existing.mud = stage.mudID.flatMap { id in project.muds.first(where: { $0.id == id }) }
+                    // keep existing.orderIndex as-is
+                } else {
+                    let mud = stage.mudID.flatMap { id in project.muds.first(where: { $0.id == id }) }
+                    let s = PumpProgramStage(name: stage.name,
+                                             volume_m3: stage.volume_m3,
+                                             pumpRate_m3permin: stage.pumpRate_m3permin,
+                                             color: stage.color,
+                                             project: project,
+                                             mud: mud)
+                    s.id = stage.id
+                    s.orderIndex = nextOrder
+                    nextOrder += 1
+                    project.programStages.append(s)
+                }
+            }
+        }
+
         func currentStage(project: ProjectState) -> Stage? { stages.isEmpty ? nil : stages[stageDisplayIndex] }
         func currentStageMud(project: ProjectState) -> MudProperties? { print("\(currentStage(project: project)?.mud?.density_kgm3 ?? 0)"); return currentStage(project: project)?.mud }
 
         func buildStages(project: ProjectState) {
+            switch sourceMode {
+            case .finalLayers:
+                buildStagesFromFinalLayers(project: project)
+            case .program:
+                buildStagesFromProgram(project: project)
+            }
+            saveProgram(to: project)
+        }
+
+        private func buildStagesFromFinalLayers(project: ProjectState) {
             stages.removeAll()
             let bitMD = max(
                 project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
                 project.drillString.map { $0.bottomDepth_m }.max() ?? 0
             )
             let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
-            
             let activeMud = project.activeMud
             // Annulus first – order by shallow to deep (top MD ascending)
             let ann = project.finalLayers.filter { $0.placement == .annulus || $0.placement == .both }
@@ -496,7 +771,25 @@ Button("Debug Annulus Stack (Visual HP)") {
             stageIndex = 0
             progress = 0
         }
+
+        private func mudFor(id: UUID?, in project: ProjectState) -> MudProperties? {
+            guard let id else { return project.activeMud }
+            return project.muds.first(where: { $0.id == id }) ?? project.activeMud
+        }
+
+        private func buildStagesFromProgram(project: ProjectState) {
+            stages.removeAll()
+            for s in program {
+                let mud = mudFor(id: s.mudID, in: project)
+                let col = mud?.color ?? s.color
+                stages.append(Stage(name: s.name, color: col, totalVolume_m3: max(0, s.volume_m3), side: .string, mud: mud))
+            }
+            stageIndex = 0
+            progress = 0
+        }
+
         func bootstrap(project: ProjectState) {
+            loadProgram(from: project)
             buildStages(project: project)
             controlMD_m = project.pressureDepth_m
         }
