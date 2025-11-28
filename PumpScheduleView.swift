@@ -16,13 +16,18 @@ struct PumpScheduleView: View {
         VStack(spacing: 12) {
             header
             stageInfo
-            if vm.sourceMode == .program {
-                programEditor
-            }
             HStack(alignment: .top, spacing: 12) {
-                allStagesInfo.frame(maxWidth: .infinity, alignment: .topLeading)
-                visualization.frame(maxWidth: 900)
-                hydraulicsPanel.frame(width: 320)
+                VStack(spacing: 12) {
+                    if vm.sourceMode == .program {
+                        programEditor
+                    }
+                    allStagesInfo.frame(maxWidth: .infinity, alignment: .topLeading)
+                    returnsInfo.frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    visualization.frame(maxWidth: 900)
+                    hydraulicsPanel.frame(width: 320)
+                }
             }
             Divider()
         }
@@ -289,9 +294,9 @@ struct PumpScheduleView: View {
             }
             .padding(6)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
-            .onChange(of: name) { _ in pushUpdate() }
-            .onChange(of: volume_m3) { _ in pushUpdate() }
-            .onChange(of: rate_m3min) { _ in pushUpdate() }
+            .onChange(of: name) { pushUpdate() }
+            .onChange(of: volume_m3) { pushUpdate() }
+            .onChange(of: rate_m3min) { pushUpdate() }
         }
 
         private func pushUpdate() {
@@ -364,50 +369,32 @@ struct PumpScheduleView: View {
             }
         }
     }
+    
+    private var returnsInfo: some View {
+        GroupBox("Returns") {
+            VStack(alignment: .leading, spacing: 8) {
 
-    /*
-    private var stepsStrip: some View {
-        GroupBox("Stages") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 12) {
-                    ForEach(vm.stages.indices, id: \.self) { idx in
-                        let stg = vm.stages[idx]
-                        Button(action: { vm.stageIndex = idx; vm.progress = 0 }) {
-                            HStack(spacing: 8) {
-                                ZStack {
-                                    Circle().fill(idx == vm.stageDisplayIndex ? stg.color.opacity(0.9) : stg.color.opacity(0.5))
-                                        .frame(width: 22, height: 22)
-                                    Text("\(idx + 1)")
-                                        .font(.caption2).bold()
-                                        .foregroundStyle(.white)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(stg.name)
-                                        .font(.subheadline)
-                                        .lineLimit(1)
-                                    Text(stg.side == .annulus ? "Annulus" : "String")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(idx == vm.stageDisplayIndex ? Color.accentColor.opacity(0.08) : Color.gray.opacity(0.06))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(idx == vm.stageDisplayIndex ? Color.accentColor.opacity(0.5) : Color.gray.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
+                let expelled = vm.expelledFluidsForCurrent(project: project)
+
+                Text("Returns to surface")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(expelled) { row in
+                    HStack {
+                        Rectangle()
+                            .fill(row.color)
+                            .frame(width: 14, height: 12)
+                            .cornerRadius(3)
+                        Text(row.mudName)
+                            .frame(width: 120, alignment: .leading)
+                        Spacer()
+                        Text(String(format: "%.2f m³", row.volume_m3))
+                            .monospacedDigit()
                     }
                 }
-                .padding(.vertical, 4)
             }
         }
     }
-    */
 
     private var visualization: some View {
         GroupBox("Well Snapshot") {
@@ -509,18 +496,18 @@ struct PumpScheduleView: View {
                     Text(String(format: "%.0f m", controlTVDForDisplay)).monospacedDigit()
                 }
                 Divider()
-#if DEBUG
-Button("Debug Annulus Stack (Visual HP)") {
-    vm.debugCurrentAnnulus(project: project)
-}
-.buttonStyle(.bordered)
-#endif
-#if DEBUG
-Button("Export Debug Log") {
-    vm.exportAnnulusDebugLog(project: project)
-}
-.buttonStyle(.bordered)
-#endif
+                #if DEBUG
+                Button("Debug Annulus Stack (Visual HP)") {
+                    vm.debugCurrentAnnulus(project: project)
+                }
+                .buttonStyle(.bordered)
+                #endif
+                #if DEBUG
+                Button("Export Debug Log") {
+                    vm.exportAnnulusDebugLog(project: project)
+                }
+                .buttonStyle(.bordered)
+                #endif
                 // Outputs
                 let h = vm.hydraulicsForCurrent(project: project)
                 VStack(alignment: .leading, spacing: 6) {
@@ -621,6 +608,19 @@ Button("Export Debug Log") {
         var color: Color
         var mud: MudProperties?
     }
+    
+    struct ExpelledFluid: Identifiable {
+        let id = UUID()
+        let mud: MudProperties?
+        let color: Color
+        let volume_m3: Double
+
+        var mudName: String {
+            mud?.name ?? "Unknown"
+        }
+    }
+    
+    
 
     private func drawColumn(_ ctx: inout GraphicsContext, layers: [Seg], in rect: CGRect, yGlobal: (Double)->CGFloat) {
         for L in layers {
@@ -1260,6 +1260,112 @@ Button("Export Debug Log") {
             }
 
             return (string, annulus)
+        }
+        
+        /// Computes a snapshot of fluids that have been expelled from the wellbore
+        /// (i.e., pumped in but no longer present in string+annulus) for the
+        /// current stage/progress. This is derived from volume balance rather than
+        /// tracking discrete parcels over time.
+        func expelledFluidsForCurrent(project: ProjectState) -> [ExpelledFluid] {
+            // Determine bit depth and geometry
+            let bitMD = max(
+                project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
+                project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            )
+            let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+
+            // Build current stacks (same as used for visualization/hydraulics)
+            let stg = currentStage(project: project)
+            let totalV = stg?.totalVolume_m3 ?? 0
+            let pumpedVCurrent = max(0.0, min(progress * max(totalV, 0), totalV))
+            let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedVCurrent)
+
+            // 1) Volume currently in the well, grouped by mud id (including active base mud)
+            var inWellByMud: [UUID?: Double] = [:]
+
+            func addInWellVolume(from seg: Seg, isString: Bool) {
+                let top = max(0.0, min(seg.top, bitMD))
+                let bot = max(0.0, min(seg.bottom, bitMD))
+                guard bot > top else { return }
+                let vol: Double = isString
+                    ? geom.volumeInString_m3(top, bot)
+                    : geom.volumeInAnnulus_m3(top, bot)
+                let key = seg.mud?.id
+                inWellByMud[key, default: 0.0] += max(0.0, vol)
+            }
+
+            for seg in stacks.string {
+                addInWellVolume(from: seg, isString: true)
+            }
+            for seg in stacks.annulus {
+                addInWellVolume(from: seg, isString: false)
+            }
+
+            // 2) Initial in-hole volume by mud (currently only active mud fills the well)
+            var initialByMud: [UUID?: Double] = [:]
+            if let active = project.activeMud {
+                let activeKey: UUID? = active.id
+                let initStringV = geom.volumeInString_m3(0.0, bitMD)
+                let initAnnV = geom.volumeInAnnulus_m3(0.0, bitMD)
+                initialByMud[activeKey, default: 0.0] += max(0.0, initStringV + initAnnV)
+            }
+
+            // 3) Total pumped volume by mud from all stages up to the current point
+            var pumpedByMud: [UUID?: Double] = [:]
+            for i in stages.indices {
+                let stage = stages[i]
+                let mudKey = stage.mud?.id
+                let totalStageV = max(0.0, stage.totalVolume_m3)
+                let pumpedForStage: Double
+                if i < stageDisplayIndex {
+                    // All previous stages are fully pumped
+                    pumpedForStage = totalStageV
+                } else if i == stageDisplayIndex {
+                    // Current stage pumped fractionally based on progress
+                    pumpedForStage = max(0.0, min(progress, 1.0)) * totalStageV
+                } else {
+                    pumpedForStage = 0.0
+                }
+                if pumpedForStage > 0 {
+                    pumpedByMud[mudKey, default: 0.0] += pumpedForStage
+                }
+            }
+
+            // 4) Net expelled per mud = initial + pumped - inWell
+            //    Only report positive expelled volumes.
+            var result: [ExpelledFluid] = []
+
+            // Build a set of all mud keys that appear in any of the maps
+            var allKeys = Set<UUID?>()
+            for k in initialByMud.keys { allKeys.insert(k) }
+            for k in pumpedByMud.keys { allKeys.insert(k) }
+            for k in inWellByMud.keys { allKeys.insert(k) }
+
+            for key in allKeys {
+                let initialV = initialByMud[key] ?? 0.0
+                let pumpedV  = pumpedByMud[key] ?? 0.0
+                let inWellV  = inWellByMud[key] ?? 0.0
+                let netExpelled = max(0.0, initialV + pumpedV - inWellV)
+                guard netExpelled > 1e-6 else { continue }
+
+                // Resolve mud and color for this key
+                let mud: MudProperties? = {
+                    if let id = key {
+                        return project.muds.first(where: { $0.id == id })
+                    } else {
+                        return nil
+                    }
+                }()
+                let color: Color = mud?.color ?? .gray.opacity(0.35)
+
+                result.append(ExpelledFluid(mud: mud,
+                                             color: color,
+                                             volume_m3: netExpelled))
+            }
+
+            // Sort by volume descending for display
+            result.sort { $0.volume_m3 > $1.volume_m3 }
+            return result
         }
 
         struct HydraulicsReadout {
