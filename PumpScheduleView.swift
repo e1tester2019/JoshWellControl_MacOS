@@ -815,6 +815,22 @@ Button("Export Debug Log") {
             var mud: MudProperties?
         }
 
+        /// A volume parcel of a specific mud and color
+        private struct VolumeParcel {
+            var volume_m3: Double
+            var color: Color
+            var mud: MudProperties?
+        }
+
+        /// A capacity section (either string or annulus) with fixed total volume
+        /// and an ordered list of parcels from shallow (index 0) to deep (last).
+        private struct VolumeSection {
+            let topMD: Double
+            let bottomMD: Double
+            let capacity_m3: Double
+            var parcels: [VolumeParcel]
+        }
+
         private func merge(_ segs: [Seg]) -> [Seg] {
             let tol = 1e-6
             var out: [Seg] = []
@@ -903,47 +919,264 @@ Button("Export Debug Log") {
             return 0.5 * (lo + hi)
         }
 
-        private func pushUpFromBitAnnulus(_ segs: [Seg], parcels: [(volume_m3: Double, color: Color, mud: MudProperties?)], bitMD: Double, geom: ProjectGeometryService) -> [Seg] {
+        /// Length from the bottom of the annulus needed to hold `volume` for a given
+        /// already-used length `usedFromBottom`. This walks upward from the bit.
+        private func lengthForAnnulusParcelVolumeFromBottom(volume: Double,
+                                                            bitMD: Double,
+                                                            usedFromBottom: Double,
+                                                            geom: ProjectGeometryService) -> Double {
+            let target = max(0, volume)
+            if target <= 1e-12 { return 0 }
+
+            // Remaining length available from bit toward surface
+            let maxAvailableLength = max(0, bitMD - usedFromBottom)
+            if maxAvailableLength <= 0 { return 0 }
+
+            // If the entire remaining column (from surface down to the top of the
+            // already-used region) cannot hold more than target, clamp.
+            // Remaining MD interval is [0, bitMD - usedFromBottom].
+            let remainingTopMD = 0.0
+            let remainingBottomMD = max(0, bitMD - usedFromBottom)
+            let fullV = geom.volumeInAnnulus_m3(remainingTopMD, remainingBottomMD)
+            if target >= fullV * (1.0 - 1e-9) { return maxAvailableLength }
+
+            var lo: Double = 0
+            var hi: Double = maxAvailableLength
+            for _ in 0..<64 {
+                let mid = 0.5 * (lo + hi)
+                let topMD = max(0, bitMD - (usedFromBottom + mid))
+                let bottomMD = bitMD - usedFromBottom
+                let v = geom.volumeInAnnulus_m3(topMD, bottomMD)
+                let err = v - target
+                if abs(err) <= 1e-9 * max(1.0, target) { return mid }
+                if err < 0 { lo = mid } else { hi = mid }
+            }
+            return 0.5 * (lo + hi)
+        }
+
+        /// Pushes parcels up from the bit into the annulus, using a global average
+        /// annulus capacity per meter to compute parcel lengths. This avoids
+        /// stalling behavior near surface and guarantees monotonic movement.
+        private func pushUpFromBitAnnulus(_ segs: [Seg],
+                                          parcels: [(volume_m3: Double, color: Color, mud: MudProperties?)],
+                                          bitMD: Double,
+                                          geom: ProjectGeometryService) -> [Seg] {
             var current = segs
             guard !parcels.isEmpty else { return current }
 
-            // Compute initial lengths for each parcel
-            var lengths: [Double] = parcels.map { annulusLengthFromBottom(forVolume: max(0, $0.volume_m3), bitMD: bitMD, geom: geom) }
-            var totalL = lengths.reduce(0, +)
-            if totalL <= 1e-9 { return current }
+            // Compute lengths for each parcel using a global average annulus capacity
+            // per meter. This guarantees that total injected length grows monotonically
+            // with injected volume and avoids stalling behavior near surface.
+            var lengths: [Double] = []
+            var totalL: Double = 0
+            let fullAnnulusV = geom.volumeInAnnulus_m3(0.0, bitMD)
+            let capPerM = (bitMD > 0) ? (fullAnnulusV / bitMD) : 0.0
 
-            // Volume-conserving scaling: ensure that the annulus volume of [bitMD-totalL, bitMD]
-            // matches the sum of parcel volumes. If not, scale lengths uniformly.
-            let targetV = parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
-            let achievedV = geom.volumeInAnnulus_m3(max(0, bitMD - totalL), bitMD)
-            let relErr = (achievedV - targetV) / max(1.0, targetV)
-            if abs(relErr) > 1e-6 && achievedV > 0 {
-                let scale = max(0.0, min(10.0, targetV / achievedV))
-                for i in lengths.indices { lengths[i] *= scale }
-                totalL = lengths.reduce(0, +)
+            for p in parcels {
+                let vol = max(0, p.volume_m3)
+                let L = (capPerM > 0) ? (vol / capPerM) : 0.0
+                lengths.append(L)
+                totalL += L
             }
 
             if totalL <= 1e-9 { return current }
 
-            // Shift existing stack up by totalL
+            // Shift existing stack up by the total injected length, allowing segments
+            // to move above surface (MD < 0). Later consumers (visual/hydraulics)
+            // clip to [0, controlMD] as needed, so negative MD effectively means
+            // "out of hole" fluid.
             var shifted: [Seg] = []
             for s in current {
-                let nt = max(0, s.top - totalL)
-                let nb = max(0, s.bottom - totalL)
-                if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud)) }
+                let nt = s.top - totalL
+                let nb = s.bottom - totalL
+                if nb > nt + 1e-9 {
+                    shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud))
+                }
             }
 
-            // Insert the batch at the bottom, contiguous from [bit-totalL, bit]
-            var cursorTop = max(0, bitMD - totalL)
+            // Insert the new batch at the bottom, contiguous from [bitMD - totalL, bitMD].
+            // We intentionally do not clamp here; any portion above surface (top < 0)
+            // will be ignored by clipping when computing TVD/MD-based integrals.
+            var cursorTop = bitMD - totalL
             for (i, p) in parcels.enumerated() {
                 let L = max(0, lengths[i])
                 guard L > 1e-9 else { continue }
-                let seg = Seg(top: cursorTop, bottom: min(bitMD, cursorTop + L), color: p.color, mud: p.mud)
+                let seg = Seg(top: cursorTop,
+                              bottom: cursorTop + L,
+                              color: p.color,
+                              mud: p.mud)
                 shifted.append(seg)
                 cursorTop += L
             }
 
             return merge(shifted)
+        }
+
+        // MARK: - Tank model helpers
+
+        private func totalVolume(_ parcels: [VolumeParcel]) -> Double {
+            parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+        }
+
+        /// Pop volume from the deep end (bottom) of a section, returning parcels
+        /// ordered shallow -> deep for use as incoming to the next deeper section.
+        private func popFromDeep(_ parcels: inout [VolumeParcel], volume: Double) -> [VolumeParcel] {
+            var need = max(0, volume)
+            var out: [VolumeParcel] = []
+            let tol = 1e-12
+            while need > tol, let last = parcels.last {
+                let lastVol = max(0, last.volume_m3)
+                if lastVol <= need + tol {
+                    // Take entire parcel
+                    out.insert(last, at: 0)
+                    parcels.removeLast()
+                    need -= lastVol
+                } else {
+                    // Split parcel
+                    let taken = VolumeParcel(volume_m3: need, color: last.color, mud: last.mud)
+                    let remaining = VolumeParcel(volume_m3: lastVol - need, color: last.color, mud: last.mud)
+                    parcels[parcels.count - 1] = remaining
+                    out.insert(taken, at: 0)
+                    need = 0
+                }
+            }
+            return out
+        }
+
+        /// Pop volume from the shallow end (top) of a section, returning parcels
+        /// ordered shallow -> deep for use as incoming to the next shallower section.
+        private func popFromShallow(_ parcels: inout [VolumeParcel], volume: Double) -> [VolumeParcel] {
+            var need = max(0, volume)
+            var out: [VolumeParcel] = []
+            let tol = 1e-12
+            while need > tol, !parcels.isEmpty {
+                let first = parcels[0]
+                let firstVol = max(0, first.volume_m3)
+                if firstVol <= need + tol {
+                    out.append(first)
+                    parcels.removeFirst()
+                    need -= firstVol
+                } else {
+                    let taken = VolumeParcel(volume_m3: need, color: first.color, mud: first.mud)
+                    let remaining = VolumeParcel(volume_m3: firstVol - need, color: first.color, mud: first.mud)
+                    parcels[0] = remaining
+                    out.append(taken)
+                    need = 0
+                }
+            }
+            return out
+        }
+
+        /// Build base string sections (one per drillstring section) filled with active mud.
+        private func baseStringVolumeSections(project: ProjectState) -> [VolumeSection] {
+            let bitMD = maxDepthMD(project: project)
+            let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+            let active = project.activeMud
+            let baseColor = active?.color ?? Color.gray.opacity(0.35)
+
+            let dsSections = project.drillString.sorted { $0.topDepth_m < $1.topDepth_m }
+            var sections: [VolumeSection] = []
+            for ds in dsSections {
+                let t = min(ds.topDepth_m, ds.bottomDepth_m)
+                let b = max(ds.topDepth_m, ds.bottomDepth_m)
+                guard b > t else { continue }
+                let vol = geom.volumeInString_m3(t, b)
+                let parcel = VolumeParcel(volume_m3: vol, color: baseColor, mud: active)
+                sections.append(VolumeSection(topMD: t, bottomMD: b, capacity_m3: vol, parcels: [parcel]))
+            }
+            return sections
+        }
+
+        /// Build base annulus sections (one per annulus section) filled with active mud.
+        private func baseAnnulusVolumeSections(project: ProjectState) -> [VolumeSection] {
+            let bitMD = maxDepthMD(project: project)
+            let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+            let active = project.activeMud
+            let baseColor = active?.color ?? Color.gray.opacity(0.35)
+
+            let annSections = project.annulus.sorted { $0.topDepth_m < $1.topDepth_m }
+            var sections: [VolumeSection] = []
+            for a in annSections {
+                let t = min(a.topDepth_m, a.bottomDepth_m)
+                let b = max(a.topDepth_m, a.bottomDepth_m)
+                guard b > t else { continue }
+                let vol = geom.volumeInAnnulus_m3(t, b)
+                let parcel = VolumeParcel(volume_m3: vol, color: baseColor, mud: active)
+                sections.append(VolumeSection(topMD: t, bottomMD: b, capacity_m3: vol, parcels: [parcel]))
+            }
+            return sections
+        }
+
+        /// Push parcels down the string: add to shallowest section and propagate overflow
+        /// toward the bit. Returns parcels that exit the bottom of the string at the bit.
+        private func pushDownString(sections: inout [VolumeSection], incomingParcels: [VolumeParcel]) -> [VolumeParcel] {
+            var incoming = incomingParcels
+            let tol = 1e-12
+            guard !sections.isEmpty, !incoming.isEmpty else { return [] }
+
+            for idx in 0..<sections.count {
+                if incoming.isEmpty { break }
+                sections[idx].parcels.insert(contentsOf: incoming, at: 0) // insert at shallow side
+                let cap = sections[idx].capacity_m3
+                let total = totalVolume(sections[idx].parcels)
+                if total > cap + tol {
+                    let overflowVol = total - cap
+                    incoming = popFromDeep(&sections[idx].parcels, volume: overflowVol)
+                } else {
+                    incoming = []
+                }
+            }
+            // Any remaining incoming after the deepest section has exited the bit
+            return incoming
+        }
+
+        /// Push parcels up the annulus: add at the deepest section (bit) and propagate
+        /// overflow toward surface. Any remaining overflow after the shallowest
+        /// section is out-of-hole and discarded.
+        private func pushUpAnnulus(sections: inout [VolumeSection], incomingParcels: [VolumeParcel]) {
+            var incoming = incomingParcels
+            let tol = 1e-12
+            guard !sections.isEmpty, !incoming.isEmpty else { return }
+
+            for idx in sections.indices.reversed() { // deep -> shallow
+                if incoming.isEmpty { break }
+                sections[idx].parcels.append(contentsOf: incoming) // append at deep side
+                let cap = sections[idx].capacity_m3
+                let total = totalVolume(sections[idx].parcels)
+                if total > cap + tol {
+                    let overflowVol = total - cap
+                    incoming = popFromShallow(&sections[idx].parcels, volume: overflowVol)
+                } else {
+                    incoming = []
+                }
+            }
+            // Any remaining incoming has exited the well at surface; ignore
+        }
+
+        /// Convert volume sections back into depth-based segments for visualization.
+        private func segmentsFromSections(_ sections: [VolumeSection]) -> [Seg] {
+            var segs: [Seg] = []
+            for sec in sections {
+                let L = sec.bottomMD - sec.topMD
+                guard L > 0, sec.capacity_m3 > 0 else { continue }
+                let capPerM = sec.capacity_m3 / L
+
+                var cursorBottom = sec.bottomMD
+                // parcels are stored shallow -> deep, so walk from deep to shallow
+                for parcel in sec.parcels.reversed() {
+                    let dL = parcel.volume_m3 / capPerM
+                    let top = max(sec.topMD, cursorBottom - dL)
+                    if cursorBottom - top > 1e-6 {
+                        segs.append(Seg(top: top,
+                                        bottom: cursorBottom,
+                                        color: parcel.color,
+                                        mud: parcel.mud))
+                    }
+                    cursorBottom = top
+                    if cursorBottom <= sec.topMD + 1e-6 { break }
+                }
+            }
+            return merge(segs)
         }
 
         // Recompute stacks from base for a given stage index and pumped volume
@@ -953,46 +1186,79 @@ Button("Export Debug Log") {
                 project.drillString.map { $0.bottomDepth_m }.max() ?? 0
             )
             let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
-            let base = project.activeMud?.color ?? Color.gray.opacity(0.35)
-            var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: base, mud: project.activeMud)]
-            var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: base, mud: project.activeMud)]
+            let baseColor = project.activeMud?.color ?? Color.gray.opacity(0.35)
+
+            var string: [Seg] = [Seg(top: 0,
+                                     bottom: bitMD,
+                                     color: baseColor,
+                                     mud: project.activeMud)]
+            var annulus: [Seg] = [Seg(top: 0,
+                                      bottom: bitMD,
+                                      color: baseColor,
+                                      mud: project.activeMud)]
+
             // Apply all previous stages fully
-            for i in 0..<max(0, min(stageIndex, stages.count)) {
-                // REPLACED BLOCK START
+            let fullCount = max(0, min(stageIndex, stages.count))
+            for i in 0..<fullCount {
                 let st = stages[i]
                 let pV = max(0, st.totalVolume_m3)
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
-                let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
-                string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
 
-                // Compute excess beyond what the string could provide; this exits the bit immediately.
+                let taken = takeFromBottom(string,
+                                           length: Ls,
+                                           bitMD: bitMD,
+                                           geom: geom)
+                string = injectAtSurfaceString(string,
+                                               length: Ls,
+                                               color: st.color,
+                                               mud: st.mud,
+                                               bitMD: bitMD)
+
+                // Excess beyond what the string could physically provide exits the bit
                 let takenV = taken.parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
                 let excessV = max(0.0, pV - takenV)
                 var parcels = taken.parcels
                 if excessV > 1e-9 {
-                    parcels.append((volume_m3: excessV, color: st.color, mud: st.mud))
+                    parcels.append((volume_m3: excessV,
+                                    color: st.color,
+                                    mud: st.mud))
                 }
-                annulus = pushUpFromBitAnnulus(annulus, parcels: parcels, bitMD: bitMD, geom: geom)
-                // REPLACED BLOCK END
+                annulus = pushUpFromBitAnnulus(annulus,
+                                               parcels: parcels,
+                                               bitMD: bitMD,
+                                               geom: geom)
             }
+
             // Apply current stage partially
             if stages.indices.contains(stageIndex) {
-                // REPLACED BLOCK START
                 let st = stages[stageIndex]
                 let pV = max(0, min(pumpedV, st.totalVolume_m3))
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
-                let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
-                string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
+
+                let taken = takeFromBottom(string,
+                                           length: Ls,
+                                           bitMD: bitMD,
+                                           geom: geom)
+                string = injectAtSurfaceString(string,
+                                               length: Ls,
+                                               color: st.color,
+                                               mud: st.mud,
+                                               bitMD: bitMD)
 
                 let takenV = taken.parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
                 let excessV = max(0.0, pV - takenV)
                 var parcels = taken.parcels
                 if excessV > 1e-9 {
-                    parcels.append((volume_m3: excessV, color: st.color, mud: st.mud))
+                    parcels.append((volume_m3: excessV,
+                                    color: st.color,
+                                    mud: st.mud))
                 }
-                annulus = pushUpFromBitAnnulus(annulus, parcels: parcels, bitMD: bitMD, geom: geom)
-                // REPLACED BLOCK END
+                annulus = pushUpFromBitAnnulus(annulus,
+                                               parcels: parcels,
+                                               bitMD: bitMD,
+                                               geom: geom)
             }
+
             return (string, annulus)
         }
 
@@ -1073,7 +1339,7 @@ Button("Export Debug Log") {
         }
         #endif
 
-        #if DEBUG
+#if DEBUG
         /// Exports a detailed debug log of the current stage behavior across progress steps
         /// to a text file in the temporary directory. Prints the file URL to the console.
         func exportAnnulusDebugLog(project: ProjectState) {
@@ -1121,7 +1387,7 @@ Button("Export Debug Log") {
                     let pV = max(0, min(pumpedV, st.totalVolume_m3))
                     let Ls = geom.lengthForStringVolume_m(0.0, pV)
 
-                    // Recreate string before taking current partial by replaying previous full stages
+                    // Recreate string and annulus before taking current partial by replaying previous full stages
                     var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
                     var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
                     for i in 0..<max(0, min(stageDisplayIndex, stages.count)) {
@@ -1130,28 +1396,59 @@ Button("Export Debug Log") {
                         let Lprev = geom.lengthForStringVolume_m(0.0, pVol)
                         let takenPrev = takeFromBottom(string, length: Lprev, bitMD: bitMD, geom: geom)
                         string = injectAtSurfaceString(string, length: Lprev, color: pst.color, mud: pst.mud, bitMD: bitMD)
-                        annulus = pushUpFromBitAnnulus(annulus, parcels: takenPrev.parcels, bitMD: bitMD, geom: geom)
+
+                        // Excess volume beyond what the string could provide exits the bit immediately
+                        let takenVPrev = takenPrev.parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+                        let excessPrev = max(0.0, pVol - takenVPrev)
+                        var parcelsPrev = takenPrev.parcels
+                        if excessPrev > 1e-9 {
+                            parcelsPrev.append((volume_m3: excessPrev, color: pst.color, mud: pst.mud))
+                        }
+                        annulus = pushUpFromBitAnnulus(annulus, parcels: parcelsPrev, bitMD: bitMD, geom: geom)
                     }
 
                     let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
                     add(String(format: "String length for current pumpedV (Ls): %.4f m", Ls))
-                    var sumParcels = 0.0
-                    for (i, parcel) in taken.parcels.enumerated() {
-                        sumParcels += parcel.volume_m3
+
+                    // Build parcels for the current stage including any excess volume
+                    var parcels = taken.parcels
+                    var sumParcels = parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+                    let excessV = max(0.0, pV - sumParcels)
+                    if excessV > 1e-9 {
+                        parcels.append((volume_m3: excessV, color: st.color, mud: st.mud))
+                        sumParcels += excessV
+                    }
+
+                    for (i, parcel) in parcels.enumerated() {
                         let mudName = parcel.mud?.name ?? "<active/unknown>"
                         add(String(format: "  Parcel[%02d] V=%.4f m³, mud=%@", i, parcel.volume_m3, mudName))
                     }
-                    add(String(format: "  Sum parcel volume: %.4f m³", sumParcels))
+                    add(String(format: "  Sum parcel volume (including excess): %.4f m³", sumParcels))
 
-                    var lengths: [Double] = taken.parcels.map { annulusLengthFromBottom(forVolume: max(0, $0.volume_m3), bitMD: bitMD, geom: geom) }
-                    let totalL = lengths.reduce(0, +)
-                    let achievedV = (totalL > 0) ? geom.volumeInAnnulus_m3(max(0, bitMD - totalL), bitMD) : 0.0
+                    // Compute per-parcel lengths exactly as pushUpFromBitAnnulus does
+                    var lengths: [Double] = []
+                    var usedFromBottom: Double = 0
+                    for p in parcels {
+                        let L = lengthForAnnulusParcelVolumeFromBottom(
+                            volume: max(0, p.volume_m3),
+                            bitMD: bitMD,
+                            usedFromBottom: usedFromBottom,
+                            geom: geom
+                        )
+                        lengths.append(L)
+                        usedFromBottom += L
+                    }
+                    let totalL = usedFromBottom
+                    let achievedV = (totalL > 0)
+                        ? geom.volumeInAnnulus_m3(max(0, bitMD - totalL), bitMD)
+                        : 0.0
+
                     add(String(format: "  Annulus totalL: %.4f m", totalL))
                     for (i, L) in lengths.enumerated() {
                         add(String(format: "    length[%02d] = %.4f m", i, L))
                     }
                     add(String(format: "  Achieved annulus volume for [bit-totalL, bit]: %.4f m³", achievedV))
-                    add(String(format: "  Target parcel volume: %.4f m³", sumParcels))
+                    add(String(format: "  Target parcel volume (including excess): %.4f m³", sumParcels))
                 }
 
                 add("")
@@ -1168,7 +1465,7 @@ Button("Export Debug Log") {
                 print("[PumpSchedule] Failed writing debug export: \(error)")
             }
         }
-        #endif
+#endif
 
         func hydraulicsForCurrent(project: ProjectState) -> HydraulicsReadout {
             // Guard
