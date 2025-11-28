@@ -515,6 +515,12 @@ Button("Debug Annulus Stack (Visual HP)") {
 }
 .buttonStyle(.bordered)
 #endif
+#if DEBUG
+Button("Export Debug Log") {
+    vm.exportAnnulusDebugLog(project: project)
+}
+.buttonStyle(.bordered)
+#endif
                 // Outputs
                 let h = vm.hydraulicsForCurrent(project: project)
                 VStack(alignment: .leading, spacing: 6) {
@@ -814,9 +820,14 @@ Button("Debug Annulus Stack (Visual HP)") {
             var out: [Seg] = []
             for s0 in segs.sorted(by: { $0.top < $1.top }) {
                 var s = s0
-                if var last = out.last {
-                    if abs(last.bottom - s.top) <= tol && last.color == s.color {
+                if let last = out.last {
+                    let sameMud = (last.mud?.id == s.mud?.id)
+                    let sameColor = (last.color == s.color)
+                    if abs(last.bottom - s.top) <= tol && (sameMud || sameColor) {
+                        // extend last
                         out[out.count - 1].bottom = s.bottom
+                        // prefer keeping mud identity if any
+                        if out[out.count - 1].mud == nil { out[out.count - 1].mud = s.mud }
                     } else {
                         // Snap tiny overlaps/gaps
                         if abs(s.top - last.bottom) <= tol { s.top = last.bottom }
@@ -878,14 +889,16 @@ Button("Debug Annulus Stack (Visual HP)") {
             if target <= 1e-12 { return 0 }
             var lo: Double = 0
             var hi: Double = bitMD
-            // If full column volume is still less than target, clamp to bitMD
+            // If full column volume is still less than target, clamp to bitMD (with tiny tolerance)
             let full = geom.volumeInAnnulus_m3(0.0, bitMD)
-            if target >= full { return bitMD }
-            for _ in 0..<64 {
+            if target >= full * (1.0 - 1e-9) { return bitMD }
+            // Binary search for length from bottom that gives target volume
+            for _ in 0..<96 { // a few more iters for stability on complex profiles
                 let mid = 0.5 * (lo + hi)
                 let v = geom.volumeInAnnulus_m3(max(0, bitMD - mid), bitMD)
-                if abs(v - target) <= 1e-9 * max(1.0, target) { return mid }
-                if v < target { lo = mid } else { hi = mid }
+                let err = v - target
+                if abs(err) <= 1e-9 * max(1.0, target) { return mid }
+                if err < 0 { lo = mid } else { hi = mid }
             }
             return 0.5 * (lo + hi)
         }
@@ -893,10 +906,25 @@ Button("Debug Annulus Stack (Visual HP)") {
         private func pushUpFromBitAnnulus(_ segs: [Seg], parcels: [(volume_m3: Double, color: Color, mud: MudProperties?)], bitMD: Double, geom: ProjectGeometryService) -> [Seg] {
             var current = segs
             guard !parcels.isEmpty else { return current }
-            // Compute lengths for each parcel and total length
+
+            // Compute initial lengths for each parcel
             var lengths: [Double] = parcels.map { annulusLengthFromBottom(forVolume: max(0, $0.volume_m3), bitMD: bitMD, geom: geom) }
-            let totalL = lengths.reduce(0, +)
+            var totalL = lengths.reduce(0, +)
             if totalL <= 1e-9 { return current }
+
+            // Volume-conserving scaling: ensure that the annulus volume of [bitMD-totalL, bitMD]
+            // matches the sum of parcel volumes. If not, scale lengths uniformly.
+            let targetV = parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+            let achievedV = geom.volumeInAnnulus_m3(max(0, bitMD - totalL), bitMD)
+            let relErr = (achievedV - targetV) / max(1.0, targetV)
+            if abs(relErr) > 1e-6 && achievedV > 0 {
+                let scale = max(0.0, min(10.0, targetV / achievedV))
+                for i in lengths.indices { lengths[i] *= scale }
+                totalL = lengths.reduce(0, +)
+            }
+
+            if totalL <= 1e-9 { return current }
+
             // Shift existing stack up by totalL
             var shifted: [Seg] = []
             for s in current {
@@ -904,6 +932,7 @@ Button("Debug Annulus Stack (Visual HP)") {
                 let nb = max(0, s.bottom - totalL)
                 if nb > nt + 1e-9 { shifted.append(Seg(top: nt, bottom: nb, color: s.color, mud: s.mud)) }
             }
+
             // Insert the batch at the bottom, contiguous from [bit-totalL, bit]
             var cursorTop = max(0, bitMD - totalL)
             for (i, p) in parcels.enumerated() {
@@ -913,6 +942,7 @@ Button("Debug Annulus Stack (Visual HP)") {
                 shifted.append(seg)
                 cursorTop += L
             }
+
             return merge(shifted)
         }
 
@@ -928,22 +958,40 @@ Button("Debug Annulus Stack (Visual HP)") {
             var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: base, mud: project.activeMud)]
             // Apply all previous stages fully
             for i in 0..<max(0, min(stageIndex, stages.count)) {
+                // REPLACED BLOCK START
                 let st = stages[i]
                 let pV = max(0, st.totalVolume_m3)
-                // Determine exiting parcels from string before shifting
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
                 let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
                 string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
-                annulus = pushUpFromBitAnnulus(annulus, parcels: taken.parcels, bitMD: bitMD, geom: geom)
+
+                // Compute excess beyond what the string could provide; this exits the bit immediately.
+                let takenV = taken.parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+                let excessV = max(0.0, pV - takenV)
+                var parcels = taken.parcels
+                if excessV > 1e-9 {
+                    parcels.append((volume_m3: excessV, color: st.color, mud: st.mud))
+                }
+                annulus = pushUpFromBitAnnulus(annulus, parcels: parcels, bitMD: bitMD, geom: geom)
+                // REPLACED BLOCK END
             }
             // Apply current stage partially
             if stages.indices.contains(stageIndex) {
+                // REPLACED BLOCK START
                 let st = stages[stageIndex]
                 let pV = max(0, min(pumpedV, st.totalVolume_m3))
                 let Ls = geom.lengthForStringVolume_m(0.0, pV)
                 let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
                 string = injectAtSurfaceString(string, length: Ls, color: st.color, mud: st.mud, bitMD: bitMD)
-                annulus = pushUpFromBitAnnulus(annulus, parcels: taken.parcels, bitMD: bitMD, geom: geom)
+
+                let takenV = taken.parcels.reduce(0.0) { $0 + max(0, $1.volume_m3) }
+                let excessV = max(0.0, pV - takenV)
+                var parcels = taken.parcels
+                if excessV > 1e-9 {
+                    parcels.append((volume_m3: excessV, color: st.color, mud: st.mud))
+                }
+                annulus = pushUpFromBitAnnulus(annulus, parcels: parcels, bitMD: bitMD, geom: geom)
+                // REPLACED BLOCK END
             }
             return (string, annulus)
         }
@@ -1022,6 +1070,103 @@ Button("Debug Annulus Stack (Visual HP)") {
             print(String(format: "Total hydrostatic from visual stack: %.0f kPa",
                          totalHydrostatic_Pa / 1000.0))
             print("===== End Annulus Stack Debug =====")
+        }
+        #endif
+
+        #if DEBUG
+        /// Exports a detailed debug log of the current stage behavior across progress steps
+        /// to a text file in the temporary directory. Prints the file URL to the console.
+        func exportAnnulusDebugLog(project: ProjectState) {
+            let bitMD = max(
+                project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
+                project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            )
+            let g = 9.80665
+
+            var lines: [String] = []
+            func add(_ s: String) { lines.append(s) }
+
+            add("===== Pump Schedule Debug Export =====")
+            add(String(format: "Bit MD: %.3f m", bitMD))
+            add("Project active mud density: \(project.activeMudDensity_kgm3) kg/m³")
+            add("")
+
+            // Iterate over a set of progress samples for the current stage
+            let samples = Array(stride(from: 0.0, through: 1.0, by: 0.05))
+            for prog in samples {
+                let oldProgress = self.progress
+                self.progress = prog
+                defer { self.progress = oldProgress }
+
+                let stg = currentStage(project: project)
+                let totalV = stg?.totalVolume_m3 ?? 0
+                let pumpedV = max(0.0, min(self.progress * max(totalV, 0), totalV))
+
+                add(String(format: "-- Progress: %.2f (pumpedV = %.4f m³ of %.4f m³) --", self.progress, pumpedV, totalV))
+
+                // Build stacks for this progress
+                let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedV)
+                let ann = stacks.annulus.sorted { $0.bottom < $1.bottom }
+                if let bottom = ann.last {
+                    let mudName = bottom.mud?.name ?? "<active/unknown>"
+                    add(String(format: "Bottom annulus seg: top=%.3f, bottom=%.3f, mud=%@", bottom.top, bottom.bottom, mudName))
+                } else {
+                    add("Bottom annulus seg: <none>")
+                }
+
+                // Parcel accounting for current stage only
+                if stages.indices.contains(stageDisplayIndex) {
+                    let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+                    let st = stages[stageDisplayIndex]
+                    let pV = max(0, min(pumpedV, st.totalVolume_m3))
+                    let Ls = geom.lengthForStringVolume_m(0.0, pV)
+
+                    // Recreate string before taking current partial by replaying previous full stages
+                    var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
+                    var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
+                    for i in 0..<max(0, min(stageDisplayIndex, stages.count)) {
+                        let pst = stages[i]
+                        let pVol = max(0, pst.totalVolume_m3)
+                        let Lprev = geom.lengthForStringVolume_m(0.0, pVol)
+                        let takenPrev = takeFromBottom(string, length: Lprev, bitMD: bitMD, geom: geom)
+                        string = injectAtSurfaceString(string, length: Lprev, color: pst.color, mud: pst.mud, bitMD: bitMD)
+                        annulus = pushUpFromBitAnnulus(annulus, parcels: takenPrev.parcels, bitMD: bitMD, geom: geom)
+                    }
+
+                    let taken = takeFromBottom(string, length: Ls, bitMD: bitMD, geom: geom)
+                    add(String(format: "String length for current pumpedV (Ls): %.4f m", Ls))
+                    var sumParcels = 0.0
+                    for (i, parcel) in taken.parcels.enumerated() {
+                        sumParcels += parcel.volume_m3
+                        let mudName = parcel.mud?.name ?? "<active/unknown>"
+                        add(String(format: "  Parcel[%02d] V=%.4f m³, mud=%@", i, parcel.volume_m3, mudName))
+                    }
+                    add(String(format: "  Sum parcel volume: %.4f m³", sumParcels))
+
+                    var lengths: [Double] = taken.parcels.map { annulusLengthFromBottom(forVolume: max(0, $0.volume_m3), bitMD: bitMD, geom: geom) }
+                    let totalL = lengths.reduce(0, +)
+                    let achievedV = (totalL > 0) ? geom.volumeInAnnulus_m3(max(0, bitMD - totalL), bitMD) : 0.0
+                    add(String(format: "  Annulus totalL: %.4f m", totalL))
+                    for (i, L) in lengths.enumerated() {
+                        add(String(format: "    length[%02d] = %.4f m", i, L))
+                    }
+                    add(String(format: "  Achieved annulus volume for [bit-totalL, bit]: %.4f m³", achievedV))
+                    add(String(format: "  Target parcel volume: %.4f m³", sumParcels))
+                }
+
+                add("")
+            }
+
+            // Write to a temp file
+            let text = lines.joined(separator: "\n")
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            let fileURL = tmp.appendingPathComponent("PumpScheduleDebug_\(UUID().uuidString).txt")
+            do {
+                try text.data(using: .utf8)?.write(to: fileURL)
+                print("[PumpSchedule] Debug export written to: \(fileURL.path)")
+            } catch {
+                print("[PumpSchedule] Failed writing debug export: \(error)")
+            }
         }
         #endif
 
