@@ -233,65 +233,71 @@ struct PumpScheduleView: View {
 
         var body: some View {
             let selectedMud = muds.first(where: { $0.id == mudID })
-            HStack(spacing: 8) {
-                // Color swatch (mud color if selected, otherwise stage color)
-                Rectangle()
-                    .fill(selectedMud?.color ?? color)
-                    .frame(width: 18, height: 14)
-                    .cornerRadius(3)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.gray.opacity(0.3)))
+            VStack {
+                HStack(spacing: 8) {
+                    // Color swatch (mud color if selected, otherwise stage color)
+                    Rectangle()
+                        .fill(selectedMud?.color ?? color)
+                        .frame(width: 18, height: 14)
+                        .cornerRadius(3)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.gray.opacity(0.3)))
 
-                // Name
-                TextField("Name", text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 160)
+                    // Name
+                    TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 160)
 
-                // Mud picker
-                Picker("", selection: Binding<UUID?>(
-                    get: { mudID },
-                    set: { newID in
-                        mudID = newID
-                        if let id = newID, let m = muds.first(where: { $0.id == id }) {
-                            color = m.color
+                    // Mud picker
+                    Picker("", selection: Binding<UUID?>(
+                        get: { mudID },
+                        set: { newID in
+                            mudID = newID
+                            if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                color = m.color
+                            }
+                            pushUpdate()
                         }
-                        pushUpdate()
+                    )) {
+                        ForEach(muds, id: \.id) { m in
+                            Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                        }
                     }
-                )) {
-                    ForEach(muds, id: \.id) { m in
-                        Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                    .frame(maxWidth: 240)
+                    .pickerStyle(.menu)
+                }
+                HStack (spacing: 12) {
+                    // Volume
+                    HStack(spacing: 4) {
+                        Text("Volume")
+                            .frame(width: 60, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("m³", value: $volume_m3, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Text("m³").foregroundStyle(.secondary)
                     }
-                }
-                .frame(width: 240)
-                .pickerStyle(.menu)
 
-                // Volume
-                HStack(spacing: 4) {
-                    Text("Volume")
-                        .frame(width: 60, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                    TextField("m³", value: $volume_m3, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                    Text("m³").foregroundStyle(.secondary)
-                }
+                    // Optional per-stage rate
+                    HStack(spacing: 4) {
+                        Text("Rate")
+                            .frame(width: 40, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("m³/min", value: $rate_m3min, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                        Text("m³/min").foregroundStyle(.secondary)
+                    }
 
-                // Optional per-stage rate
-                HStack(spacing: 4) {
-                    Text("Rate")
-                        .frame(width: 40, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                    TextField("m³/min", value: $rate_m3min, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                    Text("m³/min").foregroundStyle(.secondary)
+                    Spacer()
+                    
+                    Button(role: .destructive) { onDelete() } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete stage")
                 }
-
-                Button(role: .destructive) { onDelete() } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .help("Delete stage")
             }
+            
             .padding(6)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
             .onChange(of: name) { pushUpdate() }
@@ -376,9 +382,6 @@ struct PumpScheduleView: View {
 
                 let expelled = vm.expelledFluidsForCurrent(project: project)
 
-                Text("Returns to surface")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 ForEach(expelled) { row in
                     HStack {
                         Rectangle()
