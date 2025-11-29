@@ -109,14 +109,17 @@ class MaterialTransferPDFGenerator {
         y += 8
 
         // Transfer info
-        let dateStr = transfer.createdAt.formatted(date: .abbreviated, time: .omitted)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        let dateStr = dateFormatter.string(from: transfer.date)
+
         var transferInfo: [(String, String)] = [
             ("Date:", dateStr),
-            ("Direction:", transfer.isShippingOut ? "Shipping Out" : "Receiving"),
-            ("Receiver Address:", transfer.receiverAddress ?? "N/A")
+            ("Direction:", transfer.isShippingOut ? "Shipping Out" : "Receiving")
         ]
-        if let shipped = transfer.shippedDate {
-            transferInfo.append(("Shipped:", shipped.formatted(date: .abbreviated, time: .omitted)))
+        if let dest = transfer.destinationAddress, !dest.isEmpty {
+            transferInfo.append(("Destination Address:", dest))
         }
         if let tb = transfer.transportedBy, !tb.isEmpty {
             transferInfo.append(("Transported By:", tb))
@@ -174,9 +177,7 @@ class MaterialTransferPDFGenerator {
         numberFormatter.numberStyle = .currency
         numberFormatter.currencySymbol = "$"
 
-        let sortedItems = transfer.items.sorted { $0.orderIndex < $1.orderIndex }
-
-        for item in sortedItems {
+        for item in transfer.items {
             y += 4
             xOffset = margin
 

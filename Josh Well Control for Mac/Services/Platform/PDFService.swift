@@ -51,14 +51,13 @@ class PDFService {
 
         pdfContext.beginPDFPage(nil)
 
-        if let context = NSGraphicsContext(cgContext: pdfContext, flipped: false) {
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
+        let context = NSGraphicsContext(cgContext: pdfContext, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
 
-            hostingView.layer?.render(in: pdfContext)
+        hostingView.layer?.render(in: pdfContext)
 
-            NSGraphicsContext.restoreGraphicsState()
-        }
+        NSGraphicsContext.restoreGraphicsState()
 
         pdfContext.endPDFPage()
         pdfContext.closePDF()
