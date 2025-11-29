@@ -28,8 +28,8 @@ final class PressureWindow {
     @Relationship(deleteRule: .cascade)
     var points: [PressureWindowPoint] = []
 
-    // Link back to project
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.window)
+    // Link back to project (must match internal _window property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._window)
     var project: ProjectState?
 
     init() {}

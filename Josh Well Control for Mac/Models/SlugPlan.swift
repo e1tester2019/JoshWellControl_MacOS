@@ -22,8 +22,8 @@ final class SlugPlan {
     /// Optional notes (for ops program export)
     var notes: String? = nil
 
-    // Relationship back to project (inverse declared only on this side)
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.slug)
+    // Relationship back to project (must match internal _slug property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._slug)
     var project: ProjectState?
 
     /// One or more slug steps (e.g., a viscous spacer + heavy slug)

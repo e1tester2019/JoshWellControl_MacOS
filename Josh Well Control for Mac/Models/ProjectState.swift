@@ -30,12 +30,63 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade) var muds: [MudProperties] = []
     @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage] = []
 
-    // Singletons
-    var window: PressureWindow = PressureWindow()
-    var slug: SlugPlan = SlugPlan()
-    var backfill: BackfillPlan = BackfillPlan()
-    var settings: TripSettings = TripSettings()
-    var swab: SwabInput = SwabInput()
+    // Singletons - Internal storage MUST be @Relationship to match inverse declarations
+    @Relationship(deleteRule: .cascade) var _window: PressureWindow?
+    @Relationship(deleteRule: .cascade) var _slug: SlugPlan?
+    @Relationship(deleteRule: .cascade) var _backfill: BackfillPlan?
+    @Relationship(deleteRule: .cascade) var _settings: TripSettings?
+    @Relationship(deleteRule: .cascade) var _swab: SwabInput?
+
+    // Public non-optional accessors for backward compatibility
+    @Transient var window: PressureWindow {
+        get {
+            if let w = _window { return w }
+            let w = PressureWindow()
+            _window = w
+            return w
+        }
+        set { _window = newValue }
+    }
+
+    @Transient var slug: SlugPlan {
+        get {
+            if let s = _slug { return s }
+            let s = SlugPlan()
+            _slug = s
+            return s
+        }
+        set { _slug = newValue }
+    }
+
+    @Transient var backfill: BackfillPlan {
+        get {
+            if let b = _backfill { return b }
+            let b = BackfillPlan()
+            _backfill = b
+            return b
+        }
+        set { _backfill = newValue }
+    }
+
+    @Transient var settings: TripSettings {
+        get {
+            if let s = _settings { return s }
+            let s = TripSettings()
+            _settings = s
+            return s
+        }
+        set { _settings = newValue }
+    }
+
+    @Transient var swab: SwabInput {
+        get {
+            if let s = _swab { return s }
+            let s = SwabInput()
+            _swab = s
+            return s
+        }
+        set { _swab = newValue }
+    }
 
     var baseAnnulusDensity_kgm3: Double = 1260
     var baseStringDensity_kgm3: Double = 1260
@@ -44,7 +95,14 @@ final class ProjectState {
     var activeMudVolume_m3: Double = 56.5
     var surfaceLineVolume_m3: Double = 1.4
 
-    init() {}
+    init() {
+        // Initialize singletons so they're never nil
+        self._window = PressureWindow()
+        self._slug = SlugPlan()
+        self._backfill = BackfillPlan()
+        self._settings = TripSettings()
+        self._swab = SwabInput()
+    }
 }
 extension ProjectState {
     /// TVD at an arbitrary MD using linear interpolation over `surveys`.
@@ -235,7 +293,7 @@ extension ProjectState {
             p.finalLayers.append(f)
         }
 
-        // --- Singletons ---
+        // --- Singletons (force unwrap safe because init() creates them) ---
         p.window = self.window
         p.slug = self.slug
         p.backfill = self.backfill

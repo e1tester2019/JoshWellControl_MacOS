@@ -25,8 +25,8 @@ final class BackfillPlan {
     /// Optional notes for program export
     var notes: String? = nil
 
-    // Relationship back to project (define inverse only on this side to avoid macro loops)
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.backfill)
+    // Relationship back to project (must match internal _backfill property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._backfill)
     var project: ProjectState?
 
     /// Rule set—ordered. First matching rule is used.

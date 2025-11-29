@@ -112,8 +112,8 @@ final class SwabInput {
     var temperature_C: Double = 25.0
     var surfacePressure_kPa: Double = 0.0
 
-    // MARK: - Relationship
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.swab)
+    // MARK: - Relationship (must match internal _swab property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._swab)
     var project: ProjectState?
 
     init() {}
