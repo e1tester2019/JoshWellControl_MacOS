@@ -56,19 +56,19 @@ final class SlugPlan {
 @Model
 final class SlugStep {
     @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var name: String = ""
 
     enum Placement: Int, Codable { case inString = 0, inAnnulus }
     var placementRaw: Int = Placement.inString.rawValue
 
     /// Slug density (kg/m³) and optional rheology hints
-    var density_kg_per_m3: Double
+    var density_kg_per_m3: Double = 0.0
     var pv_Pa_s: Double? = nil        // optional Plastic Viscosity
     var yp_Pa: Double? = nil          // optional Yield Point
 
     /// Geometry along well path (measured)
-    var topMD_m: Double               // where slug starts (top)
-    var length_m: Double              // slug length along MD
+    var topMD_m: Double = 0.0         // where slug starts (top)
+    var length_m: Double = 0.0        // slug length along MD
 
     /// If you have TVD mapping available, you can set these directly.
     /// If left as nil, helpers can approximate TVD ≈ MD for vertical sections.

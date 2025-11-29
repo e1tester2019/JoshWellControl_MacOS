@@ -36,14 +36,14 @@ public enum Placement: String, CaseIterable, Identifiable, Codable {
 final class MudStep {
     // Core fields
 
-    public var name: String
-    public var top_m: Double
-    public var bottom_m: Double
-    public var density_kgm3: Double
+    public var name: String = ""
+    public var top_m: Double = 0.0
+    public var bottom_m: Double = 0.0
+    public var density_kgm3: Double = 0.0
 
     // Persisted presentation/state
-    public var colorHex: String           // e.g. "#FFAA00"
-    public var placementRaw: String       // Placement.rawValue
+    public var colorHex: String = "#808080"     // e.g. "#FFAA00"
+    public var placementRaw: String = "Annulus" // Placement.rawValue
 
     // Relationship to project (optional inverse; define on ProjectState if desired)
     @Relationship(deleteRule: .nullify)

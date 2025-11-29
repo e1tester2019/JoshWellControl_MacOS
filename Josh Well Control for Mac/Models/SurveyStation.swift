@@ -9,9 +9,9 @@ import SwiftData
 
 @Model
 final class SurveyStation {
-    var md: Double
-    var inc: Double
-    var azi: Double
+    var md: Double = 0.0
+    var inc: Double = 0.0
+    var azi: Double = 0.0
     var tvd: Double?
 
     // Optional extras (from Pason exports)

@@ -12,18 +12,18 @@ import AppKit
 final class PumpProgramStage {
     @Attribute(.unique) var id: UUID = UUID()
 
-    var name: String
-    var volume_m3: Double
+    var name: String = ""
+    var volume_m3: Double = 0.0
     var pumpRate_m3permin: Double?
 
     // Stable ordering (creation order)
     var orderIndex: Int = 0
 
     // Persist color as RGBA scalars for portability
-    var colorR: Double
-    var colorG: Double
-    var colorB: Double
-    var colorA: Double
+    var colorR: Double = 0.5
+    var colorG: Double = 0.5
+    var colorB: Double = 0.5
+    var colorA: Double = 1.0
 
     // Optional link to a mud in this project
     @Relationship var mud: MudProperties?

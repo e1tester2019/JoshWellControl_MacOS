@@ -13,6 +13,7 @@ enum AppContainer {
         let models: [any PersistentModel.Type] = [
             Well.self,
             ProjectState.self,
+            SurveyStation.self,
             DrillStringSection.self,
             AnnulusSection.self,
             PressureWindow.self,
@@ -29,7 +30,8 @@ enum AppContainer {
             MaterialTransfer.self,
             MaterialTransferItem.self,
             RentalItem.self,
-            RentalAdditionalCost.self
+            RentalAdditionalCost.self,
+            PumpProgramStage.self
         ]
         let fullSchema = Schema(models)
 

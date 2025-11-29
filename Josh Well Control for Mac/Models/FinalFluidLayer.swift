@@ -17,22 +17,22 @@ final class FinalFluidLayer {
     @Relationship var mud: MudProperties?   // ← optional link back to the mud check
 
     // Metadata
-    var name: String
-    var createdAt: Date
-    var placement: Placement  // .annulus, .string, .both (you already have this enum)
+    var name: String = ""
+    var createdAt: Date = Date.now
+    var placement: Placement = .annulus  // .annulus, .string, .both (you already have this enum)
 
     // Interval (MD, meters)
-    var topMD_m: Double
-    var bottomMD_m: Double
+    var topMD_m: Double = 0.0
+    var bottomMD_m: Double = 0.0
 
     // Fluid
-    var density_kgm3: Double
+    var density_kgm3: Double = 0.0
 
     // UI color, persisted as RGBA
-    var colorR: Double
-    var colorG: Double
-    var colorB: Double
-    var colorA: Double
+    var colorR: Double = 0.5
+    var colorG: Double = 0.5
+    var colorB: Double = 0.5
+    var colorA: Double = 1.0
 
     init(project: ProjectState?,
          name: String,

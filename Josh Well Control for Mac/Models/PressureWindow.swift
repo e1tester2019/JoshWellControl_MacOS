@@ -138,7 +138,7 @@ final class PressureWindowPoint {
     @Attribute(.unique) var id: UUID = UUID()
 
     /// Depth coordinate for this row (m). Use TVD if `usesTVD == true` on the window.
-    var depth_m: Double
+    var depth_m: Double = 0.0
 
     /// Pore pressure at depth (kPa). Optional to allow sparse rows.
     var pore_kPa: Double?

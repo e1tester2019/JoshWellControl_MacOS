@@ -17,14 +17,14 @@ final class MudProperties {
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
-    var name: String
-    var density_kgm3: Double
+    var name: String = ""
+    var density_kgm3: Double = 0.0
     var pv_Pa_s: Double?
     var yp_Pa: Double?
     var n_powerLaw: Double?
     var k_powerLaw_Pa_s_n: Double?
     var tau0_Pa: Double?
-    var rheologyModel: String // "Bingham", "PowerLaw", "HB"
+    var rheologyModel: String = "Bingham" // "Bingham", "PowerLaw", "HB"
     var gel10s_Pa: Double?
     var gel10m_Pa: Double?
     var thermalExpCoeff_perC: Double?

@@ -13,16 +13,16 @@ import SwiftData
 final class DrillStringSection {
     // Identity
     @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var name: String = ""
 
     // Placement (m)
-    var topDepth_m: Double           // MD at top
-    var length_m: Double             // section length
+    var topDepth_m: Double = 0.0     // MD at top
+    var length_m: Double = 0.0       // section length
     var inclination_deg: Double = 0  // optional: for later torque/drag nuance
 
     // Geometry (m)
-    var outerDiameter_m: Double      // pipe OD
-    var innerDiameter_m: Double      // pipe ID
+    var outerDiameter_m: Double = 0.0      // pipe OD
+    var innerDiameter_m: Double = 0.0      // pipe ID
     var toolJointOD_m: Double?       // optional: TJ OD for contact/friction models
     var jointLength_m: Double = 0.0  // optional: average TJ length
 

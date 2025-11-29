@@ -5,7 +5,7 @@ import SwiftData
 final class MaterialTransfer {
     @Attribute(.unique) var id: UUID = UUID()
     var number: Int = 1                 // M.T.#
-    var date: Date
+    var date: Date = Date()
 
     // Header fields
     var destinationName: String? = nil  // To Loc/AFE/Vendor

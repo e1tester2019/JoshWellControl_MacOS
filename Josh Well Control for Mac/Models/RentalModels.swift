@@ -5,8 +5,8 @@ import SwiftData
 @Model
 final class RentalAdditionalCost {
     @Attribute(.unique) var id: UUID = UUID()
-    var descriptionText: String
-    var amount: Double
+    var descriptionText: String = ""
+    var amount: Double = 0.0
     var date: Date?
 
     init(descriptionText: String = "", amount: Double = 0, date: Date? = nil) {
@@ -20,7 +20,7 @@ final class RentalAdditionalCost {
 @Model
 final class RentalItem {
     @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var name: String = "Rental"
     var detail: String?
     var serialNumber: String?
     var used: Bool = false
@@ -30,12 +30,12 @@ final class RentalItem {
     var endDate: Date?
 
     /// Canonical record of actual usage. Use this when the tool is not used on every day in the interval.
-    var usageDates: [Date]
+    var usageDates: [Date] = []
 
-    var onLocation: Bool
-    var invoiced: Bool
+    var onLocation: Bool = false
+    var invoiced: Bool = false
 
-    var costPerDay: Double
+    var costPerDay: Double = 0.0
 
     @Relationship(deleteRule: .cascade) var additionalCosts: [RentalAdditionalCost] = []
 
