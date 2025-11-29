@@ -9,8 +9,8 @@ final class RentalAdditionalCost {
     var amount: Double = 0.0
     var date: Date?
 
-    // Inverse relationship back to rental item
-    @Relationship(inverse: \RentalItem.additionalCosts) var rentalItem: RentalItem?
+    // Relationship back to rental item (inverse declared on parent side only)
+    var rentalItem: RentalItem?
 
     init(descriptionText: String = "", amount: Double = 0, date: Date? = nil) {
         self.descriptionText = descriptionText
@@ -85,7 +85,7 @@ final class RentalItem {
     }
 
     /// Sum of all additional one-off costs.
-    var additionalCostsTotal: Double { additionalCosts.reduce(0) { $0 + $1.amount } }
+    var additionalCostsTotal: Double { (additionalCosts ?? []).reduce(0) { $0 + $1.amount } }
 
     /// Total cost = (days * costPerDay) + sum(additional costs)
     var totalCost: Double { (Double(totalDays) * max(costPerDay, 0)) + additionalCostsTotal }

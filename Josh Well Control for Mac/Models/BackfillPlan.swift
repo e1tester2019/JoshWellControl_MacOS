@@ -102,8 +102,8 @@ final class BackfillRule {
     /// Optional override for fluid density for this rule (kg/m³); if nil, use plan default
     var fluidDensityOverride_kg_per_m3: Double?
 
-    // Inverse relationship back to plan
-    @Relationship(inverse: \BackfillPlan.rules) var plan: BackfillPlan?
+    // Relationship back to plan (inverse declared on parent side only)
+    var plan: BackfillPlan?
 
     init(name: String,
          fromMD_m: Double,

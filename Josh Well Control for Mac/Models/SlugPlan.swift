@@ -78,8 +78,8 @@ final class SlugStep {
     /// Optional pump rate for ops reference (m³/min)
     var pumpRate_m3_per_min: Double? = nil
 
-    // Inverse relationship back to plan (required for CloudKit)
-    @Relationship(inverse: \SlugPlan.steps) var plan: SlugPlan?
+    // Relationship back to plan (inverse declared on parent side only)
+    var plan: SlugPlan?
 
     init(
         name: String,
