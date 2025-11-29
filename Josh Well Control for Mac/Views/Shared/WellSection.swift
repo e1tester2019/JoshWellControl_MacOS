@@ -50,7 +50,14 @@ struct WellSection<Content: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(nsColor: .windowBackgroundColor), Color.accentColor.opacity(0.08)],
+                        colors: [
+                            #if os(macOS)
+                            Color(nsColor: .windowBackgroundColor),
+                            #else
+                            Color(.systemBackground),
+                            #endif
+                            Color.accentColor.opacity(0.08)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
