@@ -9,6 +9,7 @@ struct MaterialTransferEditorView: View {
     @Bindable var transfer: MaterialTransfer
 
     @State private var selection: MaterialTransferItem? = nil
+    @State private var showingPreview = false
     @State private var expandedItems: Set<UUID> = []
     @State private var detailsHeights: [UUID: CGFloat] = [:]
     @State private var addressHeights: [UUID: CGFloat] = [:]
@@ -109,6 +110,18 @@ struct MaterialTransferEditorView: View {
                     showAffectedList = false
                 }
             )
+        }
+        .sheet(isPresented: $showingPreview) {
+            #if os(macOS)
+            MaterialTransferReportPreview(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
+                .frame(minWidth: 800, minHeight: 1000)
+            #else
+            MaterialTransferReportView(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
+            #endif
         }
     }
 
@@ -775,22 +788,7 @@ struct MaterialTransferEditorView: View {
     private func previewPDF() {
         // Ensure latest edits are persisted before previewing
         try? modelContext.save()
-
-        // Use a fresh instance of the preview container so it reflects current state
-        let host = WindowHost(title: "Preview – Material Transfer #\(transfer.number)") {
-            #if os(macOS)
-            MaterialTransferReportPreview(well: well, transfer: transfer)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-                .id(UUID()) // force fresh render in case the host caches content
-            #else
-            MaterialTransferReportView(well: well, transfer: transfer)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-                .id(UUID())
-            #endif
-        }
-        host.show()
+        showingPreview = true
     }
 }
 
