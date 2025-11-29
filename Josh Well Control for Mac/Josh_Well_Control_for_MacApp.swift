@@ -40,7 +40,7 @@ struct Josh_Well_Control_for_MacApp: App {
             let modelConfiguration = ModelConfiguration(
                 schema: schema,
                 isStoredInMemoryOnly: false,
-                cloudKitDatabase: .private("iCloud.com.josh-sallows-wellcontrolapp")
+                cloudKitContainerIdentifier: "iCloud.com.josh-sallows-wellcontrolapp"
             )
 
             self.modelContainer = try ModelContainer(for: schema, configurations: [modelConfiguration])
