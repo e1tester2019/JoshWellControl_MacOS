@@ -416,7 +416,7 @@ struct MudPlacementView: View {
     }
 
     /// Fill a domain with a single base layer 0..TD
-    private func baseLayer(for domain: Domain) -> FinalLayer {
+    private func baseLayer(for domain: FinalLayer.Domain) -> FinalLayer {
         let active = project.activeMud
         let rho = (domain == .annulus) ? (active?.density_kgm3 ?? project.baseAnnulusDensity_kgm3) : (active?.density_kgm3 ?? project.baseStringDensity_kgm3)
         let col = active?.color ?? Color.gray.opacity(0.35)
