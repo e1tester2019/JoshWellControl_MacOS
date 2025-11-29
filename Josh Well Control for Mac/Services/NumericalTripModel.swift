@@ -379,7 +379,7 @@ final class NumericalTripModel {
         }
         
         // Loop
-        // var wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD) // Unused
+        var _wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
 
         while bitMD > input.endMD_m + 1e-9 {
             let nextMD = max(input.endMD_m, bitMD - step)
@@ -515,7 +515,7 @@ final class NumericalTripModel {
                                     totalsPocket: totPocket,
                                     totalsAnnulus: totAnn,
                                     totalsString: totString))
-            wasClosedPrev = floatClosed
+            _wasClosedPrev = floatClosed
         }
         
         return results
