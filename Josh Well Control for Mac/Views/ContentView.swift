@@ -39,6 +39,7 @@ struct ContentView: View {
     @State private var renameText: String = ""
     @State private var renamingWell: Well?
     @State private var renameWellText: String = ""
+    @State private var editingTransfer: MaterialTransfer?
 
     private enum Pane: String, CaseIterable, Identifiable {
         case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, bhp, rentals, transfers
@@ -218,6 +219,14 @@ struct ContentView: View {
             .padding(20)
             .onAppear { renameWellText = well.name }
         }
+        .sheet(item: $editingTransfer) { transfer in
+            if let well = vm.selectedWell {
+                MaterialTransferEditorView(well: well, transfer: transfer)
+                    #if os(macOS)
+                    .frame(minWidth: 900, minHeight: 600)
+                    #endif
+            }
+        }
         .onAppear {
             if vm.selectedWell == nil {
                 vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
@@ -332,12 +341,7 @@ private extension ContentView {
         } else {
             transfer = well.createTransfer(context: modelContext)
         }
-        // Build a host window
-        let host = WindowHost(title: "Material Transfer #\(transfer.number)") {
-            MaterialTransferEditorView(well: well, transfer: transfer)
-                .frame(minWidth: 900, minHeight: 600)
-        }
-        host.show()
+        editingTransfer = transfer
     }
 
     private func icon(for pane: Pane) -> String {
