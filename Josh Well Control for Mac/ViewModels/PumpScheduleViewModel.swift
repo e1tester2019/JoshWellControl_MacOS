@@ -280,7 +280,7 @@ class PumpScheduleViewModel {
 
     private func applyStringStage(string: [Seg], volume: Double, color: Color, mud: MudProperties?, bitMD: Double, geom: ProjectGeometryService) -> [Seg] {
         let L = geom.lengthForStringVolume_m(0.0, volume)
-        let taken = takeFromBottom(string, length: L, bitMD: bitMD, geom: geom)
+        let _ = takeFromBottom(string, length: L, bitMD: bitMD, geom: geom) // Side effect
         return injectAtSurfaceString(string, length: L, color: color, mud: mud, bitMD: bitMD)
     }
 
@@ -660,7 +660,7 @@ class PumpScheduleViewModel {
 
         let annulusAtControl_Pa = annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0
         let stringAtControl_Pa  = stringHydrostatic_Pa + stringFriction_Pa
-        let deltaStringMinusAnnulus_kPa = (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0
+        let _deltaStringMinusAnnulus_kPa = (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0 // Computed but unused
 
         let bhp_kPa = (annulusHydrostatic_Pa / 1000) + sbp_kPa
 

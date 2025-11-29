@@ -272,7 +272,7 @@ extension ProjectState {
         dict["name"] = name
         dict["createdAt"] = ISO8601DateFormatter().string(from: createdAt)
         dict["updatedAt"] = ISO8601DateFormatter().string(from: updatedAt)
-        dict["basedOnProjectID"] = basedOnProjectID?.uuidString
+        dict["basedOnProjectID"] = basedOnProjectID?.uuidString as Any
 
         dict["baseAnnulusDensity_kgm3"] = baseAnnulusDensity_kgm3
         dict["baseStringDensity_kgm3"] = baseStringDensity_kgm3
@@ -326,7 +326,7 @@ extension SurveyStation {
             "md": md,
             "inc": inc,
             "azi": azi,
-            "tvd": tvd ?? NSNull()
+            "tvd": tvd as Any? ?? NSNull()
         ]
     }
 }
@@ -383,7 +383,7 @@ extension MudStep {
             "density_kgm3": density_kgm3,
             "colorHex": colorHex,
             "placementRaw": placementRaw,
-            "mudID": mud?.id.uuidString ?? NSNull()
+            "mudID": mud?.id.uuidString as Any? ?? NSNull()
         ]
     }
 }
@@ -403,7 +403,7 @@ extension FinalFluidLayer {
                 "a": colorA
             ],
             "createdAt": ISO8601DateFormatter().string(from: createdAt),
-            "mudID": mud?.id.uuidString ?? NSNull()
+            "mudID": mud?.id.uuidString as Any? ?? NSNull()
         ]
     }
 }

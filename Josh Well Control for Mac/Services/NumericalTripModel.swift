@@ -55,7 +55,7 @@ final class NumericalTripModel {
         
         /// Color-aware variant; when `color` is provided, painted sublayers also carry a composition color.
         static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double, color: NumericalTripModel.ColorRGBA?) {
-            var a = fromMD, b = toMD
+            let a = fromMD, b = toMD
             if b <= a { return }
             splitAt(stack, a)
             splitAt(stack, b)
@@ -274,8 +274,8 @@ final class NumericalTripModel {
         let tvdOfMd = input.tvdOfMd
         let tdTVD = tvdOfMd(input.startBitMD_m)
         let targetP_TD_kPa = input.targetESDAtTD_kgpm3 * NumericalTripModel.g * tdTVD / 1000.0
-        let sampler = TvdSampler(stations: project.surveys)
-        
+        // let sampler = TvdSampler(stations: project.surveys) // Unused
+
         // Stacks
         let stringStack = Stack(side: .string, geom: geom, tvdOfMd: tvdOfMd)
         let annulusStack = Stack(side: .annulus, geom: geom, tvdOfMd: tvdOfMd)
@@ -379,8 +379,8 @@ final class NumericalTripModel {
         }
         
         // Loop
-        var wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
-        
+        // var wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD) // Unused
+
         while bitMD > input.endMD_m + 1e-9 {
             let nextMD = max(input.endMD_m, bitMD - step)
             let dL = bitMD - nextMD
@@ -454,8 +454,8 @@ final class NumericalTripModel {
             // Surface backfill required
             let needBefore = floatClosed ? geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD) : geom.steelArea_m2(oldBitMD) * dL
             var need = needBefore
-            var usedKill = 0.0
-            var usedBase = 0.0
+            var _usedKill = 0.0 // Placeholder for tracking
+            var _usedBase = 0.0 // Placeholder for tracking
             if need > 1e-12 {
                 var useKill = min(need, backfillRemaining)
                 if !input.switchToBaseAfterFixed { useKill = need }
@@ -463,11 +463,11 @@ final class NumericalTripModel {
                     annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD)
                     backfillRemaining -= useKill
                     need -= useKill
-                    usedKill = useKill
+                    _usedKill = useKill
                 }
                 if need > 1e-12, input.switchToBaseAfterFixed {
                     annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD)
-                    usedBase = need
+                    _usedBase = need
                     need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)

@@ -386,7 +386,7 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
     hostingView.display()
 
     // Helper: create a hosting view sized to intrinsic height at fixed width
-    func makeHostingView<V: View>(_ swiftUIView: V, width: CGFloat) -> NSHostingView<V> {
+    func makeHostingView<ViewType: View>(_ swiftUIView: ViewType, width: CGFloat) -> NSHostingView<ViewType> {
         let hv = NSHostingView(rootView: swiftUIView)
         hv.translatesAutoresizingMaskIntoConstraints = false
         let temp = NSView(frame: CGRect(x: 0, y: 0, width: width, height: 10))

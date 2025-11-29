@@ -38,14 +38,14 @@ struct DrillStringDetailView: View {
                             TextField("Top MD", value: $section.topDepth_m, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .monospacedDigit()
-                                .onChange(of: section.topDepth_m) { enforceNoOverlap(for: section) }
+                                .onChange(of: section.topDepth_m) { _, _ in enforceNoOverlap(for: section) }
                         }
                         GridRow {
                             Text("Length").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
                             TextField("Length", value: $section.length_m, format: .number)
                                 .textFieldStyle(.roundedBorder)
                                 .monospacedDigit()
-                                .onChange(of: section.length_m) { enforceNoOverlap(for: section) }
+                                .onChange(of: section.length_m) { _, _ in enforceNoOverlap(for: section) }
                         }
                         GridRow {
                             Text("Bottom MD").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
@@ -155,10 +155,10 @@ struct DrillStringDetailView: View {
             }
             .padding(16)
             .onAppear { updateFieldsFromGeometry() }
-            .onChange(of: section.innerDiameter_m) { updateFieldsFromGeometry() }
-            .onChange(of: section.outerDiameter_m) { updateFieldsFromGeometry() }
-            .onChange(of: section.length_m) { updateFieldsFromGeometry() }
-            .onChange(of: showTotals) { updateFieldsFromGeometry() }
+            .onChange(of: section.innerDiameter_m) { _, _ in updateFieldsFromGeometry() }
+            .onChange(of: section.outerDiameter_m) { _, _ in updateFieldsFromGeometry() }
+            .onChange(of: section.length_m) { _, _ in updateFieldsFromGeometry() }
+            .onChange(of: showTotals) { _, _ in updateFieldsFromGeometry() }
         }
         .navigationTitle(section.name)
         .toolbar {
