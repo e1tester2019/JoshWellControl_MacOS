@@ -7,12 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3CC727402ED6F598007489E8 /* PumpScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CC7273F2ED6F598007489E8 /* PumpScheduleView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3C2EC4582EB6A34900CB0A94 /* Josh Well Control for Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Josh Well Control for Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		3CC7273F2ED6F598007489E8 /* PumpScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PumpScheduleView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -39,7 +37,6 @@
 			children = (
 				3C2EC45A2EB6A34900CB0A94 /* Josh Well Control for Mac */,
 				3C2EC4592EB6A34900CB0A94 /* Products */,
-				3CC7273F2ED6F598007489E8 /* PumpScheduleView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -125,7 +122,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3CC727402ED6F598007489E8 /* PumpScheduleView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
