@@ -6,6 +6,8 @@ struct MaterialTransferListView: View {
     @Bindable var well: Well
 
     @State private var selection: MaterialTransfer? = nil
+    @State private var editingTransfer: MaterialTransfer? = nil
+    @State private var previewingTransfer: MaterialTransfer? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -65,6 +67,23 @@ struct MaterialTransferListView: View {
         }
         .padding(12)
         .navigationTitle("Material Transfers")
+        .sheet(item: $editingTransfer) { transfer in
+            MaterialTransferEditorView(well: well, transfer: transfer)
+                .environment(\.locale, Locale(identifier: "en_GB"))
+                .frame(minWidth: 900, minHeight: 600)
+        }
+        .sheet(item: $previewingTransfer) { transfer in
+            #if os(macOS)
+            MaterialTransferReportPreview(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
+                .frame(minWidth: 800, minHeight: 1000)
+            #else
+            MaterialTransferReportView(well: well, transfer: transfer)
+                .environment(\.colorScheme, .light)
+                .background(Color.white)
+            #endif
+        }
     }
 
     @ViewBuilder
@@ -120,27 +139,11 @@ struct MaterialTransferListView: View {
     }
 
     private func openEditor(_ t: MaterialTransfer) {
-        let host = WindowHost(title: "Material Transfer #\(t.number)") {
-            MaterialTransferEditorView(well: well, transfer: t)
-                .environment(\.locale, Locale(identifier: "en_GB"))
-                .frame(minWidth: 900, minHeight: 600)
-        }
-        host.show()
+        editingTransfer = t
     }
 
     private func preview(_ t: MaterialTransfer) {
-        let host = WindowHost(title: "Preview – Material Transfer #\(t.number)") {
-            #if os(macOS)
-            MaterialTransferReportPreview(well: well, transfer: t)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-            #else
-            MaterialTransferReportView(well: well, transfer: t)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-            #endif
-        }
-        host.show()
+        previewingTransfer = t
     }
 
     private func delete(_ t: MaterialTransfer) {
