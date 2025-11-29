@@ -43,7 +43,9 @@ struct SurveyListView: View {
             Text(vm.importError ?? "unknown error")
         }
         .toolbar { toolbar }
+        #if os(macOS)
         .onDeleteCommand { if let sel = vm.selection { vm.delete(sel) } }
+        #endif
     }
 
     private var header: some View {
