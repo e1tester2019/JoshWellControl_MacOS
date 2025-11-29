@@ -11,6 +11,7 @@ struct RentalItemsView: View {
     @Bindable var well: Well
 
     @State private var selection: RentalItem? = nil
+    @State private var editingRental: RentalItem? = nil
 
     init(well: Well) { self._well = Bindable(wrappedValue: well) }
 
@@ -55,6 +56,13 @@ struct RentalItemsView: View {
         }
         .padding(12)
         .navigationTitle("Rentals")
+        .sheet(item: $editingRental) { rental in
+            RentalDetailEditor(rental: rental)
+                .environment(\.locale, Locale(identifier: "en_GB"))
+                #if os(macOS)
+                .frame(minWidth: 720, minHeight: 520)
+                #endif
+        }
     }
 
     private var sortedRentals: [RentalItem] {
@@ -84,12 +92,7 @@ struct RentalItemsView: View {
     }
 
     private func openEditor(_ r: RentalItem) {
-        let host = WindowHost(title: "Rental – \(r.name)") {
-            RentalDetailEditor(rental: r)
-                .environment(\.locale, Locale(identifier: "en_GB"))
-                .frame(minWidth: 720, minHeight: 520)
-        }
-        host.show()
+        editingRental = r
     }
 
     private func copySummary(_ r: RentalItem) {
