@@ -11,7 +11,7 @@ import SwiftData
 
 @Model
 final class SwabInput {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Swab Input"
 
     // MARK: - Pipe movement & geometry

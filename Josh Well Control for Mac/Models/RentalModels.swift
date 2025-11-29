@@ -4,10 +4,13 @@ import SwiftData
 /// An additional one-off cost associated with a rental item (e.g., delivery, pickup, damage, etc.).
 @Model
 final class RentalAdditionalCost {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var descriptionText: String = ""
     var amount: Double = 0.0
     var date: Date?
+
+    // Inverse relationship back to rental item
+    @Relationship(inverse: \RentalItem.additionalCosts) var rentalItem: RentalItem?
 
     init(descriptionText: String = "", amount: Double = 0, date: Date? = nil) {
         self.descriptionText = descriptionText
@@ -19,7 +22,7 @@ final class RentalAdditionalCost {
 /// Represents a rented tool/equipment for a well, tracking usage days and costs.
 @Model
 final class RentalItem {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Rental"
     var detail: String?
     var serialNumber: String?
@@ -37,7 +40,7 @@ final class RentalItem {
 
     var costPerDay: Double = 0.0
 
-    @Relationship(deleteRule: .cascade) var additionalCosts: [RentalAdditionalCost] = []
+    @Relationship(deleteRule: .cascade, inverse: \RentalAdditionalCost.rentalItem) var additionalCosts: [RentalAdditionalCost]?
 
     /// Parent relationship — the Well owns its rentals.
     @Relationship(inverse: \Well.rentals) var well: Well?

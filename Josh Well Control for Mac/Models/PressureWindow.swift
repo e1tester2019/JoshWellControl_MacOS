@@ -13,7 +13,7 @@ import SwiftData
 
 @Model
 final class PressureWindow {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Default Window"
 
     /// If true, your table x-axis is TVD (m). If false, it’s MD (m).
@@ -25,8 +25,7 @@ final class PressureWindow {
     var fracSafety_kPa: Double = 0.0      // margin below fracture pressure
 
     /// Relationship to tabulated points
-    @Relationship(deleteRule: .cascade)
-    var points: [PressureWindowPoint] = []
+    @Relationship(deleteRule: .cascade) var points: [PressureWindowPoint]?
 
     // Link back to project (must match internal _window property)
     @Relationship(deleteRule: .cascade, inverse: \ProjectState._window)
@@ -135,7 +134,7 @@ final class PressureWindow {
 
 @Model
 final class PressureWindowPoint {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     /// Depth coordinate for this row (m). Use TVD if `usesTVD == true` on the window.
     var depth_m: Double = 0.0

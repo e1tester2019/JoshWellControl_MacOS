@@ -12,7 +12,7 @@ import SwiftData
 @Model
 final class AnnulusSection {
     // Identity
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = ""
 
     // Placement (measured depth in m)

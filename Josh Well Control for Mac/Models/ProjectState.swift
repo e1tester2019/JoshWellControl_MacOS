@@ -11,7 +11,7 @@ import SwiftUI
 
 @Model
 final class ProjectState {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     // NEW — versioning & well linkage
     var name: String = "Baseline"
@@ -21,14 +21,14 @@ final class ProjectState {
 
     @Relationship(inverse: \Well.projects) var well: Well?
 
-    // Collections (as you already have)
-    @Relationship(deleteRule: .cascade) var surveys: [SurveyStation] = []
-    @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection] = []
-    @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection] = []
-    @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
-    @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer] = []
-    @Relationship(deleteRule: .cascade) var muds: [MudProperties] = []
-    @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage] = []
+    // Collections - all optional for CloudKit compatibility
+    @Relationship(deleteRule: .cascade, inverse: \SurveyStation.project) var surveys: [SurveyStation]?
+    @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection]?
+    @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection]?
+    @Relationship(deleteRule: .cascade) var mudSteps: [MudStep]?
+    @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer]?
+    @Relationship(deleteRule: .cascade) var muds: [MudProperties]?
+    @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .cascade) var _window: PressureWindow?

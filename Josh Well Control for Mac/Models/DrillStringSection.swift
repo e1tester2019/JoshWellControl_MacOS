@@ -12,7 +12,7 @@ import SwiftData
 @Model
 final class DrillStringSection {
     // Identity
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = ""
 
     // Placement (m)

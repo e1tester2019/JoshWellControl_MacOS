@@ -11,11 +11,16 @@ import SwiftUI
 
 @Model
 final class MudProperties {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     // Optional relationship back to a project (no inverse required)
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
+
+    // Inverse relationships for entities referencing this mud
+    @Relationship(inverse: \FinalFluidLayer.mud) var finalLayers: [FinalFluidLayer]?
+    @Relationship(inverse: \MudStep.mud) var mudSteps: [MudStep]?
+    @Relationship(inverse: \PumpProgramStage.mud) var pumpStages: [PumpProgramStage]?
 
     var name: String = ""
     var density_kgm3: Double = 0.0

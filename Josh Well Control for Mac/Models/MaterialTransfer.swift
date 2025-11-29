@@ -3,7 +3,7 @@ import SwiftData
 
 @Model
 final class MaterialTransfer {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var number: Int = 1                 // M.T.#
     var date: Date = Date()
 
@@ -24,7 +24,7 @@ final class MaterialTransfer {
     var isShippingOut: Bool = false     // This transfer ships items out of location
     var isShippedBack: Bool = false     // Items have been shipped back to vendor
 
-    @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem] = []
+    @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem]?
 
     // Back link to Well
     @Relationship(inverse: \Well.transfers) var well: Well?
@@ -37,7 +37,7 @@ final class MaterialTransfer {
 
 @Model
 final class MaterialTransferItem {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     var quantity: Double = 1
     var descriptionText: String = ""

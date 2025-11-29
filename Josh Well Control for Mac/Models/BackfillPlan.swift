@@ -13,7 +13,7 @@ import SwiftData
 
 @Model
 final class BackfillPlan {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Backfill Plan"
 
     /// The default fluid used for backfill (kg/m³)
@@ -30,8 +30,8 @@ final class BackfillPlan {
     var project: ProjectState?
 
     /// Rule set—ordered. First matching rule is used.
-    @Relationship(deleteRule: .cascade)
-    var rules: [BackfillRule] = []
+    @Relationship(deleteRule: .cascade, inverse: \BackfillRule.plan)
+    var rules: [BackfillRule]?
 
     init() {}
 
@@ -69,7 +69,7 @@ final class BackfillPlan {
 
     /// Returns the first rule whose MD range contains the given MD.
     func rule(forMD md_m: Double) -> BackfillRule? {
-        rules.first { $0.mdRangeContains(md_m) }
+        rules?.first { $0.mdRangeContains(md_m) }
     }
 }
 
@@ -77,12 +77,12 @@ final class BackfillPlan {
 
 @Model
 final class BackfillRule {
-    @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var id: UUID = UUID()
+    var name: String = ""
 
     /// MD range where this rule applies (inclusive of bounds)
-    var fromMD_m: Double
-    var toMD_m: Double
+    var fromMD_m: Double = 0.0
+    var toMD_m: Double = 0.0
 
     /// Strategy for computing the volume
     enum Strategy: Int, Codable {
@@ -101,6 +101,9 @@ final class BackfillRule {
 
     /// Optional override for fluid density for this rule (kg/m³); if nil, use plan default
     var fluidDensityOverride_kg_per_m3: Double?
+
+    // Inverse relationship back to plan
+    @Relationship(inverse: \BackfillPlan.rules) var plan: BackfillPlan?
 
     init(name: String,
          fromMD_m: Double,

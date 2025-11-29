@@ -14,6 +14,9 @@ final class SurveyStation {
     var azi: Double = 0.0
     var tvd: Double?
 
+    // Inverse relationship back to project
+    @Relationship(inverse: \ProjectState.surveys) var project: ProjectState?
+
     // Optional extras (from Pason exports)
     var vs_m: Double?            // Vertical Section (m)
     var ns_m: Double?            // North-South (m)

@@ -14,7 +14,7 @@ import SwiftUI
 
 @Model
 final class TripSettings {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Trip Settings"
 
     // MARK: - Trip speed / movement

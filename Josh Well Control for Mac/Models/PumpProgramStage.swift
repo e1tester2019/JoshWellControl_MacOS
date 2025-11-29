@@ -10,7 +10,7 @@ import AppKit
 
 @Model
 final class PumpProgramStage {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     var name: String = ""
     var volume_m3: Double = 0.0
