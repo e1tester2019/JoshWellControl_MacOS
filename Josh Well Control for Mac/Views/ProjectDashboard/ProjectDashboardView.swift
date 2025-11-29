@@ -42,33 +42,33 @@ struct ProjectDashboardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     WellSection(title: "Project", icon: "target", subtitle: "Name and pressure window safety margins.") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Name")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("Project name", text: $project.name)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                             }
                             GridRow {
                                 Text("Pore safety (kPa)")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.poreSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Frac safety (kPa)")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.fracSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }
@@ -79,7 +79,7 @@ struct ProjectDashboardView: View {
                             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                                 GridRow {
                                     Text("Well Name")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "Well Name",
@@ -93,11 +93,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("UWI")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "UWI",
@@ -111,11 +111,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("AFE #")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "AFE #",
@@ -129,11 +129,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("Requisitioner")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "Requisitioner",
@@ -147,7 +147,7 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Button {
@@ -164,29 +164,29 @@ struct ProjectDashboardView: View {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Active mud weight (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Active mud volume (m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Surface line volume (m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.surfaceLineVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }
@@ -196,29 +196,29 @@ struct ProjectDashboardView: View {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Base annulus density (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Base string density (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseStringDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Control measured depth (m)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.pressureDepth_m, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }

@@ -16,6 +16,7 @@ struct Josh_Well_Control_for_MacApp: App {
             ContentView()
         }
         .modelContainer(for: [
+            Well.self,
             ProjectState.self,
             DrillStringSection.self,
             AnnulusSection.self,
@@ -30,6 +31,10 @@ struct Josh_Well_Control_for_MacApp: App {
             MudStep.self,
             FinalFluidLayer.self,
             MudProperties.self,
+            MaterialTransfer.self,
+            MaterialTransferItem.self,
+            RentalItem.self,
+            RentalAdditionalCost.self,
         ])
     }
 }

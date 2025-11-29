@@ -69,20 +69,26 @@ struct ContentView: View {
     @State private var splitVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView(columnVisibility: $splitVisibility) {
+            // Sidebar
             VStack(alignment: .leading, spacing: 12) {
                 if let _ = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
-                    GroupBox("Views") {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 8)], spacing: 8) {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
                             ForEach(Pane.allCases) { sec in
                                 Button {
                                     selectedSection = sec
                                 } label: {
-                                    HStack(spacing: 6) {
+                                    VStack(spacing: 4) {
                                         Image(systemName: icon(for: sec))
+                                            .font(.title3)
                                         Text(sec.title)
+                                            .font(.caption)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
                                     }
                                     .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
                                 }
                                 .buttonStyle(.bordered)
                                 .buttonBorderShape(.roundedRectangle)
@@ -96,7 +102,7 @@ struct ContentView: View {
                                 .animation(.default, value: selectedSection)
                             }
                         }
-                        .padding(8)
+                        .padding(.horizontal, 8)
                     }
                 } else {
                     Text("Select or create a well")
@@ -105,9 +111,10 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding([.horizontal, .top], 12)
-            .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
-            
+            .navigationTitle("Views")
+            .navigationBarTitleDisplayMode(.inline)
+        } detail: {
+            // Detail content
             Group {
                 if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
                     Group {
@@ -183,8 +190,8 @@ struct ContentView: View {
                     .padding(24)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle(selectedSection.title)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { detailToolbar }
         }
         .sheet(item: $renamingProject) { project in
