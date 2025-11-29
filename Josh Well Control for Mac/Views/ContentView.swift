@@ -112,7 +112,9 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .navigationTitle("Views")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
         } detail: {
             // Detail content
             Group {
@@ -191,7 +193,9 @@ struct ContentView: View {
                 }
             }
             .navigationTitle(selectedSection.title)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar { detailToolbar }
         }
         .sheet(item: $renamingProject) { project in
