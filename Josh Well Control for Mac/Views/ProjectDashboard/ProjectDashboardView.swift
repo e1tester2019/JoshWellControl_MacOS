@@ -339,13 +339,9 @@ extension ProjectDashboardView {
         """
     }
 
-    /// Copies the project info string to the macOS clipboard.
+    /// Copies the project info string to the clipboard.
     fileprivate func copyProjectInfoToClipboard() {
-        #if os(macOS)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(makeProjectInfoString(), forType: .string)
-        #endif
+        ClipboardService.shared.copyToClipboard(makeProjectInfoString())
     }
 }
 

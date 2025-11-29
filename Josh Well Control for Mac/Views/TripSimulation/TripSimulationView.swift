@@ -7,8 +7,11 @@
 
 import SwiftUI
 import SwiftData
-import AppKit // Import AppKit for NSSavePanel support
 import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
+#endif
 
 typealias TripStep = NumericalTripModel.TripStep
 typealias LayerRow = NumericalTripModel.LayerRow
@@ -174,21 +177,19 @@ struct TripSimulationView: View {
             showingExportErrorAlert = true
             return
         }
-        
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "ProjectExport.json"
-        panel.canCreateDirectories = true
-        
-        // Present the NSSavePanel synchronously on the main thread
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try jsonString.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                // Present an alert if writing fails
-                exportErrorMessage = "Failed to export project JSON: \(error.localizedDescription)"
-                showingExportErrorAlert = true
-                NSLog("Error exporting project JSON: \(error)")
+
+        Task {
+            let success = await FileService.shared.saveTextFile(
+                text: jsonString,
+                defaultName: "ProjectExport.json",
+                allowedFileTypes: ["json"]
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to export project JSON."
+                    showingExportErrorAlert = true
+                }
             }
         }
     }
