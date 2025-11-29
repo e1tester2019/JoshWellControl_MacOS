@@ -107,9 +107,9 @@ final class ProjectState {
 extension ProjectState {
     /// TVD at an arbitrary MD using linear interpolation over `surveys`.
     func tvd(of mdQuery: Double) -> Double {
-        guard !surveys.isEmpty else { return mdQuery } // fallback
+        guard !(surveys ?? []).isEmpty else { return mdQuery } // fallback
         // Sort once per call (fast enough, or cache if you like)
-        let s = surveys.sorted { $0.md < $1.md }
+        let s = (surveys ?? []).sorted { $0.md < $1.md }
 
         if mdQuery <= s.first!.md { return s.first!.tvd ?? 0 }
         if mdQuery >= s.last!.md  { return s.last!.tvd ?? 0 }
@@ -130,10 +130,10 @@ extension ProjectState {
 
 extension ProjectState {
     var finalAnnulusLayersSorted: [FinalFluidLayer] {
-        finalLayers.filter { $0.placement == .annulus }.sorted { $0.topMD_m < $1.topMD_m }
+        (finalLayers ?? []).filter { $0.placement == .annulus }.sorted { $0.topMD_m < $1.topMD_m }
     }
     var finalStringLayersSorted: [FinalFluidLayer] {
-        finalLayers.filter { $0.placement == .string }.sorted { $0.topMD_m < $1.topMD_m }
+        (finalLayers ?? []).filter { $0.placement == .string }.sorted { $0.topMD_m < $1.topMD_m }
     }
 }
 
@@ -146,8 +146,9 @@ extension ProjectState {
     /// Replace the persisted final layers with a new set and save.
     /// Call this from Mud Placement after committing a run.
     func replaceFinalLayers(with newLayers: [FinalFluidLayer], using context: ModelContext) {
-        self.finalLayers.removeAll()
-        self.finalLayers.append(contentsOf: newLayers)
+        if self.finalLayers == nil { self.finalLayers = [] }
+        self.finalLayers?.removeAll()
+        self.finalLayers?.append(contentsOf: newLayers)
         self.updatedAt = .now
         try? context.save()
     }
@@ -162,7 +163,8 @@ extension ProjectState {
         p.baseStringDensity_kgm3 = self.baseStringDensity_kgm3
         p.pressureDepth_m = self.pressureDepth_m
         p.well = well
-        well.projects.append(p)
+        if well.projects == nil { well.projects = [] }
+        well.projects?.append(p)
         try? context.save()
         return p
     }
@@ -180,7 +182,8 @@ extension ProjectState {
 
         // --- Clone MUDS first and build an old->new map by ID ---
         var mudMap: [UUID: MudProperties] = [:]
-        for m0 in self.muds {
+        if p.muds == nil { p.muds = [] }
+        for m0 in (self.muds ?? []) {
             let m = MudProperties(
                 name: m0.name,
                 density_kgm3: m0.density_kgm3,
@@ -201,22 +204,24 @@ extension ProjectState {
                 project: p
             )
             m.isActive = m0.isActive
-            p.muds.append(m)
+            p.muds?.append(m)
             mudMap[m0.id] = m
         }
 
         // --- Surveys ---
-        for s0 in self.surveys {
+        if p.surveys == nil { p.surveys = [] }
+        for s0 in (self.surveys ?? []) {
             let s = SurveyStation(
                 md: s0.md,
                 inc: s0.inc,
                 azi: s0.azi,
                 tvd: s0.tvd)
-            p.surveys.append(s)
+            p.surveys?.append(s)
         }
 
         // --- Drill string ---
-        for d0 in self.drillString {
+        if p.drillString == nil { p.drillString = [] }
+        for d0 in (self.drillString ?? []) {
             let d = DrillStringSection(
                 name: d0.name,
                 topDepth_m: d0.topDepth_m,
@@ -231,11 +236,12 @@ extension ProjectState {
                 internalRoughness_m: d0.internalRoughness_m,
                 project: p
             )
-            p.drillString.append(d)
+            p.drillString?.append(d)
         }
 
         // --- Annulus ---
-        for a0 in self.annulus {
+        if p.annulus == nil { p.annulus = [] }
+        for a0 in (self.annulus ?? []) {
             let a = AnnulusSection(
                 name: a0.name,
                 topDepth_m: a0.topDepth_m,
@@ -257,11 +263,12 @@ extension ProjectState {
                 cuttingsVolFrac: a0.cuttingsVolFrac,
                 project: p
             )
-            p.annulus.append(a)
+            p.annulus?.append(a)
         }
 
         // --- Mud steps (attach mud by ID map) ---
-        for m0 in self.mudSteps {
+        if p.mudSteps == nil { p.mudSteps = [] }
+        for m0 in (self.mudSteps ?? []) {
             let linked: MudProperties? = m0.mud.flatMap { old in mudMap[old.id] }
             let s = MudStep(
                 name: m0.name,
@@ -273,11 +280,12 @@ extension ProjectState {
                 project: p,
                 mud: linked
             )
-            p.mudSteps.append(s)
+            p.mudSteps?.append(s)
         }
 
         // --- Final layers (attach mud by ID map) ---
-        for f0 in self.finalLayers {
+        if p.finalLayers == nil { p.finalLayers = [] }
+        for f0 in (self.finalLayers ?? []) {
             let linked: MudProperties? = f0.mud.flatMap { old in mudMap[old.id] }
             let f = FinalFluidLayer(
                 project: p,
@@ -290,7 +298,7 @@ extension ProjectState {
                 createdAt: f0.createdAt,
                 mud: linked
             )
-            p.finalLayers.append(f)
+            p.finalLayers?.append(f)
         }
 
         // --- Singletons (force unwrap safe because init() creates them) ---
@@ -307,7 +315,7 @@ extension ProjectState {
 }
 
 extension ProjectState {
-    var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
+    var activeMud: MudProperties? { (muds ?? []).first(where: { $0.isActive }) ?? (muds ?? []).first }
 }
 
 extension ProjectState {
@@ -340,12 +348,12 @@ extension ProjectState {
         dict["surfaceLineVolume_m3"] = surfaceLineVolume_m3
 
         // Collections serialized as dictionaries
-        dict["surveys"] = surveys.map { $0.exportDictionary }
-        dict["drillString"] = drillString.map { $0.exportDictionary }
-        dict["annulus"] = annulus.map { $0.exportDictionary }
-        dict["mudSteps"] = mudSteps.map { $0.exportDictionary }
-        dict["finalLayers"] = finalLayers.map { $0.exportDictionary }
-        dict["muds"] = muds.map { $0.exportDictionary }
+        dict["surveys"] = (surveys ?? []).map { $0.exportDictionary }
+        dict["drillString"] = (drillString ?? []).map { $0.exportDictionary }
+        dict["annulus"] = (annulus ?? []).map { $0.exportDictionary }
+        dict["mudSteps"] = (mudSteps ?? []).map { $0.exportDictionary }
+        dict["finalLayers"] = (finalLayers ?? []).map { $0.exportDictionary }
+        dict["muds"] = (muds ?? []).map { $0.exportDictionary }
 
         // Singletons serialized as dictionaries
         //dict["window"] = window.exportDictionary

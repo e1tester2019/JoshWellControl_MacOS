@@ -59,7 +59,7 @@ class PumpScheduleViewModel {
     var program: [ProgramStage] = []
 
     func loadProgram(from project: ProjectState) {
-        program = project.programStages
+        program = (project.programStages ?? [])
             .sorted { $0.orderIndex < $1.orderIndex }
             .map { s in
                 ProgramStage(
@@ -76,15 +76,16 @@ class PumpScheduleViewModel {
     func saveProgram(to project: ProjectState) {
         // Build a lookup of existing models by id
         var byID: [UUID: PumpProgramStage] = [:]
-        for s in project.programStages { byID[s.id] = s }
+        if project.programStages == nil { project.programStages = [] }
+        for s in (project.programStages ?? []) { byID[s.id] = s }
 
         // Track the next order index
-        let maxOrder = project.programStages.map { $0.orderIndex }.max() ?? -1
+        let maxOrder = (project.programStages ?? []).map { $0.orderIndex }.max() ?? -1
         var nextOrder = maxOrder + 1
 
         // Delete removed
         let desiredIDs = Set(program.map { $0.id })
-        project.programStages.removeAll { !desiredIDs.contains($0.id) }
+        project.programStages?.removeAll { !desiredIDs.contains($0.id) }
 
         // Update existing and add new, maintaining orderIndex
         for stage in program {
@@ -93,10 +94,10 @@ class PumpScheduleViewModel {
                 existing.volume_m3 = stage.volume_m3
                 existing.pumpRate_m3permin = stage.pumpRate_m3permin
                 existing.color = stage.color
-                existing.mud = stage.mudID.flatMap { id in project.muds.first(where: { $0.id == id }) }
+                existing.mud = stage.mudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
                 // keep existing.orderIndex as-is
             } else {
-                let mud = stage.mudID.flatMap { id in project.muds.first(where: { $0.id == id }) }
+                let mud = stage.mudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
                 let s = PumpProgramStage(name: stage.name,
                                          volume_m3: stage.volume_m3,
                                          pumpRate_m3permin: stage.pumpRate_m3permin,
@@ -106,7 +107,7 @@ class PumpScheduleViewModel {
                 s.id = stage.id
                 s.orderIndex = nextOrder
                 nextOrder += 1
-                project.programStages.append(s)
+                project.programStages?.append(s)
             }
         }
     }
@@ -133,13 +134,13 @@ class PumpScheduleViewModel {
     private func buildStagesFromFinalLayers(project: ProjectState) {
         stages.removeAll()
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
         let activeMud = project.activeMud
         // Annulus first – order by shallow to deep (top MD ascending)
-        let ann = project.finalLayers.filter { $0.placement == .annulus || $0.placement == .both }
+        let ann = (project.finalLayers ?? []).filter { $0.placement == .annulus || $0.placement == .both }
             .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
         for L in ann {
             let t = min(L.topMD_m, L.bottomMD_m)
@@ -149,7 +150,7 @@ class PumpScheduleViewModel {
             stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus, mud: L.mud ?? activeMud))
         }
         // Then string – order deepest to shallowest as per spec
-        let str = project.finalLayers.filter { $0.placement == .string || $0.placement == .both }
+        let str = (project.finalLayers ?? []).filter { $0.placement == .string || $0.placement == .both }
             .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
             .reversed()
         for L in str {
@@ -165,7 +166,7 @@ class PumpScheduleViewModel {
 
     private func mudFor(id: UUID?, in project: ProjectState) -> MudProperties? {
         guard let id else { return project.activeMud }
-        return project.muds.first(where: { $0.id == id }) ?? project.activeMud
+        return (project.muds ?? []).first(where: { $0.id == id }) ?? project.activeMud
     }
 
     private func buildStagesFromProgram(project: ProjectState) {
@@ -249,8 +250,8 @@ class PumpScheduleViewModel {
 
     func stacksFor(project: ProjectState, stageIndex: Int, pumpedV: Double) -> StackState {
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
@@ -424,8 +425,8 @@ class PumpScheduleViewModel {
         add("=== Pump Schedule Debug Log ===")
         add("")
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         add("Bit MD: \(bitMD) m")
         add("")
@@ -525,8 +526,8 @@ class PumpScheduleViewModel {
     func hydraulicsForCurrent(project: ProjectState) -> HydraulicsReadout {
         // Guard
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         let controlMD: Double = {
             switch controlDepthMode {
@@ -699,8 +700,8 @@ class PumpScheduleViewModel {
     func expelledFluidsForCurrent(project: ProjectState) -> [ExpelledFluid] {
         // Determine bit depth and geometry
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
@@ -781,7 +782,7 @@ class PumpScheduleViewModel {
             // Resolve mud and color for this key
             let mud: MudProperties? = {
                 if let id = key {
-                    return project.muds.first(where: { $0.id == id })
+                    return (project.muds ?? []).first(where: { $0.id == id })
                 } else {
                     return nil
                 }
@@ -804,8 +805,8 @@ class PumpScheduleViewModel {
     /// to compute per-layer and total hydrostatic pressure.
     func debugCurrentAnnulus(project: ProjectState) {
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
 
         let stg = currentStage(project: project)
@@ -865,8 +866,8 @@ class PumpScheduleViewModel {
     /// to a text file in the temporary directory. Prints the file URL to the console.
     func exportAnnulusDebugLog(project: ProjectState) {
         let bitMD = max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
         let g = 9.80665
 

@@ -36,10 +36,11 @@ final class Well {
 
 extension Well {
     func createTransfer(number: Int? = nil, context: ModelContext) -> MaterialTransfer {
-        let transferNumber = number ?? ((transfers.map { $0.number }.max() ?? 0) + 1)
+        let transferNumber = number ?? (((transfers ?? []).map { $0.number }.max() ?? 0) + 1)
         let transfer = MaterialTransfer(number: transferNumber)
         transfer.well = self
-        transfers.append(transfer)
+        if transfers == nil { transfers = [] }
+        transfers?.append(transfer)
         context.insert(transfer)
         return transfer
     }
