@@ -35,6 +35,18 @@ struct Josh_Well_Control_for_MacApp: App {
             MaterialTransferItem.self,
             RentalItem.self,
             RentalAdditionalCost.self,
-        ])
+        ], isAutosaveEnabled: true, isUndoEnabled: true) { schema, configuration in
+            do {
+                let modelConfiguration = ModelConfiguration(
+                    schema: schema,
+                    isStoredInMemoryOnly: false,
+                    cloudKitDatabase: .private("iCloud.com.josh-sallows-wellcontrolapp")
+                )
+                let modelContainer = try ModelContainer(for: schema, configurations: modelConfiguration)
+                return modelContainer
+            } catch {
+                fatalError("Failed to create ModelContainer: \(error)")
+            }
+        }
     }
 }
