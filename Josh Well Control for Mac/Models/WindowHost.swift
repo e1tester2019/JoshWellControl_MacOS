@@ -1,4 +1,6 @@
 import SwiftUI
+
+#if os(macOS)
 import AppKit
 
 final class WindowHost<Content: View>: NSObject, NSWindowDelegate {
@@ -37,3 +39,4 @@ final class WindowHost<Content: View>: NSObject, NSWindowDelegate {
         self.window = nil
     }
 }
+#endif
