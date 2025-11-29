@@ -19,6 +19,14 @@ struct PressureWindowView: View {
         _viewmodel = State(initialValue: ViewModel(project: project))
     }
 
+    private var pageBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .underPageBackgroundColor)
+        #else
+        Color(.systemGroupedBackground)
+        #endif
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -57,13 +65,7 @@ struct PressureWindowView: View {
             }
             .padding(24)
         }
-        .background(
-            #if os(macOS)
-            Color(nsColor: .underPageBackgroundColor)
-            #else
-            Color(.systemGroupedBackground)
-            #endif
-        )
+        .background(pageBackgroundColor)
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
     }
