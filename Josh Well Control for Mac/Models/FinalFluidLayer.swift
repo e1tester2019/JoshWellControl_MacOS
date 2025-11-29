@@ -19,7 +19,7 @@ final class FinalFluidLayer {
     // Metadata
     var name: String = ""
     var createdAt: Date = Date.now
-    var placement: Placement = .annulus  // .annulus, .string, .both (you already have this enum)
+    var placementRaw: String = Placement.annulus.rawValue  // Store enum as String
 
     // Interval (MD, meters)
     var topMD_m: Double = 0.0
@@ -46,7 +46,7 @@ final class FinalFluidLayer {
     {
         self.project = project
         self.name = name
-        self.placement = placement
+        self.placementRaw = placement.rawValue
         self.topMD_m = topMD_m
         self.bottomMD_m = bottomMD_m
         self.density_kgm3 = density_kgm3
@@ -56,6 +56,12 @@ final class FinalFluidLayer {
     }
 
     var color: Color { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
+
+    // Computed property for Placement enum
+    var placement: Placement {
+        get { Placement(rawValue: placementRaw) ?? .annulus }
+        set { placementRaw = newValue.rawValue }
+    }
 }
 
 // Small helper to unpack Color → RGBA
