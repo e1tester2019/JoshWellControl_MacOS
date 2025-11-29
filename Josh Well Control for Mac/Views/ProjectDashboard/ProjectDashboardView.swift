@@ -238,7 +238,13 @@ struct ProjectDashboardView: View {
                     .padding()
             }
         })
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(
+            #if os(macOS)
+            Color(nsColor: .underPageBackgroundColor)
+            #else
+            Color(.systemGroupedBackground)
+            #endif
+        )
         .navigationTitle("Project Dashboard")
     }
 }

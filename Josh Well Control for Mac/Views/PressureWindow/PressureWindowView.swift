@@ -57,7 +57,13 @@ struct PressureWindowView: View {
             }
             .padding(24)
         }
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(
+            #if os(macOS)
+            Color(nsColor: .underPageBackgroundColor)
+            #else
+            Color(.systemGroupedBackground)
+            #endif
+        )
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
     }
@@ -186,7 +192,13 @@ private struct PressurePointRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+                .fill(
+                    #if os(macOS)
+                    Color(nsColor: .windowBackgroundColor)
+                    #else
+                    Color(.systemBackground)
+                    #endif
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
