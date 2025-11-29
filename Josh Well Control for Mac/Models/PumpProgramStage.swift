@@ -42,7 +42,7 @@ final class PumpProgramStage {
         self.pumpRate_m3permin = pumpRate_m3permin
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         #if canImport(UIKit)
-        UIColor(color).getRed(&r, &g, &b, &a)
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
         #elseif canImport(AppKit)
         let ns = NSColor(color)
         let inSRGB = ns.usingColorSpace(.sRGB) ?? ns.usingColorSpace(.deviceRGB)
