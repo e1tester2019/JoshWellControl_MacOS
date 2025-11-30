@@ -287,6 +287,17 @@
 				"ENABLE_RESOURCE_ACCESS_PRINTING[sdk=macosx*]" = NO;
 				"ENABLE_RESOURCE_ACCESS_USB[sdk=macosx*]" = NO;
 				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = (
+					"Views/ContentView.swift",
+					"Views/macOS/*",
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					"Views/ContentView.swift",
+					"Views/macOS/*",
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = (
+					"Views/iPadOS/*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
@@ -355,6 +366,17 @@
 				"ENABLE_RESOURCE_ACCESS_PRINTING[sdk=macosx*]" = NO;
 				"ENABLE_RESOURCE_ACCESS_USB[sdk=macosx*]" = NO;
 				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = (
+					"Views/ContentView.swift",
+					"Views/macOS/*",
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					"Views/ContentView.swift",
+					"Views/macOS/*",
+				);
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = (
+					"Views/iPadOS/*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;

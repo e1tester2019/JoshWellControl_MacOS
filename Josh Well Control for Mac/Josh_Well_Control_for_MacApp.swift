@@ -13,11 +13,12 @@ import SwiftData
 struct Josh_Well_Control_for_MacApp: App {
     var body: some Scene {
         WindowGroup {
+            // Platform-specific ContentView selected via EXCLUDED_SOURCE_FILE_NAMES
+            // macOS uses ContentView.swift (excludes Views/iPadOS/*)
+            // iOS/iPadOS uses ContentView_iPadOS.swift (excludes Views/ContentView.swift and Views/macOS/*)
             #if os(macOS)
-            // Use the original ContentView for macOS
             ContentView()
             #else
-            // Use iPad-optimized ContentView for iOS/iPadOS
             ContentView_iPadOS()
             #endif
         }
