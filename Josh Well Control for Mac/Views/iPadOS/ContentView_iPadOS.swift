@@ -68,94 +68,7 @@ struct ContentView_iPadOS: View {
     @State private var selectedSection: Pane = .dashboard
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            Group {
-                if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 16)
-                        ], spacing: 16) {
-                            ForEach(Pane.allCases) { pane in
-                                Button {
-                                    selectedSection = pane
-                                    navigationPath.append(pane)
-                                } label: {
-                                    VStack(spacing: 12) {
-                                        Image(systemName: icon(for: pane))
-                                            .font(.system(size: 40))
-                                            .foregroundStyle(.blue)
-                                        Text(pane.title)
-                                            .font(.headline)
-                                            .foregroundStyle(.primary)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 140)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color(.systemBackground))
-                                            .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding()
-                    }
-                    .navigationTitle("Josh Well Control")
-                    .navigationBarTitleDisplayMode(.large)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            wellAndProjectPicker
-                        }
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            actionsMenu
-                        }
-                    }
-                    .navigationDestination(for: Pane.self) { pane in
-                        viewForPane(pane, project: project)
-                            .navigationTitle(pane.title)
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                } else {
-                    VStack(spacing: 20) {
-                        Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 80))
-                            .foregroundStyle(.secondary)
-                        Text("No Well Selected")
-                            .font(.title)
-                            .bold()
-                        Text("Create a well and a project to get started.")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        VStack(spacing: 12) {
-                            Button {
-                                createNewWell()
-                            } label: {
-                                Label("New Well", systemImage: "plus.circle.fill")
-                                    .frame(maxWidth: 300)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-
-                            if vm.selectedWell != nil {
-                                Button {
-                                    createNewProject()
-                                } label: {
-                                    Label("New Project State", systemImage: "doc.badge.plus")
-                                        .frame(maxWidth: 300)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.large)
-                            }
-                        }
-                        .padding(.top)
-                    }
-                    .padding(40)
-                    .navigationTitle("Josh Well Control")
-                }
-            }
-        }
+        mainNavigationStack
         .sheet(item: $renamingProject) { project in
             NavigationStack {
                 Form {
@@ -210,6 +123,116 @@ struct ContentView_iPadOS: View {
             }
         }
         .environment(\.locale, Locale(identifier: "en_GB"))
+    }
+
+    @ViewBuilder
+    private var mainNavigationStack: some View {
+        NavigationStack(path: $navigationPath) {
+            if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
+                dashboardGrid(for: project)
+            } else {
+                emptyStateView
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardGrid(for project: ProjectState) -> some View {
+        ScrollView {
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 16)
+            ], spacing: 16) {
+                ForEach(Pane.allCases) { pane in
+                    paneButton(pane)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Josh Well Control")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                wellAndProjectPicker
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                actionsMenu
+            }
+        }
+        .navigationDestination(for: Pane.self) { pane in
+            viewForPane(pane, project: project)
+                .navigationTitle(pane.title)
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    @ViewBuilder
+    private func paneButton(_ pane: Pane) -> some View {
+        Button {
+            selectedSection = pane
+            navigationPath.append(pane)
+        } label: {
+            VStack(spacing: 12) {
+                Image(systemName: icon(for: pane))
+                    .font(.system(size: 40))
+                    .foregroundStyle(.blue)
+                Text(pane.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 140)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 80))
+                .foregroundStyle(.secondary)
+            Text("No Well Selected")
+                .font(.title)
+                .bold()
+            Text("Create a well and a project to get started.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            emptyStateButtons
+        }
+        .padding(40)
+        .navigationTitle("Josh Well Control")
+    }
+
+    @ViewBuilder
+    private var emptyStateButtons: some View {
+        VStack(spacing: 12) {
+            Button {
+                createNewWell()
+            } label: {
+                Label("New Well", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: 300)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            if vm.selectedWell != nil {
+                Button {
+                    createNewProject()
+                } label: {
+                    Label("New Project State", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: 300)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+        }
+        .padding(.top)
     }
 
     @ViewBuilder
