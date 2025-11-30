@@ -36,7 +36,7 @@ class SwabbingViewModel {
 
     /// Sets bitMD_m to the current drill string bottom MD for this project
     func syncBitDepth(to project: ProjectState) {
-        let maxBottom = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+        let maxBottom = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         if maxBottom > 0, abs(maxBottom - bitMD_m) > 1e-6 {
             bitMD_m = maxBottom
         }
