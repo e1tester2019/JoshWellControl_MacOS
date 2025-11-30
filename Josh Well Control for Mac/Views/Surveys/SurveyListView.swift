@@ -114,7 +114,7 @@ extension SurveyListView {
 
         var sortedSurveys: [SurveyStation] {
             guard let project else { return [] }
-            return project.surveys.sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
+            return (project.surveys ?? []).sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
                 if lhs.md != rhs.md { return lhs.md < rhs.md }
                 if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
                 if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
@@ -126,7 +126,7 @@ extension SurveyListView {
 
         func sortByMDAndRefresh() {
             guard let project else { return }
-            project.surveys.sort { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
+            project.surveys?.sort { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
                 if lhs.md != rhs.md { return lhs.md < rhs.md }
                 if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
                 if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
@@ -141,7 +141,7 @@ extension SurveyListView {
 
         func recomputeTVD() {
             guard let project else { return }
-            let ordered = project.surveys.sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
+            let ordered = (project.surveys ?? []).sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
                 if lhs.md != rhs.md { return lhs.md < rhs.md }
                 if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
                 if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
@@ -173,7 +173,7 @@ extension SurveyListView {
 
         func clearStations() {
             guard let project else { return }
-            project.surveys.removeAll()
+            project.surveys?.removeAll()
             try? modelContext.save()
         }
 
@@ -181,7 +181,7 @@ extension SurveyListView {
             guard let project else { return }
             let lastSurvey = sortedSurveys.last ?? SurveyStation(md: 0, inc: 0, azi: 0, tvd: nil)
             let s = SurveyStation(md: lastSurvey.md + 30, inc: lastSurvey.inc, azi: lastSurvey.azi, tvd: lastSurvey.tvd)
-            project.surveys.append(s)
+            project.surveys?.append(s)
             modelContext.insert(s)
             try? modelContext.save()
             recomputeTVD()
@@ -189,8 +189,8 @@ extension SurveyListView {
 
         func delete(_ s: SurveyStation) {
             guard let project else { return }
-            if let i = project.surveys.firstIndex(where: { $0.id == s.id }) {
-                project.surveys.remove(at: i)
+            if let i = (project.surveys ?? []).firstIndex(where: { $0.id == s.id }) {
+                project.surveys?.remove(at: i)
             }
             modelContext.delete(s)
             try? modelContext.save()
@@ -208,7 +208,7 @@ extension SurveyListView {
                     guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
                         throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unable to decode file as UTF‑8 or ASCII."])
                     }
-                    project.surveys.removeAll()
+                    project.surveys?.removeAll()
                     if PasonParser.looksLikePason(text) {
                         try importPasonText(text, fileName: url.lastPathComponent)
                     } else {
@@ -255,7 +255,7 @@ extension SurveyListView {
                 s.tvd = tvdVal
 
                 created.append(s)
-                project.surveys.append(s)
+                project.surveys?.append(s)
                 modelContext.insert(s)
             }
             try? modelContext.save()
@@ -308,7 +308,7 @@ extension SurveyListView {
                 s.vsd_direction_deg = vsd
                 s.sourceFileName = fileName
 
-                project.surveys.append(s)
+                project.surveys?.append(s)
                 modelContext.insert(s)
                 created.append(s)
             }
@@ -603,7 +603,7 @@ private struct SurveyListPreview: View {
         let s1 = SurveyStation(md: 0, inc: 0, azi: 0, tvd: 0)
         let s2 = SurveyStation(md: 500, inc: 5, azi: 45, tvd: 498)
         let s3 = SurveyStation(md: 1000, inc: 10, azi: 90, tvd: 980)
-        [s1, s2, s3].forEach { p.surveys.append($0); ctx.insert($0) }
+        [s1, s2, s3].forEach { p.surveys?.append($0); ctx.insert($0) }
         try? ctx.save()
         self.project = p
     }
