@@ -41,7 +41,7 @@ struct ContentView_iPadOS: View {
     @State private var renameWellText: String = ""
     @State private var navigationPath = NavigationPath()
 
-    private enum Pane: String, CaseIterable, Identifiable {
+    enum Pane: String, CaseIterable, Identifiable {
         case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, bhp, rentals, transfers
         var id: String { rawValue }
         var title: String {
