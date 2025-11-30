@@ -129,7 +129,7 @@ extension AnnulusListView {
         
         /// Change signature for drill string list that triggers when IDs, depths, or OD change
         var drillStringSignature: [String] {
-            project.drillString
+            (project.drillString ?? [])
                 .sorted { $0.topDepth_m < $1.topDepth_m }
                 .map { ds in
                     "\(ds.id.uuidString)|\(ds.topDepth_m)|\(ds.bottomDepth_m)|\(ds.outerDiameter_m)"
@@ -137,7 +137,7 @@ extension AnnulusListView {
         }
         
         var sortedSections: [AnnulusSection] {
-            project.annulus.sorted { a, b in a.topDepth_m < b.topDepth_m }
+            (project.annulus ?? []).sorted { a, b in a.topDepth_m < b.topDepth_m }
         }
 
         var hasGaps: Bool {
@@ -152,7 +152,7 @@ extension AnnulusListView {
         func annularCapacityWithPipe_m3(_ s: AnnulusSection) -> Double {
             // Integrate across this annulus using overlapping drill string ODs where present
             var boundaries: [Double] = [s.topDepth_m, s.bottomDepth_m]
-            for d in project.drillString where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
+            for d in (project.drillString ?? []) where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
                 boundaries.append(max(d.topDepth_m, s.topDepth_m))
                 boundaries.append(min(d.bottomDepth_m, s.bottomDepth_m))
             }
@@ -167,7 +167,7 @@ extension AnnulusListView {
                 guard b > t else { continue }
                 // Find covering drill string for this sub-interval, if any
                 var od: Double = 0
-                for d in project.drillString where d.topDepth_m <= t && d.bottomDepth_m >= b {
+                for d in (project.drillString ?? []) where d.topDepth_m <= t && d.bottomDepth_m >= b {
                     od = max(od, d.outerDiameter_m)
                 }
                 let id = max(s.innerDiameter_m, 0)
@@ -206,7 +206,7 @@ extension AnnulusListView {
         // Slice all annulus sections that contain OD change points
         func sliceAllAnnulusSections() {
             // Work on a snapshot since sliceSection mutates project.annulus
-            let snapshot = project.annulus.sorted { $0.topDepth_m < $1.topDepth_m }
+            let snapshot = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
             for s in snapshot {
                 // sliceSection will early-return if no internal OD changes
                 sliceSection(s)
@@ -216,7 +216,7 @@ extension AnnulusListView {
         func slices(for s: AnnulusSection) -> [AnnulusPart] {
             // Collect boundaries from this section and all overlapping drill strings
             var bounds: [Double] = [s.topDepth_m, s.bottomDepth_m]
-            for d in project.drillString where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
+            for d in (project.drillString ?? []) where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
                 bounds.append(max(d.topDepth_m, s.topDepth_m))
                 bounds.append(min(d.bottomDepth_m, s.bottomDepth_m))
             }
@@ -232,7 +232,7 @@ extension AnnulusListView {
                 guard b > t else { continue }
                 // Find covering string, if any (choose the maximum OD if multiple cover)
                 var od: Double = 0
-                for d in project.drillString where d.topDepth_m <= t && d.bottomDepth_m >= b {
+                for d in (project.drillString ?? []) where d.topDepth_m <= t && d.bottomDepth_m >= b {
                     od = max(od, d.outerDiameter_m)
                 }
                 let isBad = od > id
@@ -256,7 +256,7 @@ extension AnnulusListView {
         }
 
         func add() {
-            let nextTop = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
+            let nextTop = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
             let s = AnnulusSection(
                 name: newName,
                 topDepth_m: nextTop,
@@ -265,14 +265,17 @@ extension AnnulusListView {
                 outerDiameter_m: 0
             )
             s.project = project
-            project.annulus.append(s)
+            if project.annulus == nil {
+                project.annulus = []
+            }
+            project.annulus?.append(s)
             try? context?.save()
             newName = "New Section"
         }
 
         func delete(_ section: AnnulusSection) {
-            if let i = project.annulus.firstIndex(where: { $0.id == section.id }) {
-                project.annulus.remove(at: i)
+            if let i = (project.annulus ?? []).firstIndex(where: { $0.id == section.id }) {
+                project.annulus?.remove(at: i)
             }
             context?.delete(section)
             try? context?.save()
@@ -304,7 +307,7 @@ extension AnnulusListView {
         func constantOverlappingOD(in project: ProjectState, top: Double, bottom: Double) -> Double? {
             // Break into boundaries from drill string changes that intersect this interval
             var bounds: [Double] = [top, bottom]
-            for d in project.drillString where d.bottomDepth_m > top && d.topDepth_m < bottom {
+            for d in (project.drillString ?? []) where d.bottomDepth_m > top && d.topDepth_m < bottom {
                 bounds.append(max(d.topDepth_m, top))
                 bounds.append(min(d.bottomDepth_m, bottom))
             }
@@ -318,7 +321,7 @@ extension AnnulusListView {
                 guard b > t else { continue }
                 // OD covering this sub-slice
                 var od: Double = 0
-                for d in project.drillString where d.topDepth_m <= t && d.bottomDepth_m >= b {
+                for d in (project.drillString ?? []) where d.topDepth_m <= t && d.bottomDepth_m >= b {
                     od = max(od, d.outerDiameter_m)
                 }
                 if let prev = odValue {
@@ -345,7 +348,7 @@ extension AnnulusListView {
         func sliceSection(_ s: AnnulusSection) {
             // Collect boundaries from this section and all overlapping drill strings
             var bounds: [Double] = [s.topDepth_m, s.bottomDepth_m]
-            for d in project.drillString where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
+            for d in (project.drillString ?? []) where d.bottomDepth_m > s.topDepth_m && d.topDepth_m < s.bottomDepth_m {
                 bounds.append(max(d.topDepth_m, s.topDepth_m))
                 bounds.append(min(d.bottomDepth_m, s.bottomDepth_m))
             }
@@ -357,7 +360,7 @@ extension AnnulusListView {
 
             func odCovering(_ a: Double, _ b: Double) -> Double {
                 var od: Double = 0
-                for d in project.drillString where d.topDepth_m <= a && d.bottomDepth_m >= b {
+                for d in (project.drillString ?? []) where d.topDepth_m <= a && d.bottomDepth_m >= b {
                     od = max(od, d.outerDiameter_m)
                 }
                 return od
@@ -393,8 +396,13 @@ extension AnnulusListView {
                 sec.project = project
                 newSections.append(sec)
             }
-            newSections.forEach { project.annulus.append($0); context?.insert($0) }
-            if let i = project.annulus.firstIndex(where: { $0.id == s.id }) { project.annulus.remove(at: i) }
+            if project.annulus == nil {
+                project.annulus = []
+            }
+            newSections.forEach { project.annulus?.append($0); context?.insert($0) }
+            if let i = (project.annulus ?? []).firstIndex(where: { $0.id == s.id }) {
+                project.annulus?.remove(at: i)
+            }
             context?.delete(s)
             try? context?.save()
 
@@ -404,7 +412,7 @@ extension AnnulusListView {
 
         // Merge adjacent annulus sections when they share the same ID (casing/wellbore) and constant overlapping OD
         func mergeContiguousByOD() {
-            var list = project.annulus.sorted { $0.topDepth_m < $1.topDepth_m }
+            var list = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
             var i = 0
             while i + 1 < list.count {
                 let a = list[i]
@@ -422,12 +430,12 @@ extension AnnulusListView {
                         // Merge b into a
                         a.length_m += b.length_m
                         // Remove b from project & context
-                        if let idx = project.annulus.firstIndex(where: { $0.id == b.id }) {
-                            project.annulus.remove(at: idx)
+                        if let idx = (project.annulus ?? []).firstIndex(where: { $0.id == b.id }) {
+                            project.annulus?.remove(at: idx)
                         }
                         context?.delete(b)
                         // Refresh local list to continue merging
-                        list = project.annulus.sorted { $0.topDepth_m < $1.topDepth_m }
+                        list = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
                         try? context?.save()
                         continue // re-check at same i
                     }
@@ -458,7 +466,8 @@ private struct AnnulusListPreview: View {
         let a1 = AnnulusSection(name: "13-3/8\" × 5\"", topDepth_m: 0,   length_m: 300, innerDiameter_m: 0.340, outerDiameter_m: 0.127)
         let a2 = AnnulusSection(name: "9-5/8\" × 5\"",   topDepth_m: 300, length_m: 600, innerDiameter_m: 0.244, outerDiameter_m: 0.127)
         let a3 = AnnulusSection(name: "8-1/2\" Open Hole × 5\"", topDepth_m: 900, length_m: 400, innerDiameter_m: 0.216, outerDiameter_m: 0.127)
-        [a1, a2, a3].forEach { s in s.project = p; p.annulus.append(s); context.insert(s) }
+        if p.annulus == nil { p.annulus = [] }
+        [a1, a2, a3].forEach { s in s.project = p; p.annulus?.append(s); context.insert(s) }
         try? context.save()
         self.project = p
     }
