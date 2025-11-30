@@ -8,7 +8,9 @@
 import Foundation
 import SwiftData
 import PDFKit
+#if canImport(AppKit)
 import AppKit
+#endif
 
 @Model
 final class Well {

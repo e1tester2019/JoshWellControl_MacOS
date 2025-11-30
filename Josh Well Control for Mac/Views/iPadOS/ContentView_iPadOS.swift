@@ -69,60 +69,72 @@ struct ContentView_iPadOS: View {
 
     var body: some View {
         mainNavigationStack
-        .sheet(item: $renamingProject) { project in
-            NavigationStack {
-                Form {
-                    Section {
-                        TextField("Name", text: $renameText)
-                    }
+            .sheet(item: $renamingProject, content: renameProjectSheet)
+            .sheet(item: $renamingWell, content: renameWellSheet)
+            .onAppear(perform: setupInitialWell)
+            .onChange(of: vm.selectedWell, handleWellChange)
+            .onChange(of: vm.selectedProject, handleProjectChange)
+            .environment(\.locale, Locale(identifier: "en_GB"))
+    }
+
+    private func setupInitialWell() {
+        if vm.selectedWell == nil {
+            vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
+        }
+    }
+
+    private func handleWellChange(_ oldVal: Well?, _ newVal: Well?) {
+        vm.selectedProject = newVal?.projects.first
+    }
+
+    private func handleProjectChange(_ oldVal: ProjectState?, _ newVal: ProjectState?) {
+        if newVal == nil, let w = vm.selectedWell {
+            vm.selectedProject = w.projects.first
+        }
+    }
+
+    @ViewBuilder
+    private func renameProjectSheet(_ project: ProjectState) -> some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name", text: $renameText)
                 }
-                .navigationTitle("Rename Project")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { renamingProject = nil }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") { commitRename(project) }
-                    }
+            }
+            .navigationTitle("Rename Project")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { renamingProject = nil }
                 }
-                .onAppear { renameText = project.name }
-            }
-        }
-        .sheet(item: $renamingWell) { well in
-            NavigationStack {
-                Form {
-                    Section {
-                        TextField("Name", text: $renameWellText)
-                    }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { commitRename(project) }
                 }
-                .navigationTitle("Rename Well")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { renamingWell = nil }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") { commitRename(well) }
-                    }
+            }
+            .onAppear { renameText = project.name }
+        }
+    }
+
+    @ViewBuilder
+    private func renameWellSheet(_ well: Well) -> some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name", text: $renameWellText)
                 }
-                .onAppear { renameWellText = well.name }
             }
-        }
-        .onAppear {
-            if vm.selectedWell == nil {
-                vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
+            .navigationTitle("Rename Well")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { renamingWell = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { commitRename(well) }
+                }
             }
+            .onAppear { renameWellText = well.name }
         }
-        .onChange(of: vm.selectedWell) { _, newVal in
-            vm.selectedProject = newVal?.projects.first
-        }
-        .onChange(of: vm.selectedProject) { _, newVal in
-            if newVal == nil, let w = vm.selectedWell {
-                vm.selectedProject = w.projects.first
-            }
-        }
-        .environment(\.locale, Locale(identifier: "en_GB"))
     }
 
     @ViewBuilder
