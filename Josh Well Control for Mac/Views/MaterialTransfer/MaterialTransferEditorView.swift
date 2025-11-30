@@ -45,7 +45,7 @@ struct MaterialTransferEditorView: View {
                 Button("Save") { try? modelContext.save() }
                 Button {
                     // Block preview if any item is missing receiver address
-                    let missing = transfer.items.contains { ($0.receiverAddress?.isEmpty ?? true) }
+                    let missing = (transfer.items ?? []).contains { ($0.receiverAddress?.isEmpty ?? true) }
                     if missing {
                         updateAlertMessage = "One or more items are missing a Receiver Address. Please fill them in before previewing/exporting."
                     } else {
@@ -56,7 +56,7 @@ struct MaterialTransferEditorView: View {
         }
         .sheet(isPresented: $showAddFromRentals) {
             AddFromRentalsSheet(
-                rentals: well.rentals,
+                rentals: well.rentals ?? [],
                 selected: Binding(get: { selectedRentalIDs }, set: { selectedRentalIDs = $0 }),
                 onCancel: {
                     selectedRentalIDs.removeAll()
@@ -71,7 +71,7 @@ struct MaterialTransferEditorView: View {
         }
         .sheet(isPresented: $showCreateRentals) {
             CreateRentalsFromLinesSheet(
-                items: transfer.items,
+                items: transfer.items ?? [],
                 selected: Binding(get: { selectedTransferItemIDs }, set: { selectedTransferItemIDs = $0 }),
                 onCancel: {
                     selectedTransferItemIDs.removeAll()
@@ -198,7 +198,7 @@ struct MaterialTransferEditorView: View {
     private var itemsList: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
-                if transfer.items.isEmpty {
+                if (transfer.items ?? []).isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No items yet.").font(.headline)
                         Text("Click Add Item to create your first line.")
@@ -212,7 +212,7 @@ struct MaterialTransferEditorView: View {
                 }
 
                 List(selection: $selection) {
-                    let sortedItems = transfer.items.sorted { lhs, rhs in
+                    let sortedItems = (transfer.items ?? []).sorted { lhs, rhs in
                         if lhs.quantity != rhs.quantity { return lhs.quantity > rhs.quantity }
                         let lw = lhs.estimatedWeight ?? 0
                         let rw = rhs.estimatedWeight ?? 0
@@ -381,9 +381,9 @@ struct MaterialTransferEditorView: View {
                     
                     // Totals footer
                     Section {
-                        let totalItems = transfer.items.count
-                        let totalQty = transfer.items.reduce(0) { $0 + $1.quantity }
-                        let totalWeight = transfer.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                        let totalItems = (transfer.items ?? []).count
+                        let totalQty = (transfer.items ?? []).reduce(0) { $0 + $1.quantity }
+                        let totalWeight = (transfer.items ?? []).reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
                         HStack {
                             Text("Total items:")
                                 .foregroundStyle(.secondary)
@@ -430,9 +430,9 @@ struct MaterialTransferEditorView: View {
 
     private func affectedRentalCount() -> Int {
         // Count rentals that would be affected by current transfer lines, by serial number only.
-        let serials = Set(transfer.items.compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
+        let serials = Set((transfer.items ?? []).compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
         guard !serials.isEmpty else { return 0 }
-        let matching = well.rentals.filter { r in
+        let matching = (well.rentals ?? []).filter { r in
             guard let rsn = r.serialNumber?.lowercased(), serials.contains(rsn) else { return false }
             return transfer.isShippingOut ? r.onLocation : !r.onLocation
         }
@@ -440,9 +440,9 @@ struct MaterialTransferEditorView: View {
     }
 
     private func affectedMatches() -> [RentalItem] {
-        let serials = Set(transfer.items.compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
+        let serials = Set((transfer.items ?? []).compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
         guard !serials.isEmpty else { return [] }
-        return well.rentals.filter { r in
+        return (well.rentals ?? []).filter { r in
             guard let rsn = r.serialNumber?.lowercased(), serials.contains(rsn) else { return false }
             return transfer.isShippingOut ? r.onLocation : !r.onLocation
         }
@@ -514,7 +514,7 @@ struct MaterialTransferEditorView: View {
     // MARK: - Rental ↔ Transfer helpers
     private func addItemsFromSelectedRentals() {
         guard !selectedRentalIDs.isEmpty else { return }
-        let selected = well.rentals.filter { selectedRentalIDs.contains($0.id) }
+        let selected = (well.rentals ?? []).filter { selectedRentalIDs.contains($0.id) }
         for r in selected {
             let item = MaterialTransferItem(quantity: 1, descriptionText: Self.description(from: r))
             item.detailText = r.detail
@@ -522,7 +522,8 @@ struct MaterialTransferEditorView: View {
             item.serialNumber = r.serialNumber
             item.accountCode = transfer.accountCode
             item.transfer = transfer
-            transfer.items.append(item)
+            if transfer.items == nil { transfer.items = [] }
+            transfer.items?.append(item)
             modelContext.insert(item)
         }
         try? modelContext.save()
@@ -530,10 +531,10 @@ struct MaterialTransferEditorView: View {
 
     private func createRentalsFromSelectedLines() {
         guard !selectedTransferItemIDs.isEmpty else { return }
-        let chosen = transfer.items.filter { selectedTransferItemIDs.contains($0.id) }
+        let chosen = (transfer.items ?? []).filter { selectedTransferItemIDs.contains($0.id) }
         for it in chosen {
             let rental = RentalItem(
-                name: it.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines),
+                name: it.descriptionText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
                 detail: it.detailText,
                 serialNumber: it.serialNumber ?? Self.serialNumber(fromDescription: it.descriptionText),
                 startDate: transfer.date,
@@ -545,16 +546,17 @@ struct MaterialTransferEditorView: View {
                 well: well
             )
             rental.used = (it.conditionCode?.lowercased() == "used")
-            well.rentals.append(rental)
+            if well.rentals == nil { well.rentals = [] }
+            well.rentals?.append(rental)
             modelContext.insert(rental)
         }
         try? modelContext.save()
-        
+
         if transfer.isShippingOut {
             var updated = 0
             for it in chosen {
                 if let sn = it.serialNumber, !sn.isEmpty {
-                    for r in well.rentals where (r.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame {
+                    for r in (well.rentals ?? []) where (r.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame {
                         if r.onLocation {
                             r.onLocation = false
                             updated += 1
@@ -724,9 +726,9 @@ struct MaterialTransferEditorView: View {
     private func applyShippedBackUpdate() {
         // Mark rentals off location for items with matching serial numbers
         var updated = 0
-        for it in transfer.items {
+        for it in (transfer.items ?? []) {
             if let sn = it.serialNumber, !sn.isEmpty {
-                if let r = well.rentals.first(where: { ($0.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame }) {
+                if let r = (well.rentals ?? []).first(where: { ($0.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame }) {
                     if r.onLocation {
                         r.onLocation = false
                         updated += 1
@@ -740,9 +742,9 @@ struct MaterialTransferEditorView: View {
 
     private func restoreOnLocationFromTransferItems() {
         var restored = 0
-        for it in transfer.items {
+        for it in (transfer.items ?? []) {
             if let sn = it.serialNumber, !sn.isEmpty {
-                if let r = well.rentals.first(where: { ($0.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame }) {
+                if let r = (well.rentals ?? []).first(where: { ($0.serialNumber ?? "").caseInsensitiveCompare(sn) == .orderedSame }) {
                     if !r.onLocation {
                         r.onLocation = true
                         restored += 1
@@ -758,7 +760,8 @@ struct MaterialTransferEditorView: View {
     private func addItem() {
         let item = MaterialTransferItem(quantity: 1, descriptionText: "")
         item.transfer = transfer
-        transfer.items.append(item)
+        if transfer.items == nil { transfer.items = [] }
+        transfer.items?.append(item)
         modelContext.insert(item)
         try? modelContext.save()
         selection = item
@@ -772,14 +775,15 @@ struct MaterialTransferEditorView: View {
         item.vendorOrTo = src.vendorOrTo
         item.transportedBy = src.transportedBy
         item.transfer = transfer
-        transfer.items.append(item)
+        if transfer.items == nil { transfer.items = [] }
+        transfer.items?.append(item)
         modelContext.insert(item)
         try? modelContext.save()
         selection = item
     }
 
     private func delete(_ item: MaterialTransferItem) {
-        if let i = transfer.items.firstIndex(where: { $0.id == item.id }) { transfer.items.remove(at: i) }
+        if let i = (transfer.items ?? []).firstIndex(where: { $0.id == item.id }) { transfer.items?.remove(at: i) }
         modelContext.delete(item)
         try? modelContext.save()
         if selection?.id == item.id { selection = nil }
@@ -808,11 +812,13 @@ struct MaterialTransferEditorView: View {
     t.transportedBy = "Truck #42"
     t.accountCode = "3320-3210 - Drilling-Equipment- Downhole Rental"
     t.well = w
-    w.transfers.append(t)
+    if w.transfers == nil { w.transfers = [] }
+    w.transfers?.append(t)
     ctx.insert(t)
     let i1 = MaterialTransferItem(quantity: 1, descriptionText: "1 guardian tripped 13 pin serial # VG1045")
     i1.accountCode = t.accountCode; i1.conditionCode = "B - Used"; i1.unitPrice = 0; i1.vendorOrTo = "SCS Fishing"; i1.transportedBy = "Truck #42"; i1.transfer = t
-    t.items.append(i1)
+    if t.items == nil { t.items = [] }
+    t.items?.append(i1)
     ctx.insert(i1)
     return MaterialTransferEditorView(well: w, transfer: t)
         .modelContainer(container)
