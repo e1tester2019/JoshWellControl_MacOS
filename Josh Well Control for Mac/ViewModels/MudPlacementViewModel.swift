@@ -16,7 +16,7 @@ class MudPlacementViewModel {
     private var context: ModelContext?
 
     var mudsSortedByName: [MudProperties] {
-        project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     init(project: ProjectState) {
@@ -30,7 +30,7 @@ class MudPlacementViewModel {
     // MARK: - Steps Management
 
     var steps: [MudStep] {
-        project.mudSteps.sorted { a, b in
+        (project.mudSteps ?? []).sorted { a, b in
             let ra = placementRank(a.placement)
             let rb = placementRank(b.placement)
             if ra != rb { return ra < rb }
@@ -58,7 +58,7 @@ class MudPlacementViewModel {
             MudStep(name: "Dry Pipe Slug",top_m: 220,  bottom_m: 596,  density_kgm3: 2100, color: .brown,  placement: .string,  project: project),
             MudStep(name: "Air",          top_m: 0,    bottom_m: 221,  density_kgm3: 1.2,  color: .cyan,   placement: .string,  project: project)
         ]
-        let existing = Set(project.mudSteps.map { "\($0.name)|\($0.top_m)|\($0.bottom_m)" })
+        let existing = Set((project.mudSteps ?? []).map { "\($0.name)|\($0.top_m)|\($0.bottom_m)" })
         for s in samples where !existing.contains("\(s.name)|\(s.top_m)|\(s.bottom_m)") {
             context?.insert(s)
         }
@@ -66,18 +66,18 @@ class MudPlacementViewModel {
     }
 
     func deleteStep(_ s: MudStep) {
-        if let idx = project.mudSteps.firstIndex(where: { $0 === s }) {
-            project.mudSteps.remove(at: idx)
+        if let idx = (project.mudSteps ?? []).firstIndex(where: { $0 === s }) {
+            project.mudSteps?.remove(at: idx)
         }
         context?.delete(s)
         try? context?.save()
     }
 
     func clearAllSteps() {
-        for s in project.mudSteps {
+        for s in (project.mudSteps ?? []) {
             context?.delete(s)
         }
-        project.mudSteps.removeAll()
+        project.mudSteps?.removeAll()
         try? context?.save()
     }
 
@@ -103,11 +103,11 @@ class MudPlacementViewModel {
     ) {
         guard bottom > top else { return (0,0,0,0,0,0,0,0,0,0,0) }
         var bounds: [Double] = [top, bottom]
-        for a in project.annulus where a.bottomDepth_m > top && a.topDepth_m < bottom {
+        for a in (project.annulus ?? []) where a.bottomDepth_m > top && a.topDepth_m < bottom {
             bounds.append(max(a.topDepth_m, top))
             bounds.append(min(a.bottomDepth_m, bottom))
         }
-        for d in project.drillString where d.bottomDepth_m > top && d.topDepth_m < bottom {
+        for d in (project.drillString ?? []) where d.bottomDepth_m > top && d.topDepth_m < bottom {
             bounds.append(max(d.topDepth_m, top))
             bounds.append(min(d.bottomDepth_m, bottom))
         }
@@ -119,8 +119,8 @@ class MudPlacementViewModel {
             let t = uniq[i], b = uniq[i+1]
             guard b > t else { continue }
             L += (b - t)
-            let ann = project.annulus.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
-            let str = project.drillString.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
+            let ann = (project.annulus ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
+            let str = (project.drillString ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
             if let a = ann {
                 let id = max(a.innerDiameter_m, 0)
                 openHole += (.pi * id * id / 4.0) * (b - t)
@@ -181,7 +181,7 @@ class MudPlacementViewModel {
     }
 
     func mdToTVD(_ md: Double) -> Double {
-        let stations = project.surveys.sorted { $0.md < $1.md }
+        let stations = (project.surveys ?? []).sorted { $0.md < $1.md }
         guard let first = stations.first else { return md }
         guard let last  = stations.last  else { return md }
         let tvd0 = first.tvd ?? 0
@@ -205,7 +205,7 @@ class MudPlacementViewModel {
     // MARK: - Final Layer Persistence
 
     func persistFinalLayers(from ann: [FinalLayer], _ str: [FinalLayer]) {
-        for layer in project.finalLayers {
+        for layer in (project.finalLayers ?? []) {
             context?.delete(layer)
         }
         func save(_ lay: FinalLayer, where placement: Placement) {

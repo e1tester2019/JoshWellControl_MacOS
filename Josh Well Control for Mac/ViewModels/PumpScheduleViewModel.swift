@@ -688,8 +688,8 @@ class PumpScheduleViewModel {
 
     func maxDepthMD(project: ProjectState) -> Double {
         max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
     }
 
