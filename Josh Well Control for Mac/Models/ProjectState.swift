@@ -19,7 +19,7 @@ final class ProjectState {
     var updatedAt: Date = Date.now
     var basedOnProjectID: UUID? = nil
 
-    @Relationship(inverse: \Well.projects) var well: Well?
+    @Relationship var well: Well?
 
     // Collections - all optional for CloudKit compatibility
     @Relationship(deleteRule: .cascade, inverse: \SurveyStation.project) var surveys: [SurveyStation]?

@@ -27,7 +27,7 @@ final class MaterialTransfer {
     @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem]?
 
     // Back link to Well
-    @Relationship(inverse: \Well.transfers) var well: Well?
+    @Relationship var well: Well?
 
     init(number: Int = 1, date: Date = Date()) {
         self.number = number
