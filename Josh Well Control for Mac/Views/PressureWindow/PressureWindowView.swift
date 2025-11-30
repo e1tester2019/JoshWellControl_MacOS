@@ -24,6 +24,14 @@ struct PressureWindowView: View {
         _viewmodel = State(initialValue: ViewModel(project: project))
     }
 
+    private var pageBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .underPageBackgroundColor)
+        #else
+        Color(uiColor: .systemGroupedBackground)
+        #endif
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -62,13 +70,7 @@ struct PressureWindowView: View {
             }
             .padding(24)
         }
-        .background(
-            #if os(macOS)
-            Color(nsColor: .underPageBackgroundColor)
-            #else
-            Color(uiColor: .systemGroupedBackground)
-            #endif
-        )
+        .background(pageBackgroundColor)
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
     }
@@ -135,6 +137,14 @@ private struct PressurePointRow: View {
     let focus: FocusState<PressureWindowPoint.ID?>.Binding
     let onDelete: () -> Void
 
+    private var cardBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(uiColor: .systemBackground)
+        #endif
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Text("TVD \(point.depth_m, format: .number)")
@@ -197,13 +207,7 @@ private struct PressurePointRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    #if os(macOS)
-                    Color(nsColor: .windowBackgroundColor)
-                    #else
-                    Color(uiColor: .systemBackground)
-                    #endif
-                )
+                .fill(cardBackgroundColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

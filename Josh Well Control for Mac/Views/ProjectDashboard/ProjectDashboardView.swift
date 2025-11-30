@@ -25,6 +25,14 @@ struct ProjectDashboardView: View {
         _viewmodel = State(initialValue: ViewModel(project: project))
     }
 
+    private var pageBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .underPageBackgroundColor)
+        #else
+        Color(uiColor: .systemGroupedBackground)
+        #endif
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -240,13 +248,7 @@ struct ProjectDashboardView: View {
                     .padding()
             }
         })
-        .background(
-            #if os(macOS)
-            Color(nsColor: .underPageBackgroundColor)
-            #else
-            Color(uiColor: .systemGroupedBackground)
-            #endif
-        )
+        .background(pageBackgroundColor)
         .navigationTitle("Project Dashboard")
     }
 }
