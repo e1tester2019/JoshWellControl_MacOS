@@ -276,11 +276,13 @@ private struct ProjectDashboardPreview: View {
         // Seed a couple of string and annulus sections
         let ds1 = DrillStringSection(name: "DP 5\"", topDepth_m: 0, length_m: 1500, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
         let ds2 = DrillStringSection(name: "DP 5\" HW", topDepth_m: 1500, length_m: 800, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
-        [ds1, ds2].forEach { s in p.drillString.append(s); ctx.insert(s) }
+        if p.drillString == nil { p.drillString = [] }
+        [ds1, ds2].forEach { s in p.drillString?.append(s); ctx.insert(s) }
 
         let a1 = AnnulusSection(name: "Surface", topDepth_m: 0,    length_m: 600, innerDiameter_m: 0.340, outerDiameter_m: 0.244)
         let a2 = AnnulusSection(name: "Intermediate", topDepth_m: 600, length_m: 900, innerDiameter_m: 0.244, outerDiameter_m: 0.1778)
-        [a1, a2].forEach { s in s.project = p; p.annulus.append(s); ctx.insert(s) }
+        if p.annulus == nil { p.annulus = [] }
+        [a1, a2].forEach { s in s.project = p; p.annulus?.append(s); ctx.insert(s) }
 
         // Seed a few pressure window points
         let w = p.window
@@ -359,11 +361,11 @@ extension ProjectDashboardView {
         var project: ProjectState
         init(project: ProjectState) { self.project = project }
 
-        var drillStringCount: Int { project.drillString.count }
-        var annulusCount: Int { project.annulus.count }
-        var pressurePointCount: Int { project.window.points.count }
-        var surveysCount: Int { project.surveys.count }
-        var mudChecksCount: Int { project.muds.count }
+        var drillStringCount: Int { (project.drillString ?? []).count }
+        var annulusCount: Int { (project.annulus ?? []).count }
+        var pressurePointCount: Int { (project.window.points ?? []).count }
+        var surveysCount: Int { (project.surveys ?? []).count }
+        var mudChecksCount: Int { (project.muds ?? []).count }
     }
 }
 

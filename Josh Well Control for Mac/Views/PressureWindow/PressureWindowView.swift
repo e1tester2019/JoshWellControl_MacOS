@@ -231,13 +231,16 @@ extension PressureWindowView {
         func attach(context: ModelContext) { self.context = context }
 
         var points: [PressureWindowPoint] {
-            project.window.points.sorted { $0.depth_m < $1.depth_m }
+            (project.window.points ?? []).sorted { $0.depth_m < $1.depth_m }
         }
 
         func addRow() {
             let r = PressureWindowPoint(depth_m: newDepth, pore_kPa: newPore, frac_kPa: newFrac)
             r.window = project.window
-            project.window.points.append(r)
+            if project.window.points == nil {
+                project.window.points = []
+            }
+            project.window.points?.append(r)
             try? context?.save()
         }
 
