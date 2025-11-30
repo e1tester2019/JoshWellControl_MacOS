@@ -44,8 +44,8 @@ struct PumpScheduleView: View {
 
     private var maxDepth: Double {
         max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
     }
 }
@@ -68,14 +68,19 @@ struct PumpSchedule_Previews: PreviewProvider {
         // Geometry
         let a = AnnulusSection(name: "Casing", topDepth_m: 0, length_m: 800, innerDiameter_m: 0.244, outerDiameter_m: 0)
         let b = AnnulusSection(name: "OpenHole", topDepth_m: 800, length_m: 5200 - 800, innerDiameter_m: 0.159, outerDiameter_m: 0)
-        a.project = p; b.project = p; p.annulus.append(contentsOf: [a,b]); ctx.insert(a); ctx.insert(b)
+        a.project = p; b.project = p
+        if p.annulus == nil { p.annulus = [] }
+        p.annulus?.append(contentsOf: [a,b]); ctx.insert(a); ctx.insert(b)
         let ds = DrillStringSection(name: "4\" DP", topDepth_m: 0, length_m: 5200, outerDiameter_m: 0.1016, innerDiameter_m: 0.0803)
-        ds.project = p; p.drillString.append(ds); ctx.insert(ds)
+        ds.project = p
+        if p.drillString == nil { p.drillString = [] }
+        p.drillString?.append(ds); ctx.insert(ds)
         // Muds
         let active = MudProperties(name: "Active", density_kgm3: 1260, color: .yellow, project: p)
         active.isActive = true
         let heavy = MudProperties(name: "Heavy", density_kgm3: 1855, color: .red, project: p)
-        p.muds.append(contentsOf: [active, heavy])
+        if p.muds == nil { p.muds = [] }
+        p.muds?.append(contentsOf: [active, heavy])
         ctx.insert(active); ctx.insert(heavy)
         // Final layers
         let ann1 = FinalFluidLayer(project: p, name: "Annulus ECD Mud", placement: .annulus, topMD_m: 800, bottomMD_m: 1500, density_kgm3: 1855, color: .red, mud: heavy)
