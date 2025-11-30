@@ -154,7 +154,7 @@ struct BHPPreviewView: View {
 
     private func recompute() {
         let fluids = demoFluidStack()
-        let ann = project.annulus.map { s in
+        let ann = (project.annulus ?? []).map { s in
             SimpleAnnLike(
                 topTVD_m: s.topDepth_m,
                 bottomTVD_m: s.bottomDepth_m,
@@ -202,65 +202,63 @@ private struct SimpleAnnLike: AnnulusSectionLike {
 import SwiftData
 
 #Preview("BHP Preview – Sample Data") {
-    do {
-        // In‑memory container for previews
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(
-            for: ProjectState.self,
-                 DrillStringSection.self,
-                 AnnulusSection.self,
-                 PressureWindow.self,
-                 PressureWindowPoint.self,
-                 SlugPlan.self,
-                 SlugStep.self,
-                 BackfillPlan.self,
-                 BackfillRule.self,
-                 TripSettings.self,
-                 SwabInput.self,
-                 SurveyStation.self,
-            configurations: config
-        )
+    // In‑memory container for previews
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(
+        for: ProjectState.self,
+             DrillStringSection.self,
+             AnnulusSection.self,
+             PressureWindow.self,
+             PressureWindowPoint.self,
+             SlugPlan.self,
+             SlugStep.self,
+             BackfillPlan.self,
+             BackfillRule.self,
+             TripSettings.self,
+             SwabInput.self,
+             SurveyStation.self,
+        configurations: config
+    )
 
-        // Seed data
-        let context = container.mainContext
-        let project = ProjectState()
-        context.insert(project)
+    // Seed data
+    let context = container.mainContext
+    let project = ProjectState()
+    context.insert(project)
 
-        // Annulus sections to test hydraulics
-        let a1 = AnnulusSection(name: "13-3/8\" × 5\"", topDepth_m: 0, length_m: 300, innerDiameter_m: 0.340, outerDiameter_m: 0.127)
-        a1.wallRoughness_m = 0.000045
-        a1.density_kg_per_m3 = 1200
-        let a2 = AnnulusSection(name: "9-5/8\" × 5\"", topDepth_m: 300, length_m: 600, innerDiameter_m: 0.244, outerDiameter_m: 0.127)
-        a2.wallRoughness_m = 0.000045
-        a2.density_kg_per_m3 = 1200
-        let a3 = AnnulusSection(name: "8-1/2\" Open Hole × 5\"", topDepth_m: 900, length_m: 900, innerDiameter_m: 0.216, outerDiameter_m: 0.127)
-        a3.wallRoughness_m = 0.000045
-        a3.density_kg_per_m3 = 1200
-        [a1, a2, a3].forEach { sec in
-            sec.project = project
-            if project.annulus == nil { project.annulus = [] }
-            project.annulus?.append(sec)
-            context.insert(sec)
-        }
-
-        // Pressure window points for safety check
-        let w = project.window
-        [
-            PressureWindowPoint(depth_m: 500,  pore_kPa: 6000,  frac_kPa: 11000, window: w),
-            PressureWindowPoint(depth_m: 1000, pore_kPa: 12000, frac_kPa: 18000, window: w),
-            PressureWindowPoint(depth_m: 1500, pore_kPa: 17500, frac_kPa: 26000, window: w)
-        ].forEach { context.insert($0) }
-
-        try? context.save()
-
-        NavigationStack {
-            BHPPreviewView(project: project)
-                .navigationTitle("BHP Preview")
-        }
-        .modelContainer(container)
-        .frame(width: 700, height: 520)
-    } catch {
-        Text("Preview failed: \(error.localizedDescription)")
+    // Annulus sections to test hydraulics
+    let a1 = AnnulusSection(name: "13-3/8\" × 5\"", topDepth_m: 0, length_m: 300, innerDiameter_m: 0.340, outerDiameter_m: 0.127)
+    a1.wallRoughness_m = 0.000045
+    a1.density_kg_per_m3 = 1200
+    let a2 = AnnulusSection(name: "9-5/8\" × 5\"", topDepth_m: 300, length_m: 600, innerDiameter_m: 0.244, outerDiameter_m: 0.127)
+    a2.wallRoughness_m = 0.000045
+    a2.density_kg_per_m3 = 1200
+    let a3 = AnnulusSection(name: "8-1/2\" Open Hole × 5\"", topDepth_m: 900, length_m: 900, innerDiameter_m: 0.216, outerDiameter_m: 0.127)
+    a3.wallRoughness_m = 0.000045
+    a3.density_kg_per_m3 = 1200
+    for sec in [a1, a2, a3] {
+        sec.project = project
+        if project.annulus == nil { project.annulus = [] }
+        project.annulus?.append(sec)
+        context.insert(sec)
     }
+
+    // Pressure window points for safety check
+    let w = project.window
+    for pt in [
+        PressureWindowPoint(depth_m: 500,  pore_kPa: 6000,  frac_kPa: 11000, window: w),
+        PressureWindowPoint(depth_m: 1000, pore_kPa: 12000, frac_kPa: 18000, window: w),
+        PressureWindowPoint(depth_m: 1500, pore_kPa: 17500, frac_kPa: 26000, window: w)
+    ] {
+        context.insert(pt)
+    }
+
+    try? context.save()
+
+    return NavigationStack {
+        BHPPreviewView(project: project)
+            .navigationTitle("BHP Preview")
+    }
+    .modelContainer(container)
+    .frame(width: 700, height: 520)
 }
 #endif

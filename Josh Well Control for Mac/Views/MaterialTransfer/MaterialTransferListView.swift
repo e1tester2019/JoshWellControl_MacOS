@@ -18,7 +18,7 @@ struct MaterialTransferListView: View {
             }
             List(selection: $selection) {
                 // Group transfers by outgoing/incoming
-                let sorted = well.transfers.sorted(by: { $0.date > $1.date })
+                let sorted = (well.transfers ?? []).sorted(by: { $0.date > $1.date })
                 let outgoing = sorted.filter { $0.isShippingOut }
                 let incoming = sorted.filter { !$0.isShippingOut }
 
@@ -97,7 +97,7 @@ struct MaterialTransferListView: View {
                     .labelsHidden()
                     .frame(width: 160)
                 Spacer(minLength: 12)
-                Text(String(format: "$%.2f", t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
+                Text(String(format: "$%.2f", (t.items ?? []).reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
                     .font(.headline)
                     .monospacedDigit()
             }
@@ -128,10 +128,11 @@ struct MaterialTransferListView: View {
     }
 
     private func addTransfer() {
-        let next = (well.transfers.map { $0.number }.max() ?? 0) + 1
+        let next = ((well.transfers ?? []).map { $0.number }.max() ?? 0) + 1
         let t = MaterialTransfer(number: next)
         t.well = well
-        well.transfers.append(t)
+        if well.transfers == nil { well.transfers = [] }
+        well.transfers?.append(t)
         modelContext.insert(t)
         try? modelContext.save()
         selection = t
@@ -147,7 +148,9 @@ struct MaterialTransferListView: View {
     }
 
     private func delete(_ t: MaterialTransfer) {
-        if let i = well.transfers.firstIndex(where: { $0.id == t.id }) { well.transfers.remove(at: i) }
+        if let i = (well.transfers ?? []).firstIndex(where: { $0.id == t.id }) {
+            well.transfers?.remove(at: i)
+        }
         modelContext.delete(t)
         try? modelContext.save()
         if selection?.id == t.id { selection = nil }
