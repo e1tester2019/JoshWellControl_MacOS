@@ -1,4 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// A reusable container that mirrors the clean card aesthetic used by the mud placement
 /// and trip simulation screens. Provides a consistent chrome for every major section.
@@ -50,7 +55,14 @@ struct WellSection<Content: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(nsColor: .windowBackgroundColor), Color.accentColor.opacity(0.08)],
+                        colors: [
+                            #if os(macOS)
+                            Color(nsColor: .windowBackgroundColor),
+                            #else
+                            Color(uiColor: .systemBackground),
+                            #endif
+                            Color.accentColor.opacity(0.08)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
