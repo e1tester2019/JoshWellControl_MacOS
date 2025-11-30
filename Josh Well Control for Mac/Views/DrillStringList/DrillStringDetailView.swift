@@ -172,7 +172,7 @@ struct DrillStringDetailView: View {
     private func enforceNoOverlap(for current: DrillStringSection) {
         guard let project = current.project else { return }
         // Sort others by top depth
-        let others = project.drillString.filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
+        let others = (project.drillString ?? []).filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
         // Find neighbors
         let prev = others.last { $0.topDepth_m <= current.topDepth_m }
         let next = others.first { $0.topDepth_m >= current.topDepth_m && $0.id != current.id }

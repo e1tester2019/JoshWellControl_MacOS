@@ -116,7 +116,7 @@ extension DrillStringListView {
         }
 
         var sortedSections: [DrillStringSection] {
-            project.drillString.sorted { a, b in a.topDepth_m < b.topDepth_m }
+            (project.drillString ?? []).sorted { a, b in a.topDepth_m < b.topDepth_m }
         }
 
         var hasGaps: Bool {
@@ -130,7 +130,7 @@ extension DrillStringListView {
         
         func add() {
             // Compute next available top as the max bottom among sections
-            let nextTop = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            let nextTop = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
             let s = DrillStringSection(
                 name: newName,
                 topDepth_m: nextTop,
@@ -139,14 +139,17 @@ extension DrillStringListView {
                 innerDiameter_m: 0.0953
             )
             s.project = project
-            project.drillString.append(s)
+            if project.drillString == nil {
+                project.drillString = []
+            }
+            project.drillString?.append(s)
             try? context?.save()
             newName = "New Section"
         }
 
         func delete(_ section: DrillStringSection) {
-            if let i = project.drillString.firstIndex(where: { $0.id == section.id }) {
-                project.drillString.remove(at: i)
+            if let i = (project.drillString ?? []).firstIndex(where: { $0.id == section.id }) {
+                project.drillString?.remove(at: i)
             }
             context?.delete(section)
             try? context?.save()
@@ -218,7 +221,8 @@ private struct DrillStringListPreview: View {
         let s1 = DrillStringSection(name: "5\" DP", topDepth_m: 0, length_m: 500, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
         let s2 = DrillStringSection(name: "5\" HWDP", topDepth_m: 500, length_m: 100, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
         let s3 = DrillStringSection(name: "6-1/2\" Collar", topDepth_m: 600, length_m: 90, outerDiameter_m: 0.165, innerDiameter_m: 0.070)
-        [s1, s2, s3].forEach { s in s.project = p; p.drillString.append(s); context.insert(s) }
+        if p.drillString == nil { p.drillString = [] }
+        [s1, s2, s3].forEach { s in s.project = p; p.drillString?.append(s); context.insert(s) }
         try? context.save()
         self.project = p
     }
