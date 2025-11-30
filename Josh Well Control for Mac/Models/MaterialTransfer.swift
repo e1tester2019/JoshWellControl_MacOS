@@ -24,7 +24,7 @@ final class MaterialTransfer {
     var isShippingOut: Bool = false     // This transfer ships items out of location
     var isShippedBack: Bool = false     // Items have been shipped back to vendor
 
-    @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem]?
+    @Relationship(deleteRule: .cascade, inverse: \MaterialTransferItem.transfer) var items: [MaterialTransferItem]?
 
     // Back link to Well
     @Relationship var well: Well?
@@ -57,7 +57,7 @@ final class MaterialTransferItem {
     var totalValue: Double { (unitPrice ?? 0) * quantity }
 
     // Back link to transfer
-    @Relationship(inverse: \MaterialTransfer.items) var transfer: MaterialTransfer?
+    @Relationship var transfer: MaterialTransfer?
 
     init(quantity: Double = 1, descriptionText: String) {
         self.quantity = quantity

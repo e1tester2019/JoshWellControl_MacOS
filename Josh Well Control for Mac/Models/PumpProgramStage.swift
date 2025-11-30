@@ -29,7 +29,7 @@ final class PumpProgramStage {
     @Relationship var mud: MudProperties?
 
     // Back-reference to owning project
-    @Relationship(inverse: \ProjectState.programStages) var project: ProjectState?
+    @Relationship var project: ProjectState?
 
     init(name: String,
          volume_m3: Double,

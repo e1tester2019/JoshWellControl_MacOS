@@ -12,7 +12,7 @@ import SwiftData
 @Model
 final class FinalFluidLayer {
     // Relationships
-    @Relationship(inverse: \ProjectState.finalLayers)
+    @Relationship
     var project: ProjectState?
     @Relationship var mud: MudProperties?   // ← optional link back to the mud check
 

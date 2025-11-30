@@ -60,7 +60,7 @@ final class AnnulusSection {
     var cuttingsVolFrac: Double = 0.0
 
     // Relationship
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.annulus)
+    @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
     // MARK: - Transient derived values (not stored)

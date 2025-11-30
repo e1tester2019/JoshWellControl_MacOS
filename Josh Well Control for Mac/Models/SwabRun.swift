@@ -26,7 +26,7 @@ final class SwabRun {
     var maxUnderbalance_kPa: Double
     var nonLaminar: Bool
 
-    @Relationship(deleteRule: .cascade) var samples: [SwabSample] = []
+    @Relationship(deleteRule: .cascade, inverse: \SwabSample.run) var samples: [SwabSample]?
     @Relationship var project: ProjectState?
 
     init(bitMD_m: Double, topMD_m: Double, lowerLimitMD_m: Double,
@@ -51,7 +51,7 @@ final class SwabSample {
     var tvd_m: Double
     var dP_kPa: Double
 
-    @Relationship(inverse: \SwabRun.samples) var run: SwabRun?
+    @Relationship var run: SwabRun?
 
     init(md_m: Double, tvd_m: Double, dP_kPa: Double) {
         self.md_m = md_m

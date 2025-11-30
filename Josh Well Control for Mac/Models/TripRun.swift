@@ -30,7 +30,7 @@ final class TripRun {
     var minMarginToFrac_kPa: Double
     var maxSABP_kPa: Double
 
-    @Relationship(deleteRule: .cascade) var samples: [TripSample] = []
+    @Relationship(deleteRule: .cascade, inverse: \TripSample.run) var samples: [TripSample]?
     @Relationship var project: ProjectState?
 
     init(startBitMD_m: Double, endMD_m: Double, step_m: Double,
@@ -63,7 +63,7 @@ final class TripSample {
     var recommendedSABP_kPa: Double
     var nonLaminar: Bool
 
-    @Relationship(inverse: \TripRun.samples) var run: TripRun?
+    @Relationship var run: TripRun?
 
     init(bitMD_m: Double, tvd_m: Double, total_kPa: Double,
          recommendedSABP_kPa: Double, nonLaminar: Bool) {

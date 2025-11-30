@@ -25,7 +25,7 @@ final class PressureWindow {
     var fracSafety_kPa: Double = 0.0      // margin below fracture pressure
 
     /// Relationship to tabulated points
-    @Relationship(deleteRule: .cascade) var points: [PressureWindowPoint]?
+    @Relationship(deleteRule: .cascade, inverse: \PressureWindowPoint.window) var points: [PressureWindowPoint]?
 
     // Link back to project (must match internal _window property)
     @Relationship(deleteRule: .cascade, inverse: \ProjectState._window)
@@ -146,7 +146,7 @@ final class PressureWindowPoint {
     var frac_kPa: Double?
 
     // Link to parent
-    @Relationship(deleteRule: .nullify, inverse: \PressureWindow.points)
+    @Relationship(deleteRule: .nullify)
     var window: PressureWindow?
 
     init(depth_m: Double,

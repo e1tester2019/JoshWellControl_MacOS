@@ -35,7 +35,7 @@ final class DrillStringSection {
     var internalRoughness_m: Double = 4.6e-5 // ~0.0018 in, typical DP roughness
 
     // Relationships
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.drillString)
+    @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
     // Derived convenience -----------------------------------------------

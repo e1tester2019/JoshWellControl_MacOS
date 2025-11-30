@@ -23,12 +23,14 @@ final class ProjectState {
 
     // Collections - all optional for CloudKit compatibility
     @Relationship(deleteRule: .cascade, inverse: \SurveyStation.project) var surveys: [SurveyStation]?
-    @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection]?
-    @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection]?
-    @Relationship(deleteRule: .cascade) var mudSteps: [MudStep]?
-    @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer]?
-    @Relationship(deleteRule: .cascade) var muds: [MudProperties]?
-    @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage]?
+    @Relationship(deleteRule: .cascade, inverse: \DrillStringSection.project) var drillString: [DrillStringSection]?
+    @Relationship(deleteRule: .cascade, inverse: \AnnulusSection.project) var annulus: [AnnulusSection]?
+    @Relationship(deleteRule: .cascade, inverse: \MudStep.project) var mudSteps: [MudStep]?
+    @Relationship(deleteRule: .cascade, inverse: \FinalFluidLayer.project) var finalLayers: [FinalFluidLayer]?
+    @Relationship(deleteRule: .cascade, inverse: \MudProperties.project) var muds: [MudProperties]?
+    @Relationship(deleteRule: .cascade, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
+    @Relationship(deleteRule: .cascade, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
+    @Relationship(deleteRule: .cascade, inverse: \TripRun.project) var tripRuns: [TripRun]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .cascade) var _window: PressureWindow?
