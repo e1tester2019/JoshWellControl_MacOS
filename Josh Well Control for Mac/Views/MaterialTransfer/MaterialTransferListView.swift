@@ -157,22 +157,22 @@ struct MaterialTransferListView: View {
     }
 }
 
-#Preview("Material Transfer List") {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Well.self, MaterialTransfer.self, MaterialTransferItem.self, configurations: config)
-    let ctx = container.mainContext
-    let w = Well(name: "Sundance 102/04-16-055-22W5", uwi: "102/04-16-055-22W5/00", afeNumber: "25D2566")
-    ctx.insert(w)
-    for n in 1...2 {
-        let t = MaterialTransfer(number: n)
-        t.activity = n == 1 ? "Drilling" : "Completions"
-        t.country = "Canada"; t.province = "Alberta"; t.shippingCompany = "Roughneck Logistics"; t.transportedBy = "TK-123"
-        t.well = w
-        if w.transfers == nil { w.transfers = [] }
-        w.transfers?.append(t)
-        ctx.insert(t)
-    }
-    NavigationStack { MaterialTransferListView(well: w) }
-        .modelContainer(container)
-        .frame(width: 800, height: 480)
-}
+//#Preview("Material Transfer List") {
+//    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+//    let container = try! ModelContainer(for: Well.self, MaterialTransfer.self, MaterialTransferItem.self, configurations: config)
+//    let ctx = container.mainContext
+//    let w = Well(name: "Sundance 102/04-16-055-22W5", uwi: "102/04-16-055-22W5/00", afeNumber: "25D2566")
+//    ctx.insert(w)
+//    for n in 1...2 {
+//        let t = MaterialTransfer(number: n)
+//        t.activity = n == 1 ? "Drilling" : "Completions"
+//        t.country = "Canada"; t.province = "Alberta"; t.shippingCompany = "Roughneck Logistics"; t.transportedBy = "TK-123"
+//        t.well = w
+//        if w.transfers == nil { w.transfers = [] }
+//        w.transfers?.append(t)
+//        ctx.insert(t)
+//    }
+//    NavigationStack { MaterialTransferListView(well: w) }
+//        .modelContainer(container)
+//        .frame(width: 800, height: 480)
+//}
