@@ -275,7 +275,17 @@ struct ContentView_iPadOS: View {
                 case .swabbing:
                     SwabbingView(project: project)
                 case .trip:
-                    TripSimulationView(project: project)
+                    // TODO: Create iPad-optimized TripSimulationView
+                    VStack(spacing: 16) {
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 60))
+                            .foregroundStyle(.secondary)
+                        Text("Trip Simulation")
+                            .font(.title)
+                        Text("Coming soon to iPad")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .bhp:
                     BHPPreviewView(project: project)
                 case .rentals:
