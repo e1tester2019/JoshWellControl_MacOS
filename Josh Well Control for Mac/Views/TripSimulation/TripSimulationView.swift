@@ -7,7 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
 import AppKit // Import AppKit for NSSavePanel support
+#endif
 import UniformTypeIdentifiers
 
 typealias TripStep = NumericalTripModel.TripStep
