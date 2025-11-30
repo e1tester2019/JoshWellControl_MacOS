@@ -373,7 +373,7 @@ struct ContentView_iPadOS: View {
 }
 
 // MARK: - Helper Functions
-private extension ContentView {
+private extension ContentView_iPadOS {
     func createNewWell() {
         let w = Well(name: "New Well")
         modelContext.insert(w)
