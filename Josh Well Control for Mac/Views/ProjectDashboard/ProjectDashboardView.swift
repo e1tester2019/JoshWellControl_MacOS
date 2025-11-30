@@ -8,7 +8,9 @@
 // ProjectDashboardView.swift
 import SwiftUI
 import SwiftData
-#if os(macOS)
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
 import AppKit
 #endif
 
@@ -238,7 +240,13 @@ struct ProjectDashboardView: View {
                     .padding()
             }
         })
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(
+            #if os(macOS)
+            Color(nsColor: .underPageBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+        )
         .navigationTitle("Project Dashboard")
     }
 }

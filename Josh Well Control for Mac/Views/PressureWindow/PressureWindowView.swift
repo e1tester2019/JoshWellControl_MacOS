@@ -7,6 +7,11 @@
 
 import SwiftUI
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 struct PressureWindowView: View {
     @Environment(\.modelContext) private var modelContext
@@ -57,7 +62,13 @@ struct PressureWindowView: View {
             }
             .padding(24)
         }
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(
+            #if os(macOS)
+            Color(nsColor: .underPageBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+        )
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
     }
@@ -186,7 +197,13 @@ private struct PressurePointRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+                .fill(
+                    #if os(macOS)
+                    Color(nsColor: .windowBackgroundColor)
+                    #else
+                    Color(uiColor: .systemBackground)
+                    #endif
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
