@@ -288,7 +288,9 @@ struct MudPlacementView: View {
 
                                     Stepper("", value: $top_m, in: 0...10_000, step: 0.1)
                                         .labelsHidden()
+                                        #if os(macOS)
                                         .frame(width: 20)
+                                        #endif
                                 }
                                 label("Bottom (m)")
                                 HStack(spacing: 4) {
@@ -298,7 +300,9 @@ struct MudPlacementView: View {
 
                                     Stepper("", value: $bottom_m, in: top_m...10_000, step: 0.1)
                                         .labelsHidden()
+                                        #if os(macOS)
                                         .frame(width: 20)
+                                        #endif
                                 }
                                 label("Preview mud")
                                 Picker("", selection: Binding<UUID?>(
