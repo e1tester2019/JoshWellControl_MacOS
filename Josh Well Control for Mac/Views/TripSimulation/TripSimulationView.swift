@@ -176,12 +176,13 @@ struct TripSimulationView: View {
             showingExportErrorAlert = true
             return
         }
-        
+
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "ProjectExport.json"
         panel.canCreateDirectories = true
-        
+
         // Present the NSSavePanel synchronously on the main thread
         if panel.runModal() == .OK, let url = panel.url {
             do {
@@ -193,6 +194,11 @@ struct TripSimulationView: View {
                 NSLog("Error exporting project JSON: \(error)")
             }
         }
+        #else
+        // TODO: Implement iPad-compatible file export (e.g., using UIDocumentPickerViewController)
+        exportErrorMessage = "Export is not yet supported on this platform."
+        showingExportErrorAlert = true
+        #endif
     }
 
     private var content: some View {
