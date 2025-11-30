@@ -61,13 +61,15 @@ final class FinalFluidLayer {
 // Small helper to unpack Color → RGBA
 fileprivate extension Color {
     var rgba: (Double, Double, Double, Double) {
-        #if canImport(AppKit)
-        let ns = NSColor(self)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+
+        #if canImport(UIKit)
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #elseif canImport(AppKit)
+        let ns = NSColor(self)
         ns.usingColorSpace(.deviceRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return (Double(r), Double(g), Double(b), Double(a))
-        #else
-        return (0.5, 0.5, 0.5, 1.0)
         #endif
+
+        return (Double(r), Double(g), Double(b), Double(a))
     }
 }

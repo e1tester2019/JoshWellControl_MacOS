@@ -44,6 +44,7 @@ extension Well {
         return transfer
     }
 
+    #if os(macOS)
     func generateTransferPDF(_ transfer: MaterialTransfer, pageSize: CGSize = CGSize(width: 612, height: 792)) -> Data? {
         let data = NSMutableData()
         var mediaBox = CGRect(origin: .zero, size: pageSize)
@@ -305,5 +306,6 @@ extension Well {
 
         return data as Data
     }
+    #endif
 }
 

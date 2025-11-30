@@ -53,7 +53,15 @@ final class MudProperties {
     var color: Color {
         get { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
         set {
-            #if canImport(AppKit)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+
+            #if canImport(UIKit)
+            UIColor(newValue).getRed(&r, green: &g, blue: &b, alpha: &a)
+            colorR = Double(r)
+            colorG = Double(g)
+            colorB = Double(b)
+            colorA = Double(a)
+            #elseif canImport(AppKit)
             let ns = NSColor(newValue)
             if let rgb = ns.usingColorSpace(.sRGB) {
                 colorR = Double(rgb.redComponent)
@@ -112,19 +120,34 @@ final class MudProperties {
         self.dial600 = dial600
         self.dial300 = dial300
         // set color components
-        #if canImport(AppKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var success = false
+
+        #if canImport(UIKit)
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        success = true
+        #elseif canImport(AppKit)
         let ns = NSColor(color)
         if let rgb = ns.usingColorSpace(.sRGB) {
-            self.colorR = Double(rgb.redComponent)
-            self.colorG = Double(rgb.greenComponent)
-            self.colorB = Double(rgb.blueComponent)
-            self.colorA = Double(rgb.alphaComponent)
-        } else {
-            self.colorR = 0.8; self.colorG = 0.8; self.colorB = 0.0; self.colorA = 1.0
+            r = rgb.redComponent
+            g = rgb.greenComponent
+            b = rgb.blueComponent
+            a = rgb.alphaComponent
+            success = true
         }
-        #else
-        self.colorR = 0.8; self.colorG = 0.8; self.colorB = 0.0; self.colorA = 1.0
         #endif
+
+        if success {
+            self.colorR = Double(r)
+            self.colorG = Double(g)
+            self.colorB = Double(b)
+            self.colorA = Double(a)
+        } else {
+            self.colorR = 0.8
+            self.colorG = 0.8
+            self.colorB = 0.0
+            self.colorA = 1.0
+        }
     }
 
     // Effective density with simple T/P/gas-cut correction (optional; nil means "use inputs")

@@ -116,12 +116,23 @@ public extension Color {
     }
 
     func toHexRGB() -> String? {
-        #if canImport(AppKit)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        #if canImport(UIKit)
+        UIColor(self).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        let r = Int((red * 255.0).rounded())
+        let g = Int((green * 255.0).rounded())
+        let b = Int((blue * 255.0).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
+        #elseif canImport(AppKit)
         let ns = NSColor(self)
         guard let rgb = ns.usingColorSpace(.sRGB) else { return nil }
-        let r = Int((rgb.redComponent   * 255.0).rounded())
+        let r = Int((rgb.redComponent * 255.0).rounded())
         let g = Int((rgb.greenComponent * 255.0).rounded())
-        let b = Int((rgb.blueComponent  * 255.0).rounded())
+        let b = Int((rgb.blueComponent * 255.0).rounded())
         return String(format: "#%02X%02X%02X", r, g, b)
         #else
         return nil
