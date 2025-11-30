@@ -177,7 +177,7 @@ class MaterialTransferPDFGenerator {
         numberFormatter.numberStyle = .currency
         numberFormatter.currencySymbol = "$"
 
-        for item in transfer.items {
+        for item in transfer.items ?? [] {
             y += 4
             xOffset = margin
 
