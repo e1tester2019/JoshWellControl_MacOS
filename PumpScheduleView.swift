@@ -25,10 +25,15 @@ struct PumpScheduleView: View {
                     returnsInfo.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 HStack(alignment: .top, spacing: 12) {
-                    visualization.frame(maxWidth: 900)
-                    hydraulicsPanel.frame(width: 320)
+                    // Visualization now flexible up to 900px
+                    visualization
+                        .frame(idealWidth: 600, maxWidth: 900)
+                    // Make hydraulics panel adaptive
+                    hydraulicsPanel
+                        .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
                 }
             }
+            .frame(maxHeight: .infinity)
             Divider()
         }
         .padding(12)
@@ -446,7 +451,6 @@ struct PumpScheduleView: View {
             }
             .frame(minHeight: 260)
         }
-        .frame(maxWidth: 900)
     }
 
     private var hydraulicsPanel: some View {

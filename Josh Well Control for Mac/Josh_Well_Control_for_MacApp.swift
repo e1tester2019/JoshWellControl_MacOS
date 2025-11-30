@@ -13,7 +13,13 @@ import SwiftData
 struct Josh_Well_Control_for_MacApp: App {
     var body: some Scene {
         WindowGroup {
+            #if os(macOS)
+            // Use the original ContentView for macOS
             ContentView()
+            #else
+            // Use iPad-optimized ContentView for iOS/iPadOS
+            ContentView_iPadOS()
+            #endif
         }
         .modelContainer(for: [
             ProjectState.self,
