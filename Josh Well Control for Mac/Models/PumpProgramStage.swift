@@ -56,7 +56,7 @@ final class PumpProgramStage {
         self.mud = mud
 
         if let project {
-            let next = (project.programStages.map { $0.orderIndex }.max() ?? -1) + 1
+            let next = ((project.programStages ?? []).map { $0.orderIndex }.max() ?? -1) + 1
             self.orderIndex = next
         } else {
             self.orderIndex = 0

@@ -96,7 +96,7 @@ final class PressureWindow {
 
     /// Returns points sorted by depth (ascending). Call this before interpolation.
     @Transient private var sortedPoints: [PressureWindowPoint] {
-        points.sorted { $0.depth_m < $1.depth_m }
+        (points ?? []).sorted { $0.depth_m < $1.depth_m }
     }
 
     /// Generic linear interpolation across table for the given keyPath (pore or frac).
