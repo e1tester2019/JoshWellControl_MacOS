@@ -24,7 +24,8 @@ final class ContentViewModel: ObservableObject {
         let p = ProjectState()
         p.name = "Baseline"
         p.well = w
-        w.projects.append(p)
+        if w.projects == nil { w.projects = [] }
+        w.projects?.append(p)
         try? context.save()
         return w
     }
@@ -72,7 +73,8 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $splitVisibility) {
             // Sidebar
             VStack(alignment: .leading, spacing: 12) {
-                if let _ = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
+                let firstProject = vm.selectedWell.map { ($0.projects ?? []).first }
+                if let _ = (vm.selectedProject ?? firstProject ?? nil) {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
                             ForEach(Pane.allCases) { sec in
@@ -118,7 +120,8 @@ struct ContentView: View {
         } detail: {
             // Detail content
             Group {
-                if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
+                let firstProject = vm.selectedWell.map { ($0.projects ?? []).first }
+                if let project = (vm.selectedProject ?? firstProject ?? nil) {
                     Group {
                         switch selectedSection {
                         case .dashboard:
@@ -173,7 +176,7 @@ struct ContentView: View {
                                 modelContext.insert(w)
                                 try? modelContext.save()
                                 vm.selectedWell = w
-                                vm.selectedProject = w.projects.first
+                                vm.selectedProject = (w.projects ?? []).first
                             }
                             if vm.selectedWell != nil {
                                 Button("New Project State", systemImage: "doc.badge.plus") {
@@ -181,7 +184,8 @@ struct ContentView: View {
                                     let p = ProjectState()
                                     p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
                                     p.well = w
-                                    w.projects.append(p)
+                                    if w.projects == nil { w.projects = [] }
+                                    w.projects?.append(p)
                                     try? modelContext.save()
                                     vm.selectedProject = p
                                 }
@@ -244,11 +248,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: vm.selectedWell) { _, newVal in
-            vm.selectedProject = newVal?.projects.first
+            vm.selectedProject = newVal.flatMap { ($0.projects ?? []).first }
         }
         .onChange(of: vm.selectedProject) { _, newVal in
             if newVal == nil, let w = vm.selectedWell {
-                vm.selectedProject = w.projects.first
+                vm.selectedProject = (w.projects ?? []).first
             }
         }
         .environment(\.locale, Locale(identifier: "en_GB"))
@@ -257,21 +261,23 @@ struct ContentView: View {
 
 private extension ContentView {
     func index(of project: ProjectState, in well: Well) -> Int? {
-        well.projects
+        let projects = well.projects ?? []
+        return projects
             .sorted { $0.createdAt < $1.createdAt }
             .firstIndex(where: { $0.id == project.id })
     }
 
     func deleteProjects(offsets: IndexSet) {
         guard let well = vm.selectedWell else { return }
-        let sorted = well.projects.sorted { $0.createdAt < $1.createdAt }
+        let projects = well.projects ?? []
+        let sorted = projects.sorted { $0.createdAt < $1.createdAt }
         for i in offsets {
             let p = sorted[i]
             modelContext.delete(p)
             if vm.selectedProject?.id == p.id { vm.selectedProject = nil }
         }
         try? modelContext.save()
-        if vm.selectedProject == nil { vm.selectedProject = well.projects.first }
+        if vm.selectedProject == nil { vm.selectedProject = (well.projects ?? []).first }
     }
 
     func beginRename(_ p: ProjectState) {
@@ -296,7 +302,8 @@ private extension ContentView {
         p.baseStringDensity_kgm3 = source.baseStringDensity_kgm3
         p.pressureDepth_m = source.pressureDepth_m
         p.well = well
-        well.projects.append(p)
+        if well.projects == nil { well.projects = [] }
+        well.projects?.append(p)
         try? modelContext.save()
         vm.selectedProject = p
     }
@@ -310,7 +317,7 @@ private extension ContentView {
             modelContext.delete(w)
         }
         try? modelContext.save()
-        if let first = wells.first { vm.selectedWell = first; vm.selectedProject = first.projects.first }
+        if let first = wells.first { vm.selectedWell = first; vm.selectedProject = (first.projects ?? []).first }
     }
 
     func beginRename(_ well: Well) {
@@ -328,26 +335,29 @@ private extension ContentView {
     func duplicateWell(from source: Well) {
         let w = Well(name: source.name + " (Copy)")
         modelContext.insert(w)
+        if w.projects == nil { w.projects = [] }
         // Shallow-copy project states (scalar fields); deep-copy of related collections can be added later
-        for p0 in source.projects.sorted(by: { $0.createdAt < $1.createdAt }) {
+        for p0 in (source.projects ?? []).sorted(by: { $0.createdAt < $1.createdAt }) {
             let p = ProjectState()
             p.name = p0.name
             p.baseAnnulusDensity_kgm3 = p0.baseAnnulusDensity_kgm3
             p.baseStringDensity_kgm3 = p0.baseStringDensity_kgm3
             p.pressureDepth_m = p0.pressureDepth_m
             p.well = w
-            w.projects.append(p)
+            if w.projects == nil { w.projects = [] }
+            w.projects?.append(p)
         }
         try? modelContext.save()
         vm.selectedWell = w
-        vm.selectedProject = w.projects.first
+        vm.selectedProject = (w.projects ?? []).first
     }
 
     func openMaterialTransferEditor() {
         guard let well = vm.selectedWell else { return }
         // Choose latest transfer or create one
+        let transfers = well.transfers ?? []
         let transfer: MaterialTransfer
-        if let latest = well.transfers.sorted(by: { $0.date > $1.date }).first {
+        if let latest = transfers.sorted(by: { $0.date > $1.date }).first {
             transfer = latest
         } else {
             transfer = well.createTransfer(context: modelContext)
@@ -386,7 +396,7 @@ private extension ContentView {
                     ForEach(wells, id: \.id) { w in
                         Button {
                             vm.selectedWell = w
-                            vm.selectedProject = w.projects.first
+                            vm.selectedProject = (w.projects ?? []).first
                         } label: {
                             if vm.selectedWell?.id == w.id { Image(systemName: "checkmark") }
                             Text(w.name)
@@ -398,8 +408,9 @@ private extension ContentView {
 
                 // Project picker menu
                 if let well = vm.selectedWell {
+                    let projects = well.projects ?? []
                     Menu {
-                        ForEach(well.projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
+                        ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
                             Button { vm.selectedProject = p } label: {
                                 if vm.selectedProject?.id == p.id { Image(systemName: "checkmark") }
                                 Text(p.name)
@@ -418,14 +429,15 @@ private extension ContentView {
                     modelContext.insert(w)
                     try? modelContext.save()
                     vm.selectedWell = w
-                    vm.selectedProject = w.projects.first
+                    vm.selectedProject = (w.projects ?? []).first
                 }
                 Button("New Project State", systemImage: "doc.badge.plus") {
                     guard let w = vm.selectedWell else { return }
                     let p = ProjectState()
                     p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
                     p.well = w
-                    w.projects.append(p)
+                    if w.projects == nil { w.projects = [] }
+                    w.projects?.append(p)
                     try? modelContext.save()
                     vm.selectedProject = p
                 }
@@ -467,9 +479,11 @@ private extension ContentView {
     }
 
     func deleteCurrentProject() {
-        guard let well = vm.selectedWell, let p = vm.selectedProject,
-              let idx = well.projects.sorted(by: { $0.createdAt < $1.createdAt }).firstIndex(where: { $0.id == p.id }) else { return }
-        deleteProjects(offsets: IndexSet(integer: idx))
+        guard let well = vm.selectedWell, let p = vm.selectedProject else { return }
+        let projects = well.projects ?? []
+        if let idx = projects.sorted(by: { $0.createdAt < $1.createdAt }).firstIndex(where: { $0.id == p.id }) {
+            deleteProjects(offsets: IndexSet(integer: idx))
+        }
     }
 }
 

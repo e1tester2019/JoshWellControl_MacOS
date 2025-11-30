@@ -93,10 +93,10 @@ extension VolumeSummaryView {
         init(project: ProjectState) { self.project = project }
 
         fileprivate func computeTotals() -> VolumeTotals {
-            let dsCapacity = project.drillString.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
-            let dsDisplacement = project.drillString.reduce(0.0) { $0 + (.pi * (pow(max($1.outerDiameter_m, 0), 2) - pow(max($1.innerDiameter_m, 0), 2) ) / 4.0) * max($1.length_m, 0) }
+            let dsCapacity = (project.drillString ?? []).reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
+            let dsDisplacement = (project.drillString ?? []).reduce(0.0) { $0 + (.pi * (pow(max($1.outerDiameter_m, 0), 2) - pow(max($1.innerDiameter_m, 0), 2) ) / 4.0) * max($1.length_m, 0) }
             let dsWet = dsCapacity + dsDisplacement
-            let openHole = project.annulus.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
+            let openHole = (project.annulus ?? []).reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
             let slices = buildAnnularSlices()
             let annularWithPipe = slices.reduce(0.0) { $0 + $1.volume_m3 }
             return VolumeTotals(dsCapacity_m3: dsCapacity, dsDisplacement_m3: dsDisplacement, dsWet_m3: dsWet, annularWithPipe_m3: annularWithPipe, openHole_m3: openHole, slices: slices)
@@ -104,13 +104,13 @@ extension VolumeSummaryView {
 
         private func buildAnnularSlices() -> [VolumeSlice] {
             var boundaries = Set<Double>()
-            for a in project.annulus { boundaries.insert(a.topDepth_m); boundaries.insert(a.bottomDepth_m) }
-            for d in project.drillString { boundaries.insert(d.topDepth_m); boundaries.insert(d.bottomDepth_m) }
+            for a in (project.annulus ?? []) { boundaries.insert(a.topDepth_m); boundaries.insert(a.bottomDepth_m) }
+            for d in (project.drillString ?? []) { boundaries.insert(d.topDepth_m); boundaries.insert(d.bottomDepth_m) }
             let sorted = boundaries.sorted()
             guard sorted.count > 1 else { return [] }
 
-            func annulusAt(_ t: Double, _ b: Double) -> AnnulusSection? { project.annulus.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
-            func stringAt(_ t: Double, _ b: Double) -> DrillStringSection? { project.drillString.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
+            func annulusAt(_ t: Double, _ b: Double) -> AnnulusSection? { (project.annulus ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
+            func stringAt(_ t: Double, _ b: Double) -> DrillStringSection? { (project.drillString ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
 
             var slices: [VolumeSlice] = []
             for i in 0..<(sorted.count - 1) {
@@ -150,9 +150,9 @@ private struct VolumeSummaryPreview: View {
         ctx.insert(p)
         let a1 = AnnulusSection(name: "Surface Hole", topDepth_m: 0, length_m: 600, innerDiameter_m: 0.340, outerDiameter_m: 0.244)
         let a2 = AnnulusSection(name: "Intermediate", topDepth_m: 700, length_m: 300, innerDiameter_m: 0.244, outerDiameter_m: 0.1778)
-        p.annulus.append(contentsOf: [a1, a2])
+        p.annulus = (p.annulus ?? []) + [a1, a2]
         let d1 = DrillStringSection(name: "Drill Pipe", topDepth_m: 0, length_m: 1000, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
-        p.drillString.append(d1)
+        p.drillString = (p.drillString ?? []) + [d1]
         try? ctx.save()
         self.project = p
     }
@@ -168,3 +168,4 @@ private struct VolumeSummaryPreview: View {
     VolumeSummaryPreview()
 }
 #endif
+

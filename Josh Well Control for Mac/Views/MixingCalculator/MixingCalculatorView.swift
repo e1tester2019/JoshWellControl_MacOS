@@ -211,7 +211,7 @@ extension MixingCalculatorView {
         
         // Add mudsSortedByName computed property
         var mudsSortedByName: [MudProperties] {
-            project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
         
         // Densities
@@ -267,12 +267,12 @@ extension MixingCalculatorView {
         
         // MARK: Totals & geometry
         func computeTotals() -> VolumeTotals {
-            let dsCapacity = project.drillString.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
-            let dsDisplacement = project.drillString.reduce(0.0) { $0 + (.pi * (pow(max($1.outerDiameter_m, 0), 2) - pow(max($1.innerDiameter_m, 0), 2)) / 4.0) * max($1.length_m, 0) }
+            let dsCapacity = (project.drillString ?? []).reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
+            let dsDisplacement = (project.drillString ?? []).reduce(0.0) { $0 + (.pi * (pow(max($1.outerDiameter_m, 0), 2) - pow(max($1.innerDiameter_m, 0), 2)) / 4.0) * max($1.length_m, 0) }
             let dsWet = dsCapacity + dsDisplacement
             
             // Open hole is simply the casing/annulus IDs ignoring pipe
-            let openHole = project.annulus.reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
+            let openHole = (project.annulus ?? []).reduce(0.0) { $0 + (.pi * pow(max($1.innerDiameter_m, 0), 2) / 4.0) * max($1.length_m, 0) }
             
             let slices = buildAnnularSlices()
             let annularWithPipe = slices.reduce(0.0) { $0 + $1.volume_m3 }
@@ -294,13 +294,13 @@ extension MixingCalculatorView {
         
         private func buildAnnularSlices() -> [VolumeSlice] {
             var boundaries = Set<Double>()
-            for a in project.annulus { boundaries.insert(a.topDepth_m); boundaries.insert(a.bottomDepth_m) }
-            for d in project.drillString { boundaries.insert(d.topDepth_m); boundaries.insert(d.bottomDepth_m) }
+            for a in (project.annulus ?? []) { boundaries.insert(a.topDepth_m); boundaries.insert(a.bottomDepth_m) }
+            for d in (project.drillString ?? []) { boundaries.insert(d.topDepth_m); boundaries.insert(d.bottomDepth_m) }
             let sorted = boundaries.sorted()
             guard sorted.count > 1 else { return [] }
             
-            func annulusAt(_ t: Double, _ b: Double) -> AnnulusSection? { project.annulus.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
-            func stringAt(_ t: Double, _ b: Double) -> DrillStringSection? { project.drillString.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
+            func annulusAt(_ t: Double, _ b: Double) -> AnnulusSection? { (project.annulus ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
+            func stringAt(_ t: Double, _ b: Double) -> DrillStringSection? { (project.drillString ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b } }
             
             var slices: [VolumeSlice] = []
             for i in 0..<(sorted.count - 1) {
@@ -356,3 +356,4 @@ extension MixingCalculatorView {
         var totalCirculatingVolume: Double
     }
 }
+

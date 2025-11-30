@@ -10,25 +10,25 @@ import SwiftData
 
 @Model
 final class TripRun {
-    @Attribute(.unique) var id: UUID = UUID()
+    @Attribute var id: UUID = UUID()
     var createdAt: Date = Date.now
     var name: String = "Trip Run"
 
     // Inputs snapshot
-    var startBitMD_m: Double
-    var endMD_m: Double
-    var step_m: Double
-    var shoeTVD_m: Double
-    var baseMudDensity_kgpm3: Double
-    var backfillDensity_kgpm3: Double
-    var targetESDAtTD_kgpm3: Double
-    var crackFloat_kPa: Double
-    var holdSABPOpen: Bool
-    var initialSABP_kPa: Double
+    var startBitMD_m: Double = 0
+    var endMD_m: Double = 0
+    var step_m: Double = 0
+    var shoeTVD_m: Double = 0
+    var baseMudDensity_kgpm3: Double = 0
+    var backfillDensity_kgpm3: Double = 0
+    var targetESDAtTD_kgpm3: Double = 0
+    var crackFloat_kPa: Double = 0
+    var holdSABPOpen: Bool = false
+    var initialSABP_kPa: Double  = 0
 
     // Summary outputs
-    var minMarginToFrac_kPa: Double
-    var maxSABP_kPa: Double
+    var minMarginToFrac_kPa: Double = 0
+    var maxSABP_kPa: Double = 0
 
     @Relationship(deleteRule: .cascade, inverse: \TripSample.run) var samples: [TripSample]?
     @Relationship var project: ProjectState?
@@ -56,12 +56,12 @@ final class TripRun {
 
 @Model
 final class TripSample {
-    @Attribute(.unique) var id: UUID = UUID()
-    var bitMD_m: Double
-    var tvd_m: Double
-    var total_kPa: Double
-    var recommendedSABP_kPa: Double
-    var nonLaminar: Bool
+    @Attribute var id: UUID = UUID()
+    var bitMD_m: Double = 0
+    var tvd_m: Double = 0
+    var total_kPa: Double = 0
+    var recommendedSABP_kPa: Double = 0
+    var nonLaminar: Bool = false
 
     @Relationship var run: TripRun?
 

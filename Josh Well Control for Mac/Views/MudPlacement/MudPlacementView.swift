@@ -69,7 +69,8 @@ struct MudPlacementView: View {
                                                     placement: .both,
                                                     project: project,
                                                     mud: active)
-                                    project.mudSteps.append(s)
+                                    if project.mudSteps == nil { project.mudSteps = [] }
+                                    project.mudSteps?.append(s)
                                     modelContext.insert(s)
                                 }
                                 Button("Seed Initial") {
@@ -122,14 +123,15 @@ struct MudPlacementView: View {
                     }
 
                     // Final placed layers table
-                    if !project.finalLayers.isEmpty {
+                    if let finalLayers = project.finalLayers {
+                        
+
                         GroupBox("Final spotted fluids (base + steps)") {
                             HStack(alignment: .top, spacing: 16) {
-
                                 // String column
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("String layers").font(.caption).foregroundStyle(.secondary)
-                                    let stringLayers = project.finalLayers
+                                    let stringLayers = finalLayers
                                         .filter { $0.placement == .string || $0.placement == .both }
                                         .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
                                     ForEach(stringLayers, id: \.id) { L in
@@ -167,7 +169,7 @@ struct MudPlacementView: View {
                                 // Annulus column
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Annulus layers").font(.caption).foregroundStyle(.secondary)
-                                    let annulusLayers = project.finalLayers
+                                    let annulusLayers = finalLayers
                                         .filter { $0.placement == .annulus || $0.placement == .both }
                                         .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
                                     ForEach(annulusLayers, id: \.id) { L in
@@ -223,7 +225,7 @@ struct MudPlacementView: View {
                                 .foregroundStyle(.tertiary)
                             let depthTVD = viewmodel.mdToTVD(project.pressureDepth_m)
                             // Build working layer arrays from persisted ProjectState so hydrostatic survives reloads
-                            let annLayers: [FinalLayer] = project.finalLayers
+                            let annLayers: [FinalLayer] = (project.finalLayers ?? [])
                                 .filter { $0.placement == .annulus || $0.placement == .both }
                                 .map { L in
                                     FinalLayer(
@@ -238,7 +240,7 @@ struct MudPlacementView: View {
                                 }
                                 .sorted { $0.top < $1.top }
 
-                            let strLayers: [FinalLayer] = project.finalLayers
+                            let strLayers: [FinalLayer] = (project.finalLayers ?? [])
                                 .filter { $0.placement == .string || $0.placement == .both }
                                 .map { L in
                                     FinalLayer(
@@ -319,7 +321,8 @@ struct MudPlacementView: View {
                                     let bNow = max(top_m, bottom_m)
                                     let chosenMud = viewmodel.mudsSortedByName.first(where: { $0.id == intervalMudID })
                                     let s = MudStep(name: "Preview Step", top_m: tNow, bottom_m: bNow, density_kgm3: chosenMud?.density_kgm3 ?? previewDensity_kgm3, color: chosenMud?.color ?? .purple, placement: .both, project: project, mud: chosenMud)
-                                    project.mudSteps.append(s)
+                                    if project.mudSteps == nil { project.mudSteps = [] }
+                                    project.mudSteps?.append(s)
                                     modelContext.insert(s)
                                 }
                                 .buttonStyle(.bordered)
@@ -410,8 +413,8 @@ struct MudPlacementView: View {
     // MARK: - Final layering helpers
     private var maxDepth_m: Double {
         max(
-            project.annulus.map { $0.bottomDepth_m }.max() ?? 0,
-            project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
     }
 
@@ -638,11 +641,11 @@ struct MudPlacementView: View {
     ) {
         guard bottom > top else { return (0,0,0,0,0,0,0,0,0,0,0) }
         var bounds: [Double] = [top, bottom]
-        for a in project.annulus where a.bottomDepth_m > top && a.topDepth_m < bottom {
+        for a in (project.annulus ?? []) where a.bottomDepth_m > top && a.topDepth_m < bottom {
             bounds.append(max(a.topDepth_m, top))
             bounds.append(min(a.bottomDepth_m, bottom))
         }
-        for d in project.drillString where d.bottomDepth_m > top && d.topDepth_m < bottom {
+        for d in (project.drillString ?? []) where d.bottomDepth_m > top && d.topDepth_m < bottom {
             bounds.append(max(d.topDepth_m, top))
             bounds.append(min(d.bottomDepth_m, bottom))
         }
@@ -654,8 +657,8 @@ struct MudPlacementView: View {
             let t = uniq[i], b = uniq[i+1]
             guard b > t else { continue }
             L += (b - t)
-            let ann = project.annulus.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
-            let str = project.drillString.first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
+            let ann = (project.annulus ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
+            let str = (project.drillString ?? []).first { $0.topDepth_m <= t && $0.bottomDepth_m >= b }
             if let a = ann {
                 let id = max(a.innerDiameter_m, 0)
                 openHole += (.pi * id * id / 4.0) * (b - t)
@@ -761,7 +764,7 @@ struct MudPlacementView: View {
     /// Map an input MD (m) to TVD (m) using the project's surveys. Falls back to identity if surveys are missing.
     private func mdToTVD(_ md: Double) -> Double {
         // Expect project.surveys to hold stations with md and tvd
-        let stations = project.surveys.sorted { $0.md < $1.md }
+        let stations = (project.surveys ?? []).sorted { $0.md < $1.md }
         guard let first = stations.first else { return md }
         guard let last  = stations.last  else { return md }
         let tvd0 = first.tvd ?? 0
@@ -834,13 +837,13 @@ struct MudPlacementView_Previews: PreviewProvider {
         // Sample geometry: casing + open hole
         let a = AnnulusSection(name: "Casing", topDepth_m: 0, length_m: 615, innerDiameter_m: 0.2266, outerDiameter_m: 0)
         let b = AnnulusSection(name: "OpenHole", topDepth_m: 615, length_m: 6000 - 615, innerDiameter_m: 0.159, outerDiameter_m: 0)
-        a.project = project; b.project = project
-        project.annulus.append(contentsOf: [a,b])
+        if project.annulus == nil { project.annulus = [] }
+        project.annulus?.append(contentsOf: [a,b])
         ctx.insert(a); ctx.insert(b)
 
         let ds1 = DrillStringSection(name: "4\" DP", topDepth_m: 0, length_m: 6000, outerDiameter_m: 0.1016, innerDiameter_m: 0.0803)
-        ds1.project = project
-        project.drillString.append(ds1)
+        if project.drillString == nil { project.drillString = [] }
+        project.drillString?.append(ds1)
         ctx.insert(ds1)
 
         return MudPlacementView(project: project)
@@ -852,3 +855,5 @@ struct MudPlacementView_Previews: PreviewProvider {
 
 
 // ViewModel now in: ViewModels/MudPlacementViewModel.swift
+
+

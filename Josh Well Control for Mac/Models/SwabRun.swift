@@ -10,21 +10,21 @@ import SwiftData
 
 @Model
 final class SwabRun {
-    @Attribute(.unique) var id: UUID = UUID()
+    @Attribute var id: UUID = UUID()
     var createdAt: Date = Date.now
     var name: String = "Swab Run"
 
     // Inputs snapshot (store what matters to reproduce)
-    var bitMD_m: Double
-    var topMD_m: Double
-    var lowerLimitMD_m: Double
-    var pipeOD_m: Double
-    var equivalentDia_m: Double
-    var swabSpeed_mps: Double
+    var bitMD_m: Double = 0
+    var topMD_m: Double = 0
+    var lowerLimitMD_m: Double = 0
+    var pipeOD_m: Double = 0
+    var equivalentDia_m: Double = 0
+    var swabSpeed_mps: Double = 0
 
     // Outputs summary
-    var maxUnderbalance_kPa: Double
-    var nonLaminar: Bool
+    var maxUnderbalance_kPa: Double = 0
+    var nonLaminar: Bool = false
 
     @Relationship(deleteRule: .cascade, inverse: \SwabSample.run) var samples: [SwabSample]?
     @Relationship var project: ProjectState?
@@ -46,10 +46,10 @@ final class SwabRun {
 
 @Model
 final class SwabSample {
-    @Attribute(.unique) var id: UUID = UUID()
-    var md_m: Double
-    var tvd_m: Double
-    var dP_kPa: Double
+    @Attribute var id: UUID = UUID()
+    var md_m: Double = 0
+    var tvd_m: Double = 0
+    var dP_kPa: Double = 0
 
     @Relationship var run: SwabRun?
 

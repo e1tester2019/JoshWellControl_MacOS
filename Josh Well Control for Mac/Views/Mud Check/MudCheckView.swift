@@ -37,7 +37,7 @@ struct MudCheckView: View {
         VStack(alignment: .leading, spacing: 8) {
             List(selection: $selection) {
                 Section("Fluids") {
-                    let sorted = project.muds.sorted { lhs, rhs in
+                    let sorted = (project.muds ?? []).sorted { lhs, rhs in
                         lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                     }
                     ForEach(sorted) { mud in
@@ -65,7 +65,7 @@ struct MudCheckView: View {
                         .onTapGesture { selection = mud }
                     }
                     .onDelete { idx in
-                        let sorted = project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                        let sorted = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                         let items = idx.map { sorted[$0] }
                         items.forEach(delete)
                     }
@@ -126,13 +126,14 @@ struct MudCheckView: View {
     // MARK: - Actions
     private func attachInitialSelection() {
         if selection == nil {
-            selection = project.muds.first
+            selection = (project.muds ?? []).first
         }
     }
 
     private func addMud() {
         let m = MudProperties(name: "New Mud", density_kgm3: 1100, rheologyModel: "Bingham", dial600: nil, dial300: nil, color: .yellow, project: project)
-        project.muds.append(m)
+        if project.muds == nil { project.muds = [] }
+        project.muds?.append(m)
         modelContext.insert(m)
         try? modelContext.save()
         selection = m
@@ -156,7 +157,8 @@ struct MudCheckView: View {
             project: project
         )
         m.colorR = m0.colorR; m.colorG = m0.colorG; m.colorB = m0.colorB; m.colorA = m0.colorA
-        project.muds.append(m)
+        if project.muds == nil { project.muds = [] }
+        project.muds?.append(m)
         modelContext.insert(m)
         try? modelContext.save()
         selection = m
@@ -164,7 +166,7 @@ struct MudCheckView: View {
 
     private func setActive(_ m: MudProperties) {
         // Ensure only one active mud per project
-        for x in project.muds { x.isActive = (x.id == m.id) }
+        for x in (project.muds ?? []) { x.isActive = (x.id == m.id) }
         project.baseAnnulusDensity_kgm3 = m.density_kgm3
         project.baseStringDensity_kgm3 = m.density_kgm3
         project.activeMudDensity_kgm3 = m.density_kgm3
@@ -173,10 +175,10 @@ struct MudCheckView: View {
     }
 
     private func delete(_ m: MudProperties) {
-        if let i = project.muds.firstIndex(where: { $0.id == m.id }) { project.muds.remove(at: i) }
+        if let i = (project.muds ?? []).firstIndex(where: { $0.id == m.id }) { project.muds?.remove(at: i) }
         modelContext.delete(m)
         try? modelContext.save()
-        if selection?.id == m.id { selection = project.muds.first }
+        if selection?.id == m.id { selection = (project.muds ?? []).first }
     }
 }
 
@@ -513,7 +515,8 @@ private struct MudCheckPreviewHost: View {
             let p = ProjectState()
             ctx.insert(p)
             let m = MudProperties(name: "Active System", density_kgm3: 1180, n_powerLaw: 0.6, k_powerLaw_Pa_s_n: 0.45, tau0_Pa: 6, rheologyModel: "HB", gel10s_Pa: 5, gel10m_Pa: 9, project: p)
-            p.muds.append(m)
+            if p.muds == nil { p.muds = [] }
+            p.muds?.append(m)
             m.isActive = true
             try? ctx.save()
             project = p
