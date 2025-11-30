@@ -238,7 +238,8 @@ import SwiftData
         a3.density_kg_per_m3 = 1200
         [a1, a2, a3].forEach { sec in
             sec.project = project
-            project.annulus.append(sec)
+            if project.annulus == nil { project.annulus = [] }
+            project.annulus?.append(sec)
             context.insert(sec)
         }
 
@@ -252,14 +253,14 @@ import SwiftData
 
         try? context.save()
 
-        return NavigationStack {
+        NavigationStack {
             BHPPreviewView(project: project)
                 .navigationTitle("BHP Preview")
         }
         .modelContainer(container)
         .frame(width: 700, height: 520)
     } catch {
-        return Text("Preview failed: \(error.localizedDescription)")
+        Text("Preview failed: \(error.localizedDescription)")
     }
 }
 #endif

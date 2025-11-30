@@ -165,10 +165,11 @@ struct MaterialTransferListView: View {
         t.activity = n == 1 ? "Drilling" : "Completions"
         t.country = "Canada"; t.province = "Alberta"; t.shippingCompany = "Roughneck Logistics"; t.transportedBy = "TK-123"
         t.well = w
-        w.transfers.append(t)
+        if w.transfers == nil { w.transfers = [] }
+        w.transfers?.append(t)
         ctx.insert(t)
     }
-    return NavigationStack { MaterialTransferListView(well: w) }
+    NavigationStack { MaterialTransferListView(well: w) }
         .modelContainer(container)
         .frame(width: 800, height: 480)
 }
