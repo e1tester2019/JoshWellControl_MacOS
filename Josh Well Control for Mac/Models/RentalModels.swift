@@ -43,7 +43,7 @@ final class RentalItem {
     @Relationship(deleteRule: .cascade, inverse: \RentalAdditionalCost.rentalItem) var additionalCosts: [RentalAdditionalCost]?
 
     /// Parent relationship — the Well owns its rentals.
-    @Relationship(inverse: \Well.rentals) var well: Well?
+    @Relationship var well: Well?
 
     init(
         name: String = "Rental",
