@@ -84,12 +84,16 @@ struct RentalItemsView: View {
     }
 
     private func openEditor(_ r: RentalItem) {
+        #if os(macOS)
         let host = WindowHost(title: "Rental – \(r.name)") {
             RentalDetailEditor(rental: r)
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 .frame(minWidth: 720, minHeight: 520)
         }
         host.show()
+        #else
+        // TODO: Implement iPad-compatible editor (e.g., using NavigationLink or sheet)
+        #endif
     }
 
     private func copySummary(_ r: RentalItem) {

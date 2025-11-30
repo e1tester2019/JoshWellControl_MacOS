@@ -120,27 +120,29 @@ struct MaterialTransferListView: View {
     }
 
     private func openEditor(_ t: MaterialTransfer) {
+        #if os(macOS)
         let host = WindowHost(title: "Material Transfer #\(t.number)") {
             MaterialTransferEditorView(well: well, transfer: t)
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 .frame(minWidth: 900, minHeight: 600)
         }
         host.show()
+        #else
+        // TODO: Implement iPad-compatible editor (e.g., using NavigationLink or sheet)
+        #endif
     }
 
     private func preview(_ t: MaterialTransfer) {
+        #if os(macOS)
         let host = WindowHost(title: "Preview – Material Transfer #\(t.number)") {
-            #if os(macOS)
             MaterialTransferReportPreview(well: well, transfer: t)
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
-            #else
-            MaterialTransferReportView(well: well, transfer: t)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-            #endif
         }
         host.show()
+        #else
+        // TODO: Implement iPad-compatible preview (e.g., using NavigationLink or sheet)
+        #endif
     }
 
     private func delete(_ t: MaterialTransfer) {

@@ -776,21 +776,18 @@ struct MaterialTransferEditorView: View {
         // Ensure latest edits are persisted before previewing
         try? modelContext.save()
 
+        #if os(macOS)
         // Use a fresh instance of the preview container so it reflects current state
         let host = WindowHost(title: "Preview – Material Transfer #\(transfer.number)") {
-            #if os(macOS)
             MaterialTransferReportPreview(well: well, transfer: transfer)
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
                 .id(UUID()) // force fresh render in case the host caches content
-            #else
-            MaterialTransferReportView(well: well, transfer: transfer)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-                .id(UUID())
-            #endif
         }
         host.show()
+        #else
+        // TODO: Implement iPad-compatible PDF preview (e.g., using UIActivityViewController or NavigationLink)
+        #endif
     }
 }
 
