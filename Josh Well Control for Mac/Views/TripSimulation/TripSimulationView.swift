@@ -12,15 +12,6 @@ import AppKit // Import AppKit for NSSavePanel support
 #endif
 import UniformTypeIdentifiers
 
-fileprivate typealias TripStep = NumericalTripModel.TripStep
-fileprivate typealias LayerRow = NumericalTripModel.LayerRow
-
-fileprivate struct KVRow: Identifiable {
-    let id = UUID()
-    let key: String
-    let value: String
-}
-
 /// A compact SwiftUI front‑end over the NumericalTripModel.
 /// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.
 struct TripSimulationView: View {
@@ -708,6 +699,16 @@ struct TripSimulationView: View {
         project.settings.tripSpeed_m_per_s >= 0
             ? "Positive = Pull out of hole"
             : "Negative = Run in hole"
+    }
+
+    // MARK: - Type Aliases
+    typealias TripStep = NumericalTripModel.TripStep
+    typealias LayerRow = NumericalTripModel.LayerRow
+
+    struct KVRow: Identifiable {
+        let id = UUID()
+        let key: String
+        let value: String
     }
 }
 
