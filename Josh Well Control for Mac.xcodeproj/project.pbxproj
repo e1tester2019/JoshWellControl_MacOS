@@ -290,12 +290,10 @@
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = (
 					"Views/ContentView.swift",
 					"Views/macOS/*",
-					"Views/TripSimulation/*",
 				);
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
 					"Views/ContentView.swift",
 					"Views/macOS/*",
-					"Views/TripSimulation/*",
 				);
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = (
 					"Views/iPadOS/*",
@@ -371,12 +369,10 @@
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]" = (
 					"Views/ContentView.swift",
 					"Views/macOS/*",
-					"Views/TripSimulation/*",
 				);
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
 					"Views/ContentView.swift",
 					"Views/macOS/*",
-					"Views/TripSimulation/*",
 				);
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]" = (
 					"Views/iPadOS/*",

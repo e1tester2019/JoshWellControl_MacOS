@@ -202,6 +202,8 @@ struct TripSimulationView: View {
     }
 
     private var content: some View {
+        #if os(macOS)
+        // macOS: Horizontal split layout
         GeometryReader { geo in
             HStack(spacing: 12) {
                 // LEFT COLUMN: Steps (top) + Details (bottom when shown)
@@ -240,6 +242,33 @@ struct TripSimulationView: View {
                 .frame(maxHeight: .infinity)
             }
         }
+        #else
+        // iPad: Vertical scrolling layout
+        ScrollView {
+            VStack(spacing: 16) {
+                // Steps table
+                stepsTable
+                    .frame(height: 350)
+
+                // Visualization
+                VStack(alignment: .center, spacing: 4) {
+                    visualization
+                        .frame(height: 450)
+                    if !esdAtControlText.isEmpty {
+                        Text(esdAtControlText)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .padding(.top, 4)
+                    }
+                }
+
+                // Details accordion (if shown)
+                if viewmodel.showDetails {
+                    detailAccordion
+                }
+            }
+            .padding(.horizontal)
+        }
+        #endif
     }
 
     // MARK: - Selection helpers
