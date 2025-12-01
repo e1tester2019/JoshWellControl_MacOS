@@ -12,10 +12,10 @@ import AppKit // Import AppKit for NSSavePanel support
 #endif
 import UniformTypeIdentifiers
 
-typealias TripStep = NumericalTripModel.TripStep
-typealias LayerRow = NumericalTripModel.LayerRow
+fileprivate typealias TripStep = NumericalTripModel.TripStep
+fileprivate typealias LayerRow = NumericalTripModel.LayerRow
 
-struct KVRow: Identifiable {
+fileprivate struct KVRow: Identifiable {
     let id = UUID()
     let key: String
     let value: String
