@@ -376,22 +376,40 @@ private extension ContentView {
         let willDeleteCurrent = vm.selectedWell.map { toDeleteIDs.contains($0.id) } ?? false
 
         if willDeleteCurrent {
-            // Find first remaining well that won't be deleted
-            let newWell = arr.first { w in !toDeleteIDs.contains(w.id) }
+            // Find ID of first remaining well that won't be deleted (use ID only, not object reference)
+            let newWellID = arr.first { w in !toDeleteIDs.contains(w.id) }?.id
 
-            // ATOMIC UPDATE: Clear both selections immediately
-            vm.selectedWell = newWell
-            vm.selectedProject = newWell.flatMap { ($0.projects ?? []).first }
+            // ATOMIC UPDATE: Clear selections to nil first to prevent onChange from accessing stale objects
+            vm.selectedWell = nil
+            vm.selectedProject = nil
+
+            // Now collect actual objects to delete
+            let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
+
+            // Delete from context
+            for w in toDelete {
+                modelContext.delete(w)
+            }
+            try? modelContext.save()
+
+            // After deletion completes, restore selection if there's a remaining well
+            // The onChange handler will update the reference to the fresh object
+            if let newWellID = newWellID {
+                vm.selectedWell = wells.first { $0.id == newWellID }
+                if let freshWell = vm.selectedWell {
+                    vm.selectedProject = (freshWell.projects ?? []).first
+                }
+            }
+        } else {
+            // Current selection is NOT being deleted, just delete the objects
+            let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
+
+            // Delete from context
+            for w in toDelete {
+                modelContext.delete(w)
+            }
+            try? modelContext.save()
         }
-
-        // Now collect actual objects to delete (after clearing references)
-        let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
-
-        // Delete from context
-        for w in toDelete {
-            modelContext.delete(w)
-        }
-        try? modelContext.save()
     }
 
     func beginRename(_ well: Well) {
