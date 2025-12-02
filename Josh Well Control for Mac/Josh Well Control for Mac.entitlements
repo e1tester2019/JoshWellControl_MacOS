@@ -14,5 +14,9 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.com.josh-sallows-wellcontrolapp</string>
+	</array>
 </dict>
 </plist>
