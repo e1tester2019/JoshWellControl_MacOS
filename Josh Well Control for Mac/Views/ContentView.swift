@@ -275,26 +275,25 @@ private extension ContentView {
             toDelete.append(sorted[i])
         }
 
-        // Clear selection if deleting current project
-        for p in toDelete {
-            if vm.selectedProject?.id == p.id {
-                vm.selectedProject = nil
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newSelection: ProjectState? = vm.selectedProject
+        let willDeleteCurrent = toDelete.contains(where: { $0.id == vm.selectedProject?.id })
+
+        if willDeleteCurrent {
+            // Find first remaining project that won't be deleted
+            newSelection = sorted.first { p in
+                !toDelete.contains(where: { $0.id == p.id })
             }
         }
 
-        // Delete from context
+        // Delete from context (after determining new selection)
         for p in toDelete {
             modelContext.delete(p)
         }
         try? modelContext.save()
 
-        // Select first remaining project (filter out deleted ones)
-        if vm.selectedProject == nil {
-            let remaining = (well.projects ?? []).filter { p in
-                !toDelete.contains(where: { $0.id == p.id })
-            }
-            vm.selectedProject = remaining.sorted(by: { $0.createdAt < $1.createdAt }).first
-        }
+        // Apply the new selection
+        vm.selectedProject = newSelection
     }
 
     func beginRename(_ p: ProjectState) {
@@ -334,28 +333,28 @@ private extension ContentView {
             toDelete.append(arr[i])
         }
 
-        // Clear selections if deleting current well
-        for w in toDelete {
-            if vm.selectedWell?.id == w.id {
-                vm.selectedWell = nil
-                vm.selectedProject = nil
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newWell: Well? = vm.selectedWell
+        var newProject: ProjectState? = vm.selectedProject
+        let willDeleteCurrent = toDelete.contains(where: { $0.id == vm.selectedWell?.id })
+
+        if willDeleteCurrent {
+            // Find first remaining well that won't be deleted
+            newWell = arr.first { w in
+                !toDelete.contains(where: { $0.id == w.id })
             }
+            newProject = newWell.flatMap { ($0.projects ?? []).first }
         }
 
-        // Delete from context
+        // Delete from context (after determining new selection)
         for w in toDelete {
             modelContext.delete(w)
         }
         try? modelContext.save()
 
-        // Select first remaining well (filter out deleted ones)
-        let remaining = wells.filter { w in
-            !toDelete.contains(where: { $0.id == w.id })
-        }
-        if let first = remaining.first {
-            vm.selectedWell = first
-            vm.selectedProject = (first.projects ?? []).first
-        }
+        // Apply the new selections
+        vm.selectedWell = newWell
+        vm.selectedProject = newProject
     }
 
     func beginRename(_ well: Well) {
