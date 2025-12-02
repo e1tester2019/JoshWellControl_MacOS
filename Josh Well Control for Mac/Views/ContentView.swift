@@ -244,12 +244,42 @@ struct ContentView: View {
                 vm.selectedWell = vm.ensureInitialWellIfNeeded(using: wells, context: modelContext)
             }
         }
-        .onChange(of: vm.selectedWell) { _, newVal in
-            vm.selectedProject = newVal.flatMap { ($0.projects ?? []).first }
-        }
-        .onChange(of: vm.selectedProject) { _, newVal in
-            if newVal == nil, let w = vm.selectedWell {
-                vm.selectedProject = (w.projects ?? []).first
+        .onChange(of: wells) { oldWells, newWells in
+            // Validate selectedWell still exists after changes
+            // CRITICAL: Always use objects from newWells array, never from stale references
+            if let selectedWellID = vm.selectedWell?.id {
+                // Find the well in the updated array by ID
+                if let freshWell = newWells.first(where: { $0.id == selectedWellID }) {
+                    // Well still exists, update reference to fresh object
+                    if vm.selectedWell !== freshWell {
+                        vm.selectedWell = freshWell
+                    }
+                    // Validate the project using the fresh well reference
+                    if let selectedProjectID = vm.selectedProject?.id {
+                        let projects = freshWell.projects ?? []
+                        if let freshProject = projects.first(where: { $0.id == selectedProjectID }) {
+                            // Project still exists, update reference if needed
+                            if vm.selectedProject !== freshProject {
+                                vm.selectedProject = freshProject
+                            }
+                        } else {
+                            // Current project was deleted, select another
+                            vm.selectedProject = projects.first
+                        }
+                    } else {
+                        // No project selected, select first available
+                        let projects = freshWell.projects ?? []
+                        vm.selectedProject = projects.first
+                    }
+                } else {
+                    // Current well was deleted, select another
+                    vm.selectedWell = newWells.first
+                    vm.selectedProject = newWells.first.flatMap { ($0.projects ?? []).first }
+                }
+            } else {
+                // No well selected, select first available
+                vm.selectedWell = newWells.first
+                vm.selectedProject = newWells.first.flatMap { ($0.projects ?? []).first }
             }
         }
         .environment(\.locale, Locale(identifier: "en_GB"))
@@ -265,15 +295,21 @@ private extension ContentView {
     }
 
     func deleteProjects(offsets: IndexSet) {
-        guard let well = vm.selectedWell else { return }
+        // Find the well in the current wells array to ensure we have a fresh reference
+        guard let selectedWellID = vm.selectedWell?.id,
+              let well = wells.first(where: { $0.id == selectedWellID }) else { return }
+
         let projects = well.projects ?? []
         let sorted = projects.sorted { $0.createdAt < $1.createdAt }
 
         // Collect projects to delete
         var toDelete: [ProjectState] = []
         for i in offsets {
+            guard i < sorted.count else { continue }
             toDelete.append(sorted[i])
         }
+
+        guard !toDelete.isEmpty else { return }
 
         // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
         var newSelection: ProjectState? = vm.selectedProject
@@ -330,8 +366,11 @@ private extension ContentView {
         // Collect wells to delete
         var toDelete: [Well] = []
         for i in offsets {
+            guard i < arr.count else { continue }
             toDelete.append(arr[i])
         }
+
+        guard !toDelete.isEmpty else { return }
 
         // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
         var newWell: Well? = vm.selectedWell
@@ -343,7 +382,12 @@ private extension ContentView {
             newWell = arr.first { w in
                 !toDelete.contains(where: { $0.id == w.id })
             }
-            newProject = newWell.flatMap { ($0.projects ?? []).first }
+            // Only access projects if we found a valid new well
+            if let validNewWell = newWell {
+                newProject = (validNewWell.projects ?? []).first
+            } else {
+                newProject = nil
+            }
         }
 
         // Apply the new selections BEFORE deletion (critical timing!)
