@@ -302,28 +302,28 @@ private extension ContentView {
         let projects = well.projects ?? []
         let sorted = projects.sorted { $0.createdAt < $1.createdAt }
 
-        // Collect projects to delete
-        var toDelete: [ProjectState] = []
+        // Collect IDs to delete (not object references)
+        var toDeleteIDs: Set<UUID> = []
         for i in offsets {
             guard i < sorted.count else { continue }
-            toDelete.append(sorted[i])
+            toDeleteIDs.insert(sorted[i].id)
         }
 
-        guard !toDelete.isEmpty else { return }
+        guard !toDeleteIDs.isEmpty else { return }
 
-        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
-        var newSelection: ProjectState? = vm.selectedProject
-        let willDeleteCurrent = toDelete.contains(where: { $0.id == vm.selectedProject?.id })
+        // CRITICAL: Clear selection IMMEDIATELY if it will be deleted
+        let willDeleteCurrent = vm.selectedProject.map { toDeleteIDs.contains($0.id) } ?? false
 
         if willDeleteCurrent {
             // Find first remaining project that won't be deleted
-            newSelection = sorted.first { p in
-                !toDelete.contains(where: { $0.id == p.id })
-            }
+            let newSelection = sorted.first { p in !toDeleteIDs.contains(p.id) }
+
+            // ATOMIC UPDATE: Clear selection immediately
+            vm.selectedProject = newSelection
         }
 
-        // Apply the new selection BEFORE deletion (critical timing!)
-        vm.selectedProject = newSelection
+        // Now collect actual objects to delete (after clearing references)
+        let toDelete = sorted.filter { toDeleteIDs.contains($0.id) }
 
         // Delete from context
         for p in toDelete {
@@ -363,36 +363,29 @@ private extension ContentView {
     func deleteWells(at offsets: IndexSet) {
         let arr = wells
 
-        // Collect wells to delete
-        var toDelete: [Well] = []
+        // Collect IDs to delete (not object references)
+        var toDeleteIDs: Set<UUID> = []
         for i in offsets {
             guard i < arr.count else { continue }
-            toDelete.append(arr[i])
+            toDeleteIDs.insert(arr[i].id)
         }
 
-        guard !toDelete.isEmpty else { return }
+        guard !toDeleteIDs.isEmpty else { return }
 
-        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
-        var newWell: Well? = vm.selectedWell
-        var newProject: ProjectState? = vm.selectedProject
-        let willDeleteCurrent = toDelete.contains(where: { $0.id == vm.selectedWell?.id })
+        // CRITICAL: Clear selections IMMEDIATELY if they will be deleted
+        let willDeleteCurrent = vm.selectedWell.map { toDeleteIDs.contains($0.id) } ?? false
 
         if willDeleteCurrent {
             // Find first remaining well that won't be deleted
-            newWell = arr.first { w in
-                !toDelete.contains(where: { $0.id == w.id })
-            }
-            // Only access projects if we found a valid new well
-            if let validNewWell = newWell {
-                newProject = (validNewWell.projects ?? []).first
-            } else {
-                newProject = nil
-            }
+            let newWell = arr.first { w in !toDeleteIDs.contains(w.id) }
+
+            // ATOMIC UPDATE: Clear both selections immediately
+            vm.selectedWell = newWell
+            vm.selectedProject = newWell.flatMap { ($0.projects ?? []).first }
         }
 
-        // Apply the new selections BEFORE deletion (critical timing!)
-        vm.selectedWell = newWell
-        vm.selectedProject = newProject
+        // Now collect actual objects to delete (after clearing references)
+        let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
 
         // Delete from context
         for w in toDelete {
@@ -467,6 +460,36 @@ private extension ContentView {
 }
 
 private extension ContentView {
+    /// Safely get the name of the currently selected well (defensive against deleted objects)
+    var currentWellName: String {
+        guard let well = vm.selectedWell else { return "Well" }
+        guard wells.contains(where: { $0.id == well.id }) else { return "Well" }
+        return well.name
+    }
+
+    /// Safely get the name of the currently selected project (defensive against deleted objects)
+    var currentProjectName: String {
+        guard let project = vm.selectedProject else { return "Project" }
+        guard let well = vm.selectedWell, wells.contains(where: { $0.id == well.id }) else { return "Project" }
+        let projects = well.projects ?? []
+        guard projects.contains(where: { $0.id == project.id }) else { return "Project" }
+        return project.name
+    }
+
+    /// Safely get the name of a well (defensive against deleted objects)
+    func safeName(of well: Well) -> String {
+        guard wells.contains(where: { $0.id == well.id }) else { return "(Deleted)" }
+        return well.name
+    }
+
+    /// Safely get the name of a project (defensive against deleted objects)
+    func safeName(of project: ProjectState) -> String {
+        guard let well = project.well, wells.contains(where: { $0.id == well.id }) else { return "(Deleted)" }
+        let projects = well.projects ?? []
+        guard projects.contains(where: { $0.id == project.id }) else { return "(Deleted)" }
+        return project.name
+    }
+
     @ToolbarContentBuilder
     var detailToolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -479,25 +502,25 @@ private extension ContentView {
                             vm.selectedProject = (w.projects ?? []).first
                         } label: {
                             if vm.selectedWell?.id == w.id { Image(systemName: "checkmark") }
-                            Text(w.name)
+                            Text(safeName(of: w))
                         }
                     }
                 } label: {
-                    Label(vm.selectedWell?.name ?? "Well", systemImage: "square.grid.2x2")
+                    Label(currentWellName, systemImage: "square.grid.2x2")
                 }
 
                 // Project picker menu
-                if let well = vm.selectedWell {
+                if let well = vm.selectedWell, wells.contains(where: { $0.id == well.id }) {
                     let projects = well.projects ?? []
                     Menu {
                         ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
                             Button { vm.selectedProject = p } label: {
                                 if vm.selectedProject?.id == p.id { Image(systemName: "checkmark") }
-                                Text(p.name)
+                                Text(safeName(of: p))
                             }
                         }
                     } label: {
-                        Label(vm.selectedProject?.name ?? "Project", systemImage: "folder")
+                        Label(currentProjectName, systemImage: "folder")
                     }
                 }
             }
