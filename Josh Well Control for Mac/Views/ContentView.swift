@@ -268,13 +268,33 @@ private extension ContentView {
         guard let well = vm.selectedWell else { return }
         let projects = well.projects ?? []
         let sorted = projects.sorted { $0.createdAt < $1.createdAt }
+
+        // Collect projects to delete
+        var toDelete: [ProjectState] = []
         for i in offsets {
-            let p = sorted[i]
+            toDelete.append(sorted[i])
+        }
+
+        // Clear selection if deleting current project
+        for p in toDelete {
+            if vm.selectedProject?.id == p.id {
+                vm.selectedProject = nil
+            }
+        }
+
+        // Delete from context
+        for p in toDelete {
             modelContext.delete(p)
-            if vm.selectedProject?.id == p.id { vm.selectedProject = nil }
         }
         try? modelContext.save()
-        if vm.selectedProject == nil { vm.selectedProject = (well.projects ?? []).first }
+
+        // Select first remaining project (filter out deleted ones)
+        if vm.selectedProject == nil {
+            let remaining = (well.projects ?? []).filter { p in
+                !toDelete.contains(where: { $0.id == p.id })
+            }
+            vm.selectedProject = remaining.sorted(by: { $0.createdAt < $1.createdAt }).first
+        }
     }
 
     func beginRename(_ p: ProjectState) {
@@ -307,14 +327,35 @@ private extension ContentView {
 
     func deleteWells(at offsets: IndexSet) {
         let arr = wells
+
+        // Collect wells to delete
+        var toDelete: [Well] = []
         for i in offsets {
-            let w = arr[i]
-            // If currently selected, clear selections or move to another available well
-            if vm.selectedWell?.id == w.id { vm.selectedWell = nil; vm.selectedProject = nil }
+            toDelete.append(arr[i])
+        }
+
+        // Clear selections if deleting current well
+        for w in toDelete {
+            if vm.selectedWell?.id == w.id {
+                vm.selectedWell = nil
+                vm.selectedProject = nil
+            }
+        }
+
+        // Delete from context
+        for w in toDelete {
             modelContext.delete(w)
         }
         try? modelContext.save()
-        if let first = wells.first { vm.selectedWell = first; vm.selectedProject = (first.projects ?? []).first }
+
+        // Select first remaining well (filter out deleted ones)
+        let remaining = wells.filter { w in
+            !toDelete.contains(where: { $0.id == w.id })
+        }
+        if let first = remaining.first {
+            vm.selectedWell = first
+            vm.selectedProject = (first.projects ?? []).first
+        }
     }
 
     func beginRename(_ well: Well) {
