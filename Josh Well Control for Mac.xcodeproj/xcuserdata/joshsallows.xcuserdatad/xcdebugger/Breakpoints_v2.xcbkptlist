@@ -14,9 +14,9 @@
             filePath = "Josh Well Control for Mac/Views/TripSimulation/TripSimulationView.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "391"
-            endingLineNumber = "391"
-            landmarkName = "esdAtControlText"
+            startingLineNumber = "323"
+            endingLineNumber = "323"
+            landmarkName = "visualization"
             landmarkType = "24">
          </BreakpointContent>
       </BreakpointProxy>
@@ -66,6 +66,22 @@
             endingLineNumber = "230"
             landmarkName = "draw(_:in:isAnnulus:)"
             landmarkType = "9">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "F0CEE94A-99BA-4281-A6DC-D6F68013CF0B"
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Josh Well Control for Mac/Views/ContentView.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "30"
+            endingLineNumber = "30"
+            landmarkName = "ensureInitialWellIfNeeded(using:context:)"
+            landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

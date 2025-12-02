@@ -275,7 +275,7 @@ struct ContentView_iPadOS: View {
                 case .swabbing:
                     SwabbingView(project: project)
                 case .trip:
-                    TripSimulationView(project: project)
+                    TripSimulationView_iPadOS(project: project)
                 case .bhp:
                     BHPPreviewView(project: project)
                 case .rentals:

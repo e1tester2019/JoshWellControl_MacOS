@@ -1,31 +1,35 @@
-//  TripSimulationView.swift
+//  TripSimulationView_iPadOS.swift
 //  Josh Well Control for Mac
 //
-//  Created by Josh Sallows on 2025-11-07.
-// (assistant) Connected and ready – 2025-11-07
+//  iPad-optimized version of TripSimulationView
 //
 
 import SwiftUI
 import SwiftData
-#if os(macOS)
-import AppKit // Import AppKit for NSSavePanel support
-#endif
 import UniformTypeIdentifiers
 
+typealias TripStep = NumericalTripModel.TripStep
+typealias LayerRow = NumericalTripModel.LayerRow
 
-/// A compact SwiftUI front‑end over the NumericalTripModel.
-/// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.
-struct TripSimulationView: View {
+struct KVRow: Identifiable {
+    let id = UUID()
+    let key: String
+    let value: String
+}
+
+/// iPad-optimized SwiftUI front‑end over the NumericalTripModel.
+/// Vertical layout optimized for touch interaction.
+struct TripSimulationView_iPadOS: View {
     // MARK: - Environment
     @Environment(\.modelContext) private var modelContext
-    
+
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
-    
+
     @State private var viewmodel = ViewModel()
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
-    
+
     // MARK: - Body
     var body: some View {
         VStack(spacing: 12) {
@@ -42,236 +46,165 @@ struct TripSimulationView: View {
             Text(exportErrorMessage)
         }
     }
-    
+
     // MARK: - Sections
     private var headerInputs: some View {
         VStack(alignment: .leading, spacing: 8) {
-            bitRangeGroupBox
-            GroupBox("Choke / Float") {
-#if os(macOS)
-                HStack {
-                    numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
-                    numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                    Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
-                }
-#else
-                VStack(alignment: .leading, spacing: 8) {
-                    numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
-                    numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                    Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
-                }
-#endif
-            }
-#if os(macOS)
-            // Keep this group compact vertically so it doesn't stretch when the layout updates
-            .frame(height: 80)
-#endif
-            
-            GroupBox("View") {
-                Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-            }
-            
-            GroupBox("Trip speed") {
-                VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                GroupBox("Bit / Range") {
                     HStack {
-                        Text("Average (m/s)")
-                            .frame(width: 100, alignment: .trailing)
-                        TextField("Trip speed", value: tripSpeedBinding, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
+                        numberField("Start MD", value: $viewmodel.startBitMD_m)
+                        numberField("End MD", value: $viewmodel.endMD_m)
+                        numberField("Control MD", value: controlMDBinding)
+                        numberField("Step (m)", value: $viewmodel.step_m)
                     }
-                    Text(tripSpeedDirectionText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in. Durations and rates use the magnitude while direction comes from other controls.")
-            
-            if !viewmodel.steps.isEmpty {
-                GroupBox("Bit Depth (m)") {
-                    HStack(spacing: 8) {
-                        Slider(
-                            value: Binding(
-                                get: { viewmodel.stepSlider },
-                                set: { newVal in
-                                    viewmodel.stepSlider = newVal
-                                    let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
-                                    viewmodel.selectedIndex = idx
-                                }
-                            ),
-                            in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
-                        )
-                        Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
-                            .frame(width: 72, alignment: .trailing)
+
+                GroupBox("Fluids") {
+                    HStack {
+                        Text("Base ρ (kg/m³)")
+                            .frame(width: 110, alignment: .trailing)
+                        let active = project.activeMud
+                        Text(active.map { "\($0.name) – \(format0($0.density_kgm3))" } ?? "None")
+                            .frame(width: 160, alignment: .leading)
                             .monospacedDigit()
                     }
-                    .frame(width: 240)
+                    HStack {
+                        Text("Backfill mud")
+                            .frame(width: 110, alignment: .trailing)
+                        Picker("", selection: Binding(get: { viewmodel.backfillMudID }, set: { newID in
+                            viewmodel.backfillMudID = newID
+                            if let id = newID, let m = project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).first(where: { $0.id == id }) {
+                                viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                            } else {
+                                viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                            }
+                        })) {
+                            ForEach(project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                                Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                            }
+                        }
+                        .frame(width: 240)
+                        .pickerStyle(.menu)
+                    }
+                    numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
                 }
             }
-            
-            Spacer()
-            
-            Toggle("Show details", isOn: $viewmodel.showDetails)
-                .toggleStyle(.switch)
-            
-            Button("Seed from MudPlacement & Run") { viewmodel.runSimulation(project: project) }
-                .buttonStyle(.borderedProminent)
-            
-            // MARK: - New Export Project JSON Button
-            // This button allows the user to export the current project data as JSON to a file.
-            Button("Export Project JSON") {
-                exportProjectJSON()
-            }
-            .buttonStyle(.bordered)
-            .help("Export the current project's data as a JSON file.")
-        }
-    }
-    
-    private var bitRangeGroupBox: some View {
-        GroupBox("Bit / Range") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6)], spacing: 12) {
-                
-                numberField("Start MD", value: $viewmodel.startBitMD_m)
-                numberField("End MD", value: $viewmodel.endMD_m)
-                numberField("Control MD", value: controlMDBinding)
-                numberField("Step (m)", value: $viewmodel.step_m)
-                
-                Text("Base ρ (kg/m³)")
-                    .frame(width: 110, alignment: .trailing)
-                let active = project.activeMud
-                Text(active.map { "\($0.name) – \(format0($0.density_kgm3)) kg/m³" } ?? "None")
-                    .frame(width: 160, alignment: .leading)
-                    .monospacedDigit()
-                Text("Backfill mud")
-                    .frame(width: 110, alignment: .trailing)
-                Picker("", selection: Binding(get: { viewmodel.backfillMudID }, set: { newID in
-                    viewmodel.backfillMudID = newID
-                    if let id = newID, let m = project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).first(where: { $0.id == id }) {
-                        viewmodel.backfillDensity_kgpm3 = m.density_kgm3
-                    } else {
-                        viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
-                    }
-                })) {
-                    ForEach(project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
-                        Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+
+            HStack(spacing: 12) {
+                GroupBox("Choke / Float") {
+                    HStack {
+                        numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
+                        numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
+                        Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
                     }
                 }
-                .frame(width: 240)
-                .pickerStyle(.menu)
-                numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
+                // Keep this group compact vertically so it doesn't stretch when the layout updates
+                .frame(height: 80)
+
+                GroupBox("View") {
+                    Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
+                }
+
+                GroupBox("Trip speed") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Average (m/s)")
+                                .frame(width: 100, alignment: .trailing)
+                            TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                        }
+                        Text(tripSpeedDirectionText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in. Durations and rates use the magnitude while direction comes from other controls.")
+
+                if !viewmodel.steps.isEmpty {
+                    GroupBox("Bit Depth (m)") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { viewmodel.stepSlider },
+                                    set: { newVal in
+                                        viewmodel.stepSlider = newVal
+                                        let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
+                                        viewmodel.selectedIndex = idx
+                                    }
+                                ),
+                                in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
+                            )
+                            Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
+                                .frame(width: 72, alignment: .trailing)
+                                .monospacedDigit()
+                        }
+                        .frame(width: 240)
+                    }
+                }
+
+                Spacer()
+
+                Toggle("Show details", isOn: $viewmodel.showDetails)
+                    .toggleStyle(.switch)
+
+                Button("Seed from MudPlacement & Run") { viewmodel.runSimulation(project: project) }
+                    .buttonStyle(.borderedProminent)
+                
+                // MARK: - New Export Project JSON Button
+                // This button allows the user to export the current project data as JSON to a file.
+                Button("Export Project JSON") {
+                    exportProjectJSON()
+                }
+                .buttonStyle(.bordered)
+                .help("Export the current project's data as a JSON file.")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-    
+
     // MARK: - Export Project JSON Feature
     private func exportProjectJSON() {
-        // Obtain the JSON string from the project
-        guard let jsonString = project.exportJSON() else {
-            exportErrorMessage = "Failed to generate project JSON."
-            showingExportErrorAlert = true
-            return
-        }
-        
-#if os(macOS)
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "ProjectExport.json"
-        panel.canCreateDirectories = true
-        
-        // Present the NSSavePanel synchronously on the main thread
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try jsonString.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                // Present an alert if writing fails
-                exportErrorMessage = "Failed to export project JSON: \(error.localizedDescription)"
-                showingExportErrorAlert = true
-                NSLog("Error exporting project JSON: \(error)")
-            }
-        }
-#else
         // TODO: Implement iPad-compatible file export (e.g., using UIDocumentPickerViewController)
-        exportErrorMessage = "Export is not yet supported on this platform."
+        exportErrorMessage = "Export is not yet supported on iPad."
         showingExportErrorAlert = true
-#endif
     }
-    
+
+    // iPad-optimized vertical layout
     private var content: some View {
-#if os(macOS)
-        GeometryReader { geo in
-            HStack(spacing: 12) {
-                // LEFT COLUMN: Steps (top) + Details (bottom when shown)
-                GeometryReader { g in
-                    VStack(spacing: 8) {
-                        stepsTable
-                            .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
-                        if viewmodel.showDetails {
-                            ScrollView {
-                                detailAccordion
-                            }
-                            .frame(height: max(0, g.size.height * 0.5 - 4))
-                        } else {
-                            // Reserve 0 height when hidden
-                            Color.clear.frame(height: 0)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
-                .frame(maxHeight: .infinity)
-                
-                Divider()
-                
-                // RIGHT COLUMN: Well image (own column) + ESD@control label
+        ScrollView {
+            VStack(spacing: 16) {
+                // Steps table
+                stepsTable
+                    .frame(height: 350)
+
+                // Visualization
                 VStack(alignment: .center, spacing: 4) {
                     visualization
-                        .frame(maxHeight: .infinity)
+                        .frame(height: 450)
                     if !esdAtControlText.isEmpty {
                         Text(esdAtControlText)
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
                             .padding(.top, 4)
                     }
                 }
-                // Give the visualization about 1/3 of the available width, but don't let it get too narrow
-                .frame(width: max(220, geo.size.width / 3.8))
-                .frame(maxHeight: .infinity)
-            }
-        }
-#else
-        // iPad: Stack vertically for better use of screen space
-        VStack(spacing: 12) {
-            // Steps table
-            stepsTable
-                .frame(height: 300)
-            
-            // Visualization
-            VStack(alignment: .center, spacing: 4) {
-                visualization
-                    .frame(height: 400)
-                if !esdAtControlText.isEmpty {
-                    Text(esdAtControlText)
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .padding(.top, 4)
-                }
-            }
-            
-            // Details accordion (if shown)
-            if viewmodel.showDetails {
-                ScrollView {
+
+                // Details accordion (if shown)
+                if viewmodel.showDetails {
                     detailAccordion
                 }
-                .frame(height: 300)
             }
+            .padding(.horizontal)
         }
-#endif
     }
-    
+
     // MARK: - Selection helpers
     private func indexOf(_ row: TripStep) -> Int? {
         // Heuristic: match by MD & TVD (good enough for selection)
         viewmodel.steps.firstIndex { $0.bitMD_m == row.bitMD_m && $0.bitTVD_m == row.bitTVD_m }
     }
-    
+
     private func selectableText(_ text: String, for row: TripStep, alignment: Alignment = .leading) -> some View {
         Text(text)
             .frame(maxWidth: .infinity, alignment: alignment)
@@ -280,7 +213,7 @@ struct TripSimulationView: View {
                 if let i = indexOf(row) { viewmodel.selectedIndex = i }
             }
     }
-    
+
     // MARK: - Steps Table
     private var stepsTable: some View {
         Table(viewmodel.steps) {
@@ -292,22 +225,22 @@ struct TripSimulationView: View {
                     .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
             }
             .width(min: 80, ideal: 100, max: 120)
-            
+
             TableColumn("Bit TVD") { row in
                 selectableText(format0(row.bitTVD_m), for: row)
             }
             .width(min: 80, ideal: 100, max: 120)
-            
+
             TableColumn("SABP kPa") { row in
                 selectableText(format0(row.SABP_kPa), for: row)
             }
             .width(min: 80, ideal: 100, max: 120)
-            
+
             TableColumn("ESD@TD kg/m³") { row in
                 selectableText(format0(row.ESDatTD_kgpm3), for: row)
             }
             .width(min: 100, ideal: 120, max: 150)
-            
+
             TableColumn("Swab Drop kPa") { row in
                 selectableText(format0(row.swabDropToBit_kPa), for: row)
             }
@@ -316,7 +249,7 @@ struct TripSimulationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
     }
-    
+
     // MARK: - Visualization
     private var visualization: some View {
         GroupBox("Well Snapshot") {
@@ -328,7 +261,7 @@ struct TripSimulationView: View {
                         let str = s.layersString
                         let pocket = s.layersPocket
                         let bitMD = s.bitMD_m
-                        
+
                         Canvas { ctx, size in
                             // Three-column layout: Annulus | String | Annulus
                             let gap: CGFloat = 8
@@ -336,7 +269,7 @@ struct TripSimulationView: View {
                             let annLeft  = CGRect(x: 0, y: 0, width: colW, height: size.height)
                             let strRect  = CGRect(x: colW + gap, y: 0, width: colW, height: size.height)
                             let annRight = CGRect(x: 2*(colW + gap), y: 0, width: colW, height: size.height)
-                            
+
                             // Unified vertical scale by MD (surface at top, deeper down)
                             let maxPocketMD = pocket.map { $0.bottomMD }.max() ?? bitMD
                             let globalMaxMD = max(bitMD, maxPocketMD)
@@ -344,12 +277,12 @@ struct TripSimulationView: View {
                                 guard globalMaxMD > 0 else { return 0 }
                                 return CGFloat(md / globalMaxMD) * size.height
                             }
-                            
+
                             // Draw annulus (left & right) and string (center), only above bit
                             drawColumn(&ctx, rows: ann, in: annLeft,  isAnnulus: true,  bitMD: bitMD, yGlobal: yGlobal)
                             drawColumn(&ctx, rows: str, in: strRect,  isAnnulus: false, bitMD: bitMD, yGlobal: yGlobal)
                             drawColumn(&ctx, rows: ann, in: annRight, isAnnulus: true,  bitMD: bitMD, yGlobal: yGlobal)
-                            
+
                             // Pocket (below bit): draw FULL WIDTH so it covers both tracks
                             if !pocket.isEmpty {
                                 for r in pocket {
@@ -365,16 +298,16 @@ struct TripSimulationView: View {
                                     ctx.fill(Path(sub), with: .color(col))
                                 }
                             }
-                            
+
                             // Headers
                             ctx.draw(Text("Annulus"), at: CGPoint(x: annLeft.midX,  y: 12))
                             ctx.draw(Text("String"),  at: CGPoint(x: strRect.midX,  y: 12))
                             ctx.draw(Text("Annulus"), at: CGPoint(x: annRight.midX, y: 12))
-                            
+
                             // Bit marker
                             let yBit = yGlobal(bitMD)
                             ctx.fill(Path(CGRect(x: 0, y: yBit - 0.5, width: size.width, height: 1)), with: .color(.accentColor.opacity(0.9)))
-                            
+
                             // Depth ticks (MD right, TVD left)
                             let tickCount = 6
                             for i in 0...tickCount {
@@ -404,7 +337,7 @@ struct TripSimulationView: View {
         let controlTVD = project.tvd(of: clampedControlMD)
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
-        
+
         if controlTVD <= bitTVD + 1e-9 {
             var remaining = controlTVD
             for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
@@ -440,11 +373,11 @@ struct TripSimulationView: View {
                 }
             }
         }
-        
+
         let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
         return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
     }
-    
+
     // MARK: - Drawing helpers
     private func hexColor(_ hex: String) -> Color? {
         var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -464,7 +397,7 @@ struct TripSimulationView: View {
         }
         return Color(red: r, green: g, blue: b, opacity: a)
     }
-    
+
     private func compositionColor(at md: Double, isAnnulus: Bool) -> Color? {
         let src = isAnnulus ? project.finalAnnulusLayersSorted : project.finalStringLayersSorted
         guard let lay = src.first(where: { md >= $0.topMD_m && md <= $0.bottomMD_m }) else { return nil }
@@ -474,7 +407,7 @@ struct TripSimulationView: View {
         if let c = anyVal as? Color { return c }
         return nil
     }
-    
+
     private func fillColor(rho: Double, explicit: NumericalTripModel.ColorRGBA?, mdMid: Double, isAnnulus: Bool) -> Color {
         if viewmodel.colorByComposition {
             if let c = explicit { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
@@ -483,7 +416,7 @@ struct TripSimulationView: View {
         let t = min(max((rho - 800) / 1200, 0), 1)
         return Color(white: 0.3 + 0.6 * t)
     }
-    
+
     private func drawColumn(_ ctx: inout GraphicsContext,
                             rows: [LayerRow],
                             in rect: CGRect,
@@ -502,7 +435,7 @@ struct TripSimulationView: View {
         }
         ctx.stroke(Path(rect), with: .color(.black.opacity(0.8)), lineWidth: 1)
     }
-    
+
     // MARK: - Detail (Accordion)
     private var detailAccordion: some View {
         GroupBox("Step details") {
@@ -522,7 +455,7 @@ struct TripSimulationView: View {
                         .padding(.top, 4)
                     }
                     .disclosureGroupStyle(.automatic)
-                    
+
                     DisclosureGroup("Annulus stack (above bit)") {
                         layerTable(s.layersAnnulus)
                     }
@@ -542,7 +475,7 @@ struct TripSimulationView: View {
             }
         }
     }
-    
+
     // MARK: - Subviews / helpers
     private func numberField(_ title: String, value: Binding<Double>) -> some View {
         HStack(spacing: 4) {
@@ -554,11 +487,11 @@ struct TripSimulationView: View {
                 .frame(width: 80)
         }
     }
-    
+
     private func gridRow(_ k: String, _ v: String) -> some View {
         GridRow { Text(k).foregroundStyle(.secondary); Text(v) }
     }
-    
+
     private func layerTable(_ rows: [LayerRow]) -> some View {
         Table(rows) {
             TableColumn("Top MD") { r in Text(format1(r.topMD)) }
@@ -571,7 +504,7 @@ struct TripSimulationView: View {
         }
         .frame(minHeight: 140)
     }
-    
+
     private func debugTable(_ kvs: [KVRow]) -> some View {
         Table(kvs) {
             TableColumn("Key") { kv in Text(kv.key) }
@@ -579,7 +512,7 @@ struct TripSimulationView: View {
         }
         .frame(minHeight: 120)
     }
-    
+
     // Live ESD@control diagnostics
     private func esdDebugRows(project: ProjectState, step s: TripStep) -> [KVRow] {
         let controlMDRaw = max(0.0, viewmodel.shoeMD_m)
@@ -596,7 +529,7 @@ struct TripSimulationView: View {
         var hydroPocket_kPa = 0.0
         var coveredAnn_m = 0.0
         var coveredPocket_m = 0.0
-        
+
         if controlTVD <= bitTVD + eps {
             var remaining = controlTVD
             for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
@@ -644,11 +577,11 @@ struct TripSimulationView: View {
                 }
             }
         }
-        
+
         let esdAtControl = pressure_kPa / 0.00981 / max(eps, controlTVD)
         let uniformESD = viewmodel.baseMudDensity_kgpm3 + s.SABP_kPa / (0.00981 * max(eps, controlTVD))
         let coverageMismatch = controlTVD - (coveredAnn_m + coveredPocket_m)
-        
+
         var rows: [KVRow] = []
         rows.append(KVRow(key: "Control MD (m)", value: format0(controlMD)))
         rows.append(KVRow(key: "Control TVD (m)", value: format0(controlTVD)))
@@ -668,12 +601,12 @@ struct TripSimulationView: View {
         rows.append(KVRow(key: "Coverage mismatch (m)", value: format1(coverageMismatch)))
         return rows
     }
-    
+
     // MARK: - Formatters
     private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
-    
+
     // Clamp Control MD to not exceed geometry
     private var controlMDLimit: Double {
         let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
@@ -681,7 +614,7 @@ struct TripSimulationView: View {
         let candidates = [annMax, dsMax].filter { $0 > 0 }
         return candidates.min() ?? 0
     }
-    
+
     private var controlMDBinding: Binding<Double> {
         Binding(
             get: { min(max(0, viewmodel.shoeMD_m), controlMDLimit) },
@@ -691,23 +624,22 @@ struct TripSimulationView: View {
             }
         )
     }
-    
+
     private var tripSpeedBinding: Binding<Double> {
         Binding(
             get: { project.settings.tripSpeed_m_per_s },
             set: { project.settings.tripSpeed_m_per_s = $0 }
         )
     }
-    
+
     private var tripSpeedDirectionText: String {
         project.settings.tripSpeed_m_per_s >= 0
-        ? "Positive = Pull out of hole"
-        : "Negative = Run in hole"
+            ? "Positive = Pull out of hole"
+            : "Negative = Run in hole"
     }
 }
 
-
-extension TripSimulationView {
+extension TripSimulationView_iPadOS {
   @Observable
   class ViewModel {
     // Inputs
@@ -857,7 +789,7 @@ private struct TripSimulationPreview: View {
   }
 
   var body: some View {
-    NavigationStack { TripSimulationView(project: project) }
+    NavigationStack { TripSimulationView_iPadOS(project: project) }
       .modelContainer(container)
       .frame(width: 1200, height: 800)
   }

@@ -22,10 +22,11 @@ final class ContentViewModel: ObservableObject {
         let w = Well(name: "Demo Well")
         context.insert(w)
         let p = ProjectState()
-        p.name = "Baseline"
+        p.name = "Joshy"
         p.well = w
         w.projects.append(p)
         try? context.save()
+        print(w.name)
         return w
     }
 }
