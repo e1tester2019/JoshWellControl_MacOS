@@ -286,14 +286,14 @@ private extension ContentView {
             }
         }
 
-        // Delete from context (after determining new selection)
+        // Apply the new selection BEFORE deletion (critical timing!)
+        vm.selectedProject = newSelection
+
+        // Delete from context
         for p in toDelete {
             modelContext.delete(p)
         }
         try? modelContext.save()
-
-        // Apply the new selection
-        vm.selectedProject = newSelection
     }
 
     func beginRename(_ p: ProjectState) {
@@ -346,15 +346,15 @@ private extension ContentView {
             newProject = newWell.flatMap { ($0.projects ?? []).first }
         }
 
-        // Delete from context (after determining new selection)
+        // Apply the new selections BEFORE deletion (critical timing!)
+        vm.selectedWell = newWell
+        vm.selectedProject = newProject
+
+        // Delete from context
         for w in toDelete {
             modelContext.delete(w)
         }
         try? modelContext.save()
-
-        // Apply the new selections
-        vm.selectedWell = newWell
-        vm.selectedProject = newProject
     }
 
     func beginRename(_ well: Well) {
