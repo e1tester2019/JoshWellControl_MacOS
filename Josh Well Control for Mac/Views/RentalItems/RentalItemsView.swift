@@ -88,25 +88,22 @@ struct RentalItemsView: View {
     }
 
     private func delete(_ r: RentalItem) {
-        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
-        var newSelection: RentalItem? = selection
-        if selection === r {
-            // Find first rental that won't be deleted
-            let rentals = well.rentals ?? []
-            newSelection = rentals.first { $0 !== r }
+        // CRITICAL: Clear all state references IMMEDIATELY if they match the object being deleted
+        if selection?.id == r.id {
+            selection = nil
+        }
+        if editingRental?.id == r.id {
+            editingRental = nil
         }
 
         // Remove from array
-        if let i = (well.rentals ?? []).firstIndex(where: { $0 === r }) {
+        if let i = (well.rentals ?? []).firstIndex(where: { $0.id == r.id }) {
             well.rentals?.remove(at: i)
         }
 
-        // Delete from context (after determining new selection)
+        // Delete from context
         modelContext.delete(r)
         try? modelContext.save()
-
-        // Apply the new selection
-        selection = newSelection
     }
 
     private func openEditor(_ r: RentalItem) {

@@ -148,6 +148,14 @@ extension DrillStringListView {
         }
 
         func delete(_ section: DrillStringSection) {
+            // CRITICAL: Clear selections IMMEDIATELY if they match the object being deleted
+            if selection?.id == section.id {
+                selection = nil
+            }
+            if activeSection?.id == section.id {
+                activeSection = nil
+            }
+
             if let i = (project.drillString ?? []).firstIndex(where: { $0.id == section.id }) {
                 project.drillString?.remove(at: i)
             }

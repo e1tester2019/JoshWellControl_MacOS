@@ -274,6 +274,14 @@ extension AnnulusListView {
         }
 
         func delete(_ section: AnnulusSection) {
+            // CRITICAL: Clear selections IMMEDIATELY if they match the object being deleted
+            if selection?.id == section.id {
+                selection = nil
+            }
+            if activeSection?.id == section.id {
+                activeSection = nil
+            }
+
             if let i = (project.annulus ?? []).firstIndex(where: { $0.id == section.id }) {
                 project.annulus?.remove(at: i)
             }
