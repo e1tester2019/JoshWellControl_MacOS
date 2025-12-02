@@ -783,10 +783,23 @@ struct MaterialTransferEditorView: View {
     }
 
     private func delete(_ item: MaterialTransferItem) {
-        if let i = (transfer.items ?? []).firstIndex(where: { $0.id == item.id }) { transfer.items?.remove(at: i) }
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newSelection: MaterialTransferItem? = selection
+        if selection?.id == item.id {
+            newSelection = nil
+        }
+
+        // Remove from array
+        if let i = (transfer.items ?? []).firstIndex(where: { $0.id == item.id }) {
+            transfer.items?.remove(at: i)
+        }
+
+        // Delete from context (after determining new selection)
         modelContext.delete(item)
         try? modelContext.save()
-        if selection?.id == item.id { selection = nil }
+
+        // Apply the new selection
+        selection = newSelection
     }
 
     private func previewPDF() {

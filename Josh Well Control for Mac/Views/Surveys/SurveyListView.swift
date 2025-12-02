@@ -189,12 +189,24 @@ extension SurveyListView {
 
         func delete(_ s: SurveyStation) {
             guard let project else { return }
+
+            // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+            var newSelection: SurveyStation? = selection
+            if selection?.id == s.id {
+                newSelection = nil
+            }
+
+            // Remove from array
             if let i = (project.surveys ?? []).firstIndex(where: { $0.id == s.id }) {
                 project.surveys?.remove(at: i)
             }
+
+            // Delete from context (after determining new selection)
             modelContext.delete(s)
             try? modelContext.save()
-            if selection?.id == s.id { selection = nil }
+
+            // Apply the new selection
+            selection = newSelection
         }
 
         func handleImport(_ result: Result<[URL], Error>) {

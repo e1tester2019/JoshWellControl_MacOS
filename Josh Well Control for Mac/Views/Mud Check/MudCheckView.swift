@@ -175,10 +175,25 @@ struct MudCheckView: View {
     }
 
     private func delete(_ m: MudProperties) {
-        if let i = (project.muds ?? []).firstIndex(where: { $0.id == m.id }) { project.muds?.remove(at: i) }
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newSelection: MudProperties? = selection
+        if selection?.id == m.id {
+            // Find first mud that won't be deleted
+            let muds = project.muds ?? []
+            newSelection = muds.first { $0.id != m.id }
+        }
+
+        // Remove from array
+        if let i = (project.muds ?? []).firstIndex(where: { $0.id == m.id }) {
+            project.muds?.remove(at: i)
+        }
+
+        // Delete from context (after determining new selection)
         modelContext.delete(m)
         try? modelContext.save()
-        if selection?.id == m.id { selection = (project.muds ?? []).first }
+
+        // Apply the new selection
+        selection = newSelection
     }
 }
 

@@ -148,12 +148,23 @@ struct MaterialTransferListView: View {
     }
 
     private func delete(_ t: MaterialTransfer) {
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newSelection: MaterialTransfer? = selection
+        if selection?.id == t.id {
+            newSelection = nil
+        }
+
+        // Remove from array
         if let i = (well.transfers ?? []).firstIndex(where: { $0.id == t.id }) {
             well.transfers?.remove(at: i)
         }
+
+        // Delete from context (after determining new selection)
         modelContext.delete(t)
         try? modelContext.save()
-        if selection?.id == t.id { selection = nil }
+
+        // Apply the new selection
+        selection = newSelection
     }
 }
 

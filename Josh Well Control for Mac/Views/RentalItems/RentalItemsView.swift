@@ -88,10 +88,25 @@ struct RentalItemsView: View {
     }
 
     private func delete(_ r: RentalItem) {
-        if let i = (well.rentals ?? []).firstIndex(where: { $0 === r }) { well.rentals?.remove(at: i) }
+        // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
+        var newSelection: RentalItem? = selection
+        if selection === r {
+            // Find first rental that won't be deleted
+            let rentals = well.rentals ?? []
+            newSelection = rentals.first { $0 !== r }
+        }
+
+        // Remove from array
+        if let i = (well.rentals ?? []).firstIndex(where: { $0 === r }) {
+            well.rentals?.remove(at: i)
+        }
+
+        // Delete from context (after determining new selection)
         modelContext.delete(r)
         try? modelContext.save()
-        if selection === r { selection = (well.rentals ?? []).first }
+
+        // Apply the new selection
+        selection = newSelection
     }
 
     private func openEditor(_ r: RentalItem) {
@@ -468,7 +483,11 @@ private struct RentalDetailEditor: View {
                             newCostDesc: $newCostDesc,
                             newCostAmount: $newCostAmount,
                             onDelete: { cost in
-                                if let i = rental.additionalCosts?.firstIndex(where: { $0 === cost }) { rental.additionalCosts?.remove(at: i) }
+                                // Remove from array before deleting
+                                if let i = rental.additionalCosts?.firstIndex(where: { $0 === cost }) {
+                                    rental.additionalCosts?.remove(at: i)
+                                }
+                                // Delete from context
                                 modelContext.delete(cost)
                                 try? modelContext.save()
                             },
