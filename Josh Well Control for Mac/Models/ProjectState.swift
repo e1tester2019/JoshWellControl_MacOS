@@ -29,8 +29,8 @@ final class ProjectState {
     @Relationship(deleteRule: .cascade, inverse: \FinalFluidLayer.project) var finalLayers: [FinalFluidLayer]?
     @Relationship(deleteRule: .cascade, inverse: \MudProperties.project) var muds: [MudProperties]?
     @Relationship(deleteRule: .cascade, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
-    @Relationship(deleteRule: .cascade, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
-    @Relationship(deleteRule: .cascade, inverse: \TripRun.project) var tripRuns: [TripRun]?
+    @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
+    @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .cascade) var _window: PressureWindow?

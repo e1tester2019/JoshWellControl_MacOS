@@ -322,14 +322,22 @@ private extension ContentView {
             vm.selectedProject = newSelection
         }
 
-        // Now collect actual objects to delete (after clearing references)
-        let toDelete = sorted.filter { toDeleteIDs.contains($0.id) }
+        // Perform deletion on background context to prevent stack overflow
+        let container = modelContext.container
+        Task.detached {
+            let backgroundContext = ModelContext(container)
 
-        // Delete from context
-        for p in toDelete {
-            modelContext.delete(p)
+            // Fetch projects to delete in background context
+            let descriptor = FetchDescriptor<ProjectState>()
+            let allProjects = try? backgroundContext.fetch(descriptor)
+            let toDelete = allProjects?.filter { toDeleteIDs.contains($0.id) } ?? []
+
+            // Delete from background context
+            for p in toDelete {
+                backgroundContext.delete(p)
+            }
+            try? backgroundContext.save()
         }
-        try? modelContext.save()
     }
 
     func beginRename(_ p: ProjectState) {
@@ -383,32 +391,49 @@ private extension ContentView {
             vm.selectedWell = nil
             vm.selectedProject = nil
 
-            // Now collect actual objects to delete
-            let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
+            // Perform deletion on background context to prevent stack overflow
+            let container = modelContext.container
+            Task.detached {
+                let backgroundContext = ModelContext(container)
 
-            // Delete from context
-            for w in toDelete {
-                modelContext.delete(w)
-            }
-            try? modelContext.save()
+                // Fetch wells to delete in background context
+                let descriptor = FetchDescriptor<Well>()
+                let allWells = try? backgroundContext.fetch(descriptor)
+                let toDelete = allWells?.filter { toDeleteIDs.contains($0.id) } ?? []
 
-            // After deletion completes, restore selection if there's a remaining well
-            // The onChange handler will update the reference to the fresh object
-            if let newWellID = newWellID {
-                vm.selectedWell = wells.first { $0.id == newWellID }
-                if let freshWell = vm.selectedWell {
-                    vm.selectedProject = (freshWell.projects ?? []).first
+                // Delete from background context
+                for w in toDelete {
+                    backgroundContext.delete(w)
+                }
+                try? backgroundContext.save()
+
+                // Update UI on main thread
+                await MainActor.run {
+                    if let newWellID = newWellID {
+                        self.vm.selectedWell = self.wells.first { $0.id == newWellID }
+                        if let freshWell = self.vm.selectedWell {
+                            self.vm.selectedProject = (freshWell.projects ?? []).first
+                        }
+                    }
                 }
             }
         } else {
-            // Current selection is NOT being deleted, just delete the objects
-            let toDelete = arr.filter { toDeleteIDs.contains($0.id) }
+            // Current selection is NOT being deleted, delete in background
+            let container = modelContext.container
+            Task.detached {
+                let backgroundContext = ModelContext(container)
 
-            // Delete from context
-            for w in toDelete {
-                modelContext.delete(w)
+                // Fetch wells to delete in background context
+                let descriptor = FetchDescriptor<Well>()
+                let allWells = try? backgroundContext.fetch(descriptor)
+                let toDelete = allWells?.filter { toDeleteIDs.contains($0.id) } ?? []
+
+                // Delete from background context
+                for w in toDelete {
+                    backgroundContext.delete(w)
+                }
+                try? backgroundContext.save()
             }
-            try? modelContext.save()
         }
     }
 
