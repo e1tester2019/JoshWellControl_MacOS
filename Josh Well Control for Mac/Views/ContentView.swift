@@ -334,6 +334,37 @@ private extension ContentView {
 
             // Delete from background context
             for p in toDelete {
+                // CRITICAL: Delete child collections first to prevent cascade overflow
+                // ProjectState has 13+ cascade relationships - deleting collections first
+                // breaks up the cascade into manageable chunks
+
+                // Delete array collections
+                if let surveys = p.surveys {
+                    for item in surveys { backgroundContext.delete(item) }
+                }
+                if let drillString = p.drillString {
+                    for item in drillString { backgroundContext.delete(item) }
+                }
+                if let annulus = p.annulus {
+                    for item in annulus { backgroundContext.delete(item) }
+                }
+                if let mudSteps = p.mudSteps {
+                    for item in mudSteps { backgroundContext.delete(item) }
+                }
+                if let finalLayers = p.finalLayers {
+                    for item in finalLayers { backgroundContext.delete(item) }
+                }
+                if let muds = p.muds {
+                    for item in muds { backgroundContext.delete(item) }
+                }
+                if let programStages = p.programStages {
+                    for item in programStages { backgroundContext.delete(item) }
+                }
+
+                // Singletons will be handled by cascade, but we could delete them explicitly too
+                // (they're optional relationships, so no need for explicit deletion)
+
+                // Now delete the project itself (no more cascade overflow)
                 backgroundContext.delete(p)
             }
             try? backgroundContext.save()
@@ -403,6 +434,15 @@ private extension ContentView {
 
                 // Delete from background context
                 for w in toDelete {
+                    // CRITICAL: Delete projects first to prevent cascade overflow
+                    // Well has cascade delete rule for projects, which each have 13+ cascade relationships
+                    // Deleting projects first breaks up the cascade into manageable chunks
+                    if let projects = w.projects {
+                        for project in projects {
+                            backgroundContext.delete(project)
+                        }
+                    }
+                    // Now delete the well itself (no more cascade issues)
                     backgroundContext.delete(w)
                 }
                 try? backgroundContext.save()
@@ -430,6 +470,15 @@ private extension ContentView {
 
                 // Delete from background context
                 for w in toDelete {
+                    // CRITICAL: Delete projects first to prevent cascade overflow
+                    // Well has cascade delete rule for projects, which each have 13+ cascade relationships
+                    // Deleting projects first breaks up the cascade into manageable chunks
+                    if let projects = w.projects {
+                        for project in projects {
+                            backgroundContext.delete(project)
+                        }
+                    }
+                    // Now delete the well itself (no more cascade issues)
                     backgroundContext.delete(w)
                 }
                 try? backgroundContext.save()
