@@ -44,59 +44,44 @@ struct iPadOptimizedContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .toolbar {
-            ToolbarItemGroup(placement: .navigationBarLeading) {
-                if horizontalSizeClass == .compact {
-                    if wells.isEmpty {
-                        Button(action: { createNewWell() }) {
-                            Label("New Well", systemImage: "plus.circle")
+            // Well picker - always visible
+            ToolbarItem(placement: .automatic) {
+                if wells.isEmpty {
+                    Button(action: { createNewWell() }) {
+                        Label("New Well", systemImage: "plus.circle.fill")
+                    }
+                } else {
+                    Menu {
+                        wellMenuContent
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "building.2")
+                            Text(selectedWell?.name ?? "Select Well")
                         }
-                    } else {
-                        Menu {
-                            wellMenuContent
-                        } label: {
-                            Label(selectedWell?.name ?? "Select Well", systemImage: "building.2")
-                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(8)
                     }
                 }
             }
 
-            ToolbarItemGroup(placement: .principal) {
-                if horizontalSizeClass == .regular {
-                    if wells.isEmpty {
-                        Button(action: { createNewWell() }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "plus.circle.fill")
-                                Text("Create Your First Well")
-                                    .fontWeight(.semibold)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(.blue.opacity(0.2))
-                            .cornerRadius(10)
+            // Project picker - always visible when wells exist
+            ToolbarItem(placement: .automatic) {
+                if !wells.isEmpty {
+                    Menu {
+                        projectMenuContent
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                            Text(selectedProject?.name ?? "Select Project")
                         }
-                        .buttonStyle(.plain)
-                    } else {
-                        iPadToolbarContent(
-                            selectedWell: selectedWell,
-                            selectedProject: selectedProject,
-                            selectedWellBinding: $selectedWell,
-                            selectedProjectBinding: $selectedProject,
-                            showRenameWell: $showRenameWell,
-                            showRenameProject: $showRenameProject
-                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(8)
                     }
-                }
-            }
-
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if horizontalSizeClass == .compact {
-                    if !wells.isEmpty {
-                        Menu {
-                            projectMenuContent
-                        } label: {
-                            Label(selectedProject?.name ?? "Select Project", systemImage: "folder")
-                        }
-                    }
+                    .disabled(selectedWell == nil)
                 }
             }
         }
