@@ -346,28 +346,59 @@ private extension ContentView {
         let willDeleteCurrent = vm.selectedProject.map { toDeleteIDs.contains($0.id) } ?? false
 
         if willDeleteCurrent {
-            // Find first remaining project that won't be deleted
-            let newSelection = sorted.first { p in !toDeleteIDs.contains(p.id) }
+            // Find ID of first remaining project that won't be deleted
+            let newProjectID = sorted.first { p in !toDeleteIDs.contains(p.id) }?.id
 
-            // ATOMIC UPDATE: Clear selection immediately
-            vm.selectedProject = newSelection
-        }
+            // ATOMIC UPDATE: Clear selection to nil immediately to prevent accessing stale objects
+            vm.selectedProject = nil
 
-        // Perform deletion on background context to prevent stack overflow
-        let container = modelContext.container
-        Task.detached {
-            let backgroundContext = ModelContext(container)
+            // Perform deletion on background context to prevent stack overflow
+            let container = modelContext.container
+            Task.detached {
+                let backgroundContext = ModelContext(container)
 
-            // Fetch projects to delete in background context
-            let descriptor = FetchDescriptor<ProjectState>()
-            let allProjects = try? backgroundContext.fetch(descriptor)
-            let toDelete = allProjects?.filter { toDeleteIDs.contains($0.id) } ?? []
+                // Fetch projects to delete in background context
+                let descriptor = FetchDescriptor<ProjectState>()
+                let allProjects = try? backgroundContext.fetch(descriptor)
+                let toDelete = allProjects?.filter { toDeleteIDs.contains($0.id) } ?? []
 
-            // Delete from background context using helper function
-            for p in toDelete {
-                ContentView.deleteProject(p, from: backgroundContext)
+                // Delete from background context using helper function
+                for p in toDelete {
+                    ContentView.deleteProject(p, from: backgroundContext)
+                }
+                try? backgroundContext.save()
+
+                // Update UI on main thread after deletion completes
+                await MainActor.run {
+                    // Re-fetch the well to ensure fresh reference
+                    if let freshWell = self.wells.first(where: { $0.id == selectedWellID }) {
+                        let freshProjects = freshWell.projects ?? []
+                        // Restore selection using ID if it still exists
+                        if let newProjectID = newProjectID {
+                            self.vm.selectedProject = freshProjects.first { $0.id == newProjectID }
+                        } else {
+                            self.vm.selectedProject = freshProjects.first
+                        }
+                    }
+                }
             }
-            try? backgroundContext.save()
+        } else {
+            // Current selection is NOT being deleted, delete in background
+            let container = modelContext.container
+            Task.detached {
+                let backgroundContext = ModelContext(container)
+
+                // Fetch projects to delete in background context
+                let descriptor = FetchDescriptor<ProjectState>()
+                let allProjects = try? backgroundContext.fetch(descriptor)
+                let toDelete = allProjects?.filter { toDeleteIDs.contains($0.id) } ?? []
+
+                // Delete from background context using helper function
+                for p in toDelete {
+                    ContentView.deleteProject(p, from: backgroundContext)
+                }
+                try? backgroundContext.save()
+            }
         }
     }
 
