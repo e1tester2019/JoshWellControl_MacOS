@@ -124,7 +124,39 @@ struct ContentView: View {
                     Group {
                         switch selectedSection {
                         case .dashboard:
+                            #if os(iOS)
+                            ProjectDashboardView(
+                                project: project,
+                                wells: wells,
+                                selectedWell: $vm.selectedWell,
+                                selectedProject: $vm.selectedProject,
+                                onNewWell: {
+                                    let w = Well(name: "New Well")
+                                    modelContext.insert(w)
+                                    try? modelContext.save()
+                                    vm.selectedWell = w
+                                    vm.selectedProject = (w.projects ?? []).first
+                                },
+                                onNewProject: {
+                                    guard let w = vm.selectedWell else { return }
+                                    let p = ProjectState()
+                                    p.name = "Snapshot \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+                                    p.well = w
+                                    if w.projects == nil { w.projects = [] }
+                                    w.projects?.append(p)
+                                    try? modelContext.save()
+                                    vm.selectedProject = p
+                                },
+                                onRenameWell: { well in beginRename(well) },
+                                onRenameProject: { project in beginRename(project) },
+                                onDuplicateWell: { well in duplicateWell(from: well) },
+                                onDuplicateProject: { project in duplicateProject(from: project) },
+                                onDeleteWell: { deleteCurrentWell() },
+                                onDeleteProject: { deleteCurrentProject() }
+                            )
+                            #else
                             ProjectDashboardView(project: project)
+                            #endif
                         case .drillString:
                             DrillStringListView(project: project)
                         case .annulus:

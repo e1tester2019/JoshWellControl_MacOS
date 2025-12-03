@@ -18,9 +18,46 @@ struct ProjectDashboardView: View {
     @State private var viewmodel: ViewModel
     @State private var newTransferToEdit: MaterialTransfer?
 
-    init(project: ProjectState) {
+    // Optional navigation controls for iOS
+    var wells: [Well]?
+    @Binding var selectedWell: Well?
+    @Binding var selectedProject: ProjectState?
+    var onNewWell: (() -> Void)?
+    var onNewProject: (() -> Void)?
+    var onRenameWell: ((Well) -> Void)?
+    var onRenameProject: ((ProjectState) -> Void)?
+    var onDuplicateWell: ((Well) -> Void)?
+    var onDuplicateProject: ((ProjectState) -> Void)?
+    var onDeleteWell: (() -> Void)?
+    var onDeleteProject: (() -> Void)?
+
+    init(
+        project: ProjectState,
+        wells: [Well]? = nil,
+        selectedWell: Binding<Well?>? = nil,
+        selectedProject: Binding<ProjectState?>? = nil,
+        onNewWell: (() -> Void)? = nil,
+        onNewProject: (() -> Void)? = nil,
+        onRenameWell: ((Well) -> Void)? = nil,
+        onRenameProject: ((ProjectState) -> Void)? = nil,
+        onDuplicateWell: ((Well) -> Void)? = nil,
+        onDuplicateProject: ((ProjectState) -> Void)? = nil,
+        onDeleteWell: (() -> Void)? = nil,
+        onDeleteProject: (() -> Void)? = nil
+    ) {
         self._project = Bindable(wrappedValue: project)
         _viewmodel = State(initialValue: ViewModel(project: project))
+        self.wells = wells
+        self._selectedWell = selectedWell ?? .constant(nil)
+        self._selectedProject = selectedProject ?? .constant(nil)
+        self.onNewWell = onNewWell
+        self.onNewProject = onNewProject
+        self.onRenameWell = onRenameWell
+        self.onRenameProject = onRenameProject
+        self.onDuplicateWell = onDuplicateWell
+        self.onDuplicateProject = onDuplicateProject
+        self.onDeleteWell = onDeleteWell
+        self.onDeleteProject = onDeleteProject
     }
 
     private var pageBackgroundColor: Color {
@@ -34,6 +71,130 @@ struct ProjectDashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                // Navigation controls (iOS only)
+                #if os(iOS)
+                if let wells = wells {
+                    VStack(spacing: 12) {
+                        // Well and Project pickers
+                        HStack(spacing: 12) {
+                            Menu {
+                                ForEach(wells, id: \.id) { w in
+                                    Button {
+                                        selectedWell = w
+                                        selectedProject = (w.projects ?? []).first
+                                    } label: {
+                                        if selectedWell?.id == w.id {
+                                            Label(w.name, systemImage: "checkmark")
+                                        } else {
+                                            Text(w.name)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "square.grid.2x2")
+                                    Text(selectedWell?.name ?? "Select Well")
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.accentColor.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+
+                            if let well = selectedWell {
+                                let projects = well.projects ?? []
+                                Menu {
+                                    ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
+                                        Button {
+                                            selectedProject = p
+                                        } label: {
+                                            if selectedProject?.id == p.id {
+                                                Label(p.name, systemImage: "checkmark")
+                                            } else {
+                                                Text(p.name)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "folder")
+                                        Text(selectedProject?.name ?? "Select Project")
+                                        Spacer()
+                                        Image(systemName: "chevron.down")
+                                            .font(.caption)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(Color.accentColor.opacity(0.1))
+                                    .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        // Action buttons
+                        HStack(spacing: 12) {
+                            Menu {
+                                Button("New Well", systemImage: "plus") {
+                                    onNewWell?()
+                                }
+                                Button("New Project State", systemImage: "doc.badge.plus") {
+                                    onNewProject?()
+                                }
+                            } label: {
+                                Label("Add", systemImage: "plus.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color.green.opacity(0.15))
+                                    .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+
+                            Menu {
+                                if let well = selectedWell {
+                                    Section("Well") {
+                                        Button("Rename Well", systemImage: "pencil") {
+                                            onRenameWell?(well)
+                                        }
+                                        Button("Duplicate Well", systemImage: "doc.on.doc") {
+                                            onDuplicateWell?(well)
+                                        }
+                                        Button("Delete Well", systemImage: "trash", role: .destructive) {
+                                            onDeleteWell?()
+                                        }
+                                    }
+                                }
+                                if let project = selectedProject {
+                                    Section("Project State") {
+                                        Button("Rename Project", systemImage: "pencil") {
+                                            onRenameProject?(project)
+                                        }
+                                        Button("Duplicate Project", systemImage: "doc.on.doc") {
+                                            onDuplicateProject?(project)
+                                        }
+                                        Button("Delete Project", systemImage: "trash", role: .destructive) {
+                                            onDeleteProject?()
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Actions", systemImage: "ellipsis.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color.blue.opacity(0.15))
+                                    .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+                #endif
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Project Dashboard")
                         .font(.largeTitle)
