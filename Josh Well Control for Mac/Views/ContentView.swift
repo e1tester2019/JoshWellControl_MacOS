@@ -364,6 +364,40 @@ private extension ContentView {
 private extension ContentView {
     @ToolbarContentBuilder
     var detailToolbar: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 8) {
+                // Well picker menu
+                Menu {
+                    ForEach(wells, id: \.id) { w in
+                        Button {
+                            vm.selectedWell = w
+                            vm.selectedProject = w.projects.first
+                        } label: {
+                            if vm.selectedWell?.id == w.id { Image(systemName: "checkmark") }
+                            Text(w.name)
+                        }
+                    }
+                } label: {
+                    Label(vm.selectedWell?.name ?? "Well", systemImage: "square.grid.2x2")
+                }
+
+                // Project picker menu
+                if let well = vm.selectedWell {
+                    Menu {
+                        ForEach(well.projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
+                            Button { vm.selectedProject = p } label: {
+                                if vm.selectedProject?.id == p.id { Image(systemName: "checkmark") }
+                                Text(p.name)
+                            }
+                        }
+                    } label: {
+                        Label(vm.selectedProject?.name ?? "Project", systemImage: "folder")
+                    }
+                }
+            }
+        }
+        #else
         ToolbarItem(placement: .navigation) {
             HStack(spacing: 8) {
                 // Well picker menu
@@ -396,7 +430,8 @@ private extension ContentView {
                 }
             }
         }
-        ToolbarItem { // Add menu
+        #endif
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button("New Well", systemImage: "plus") {
                     let w = Well(name: "New Well")
@@ -418,7 +453,7 @@ private extension ContentView {
                 Label("Add", systemImage: "plus")
             }
         }
-        ToolbarItem { // Manage menu
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 if let well = vm.selectedWell {
                     Section("Well") {
