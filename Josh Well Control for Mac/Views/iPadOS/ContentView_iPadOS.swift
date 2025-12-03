@@ -39,7 +39,6 @@ struct ContentView_iPadOS: View {
     @State private var renameText: String = ""
     @State private var renamingWell: Well?
     @State private var renameWellText: String = ""
-    @State private var navigationPath = NavigationPath()
 
     enum Pane: String, CaseIterable, Identifiable {
         case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, bhp, rentals, transfers
@@ -68,7 +67,7 @@ struct ContentView_iPadOS: View {
     @State private var selectedSection: Pane = .dashboard
 
     var body: some View {
-        mainNavigationStack
+        splitView
             .sheet(item: $renamingProject, content: renameProjectSheet)
             .sheet(item: $renamingWell, content: renameWellSheet)
             .onAppear(perform: setupInitialWell)
@@ -138,10 +137,14 @@ struct ContentView_iPadOS: View {
     }
 
     @ViewBuilder
-    private var mainNavigationStack: some View {
-        NavigationStack(path: $navigationPath) {
+    private var splitView: some View {
+        NavigationSplitView {
+            // Sidebar
+            sidebar
+        } detail: {
+            // Detail view
             if let project = (vm.selectedProject ?? vm.selectedWell?.projects.first) {
-                dashboardGrid(for: project)
+                detailView(for: project)
             } else {
                 emptyStateView
             }
@@ -149,19 +152,13 @@ struct ContentView_iPadOS: View {
     }
 
     @ViewBuilder
-    private func dashboardGrid(for project: ProjectState) -> some View {
-        ScrollView {
-            LazyVGrid(columns: [
-                GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 16)
-            ], spacing: 16) {
-                ForEach(Pane.allCases) { pane in
-                    paneButton(pane)
-                }
+    private var sidebar: some View {
+        List(Pane.allCases, selection: $selectedSection) { pane in
+            NavigationLink(value: pane) {
+                Label(pane.title, systemImage: icon(for: pane))
             }
-            .padding()
         }
         .navigationTitle("Josh Well Control")
-        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 wellAndProjectPicker
@@ -170,36 +167,13 @@ struct ContentView_iPadOS: View {
                 actionsMenu
             }
         }
-        .navigationDestination(for: Pane.self) { pane in
-            viewForPane(pane, project: project)
-                .navigationTitle(pane.title)
-                .navigationBarTitleDisplayMode(.inline)
-        }
     }
 
     @ViewBuilder
-    private func paneButton(_ pane: Pane) -> some View {
-        Button {
-            selectedSection = pane
-            navigationPath.append(pane)
-        } label: {
-            VStack(spacing: 12) {
-                Image(systemName: icon(for: pane))
-                    .font(.system(size: 40))
-                    .foregroundStyle(.blue)
-                Text(pane.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 140)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemBackground))
-                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-            )
-        }
-        .buttonStyle(.plain)
+    private func detailView(for project: ProjectState) -> some View {
+        viewForPane(selectedSection, project: project)
+            .navigationTitle(selectedSection.title)
+            .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder
