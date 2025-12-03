@@ -19,6 +19,14 @@ struct PressureWindowView: View {
         _viewmodel = State(initialValue: ViewModel(project: project))
     }
 
+    private var pageBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .underPageBackgroundColor)
+        #else
+        Color(.systemGroupedBackground)
+        #endif
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -57,7 +65,7 @@ struct PressureWindowView: View {
             }
             .padding(24)
         }
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(pageBackgroundColor)
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
     }
@@ -124,6 +132,14 @@ private struct PressurePointRow: View {
     let focus: FocusState<PressureWindowPoint.ID?>.Binding
     let onDelete: () -> Void
 
+    private var cardBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Text("TVD \(point.depth_m, format: .number)")
@@ -186,7 +202,7 @@ private struct PressurePointRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+                .fill(cardBackgroundColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -215,13 +231,16 @@ extension PressureWindowView {
         func attach(context: ModelContext) { self.context = context }
 
         var points: [PressureWindowPoint] {
-            project.window.points.sorted { $0.depth_m < $1.depth_m }
+            (project.window.points ?? []).sorted { $0.depth_m < $1.depth_m }
         }
 
         func addRow() {
             let r = PressureWindowPoint(depth_m: newDepth, pore_kPa: newPore, frac_kPa: newFrac)
             r.window = project.window
-            project.window.points.append(r)
+            if project.window.points == nil {
+                project.window.points = []
+            }
+            project.window.points?.append(r)
             try? context?.save()
         }
 

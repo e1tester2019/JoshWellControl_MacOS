@@ -18,7 +18,7 @@ struct MaterialTransferListView: View {
             }
             List(selection: $selection) {
                 // Group transfers by outgoing/incoming
-                let sorted = well.transfers.sorted(by: { $0.date > $1.date })
+                let sorted = (well.transfers ?? []).sorted(by: { $0.date > $1.date })
                 let outgoing = sorted.filter { $0.isShippingOut }
                 let incoming = sorted.filter { !$0.isShippingOut }
 
@@ -97,7 +97,7 @@ struct MaterialTransferListView: View {
                     .labelsHidden()
                     .frame(width: 160)
                 Spacer(minLength: 12)
-                Text(String(format: "$%.2f", t.items.reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
+                Text(String(format: "$%.2f", (t.items ?? []).reduce(0.0) { $0 + (($1.unitPrice ?? 0) * $1.quantity) }))
                     .font(.headline)
                     .monospacedDigit()
             }
@@ -128,10 +128,11 @@ struct MaterialTransferListView: View {
     }
 
     private func addTransfer() {
-        let next = (well.transfers.map { $0.number }.max() ?? 0) + 1
+        let next = ((well.transfers ?? []).map { $0.number }.max() ?? 0) + 1
         let t = MaterialTransfer(number: next)
         t.well = well
-        well.transfers.append(t)
+        if well.transfers == nil { well.transfers = [] }
+        well.transfers?.append(t)
         modelContext.insert(t)
         try? modelContext.save()
         selection = t
@@ -147,28 +148,44 @@ struct MaterialTransferListView: View {
     }
 
     private func delete(_ t: MaterialTransfer) {
-        if let i = well.transfers.firstIndex(where: { $0.id == t.id }) { well.transfers.remove(at: i) }
+        // CRITICAL: Clear all state references IMMEDIATELY if they match the object being deleted
+        if selection?.id == t.id {
+            selection = nil
+        }
+        if editingTransfer?.id == t.id {
+            editingTransfer = nil
+        }
+        if previewingTransfer?.id == t.id {
+            previewingTransfer = nil
+        }
+
+        // Remove from array
+        if let i = (well.transfers ?? []).firstIndex(where: { $0.id == t.id }) {
+            well.transfers?.remove(at: i)
+        }
+
+        // Delete from context
         modelContext.delete(t)
         try? modelContext.save()
-        if selection?.id == t.id { selection = nil }
     }
 }
 
-#Preview("Material Transfer List") {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Well.self, MaterialTransfer.self, MaterialTransferItem.self, configurations: config)
-    let ctx = container.mainContext
-    let w = Well(name: "Sundance 102/04-16-055-22W5", uwi: "102/04-16-055-22W5/00", afeNumber: "25D2566")
-    ctx.insert(w)
-    for n in 1...2 {
-        let t = MaterialTransfer(number: n)
-        t.activity = n == 1 ? "Drilling" : "Completions"
-        t.country = "Canada"; t.province = "Alberta"; t.shippingCompany = "Roughneck Logistics"; t.transportedBy = "TK-123"
-        t.well = w
-        w.transfers.append(t)
-        ctx.insert(t)
-    }
-    return NavigationStack { MaterialTransferListView(well: w) }
-        .modelContainer(container)
-        .frame(width: 800, height: 480)
-}
+//#Preview("Material Transfer List") {
+//    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+//    let container = try! ModelContainer(for: Well.self, MaterialTransfer.self, MaterialTransferItem.self, configurations: config)
+//    let ctx = container.mainContext
+//    let w = Well(name: "Sundance 102/04-16-055-22W5", uwi: "102/04-16-055-22W5/00", afeNumber: "25D2566")
+//    ctx.insert(w)
+//    for n in 1...2 {
+//        let t = MaterialTransfer(number: n)
+//        t.activity = n == 1 ? "Drilling" : "Completions"
+//        t.country = "Canada"; t.province = "Alberta"; t.shippingCompany = "Roughneck Logistics"; t.transportedBy = "TK-123"
+//        t.well = w
+//        if w.transfers == nil { w.transfers = [] }
+//        w.transfers?.append(t)
+//        ctx.insert(t)
+//    }
+//    NavigationStack { MaterialTransferListView(well: w) }
+//        .modelContainer(container)
+//        .frame(width: 800, height: 480)
+//}

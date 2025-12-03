@@ -11,7 +11,7 @@ import SwiftUI
 
 @Model
 final class ProjectState {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     // NEW — versioning & well linkage
     var name: String = "Baseline"
@@ -19,23 +19,76 @@ final class ProjectState {
     var updatedAt: Date = Date.now
     var basedOnProjectID: UUID? = nil
 
-    @Relationship(inverse: \Well.projects) var well: Well?
+    @Relationship var well: Well?
 
-    // Collections (as you already have)
-    @Relationship(deleteRule: .cascade) var surveys: [SurveyStation] = []
-    @Relationship(deleteRule: .cascade) var drillString: [DrillStringSection] = []
-    @Relationship(deleteRule: .cascade) var annulus: [AnnulusSection] = []
-    @Relationship(deleteRule: .cascade) var mudSteps: [MudStep] = []
-    @Relationship(deleteRule: .cascade) var finalLayers: [FinalFluidLayer] = []
-    @Relationship(deleteRule: .cascade) var muds: [MudProperties] = []
-    @Relationship(deleteRule: .cascade) var programStages: [PumpProgramStage] = []
+    // Collections - all optional for CloudKit compatibility
+    @Relationship(deleteRule: .nullify, inverse: \SurveyStation.project) var surveys: [SurveyStation]?
+    @Relationship(deleteRule: .nullify, inverse: \DrillStringSection.project) var drillString: [DrillStringSection]?
+    @Relationship(deleteRule: .nullify, inverse: \AnnulusSection.project) var annulus: [AnnulusSection]?
+    @Relationship(deleteRule: .nullify, inverse: \MudStep.project) var mudSteps: [MudStep]?
+    @Relationship(deleteRule: .nullify, inverse: \FinalFluidLayer.project) var finalLayers: [FinalFluidLayer]?
+    @Relationship(deleteRule: .nullify, inverse: \MudProperties.project) var muds: [MudProperties]?
+    @Relationship(deleteRule: .nullify, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
+    @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
+    @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
 
-    // Singletons
-    var window: PressureWindow = PressureWindow()
-    var slug: SlugPlan = SlugPlan()
-    var backfill: BackfillPlan = BackfillPlan()
-    var settings: TripSettings = TripSettings()
-    var swab: SwabInput = SwabInput()
+    // Singletons - Internal storage MUST be @Relationship to match inverse declarations
+    @Relationship(deleteRule: .nullify) var _window: PressureWindow?
+    @Relationship(deleteRule: .nullify) var _slug: SlugPlan?
+    @Relationship(deleteRule: .nullify) var _backfill: BackfillPlan?
+    @Relationship(deleteRule: .nullify) var _settings: TripSettings?
+    @Relationship(deleteRule: .nullify) var _swab: SwabInput?
+
+    // Public non-optional accessors for backward compatibility
+    @Transient var window: PressureWindow {
+        get {
+            if let w = _window { return w }
+            let w = PressureWindow()
+            _window = w
+            return w
+        }
+        set { _window = newValue }
+    }
+
+    @Transient var slug: SlugPlan {
+        get {
+            if let s = _slug { return s }
+            let s = SlugPlan()
+            _slug = s
+            return s
+        }
+        set { _slug = newValue }
+    }
+
+    @Transient var backfill: BackfillPlan {
+        get {
+            if let b = _backfill { return b }
+            let b = BackfillPlan()
+            _backfill = b
+            return b
+        }
+        set { _backfill = newValue }
+    }
+
+    @Transient var settings: TripSettings {
+        get {
+            if let s = _settings { return s }
+            let s = TripSettings()
+            _settings = s
+            return s
+        }
+        set { _settings = newValue }
+    }
+
+    @Transient var swab: SwabInput {
+        get {
+            if let s = _swab { return s }
+            let s = SwabInput()
+            _swab = s
+            return s
+        }
+        set { _swab = newValue }
+    }
 
     var baseAnnulusDensity_kgm3: Double = 1260
     var baseStringDensity_kgm3: Double = 1260
@@ -44,14 +97,21 @@ final class ProjectState {
     var activeMudVolume_m3: Double = 56.5
     var surfaceLineVolume_m3: Double = 1.4
 
-    init() {}
+    init() {
+        // Initialize singletons so they're never nil
+        self._window = PressureWindow()
+        self._slug = SlugPlan()
+        self._backfill = BackfillPlan()
+        self._settings = TripSettings()
+        self._swab = SwabInput()
+    }
 }
 extension ProjectState {
     /// TVD at an arbitrary MD using linear interpolation over `surveys`.
     func tvd(of mdQuery: Double) -> Double {
-        guard !surveys.isEmpty else { return mdQuery } // fallback
+        guard !(surveys ?? []).isEmpty else { return mdQuery } // fallback
         // Sort once per call (fast enough, or cache if you like)
-        let s = surveys.sorted { $0.md < $1.md }
+        let s = (surveys ?? []).sorted { $0.md < $1.md }
 
         if mdQuery <= s.first!.md { return s.first!.tvd ?? 0 }
         if mdQuery >= s.last!.md  { return s.last!.tvd ?? 0 }
@@ -72,10 +132,10 @@ extension ProjectState {
 
 extension ProjectState {
     var finalAnnulusLayersSorted: [FinalFluidLayer] {
-        finalLayers.filter { $0.placement == .annulus }.sorted { $0.topMD_m < $1.topMD_m }
+        (finalLayers ?? []).filter { $0.placement == .annulus }.sorted { $0.topMD_m < $1.topMD_m }
     }
     var finalStringLayersSorted: [FinalFluidLayer] {
-        finalLayers.filter { $0.placement == .string }.sorted { $0.topMD_m < $1.topMD_m }
+        (finalLayers ?? []).filter { $0.placement == .string }.sorted { $0.topMD_m < $1.topMD_m }
     }
 }
 
@@ -88,8 +148,9 @@ extension ProjectState {
     /// Replace the persisted final layers with a new set and save.
     /// Call this from Mud Placement after committing a run.
     func replaceFinalLayers(with newLayers: [FinalFluidLayer], using context: ModelContext) {
-        self.finalLayers.removeAll()
-        self.finalLayers.append(contentsOf: newLayers)
+        if self.finalLayers == nil { self.finalLayers = [] }
+        self.finalLayers?.removeAll()
+        self.finalLayers?.append(contentsOf: newLayers)
         self.updatedAt = .now
         try? context.save()
     }
@@ -104,7 +165,8 @@ extension ProjectState {
         p.baseStringDensity_kgm3 = self.baseStringDensity_kgm3
         p.pressureDepth_m = self.pressureDepth_m
         p.well = well
-        well.projects.append(p)
+        if well.projects == nil { well.projects = [] }
+        well.projects?.append(p)
         try? context.save()
         return p
     }
@@ -122,7 +184,8 @@ extension ProjectState {
 
         // --- Clone MUDS first and build an old->new map by ID ---
         var mudMap: [UUID: MudProperties] = [:]
-        for m0 in self.muds {
+        if p.muds == nil { p.muds = [] }
+        for m0 in (self.muds ?? []) {
             let m = MudProperties(
                 name: m0.name,
                 density_kgm3: m0.density_kgm3,
@@ -143,22 +206,24 @@ extension ProjectState {
                 project: p
             )
             m.isActive = m0.isActive
-            p.muds.append(m)
+            p.muds?.append(m)
             mudMap[m0.id] = m
         }
 
         // --- Surveys ---
-        for s0 in self.surveys {
+        if p.surveys == nil { p.surveys = [] }
+        for s0 in (self.surveys ?? []) {
             let s = SurveyStation(
                 md: s0.md,
                 inc: s0.inc,
                 azi: s0.azi,
                 tvd: s0.tvd)
-            p.surveys.append(s)
+            p.surveys?.append(s)
         }
 
         // --- Drill string ---
-        for d0 in self.drillString {
+        if p.drillString == nil { p.drillString = [] }
+        for d0 in (self.drillString ?? []) {
             let d = DrillStringSection(
                 name: d0.name,
                 topDepth_m: d0.topDepth_m,
@@ -173,11 +238,12 @@ extension ProjectState {
                 internalRoughness_m: d0.internalRoughness_m,
                 project: p
             )
-            p.drillString.append(d)
+            p.drillString?.append(d)
         }
 
         // --- Annulus ---
-        for a0 in self.annulus {
+        if p.annulus == nil { p.annulus = [] }
+        for a0 in (self.annulus ?? []) {
             let a = AnnulusSection(
                 name: a0.name,
                 topDepth_m: a0.topDepth_m,
@@ -199,11 +265,12 @@ extension ProjectState {
                 cuttingsVolFrac: a0.cuttingsVolFrac,
                 project: p
             )
-            p.annulus.append(a)
+            p.annulus?.append(a)
         }
 
         // --- Mud steps (attach mud by ID map) ---
-        for m0 in self.mudSteps {
+        if p.mudSteps == nil { p.mudSteps = [] }
+        for m0 in (self.mudSteps ?? []) {
             let linked: MudProperties? = m0.mud.flatMap { old in mudMap[old.id] }
             let s = MudStep(
                 name: m0.name,
@@ -215,11 +282,12 @@ extension ProjectState {
                 project: p,
                 mud: linked
             )
-            p.mudSteps.append(s)
+            p.mudSteps?.append(s)
         }
 
         // --- Final layers (attach mud by ID map) ---
-        for f0 in self.finalLayers {
+        if p.finalLayers == nil { p.finalLayers = [] }
+        for f0 in (self.finalLayers ?? []) {
             let linked: MudProperties? = f0.mud.flatMap { old in mudMap[old.id] }
             let f = FinalFluidLayer(
                 project: p,
@@ -232,10 +300,10 @@ extension ProjectState {
                 createdAt: f0.createdAt,
                 mud: linked
             )
-            p.finalLayers.append(f)
+            p.finalLayers?.append(f)
         }
 
-        // --- Singletons ---
+        // --- Singletons (force unwrap safe because init() creates them) ---
         p.window = self.window
         p.slug = self.slug
         p.backfill = self.backfill
@@ -249,7 +317,7 @@ extension ProjectState {
 }
 
 extension ProjectState {
-    var activeMud: MudProperties? { muds.first(where: { $0.isActive }) ?? muds.first }
+    var activeMud: MudProperties? { (muds ?? []).first(where: { $0.isActive }) ?? (muds ?? []).first }
 }
 
 extension ProjectState {
@@ -272,7 +340,7 @@ extension ProjectState {
         dict["name"] = name
         dict["createdAt"] = ISO8601DateFormatter().string(from: createdAt)
         dict["updatedAt"] = ISO8601DateFormatter().string(from: updatedAt)
-        dict["basedOnProjectID"] = basedOnProjectID?.uuidString
+        dict["basedOnProjectID"] = basedOnProjectID?.uuidString as Any
 
         dict["baseAnnulusDensity_kgm3"] = baseAnnulusDensity_kgm3
         dict["baseStringDensity_kgm3"] = baseStringDensity_kgm3
@@ -282,12 +350,12 @@ extension ProjectState {
         dict["surfaceLineVolume_m3"] = surfaceLineVolume_m3
 
         // Collections serialized as dictionaries
-        dict["surveys"] = surveys.map { $0.exportDictionary }
-        dict["drillString"] = drillString.map { $0.exportDictionary }
-        dict["annulus"] = annulus.map { $0.exportDictionary }
-        dict["mudSteps"] = mudSteps.map { $0.exportDictionary }
-        dict["finalLayers"] = finalLayers.map { $0.exportDictionary }
-        dict["muds"] = muds.map { $0.exportDictionary }
+        dict["surveys"] = (surveys ?? []).map { $0.exportDictionary }
+        dict["drillString"] = (drillString ?? []).map { $0.exportDictionary }
+        dict["annulus"] = (annulus ?? []).map { $0.exportDictionary }
+        dict["mudSteps"] = (mudSteps ?? []).map { $0.exportDictionary }
+        dict["finalLayers"] = (finalLayers ?? []).map { $0.exportDictionary }
+        dict["muds"] = (muds ?? []).map { $0.exportDictionary }
 
         // Singletons serialized as dictionaries
         //dict["window"] = window.exportDictionary
@@ -326,7 +394,7 @@ extension SurveyStation {
             "md": md,
             "inc": inc,
             "azi": azi,
-            "tvd": tvd ?? NSNull()
+            "tvd": tvd as Any? ?? NSNull()
         ]
     }
 }
@@ -383,7 +451,7 @@ extension MudStep {
             "density_kgm3": density_kgm3,
             "colorHex": colorHex,
             "placementRaw": placementRaw,
-            "mudID": mud?.id.uuidString ?? NSNull()
+            "mudID": mud?.id.uuidString as Any? ?? NSNull()
         ]
     }
 }
@@ -403,7 +471,7 @@ extension FinalFluidLayer {
                 "a": colorA
             ],
             "createdAt": ISO8601DateFormatter().string(from: createdAt),
-            "mudID": mud?.id.uuidString ?? NSNull()
+            "mudID": mud?.id.uuidString as Any? ?? NSNull()
         ]
     }
 }

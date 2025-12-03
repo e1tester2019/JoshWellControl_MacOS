@@ -13,7 +13,7 @@ import SwiftData
 
 @Model
 final class SlugPlan {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Slug Plan"
 
     /// Base mud density the slug is compared against (kg/m³)
@@ -22,13 +22,13 @@ final class SlugPlan {
     /// Optional notes (for ops program export)
     var notes: String? = nil
 
-    // Relationship back to project (inverse declared only on this side)
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.slug)
+    // Relationship back to project (must match internal _slug property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._slug)
     var project: ProjectState?
 
     /// One or more slug steps (e.g., a viscous spacer + heavy slug)
-    @Relationship(deleteRule: .cascade)
-    var steps: [SlugStep] = []
+    @Relationship(deleteRule: .cascade, inverse: \SlugStep.plan)
+    var steps: [SlugStep]?
 
     init() {}
 
@@ -39,7 +39,7 @@ final class SlugPlan {
     func deltaHydrostatic_kPa(atTVD tvd_m: Double) -> Double {
         let g = 9.80665
         // Sum the contribution from each step where the step covers that TVD
-        let sumPa = steps.reduce(0.0) { acc, step in
+        let sumPa = (steps ?? []).reduce(0.0) { acc, step in
             acc + step.deltaPressure_Pa(atTVD: tvd_m, baseMudDensity_kg_per_m3: baseMudDensity_kg_per_m3, g: g)
         }
         return sumPa / 1000.0
@@ -55,20 +55,20 @@ final class SlugPlan {
 
 @Model
 final class SlugStep {
-    @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var id: UUID = UUID()
+    var name: String = ""
 
     enum Placement: Int, Codable { case inString = 0, inAnnulus }
     var placementRaw: Int = Placement.inString.rawValue
 
     /// Slug density (kg/m³) and optional rheology hints
-    var density_kg_per_m3: Double
+    var density_kg_per_m3: Double = 0.0
     var pv_Pa_s: Double? = nil        // optional Plastic Viscosity
     var yp_Pa: Double? = nil          // optional Yield Point
 
     /// Geometry along well path (measured)
-    var topMD_m: Double               // where slug starts (top)
-    var length_m: Double              // slug length along MD
+    var topMD_m: Double = 0.0         // where slug starts (top)
+    var length_m: Double = 0.0        // slug length along MD
 
     /// If you have TVD mapping available, you can set these directly.
     /// If left as nil, helpers can approximate TVD ≈ MD for vertical sections.
@@ -78,7 +78,8 @@ final class SlugStep {
     /// Optional pump rate for ops reference (m³/min)
     var pumpRate_m3_per_min: Double? = nil
 
-    // Backlink not required; plan owns steps
+    // Relationship back to plan (inverse declared on parent side only)
+    var plan: SlugPlan?
 
     init(
         name: String,

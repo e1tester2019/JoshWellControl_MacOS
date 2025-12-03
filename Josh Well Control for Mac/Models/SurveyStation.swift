@@ -9,10 +9,13 @@ import SwiftData
 
 @Model
 final class SurveyStation {
-    var md: Double
-    var inc: Double
-    var azi: Double
+    var md: Double = 0.0
+    var inc: Double = 0.0
+    var azi: Double = 0.0
     var tvd: Double?
+
+    // Inverse relationship back to project
+    @Relationship var project: ProjectState?
 
     // Optional extras (from Pason exports)
     var vs_m: Double?            // Vertical Section (m)

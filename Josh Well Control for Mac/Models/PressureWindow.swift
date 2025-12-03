@@ -13,7 +13,7 @@ import SwiftData
 
 @Model
 final class PressureWindow {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Default Window"
 
     /// If true, your table x-axis is TVD (m). If false, it’s MD (m).
@@ -25,11 +25,10 @@ final class PressureWindow {
     var fracSafety_kPa: Double = 0.0      // margin below fracture pressure
 
     /// Relationship to tabulated points
-    @Relationship(deleteRule: .cascade)
-    var points: [PressureWindowPoint] = []
+    @Relationship(deleteRule: .cascade, inverse: \PressureWindowPoint.window) var points: [PressureWindowPoint]?
 
-    // Link back to project
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.window)
+    // Link back to project (must match internal _window property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._window)
     var project: ProjectState?
 
     init() {}
@@ -97,7 +96,7 @@ final class PressureWindow {
 
     /// Returns points sorted by depth (ascending). Call this before interpolation.
     @Transient private var sortedPoints: [PressureWindowPoint] {
-        points.sorted { $0.depth_m < $1.depth_m }
+        (points ?? []).sorted { $0.depth_m < $1.depth_m }
     }
 
     /// Generic linear interpolation across table for the given keyPath (pore or frac).
@@ -135,10 +134,10 @@ final class PressureWindow {
 
 @Model
 final class PressureWindowPoint {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     /// Depth coordinate for this row (m). Use TVD if `usesTVD == true` on the window.
-    var depth_m: Double
+    var depth_m: Double = 0.0
 
     /// Pore pressure at depth (kPa). Optional to allow sparse rows.
     var pore_kPa: Double?
@@ -147,7 +146,7 @@ final class PressureWindowPoint {
     var frac_kPa: Double?
 
     // Link to parent
-    @Relationship(deleteRule: .nullify, inverse: \PressureWindow.points)
+    @Relationship(deleteRule: .nullify)
     var window: PressureWindow?
 
     init(depth_m: Double,

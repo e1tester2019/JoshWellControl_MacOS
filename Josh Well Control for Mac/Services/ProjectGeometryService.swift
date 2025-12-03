@@ -71,8 +71,8 @@ final class ProjectGeometryService: GeometryService {
     
     /// Convenience initializer from a ProjectState (no trajectory dependency)
     convenience init(project: ProjectState, currentStringBottomMD: Double) {
-        self.init(annulus: project.annulus,
-                  string: project.drillString,
+        self.init(annulus: project.annulus ?? [],
+                  string: project.drillString ?? [],
                   currentStringBottomMD: currentStringBottomMD)
     }
 
@@ -80,8 +80,8 @@ final class ProjectGeometryService: GeometryService {
     convenience init(project: ProjectState,
                      currentStringBottomMD: Double,
                      tvdMapper: @escaping (Double)->Double) {
-        self.init(annulus: project.annulus,
-                  string: project.drillString,
+        self.init(annulus: project.annulus ?? [],
+                  string: project.drillString ?? [],
                   currentStringBottomMD: currentStringBottomMD,
                   mdToTvd: tvdMapper)
     }
@@ -122,8 +122,8 @@ final class ProjectGeometryService: GeometryService {
                      currentStringBottomMD: Double,
                      surveys: [SurveyStation]) {
         let sampler = _TvdSampler(stations: surveys)
-        self.init(annulus: project.annulus,
-                  string: project.drillString,
+        self.init(annulus: project.annulus ?? [],
+                  string: project.drillString ?? [],
                   currentStringBottomMD: currentStringBottomMD,
                   mdToTvd: { sampler.tvd(of: $0) })
     }

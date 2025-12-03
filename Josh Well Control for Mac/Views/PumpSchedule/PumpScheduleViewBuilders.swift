@@ -250,7 +250,7 @@ struct PumpScheduleProgramEditorView: View {
                 } else {
                     List {
                         ForEach(viewModel.program) { stg in
-                            let muds = project.muds.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                            let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                             ProgramStageRow(
                                 stage: stg,
                                 muds: muds,

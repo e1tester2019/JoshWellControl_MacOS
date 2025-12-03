@@ -11,6 +11,7 @@ struct RentalItemsView: View {
     @Bindable var well: Well
 
     @State private var selection: RentalItem? = nil
+    @State private var editingRental: RentalItem? = nil
 
     init(well: Well) { self._well = Bindable(wrappedValue: well) }
 
@@ -55,21 +56,31 @@ struct RentalItemsView: View {
         }
         .padding(12)
         .navigationTitle("Rentals")
+        .sheet(item: $editingRental) { rental in
+            RentalDetailEditor(rental: rental)
+                .environment(\.locale, Locale(identifier: "en_GB"))
+                #if os(macOS)
+                .frame(minWidth: 720, minHeight: 520)
+                #endif
+        }
     }
 
     private var sortedRentals: [RentalItem] {
-        // Prefer most recent start date first; fallback to name
-        well.rentals.sorted { a, b in
+        let rentals = well.rentals ?? []
+        return rentals.sorted { a, b in
             let asd = a.startDate ?? .distantPast
             let bsd = b.startDate ?? .distantPast
             if asd != bsd { return asd > bsd }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            let an = a.name
+            let bn = b.name
+            return an.localizedCaseInsensitiveCompare(bn) == .orderedAscending
         }
     }
 
     private func addRental() {
         let r = RentalItem(name: "New Rental", detail: "", serialNumber: "", startDate: Date(), endDate: Date(), usageDates: [], onLocation: true, invoiced: false, costPerDay: 0, well: well)
-        well.rentals.append(r)
+        if well.rentals == nil { well.rentals = [] }
+        well.rentals?.append(r)
         modelContext.insert(r)
         try? modelContext.save()
         selection = r
@@ -77,19 +88,26 @@ struct RentalItemsView: View {
     }
 
     private func delete(_ r: RentalItem) {
-        if let i = well.rentals.firstIndex(where: { $0 === r }) { well.rentals.remove(at: i) }
+        // CRITICAL: Clear all state references IMMEDIATELY if they match the object being deleted
+        if selection?.id == r.id {
+            selection = nil
+        }
+        if editingRental?.id == r.id {
+            editingRental = nil
+        }
+
+        // Remove from array
+        if let i = (well.rentals ?? []).firstIndex(where: { $0.id == r.id }) {
+            well.rentals?.remove(at: i)
+        }
+
+        // Delete from context
         modelContext.delete(r)
         try? modelContext.save()
-        if selection === r { selection = well.rentals.first }
     }
 
     private func openEditor(_ r: RentalItem) {
-        let host = WindowHost(title: "Rental – \(r.name)") {
-            RentalDetailEditor(rental: r)
-                .environment(\.locale, Locale(identifier: "en_GB"))
-                .frame(minWidth: 720, minHeight: 520)
-        }
-        host.show()
+        editingRental = r
     }
 
     private func copySummary(_ r: RentalItem) {
@@ -372,44 +390,49 @@ private struct RentalDetailEditor: View {
     @State private var newCostDesc: String = ""
     @State private var newCostAmount: String = ""
 
+    private var detailBinding: Binding<String> { Binding(get: { rental.detail ?? "" }, set: { rental.detail = $0 }) }
+    private var serialBinding: Binding<String> { Binding(get: { rental.serialNumber ?? "" }, set: { rental.serialNumber = $0 }) }
+    private var startDateBinding: Binding<Date> { Binding(get: { rental.startDate ?? Date() }, set: { rental.startDate = $0 }) }
+    private var endDateBinding: Binding<Date> { Binding(get: { rental.endDate ?? Date() }, set: { rental.endDate = $0 }) }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 GroupBox("Details") {
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                        GridRow {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
                             Text("Name").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
                             TextField("Name", text: $rental.name).textFieldStyle(.roundedBorder)
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("Description").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("Description", text: Binding(get: { rental.detail ?? "" }, set: { rental.detail = $0 }))
+                            TextField("Description", text: detailBinding)
                                 .textFieldStyle(.roundedBorder)
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("Serial #").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
-                            TextField("Serial Number", text: Binding(get: { rental.serialNumber ?? "" }, set: { rental.serialNumber = $0 }))
+                            TextField("Serial Number", text: serialBinding)
                                 .textFieldStyle(.roundedBorder)
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("Start Date").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
-                            DatePicker("", selection: Binding(get: { rental.startDate ?? Date() }, set: { rental.startDate = $0 }), displayedComponents: .date)
+                            DatePicker("", selection: startDateBinding, displayedComponents: .date)
                                 .labelsHidden()
                                 .datePickerStyle(.compact)
                                 .onChange(of: rental.startDate) { _, _ in syncUsageDatesFromRange() }
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("End Date").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
-                            DatePicker("", selection: Binding(get: { rental.endDate ?? Date() }, set: { rental.endDate = $0 }), displayedComponents: .date)
+                            DatePicker("", selection: endDateBinding, displayedComponents: .date)
                                 .labelsHidden()
                                 .datePickerStyle(.compact)
                                 .onChange(of: rental.endDate) { _, _ in syncUsageDatesFromRange() }
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("On Location").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
                             Toggle("", isOn: $rental.onLocation).labelsHidden()
                         }
-                        GridRow {
+                        HStack(spacing: 12) {
                             Text("Invoiced").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
                             Toggle("", isOn: $rental.invoiced).labelsHidden()
                         }
@@ -435,18 +458,9 @@ private struct RentalDetailEditor: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], alignment: .leading, spacing: 6) {
-                                ForEach(dates, id: \.self) { d in
-                                    HStack(spacing: 4) {
-                                        Text(dateString(d)).font(.caption)
-                                        Button(role: .destructive) { rental.toggleUsage(on: d) } label: { Image(systemName: "xmark.circle.fill") }
-                                            .buttonStyle(.borderless)
-                                    }
-                                    .padding(.vertical, 4)
-                                    .padding(.horizontal, 6)
-                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.12)))
-                                }
-                            }
+                            UsageChipsView(dates: dates, onRemove: { d in
+                                rental.toggleUsage(on: d)
+                            })
                         }
                     }
                 }
@@ -461,29 +475,21 @@ private struct RentalDetailEditor: View {
                         }
                         Divider()
                         Text("Additional Costs").font(.caption).foregroundStyle(.secondary)
-                        ForEach(rental.additionalCosts) { c in
-                            HStack(spacing: 8) {
-                                TextField("Description", text: Binding(get: { c.descriptionText }, set: { c.descriptionText = $0 }))
-                                    .textFieldStyle(.roundedBorder)
-                                TextField("Amount", value: Binding(get: { c.amount }, set: { c.amount = $0 }), format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 120)
-                                Button(role: .destructive) {
-                                    if let i = rental.additionalCosts.firstIndex(where: { $0 === c }) { rental.additionalCosts.remove(at: i) }
-                                    modelContext.delete(c)
-                                } label: { Image(systemName: "trash") }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                        HStack(spacing: 8) {
-                            TextField("Description", text: $newCostDesc)
-                                .textFieldStyle(.roundedBorder)
-                            TextField("Amount", text: $newCostAmount)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 140)
-                                .onSubmit { addAdditionalCost() }
-                            Button("Add Cost") { addAdditionalCost() }
-                        }
+                        AdditionalCostsList(
+                            rental: rental,
+                            newCostDesc: $newCostDesc,
+                            newCostAmount: $newCostAmount,
+                            onDelete: { cost in
+                                // Remove from array before deleting
+                                if let i = rental.additionalCosts?.firstIndex(where: { $0 === cost }) {
+                                    rental.additionalCosts?.remove(at: i)
+                                }
+                                // Delete from context
+                                modelContext.delete(cost)
+                                try? modelContext.save()
+                            },
+                            onAdd: { addAdditionalCost() }
+                        )
                         HStack {
                             Spacer()
                             Text("Addl: $\(String(format: "%.2f", rental.additionalCostsTotal))   Total: $\(String(format: "%.2f", rental.totalCost))")
@@ -519,7 +525,8 @@ private struct RentalDetailEditor: View {
         let amount = Double(newCostAmount.replacingOccurrences(of: ",", with: "")) ?? 0
         guard !newCostDesc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || amount != 0 else { return }
         let c = RentalAdditionalCost(descriptionText: newCostDesc, amount: amount, date: Date())
-        rental.additionalCosts.append(c)
+        if rental.additionalCosts == nil { rental.additionalCosts = [] }
+        rental.additionalCosts?.append(c)
         modelContext.insert(c)
         newCostDesc = ""; newCostAmount = ""
         try? modelContext.save()
@@ -587,6 +594,59 @@ private struct RentalDetailEditor: View {
         UIPasteboard.general.string = combined
         #endif
     }
+
+    private struct AdditionalCostsList: View {
+        @Bindable var rental: RentalItem
+        @Binding var newCostDesc: String
+        @Binding var newCostAmount: String
+        var onDelete: (RentalAdditionalCost) -> Void
+        var onAdd: () -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(rental.additionalCosts ?? []) { c in
+                    HStack(spacing: 8) {
+                        TextField("Description", text: Binding(get: { c.descriptionText }, set: { c.descriptionText = $0 }))
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Amount", value: Binding(get: { c.amount }, set: { c.amount = $0 }), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                        Button(role: .destructive) { onDelete(c) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("Description", text: $newCostDesc)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Amount", text: $newCostAmount)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 140)
+                        .onSubmit { onAdd() }
+                    Button("Add Cost") { onAdd() }
+                }
+            }
+        }
+    }
+
+    private struct UsageChipsView: View {
+        let dates: [Date]
+        let onRemove: (Date) -> Void
+        private func dateString(_ d: Date) -> String { let df = DateFormatter(); df.dateStyle = .medium; return df.string(from: d) }
+        var body: some View {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(dates, id: \.self) { d in
+                    HStack(spacing: 4) {
+                        Text(dateString(d)).font(.caption)
+                        Button(role: .destructive) { onRemove(d) } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.12)))
+                }
+            }
+        }
+    }
 }
 
 // Simple flow layout for chips
@@ -632,8 +692,10 @@ struct RentalItemsView_Previews: PreviewProvider {
         ctx.insert(well)
         let r1 = RentalItem(name: "MWD Tool", detail: "Telemetry", startDate: Date().addingTimeInterval(-86400*3), endDate: Date(), usageDates: [Date().addingTimeInterval(-86400*2), Date().addingTimeInterval(-86400)], onLocation: true, invoiced: false, costPerDay: 1200, well: well)
         let c1 = RentalAdditionalCost(descriptionText: "Delivery", amount: 250)
-        r1.additionalCosts.append(c1)
-        well.rentals.append(r1)
+        if well.rentals == nil { well.rentals = [] }
+        well.rentals?.append(r1)
+        if r1.additionalCosts == nil { r1.additionalCosts = [] }
+        r1.additionalCosts?.append(c1)
         ctx.insert(r1); ctx.insert(c1)
         try? ctx.save()
 

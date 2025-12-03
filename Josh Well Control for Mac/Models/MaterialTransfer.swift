@@ -3,9 +3,9 @@ import SwiftData
 
 @Model
 final class MaterialTransfer {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var number: Int = 1                 // M.T.#
-    var date: Date
+    var date: Date = Date()
 
     // Header fields
     var destinationName: String? = nil  // To Loc/AFE/Vendor
@@ -24,10 +24,10 @@ final class MaterialTransfer {
     var isShippingOut: Bool = false     // This transfer ships items out of location
     var isShippedBack: Bool = false     // Items have been shipped back to vendor
 
-    @Relationship(deleteRule: .cascade) var items: [MaterialTransferItem] = []
+    @Relationship(deleteRule: .cascade, inverse: \MaterialTransferItem.transfer) var items: [MaterialTransferItem]?
 
     // Back link to Well
-    @Relationship(inverse: \Well.transfers) var well: Well?
+    @Relationship var well: Well?
 
     init(number: Int = 1, date: Date = Date()) {
         self.number = number
@@ -37,7 +37,7 @@ final class MaterialTransfer {
 
 @Model
 final class MaterialTransferItem {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
 
     var quantity: Double = 1
     var descriptionText: String = ""
@@ -57,7 +57,7 @@ final class MaterialTransferItem {
     var totalValue: Double { (unitPrice ?? 0) * quantity }
 
     // Back link to transfer
-    @Relationship(inverse: \MaterialTransfer.items) var transfer: MaterialTransfer?
+    @Relationship var transfer: MaterialTransfer?
 
     init(quantity: Double = 1, descriptionText: String) {
         self.quantity = quantity

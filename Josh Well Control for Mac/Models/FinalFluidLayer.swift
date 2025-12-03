@@ -12,27 +12,27 @@ import SwiftData
 @Model
 final class FinalFluidLayer {
     // Relationships
-    @Relationship(inverse: \ProjectState.finalLayers)
+    @Relationship
     var project: ProjectState?
     @Relationship var mud: MudProperties?   // ← optional link back to the mud check
 
     // Metadata
-    var name: String
-    var createdAt: Date
-    var placement: Placement  // .annulus, .string, .both (you already have this enum)
+    var name: String = ""
+    var createdAt: Date = Date.now
+    var placementRaw: String = Placement.annulus.rawValue  // Store enum as String
 
     // Interval (MD, meters)
-    var topMD_m: Double
-    var bottomMD_m: Double
+    var topMD_m: Double = 0.0
+    var bottomMD_m: Double = 0.0
 
     // Fluid
-    var density_kgm3: Double
+    var density_kgm3: Double = 0.0
 
     // UI color, persisted as RGBA
-    var colorR: Double
-    var colorG: Double
-    var colorB: Double
-    var colorA: Double
+    var colorR: Double = 0.5
+    var colorG: Double = 0.5
+    var colorB: Double = 0.5
+    var colorA: Double = 1.0
 
     init(project: ProjectState?,
          name: String,
@@ -46,7 +46,7 @@ final class FinalFluidLayer {
     {
         self.project = project
         self.name = name
-        self.placement = placement
+        self.placementRaw = placement.rawValue
         self.topMD_m = topMD_m
         self.bottomMD_m = bottomMD_m
         self.density_kgm3 = density_kgm3
@@ -56,6 +56,12 @@ final class FinalFluidLayer {
     }
 
     var color: Color { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
+
+    // Computed property for Placement enum
+    var placement: Placement {
+        get { Placement(rawValue: placementRaw) ?? .annulus }
+        set { placementRaw = newValue.rawValue }
+    }
 }
 
 // Small helper to unpack Color → RGBA

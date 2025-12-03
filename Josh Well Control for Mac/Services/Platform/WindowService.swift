@@ -47,9 +47,9 @@ class WindowService {
 
 /// iOS-friendly sheet presentation
 /// Use this in SwiftUI views with .sheet() modifier instead of WindowHost
-struct SheetPresentation<Content: View>: ViewModifier {
+struct SheetPresentation<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
-    let content: () -> Content
+    let sheetContent: () -> SheetContent
 
     func body(content: Content) -> some View {
         #if os(macOS)
@@ -57,7 +57,7 @@ struct SheetPresentation<Content: View>: ViewModifier {
         #elseif os(iOS)
         content
             .sheet(isPresented: $isPresented) {
-                self.content()
+                self.sheetContent()
             }
         #else
         content
@@ -67,10 +67,10 @@ struct SheetPresentation<Content: View>: ViewModifier {
 
 extension View {
     /// Present content as a sheet on iOS or window on macOS
-    func crossPlatformSheet<Content: View>(
+    func crossPlatformSheet<SheetContent: View>(
         isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
+        @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
-        self.modifier(SheetPresentation(isPresented: isPresented, content: content))
+        self.modifier(SheetPresentation(isPresented: isPresented, sheetContent: content))
     }
 }

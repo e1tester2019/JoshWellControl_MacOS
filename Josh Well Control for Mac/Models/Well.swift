@@ -14,7 +14,7 @@ import AppKit
 
 @Model
 final class Well {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "New Well"
     var uwi: String? = nil
     var afeNumber: String? = nil
@@ -22,9 +22,9 @@ final class Well {
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
-    @Relationship(deleteRule: .cascade) var projects: [ProjectState] = []
-    @Relationship(deleteRule: .cascade) var transfers: [MaterialTransfer] = []
-    @Relationship(deleteRule: .cascade) var rentals: [RentalItem] = []
+    @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?
+    @Relationship(deleteRule: .nullify, inverse: \MaterialTransfer.well) var transfers: [MaterialTransfer]?
+    @Relationship(deleteRule: .nullify, inverse: \RentalItem.well) var rentals: [RentalItem]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name
@@ -36,10 +36,11 @@ final class Well {
 
 extension Well {
     func createTransfer(number: Int? = nil, context: ModelContext) -> MaterialTransfer {
-        let transferNumber = number ?? ((transfers.map { $0.number }.max() ?? 0) + 1)
+        let transferNumber = number ?? (((transfers ?? []).map { $0.number }.max() ?? 0) + 1)
         let transfer = MaterialTransfer(number: transferNumber)
         transfer.well = self
-        transfers.append(transfer)
+        if transfers == nil { transfers = [] }
+        transfers?.append(transfer)
         context.insert(transfer)
         return transfer
     }

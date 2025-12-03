@@ -64,7 +64,7 @@ struct MaterialTransferReportView: View {
                 // Items with footer totals (no rounded border for cleaner print)
                 VStack(alignment: .leading, spacing: 8) {
                     // Group items by receiver address while preserving original order within each group
-                    let items = transfer.items
+                    let items = (transfer.items ?? [])
                     let groups: [(key: String, items: [MaterialTransferItem])] = {
                         // Use an ordered dictionary approach to preserve first-seen order of addresses
                         var order: [String] = []
@@ -114,10 +114,10 @@ struct MaterialTransferReportView: View {
                     }
 
                     // Footer totals
-                    let totalItems = transfer.items.count
-                    let totalQty = transfer.items.reduce(0) { $0 + $1.quantity }
-                    let totalWeight = transfer.items.reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
-                    let totalValue = transfer.items.reduce(0.0) { $0 + Double(($1.unitPrice ?? 0) * $1.quantity) }
+                    let totalItems = (transfer.items ?? []).count
+                    let totalQty = (transfer.items ?? []).reduce(0) { $0 + $1.quantity }
+                    let totalWeight = (transfer.items ?? []).reduce(0.0) { $0 + Double($1.estimatedWeight ?? 0) }
+                    let totalValue = (transfer.items ?? []).reduce(0.0) { $0 + Double(($1.unitPrice ?? 0) * $1.quantity) }
                     Divider()
                     HStack(alignment: .firstTextBaseline) {
                         Text("Total items:")
@@ -309,7 +309,7 @@ struct MaterialTransferReportPreview: View {
 
     private func export() {
         // Validate receiver addresses before export
-        let missingAddr = transfer.items.filter { ($0.receiverAddress?.isEmpty ?? true) }
+        let missingAddr = (transfer.items ?? []).filter { ($0.receiverAddress?.isEmpty ?? true) }
         if !missingAddr.isEmpty {
             exportError = "One or more items are missing a Receiver Address. Please fill in all Receiver Addresses before exporting."
             return
@@ -386,7 +386,7 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
     hostingView.display()
 
     // Helper: create a hosting view sized to intrinsic height at fixed width
-    func makeHostingView<V: View>(_ swiftUIView: V, width: CGFloat) -> NSHostingView<V> {
+    func makeHostingView<ViewType: View>(_ swiftUIView: ViewType, width: CGFloat) -> NSHostingView<ViewType> {
         let hv = NSHostingView(rootView: swiftUIView)
         hv.translatesAutoresizingMaskIntoConstraints = false
         let temp = NSView(frame: CGRect(x: 0, y: 0, width: width, height: 10))
@@ -480,7 +480,7 @@ func pdfDataForView<V: View>(_ view: V, pageSize: CGSize) -> Data? {
 
     // Build item card captures
     var cards: [(image: CGImage, height: CGFloat)] = []
-    for item in rpt.transfer.items {
+    for item in (rpt.transfer.items ?? []) {
         let cardHV = makeHostingView(rpt.itemCard(item), width: availableWidth - 2 * rpt.margin)
         if let cg = captureCGImage(from: cardHV) {
             cards.append((cg, cardHV.bounds.height))

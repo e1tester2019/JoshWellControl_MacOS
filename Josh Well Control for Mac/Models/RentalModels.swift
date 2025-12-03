@@ -4,10 +4,13 @@ import SwiftData
 /// An additional one-off cost associated with a rental item (e.g., delivery, pickup, damage, etc.).
 @Model
 final class RentalAdditionalCost {
-    @Attribute(.unique) var id: UUID = UUID()
-    var descriptionText: String
-    var amount: Double
+    var id: UUID = UUID()
+    var descriptionText: String = ""
+    var amount: Double = 0.0
     var date: Date?
+
+    // Relationship back to rental item (inverse declared on parent side only)
+    var rentalItem: RentalItem?
 
     init(descriptionText: String = "", amount: Double = 0, date: Date? = nil) {
         self.descriptionText = descriptionText
@@ -19,8 +22,8 @@ final class RentalAdditionalCost {
 /// Represents a rented tool/equipment for a well, tracking usage days and costs.
 @Model
 final class RentalItem {
-    @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var id: UUID = UUID()
+    var name: String = "Rental"
     var detail: String?
     var serialNumber: String?
     var used: Bool = false
@@ -30,17 +33,17 @@ final class RentalItem {
     var endDate: Date?
 
     /// Canonical record of actual usage. Use this when the tool is not used on every day in the interval.
-    var usageDates: [Date]
+    var usageDates: [Date] = []
 
-    var onLocation: Bool
-    var invoiced: Bool
+    var onLocation: Bool = false
+    var invoiced: Bool = false
 
-    var costPerDay: Double
+    var costPerDay: Double = 0.0
 
-    @Relationship(deleteRule: .cascade) var additionalCosts: [RentalAdditionalCost] = []
+    @Relationship(deleteRule: .cascade, inverse: \RentalAdditionalCost.rentalItem) var additionalCosts: [RentalAdditionalCost]?
 
     /// Parent relationship — the Well owns its rentals.
-    @Relationship(inverse: \Well.rentals) var well: Well?
+    @Relationship var well: Well?
 
     init(
         name: String = "Rental",
@@ -82,7 +85,7 @@ final class RentalItem {
     }
 
     /// Sum of all additional one-off costs.
-    var additionalCostsTotal: Double { additionalCosts.reduce(0) { $0 + $1.amount } }
+    var additionalCostsTotal: Double { (additionalCosts ?? []).reduce(0) { $0 + $1.amount } }
 
     /// Total cost = (days * costPerDay) + sum(additional costs)
     var totalCost: Double { (Double(totalDays) * max(costPerDay, 0)) + additionalCostsTotal }

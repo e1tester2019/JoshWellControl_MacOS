@@ -12,18 +12,18 @@ import SwiftData
 @Model
 final class AnnulusSection {
     // Identity
-    @Attribute(.unique) var id: UUID = UUID()
-    var name: String
+    var id: UUID = UUID()
+    var name: String = ""
 
     // Placement (measured depth in m)
-    var topDepth_m: Double
-    var length_m: Double
+    var topDepth_m: Double = 0.0
+    var length_m: Double = 0.0
     var inclination_deg: Double = 0         // optional: lets you align with survey/T&D
 
     // Geometry (concentric circular annulus)
     // Outer boundary is the wellbore/casing ID; inner boundary is the string OD in that section.
-    var innerDiameter_m: Double             // casing/wellbore ID
-    var outerDiameter_m: Double             // string OD in this section
+    var innerDiameter_m: Double = 0.0       // casing/wellbore ID
+    var outerDiameter_m: Double = 0.0       // string OD in this section
 
     // Wall roughness (m) – typical casing/wellbore equivalent sand roughness
     var wallRoughness_m: Double = 4.6e-5
@@ -60,7 +60,7 @@ final class AnnulusSection {
     var cuttingsVolFrac: Double = 0.0
 
     // Relationship
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.annulus)
+    @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
     // MARK: - Transient derived values (not stored)

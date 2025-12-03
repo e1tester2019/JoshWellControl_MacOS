@@ -26,6 +26,14 @@ struct WellSection<Content: View>: View {
         self.content = content()
     }
 
+    private var backgroundBaseColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
             HStack(alignment: .firstTextBaseline) {
@@ -50,7 +58,7 @@ struct WellSection<Content: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(nsColor: .windowBackgroundColor), Color.accentColor.opacity(0.08)],
+                        colors: [backgroundBaseColor, Color.accentColor.opacity(0.08)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )

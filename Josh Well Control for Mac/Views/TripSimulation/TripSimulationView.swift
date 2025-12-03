@@ -80,13 +80,14 @@ struct TripSimulationView: View {
                             .frame(width: 110, alignment: .trailing)
                         Picker("", selection: Binding(get: { viewmodel.backfillMudID }, set: { newID in
                             viewmodel.backfillMudID = newID
-                            if let id = newID, let m = project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }).first(where: { $0.id == id }) {
+                            let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                            if let id = newID, let m = muds.first(where: { $0.id == id }) {
                                 viewmodel.backfillDensity_kgpm3 = m.density_kgm3
                             } else {
                                 viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
                             }
                         })) {
-                            ForEach(project.muds.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                            ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
                                 Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
                             }
                         }
@@ -374,6 +375,9 @@ struct TripSimulationView: View {
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
 
+        let annMax = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        let dsMax = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
+
         if controlTVD <= bitTVD + 1e-9 {
             var remaining = controlTVD
             for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
@@ -552,8 +556,8 @@ struct TripSimulationView: View {
     // Live ESD@control diagnostics
     private func esdDebugRows(project: ProjectState, step s: TripStep) -> [KVRow] {
         let controlMDRaw = max(0.0, viewmodel.shoeMD_m)
-        let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
-        let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+        let annMax = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        let dsMax = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         let candidates = [annMax, dsMax].filter { $0 > 0 }
         let limit = candidates.min() ?? 0
         let controlMD = min(controlMDRaw, limit)
@@ -645,8 +649,8 @@ struct TripSimulationView: View {
 
     // Clamp Control MD to not exceed geometry
     private var controlMDLimit: Double {
-        let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
-        let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+        let annMax = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        let dsMax = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         let candidates = [annMax, dsMax].filter { $0 > 0 }
         return candidates.min() ?? 0
     }
@@ -703,7 +707,7 @@ extension TripSimulationView {
     var stepSlider: Double = 0
 
     func bootstrap(from project: ProjectState) {
-      if let maxMD = project.finalLayers.map({ $0.bottomMD_m }).max() {
+      if let maxMD = (project.finalLayers ?? []).map({ $0.bottomMD_m }).max() {
         startBitMD_m = maxMD
         endMD_m = 0
       }
@@ -729,7 +733,7 @@ extension TripSimulationView {
         step_m: step_m,
         baseMudDensity_kgpm3: (project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
         backfillDensity_kgpm3: (
-            (backfillMudID.flatMap { id in project.muds.first(where: { $0.id == id })?.density_kgm3 })
+            (backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id })?.density_kgm3 })
             ?? project.activeMud?.density_kgm3
             ?? backfillDensity_kgpm3
         ),
@@ -744,8 +748,8 @@ extension TripSimulationView {
     }
 
     func esdAtControlText(project: ProjectState) -> String {
-      let annMax = project.annulus.map { $0.bottomDepth_m }.max() ?? 0
-      let dsMax = project.drillString.map { $0.bottomDepth_m }.max() ?? 0
+      let annMax = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
+      let dsMax = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
       let candidates = [annMax, dsMax].filter { $0 > 0 }
       let limit = candidates.min()
       let controlMDRaw = max(0.0, shoeMD_m)
@@ -835,9 +839,4 @@ private struct TripSimulationPreview: View {
   TripSimulationPreview()
 }
 #endif
-
-
-
-
-
 

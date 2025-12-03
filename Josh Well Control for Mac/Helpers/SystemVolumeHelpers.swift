@@ -27,14 +27,14 @@ extension ProjectState {
         var ann: [Slice] = []
         var str: [Slice] = []
 
-        for L in finalLayers {
+        for L in (finalLayers ?? []) {
             if let mud, L.mud?.id != mud.id { continue }
             let t = min(L.topMD_m, L.bottomMD_m)
             let b = max(L.topMD_m, L.bottomMD_m)
-            if L.placement == .annulus || L.placement == .both {
+            if L.placement == Placement.annulus || L.placement == Placement.both {
                 ann.append(.init(domainIsAnnulus: true, top: t, bottom: b, density: L.density_kgm3))
             }
-            if L.placement == .string || L.placement == .both {
+            if L.placement == Placement.string || L.placement == Placement.both {
                 str.append(.init(domainIsAnnulus: false, top: t, bottom: b, density: L.density_kgm3))
             }
         }

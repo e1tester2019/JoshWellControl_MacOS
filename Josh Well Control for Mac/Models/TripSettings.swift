@@ -14,7 +14,7 @@ import SwiftUI
 
 @Model
 final class TripSettings {
-    @Attribute(.unique) var id: UUID = UUID()
+    var id: UUID = UUID()
     var name: String = "Trip Settings"
 
     // MARK: - Trip speed / movement
@@ -59,8 +59,8 @@ final class TripSettings {
     /// Optional auto-stop at ECD limit
     var stopOnLimit: Bool = true
 
-    // MARK: - Relationships
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.settings)
+    // MARK: - Relationships (must match internal _settings property)
+    @Relationship(deleteRule: .cascade, inverse: \ProjectState._settings)
     var project: ProjectState?
 
     init() {}

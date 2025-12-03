@@ -18,7 +18,7 @@ struct AnnulusDetailView: View {
         let top = section.topDepth_m
         let bottom = section.bottomDepth_m
         var maxOD = 0.0
-        for d in project.drillString where d.bottomDepth_m > top && d.topDepth_m < bottom {
+        for d in (project.drillString ?? []) where d.bottomDepth_m > top && d.topDepth_m < bottom {
             maxOD = max(maxOD, d.outerDiameter_m)
         }
         return maxOD
@@ -142,7 +142,7 @@ struct AnnulusDetailView: View {
 
     private func enforceNoOverlap(for current: AnnulusSection) {
         guard let project = current.project else { return }
-        let others = project.annulus.filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
+        let others = (project.annulus ?? []).filter { $0.id != current.id }.sorted { $0.topDepth_m < $1.topDepth_m }
         let prev = others.last { $0.topDepth_m <= current.topDepth_m }
         let next = others.first { $0.topDepth_m >= current.topDepth_m }
         if let prev, current.topDepth_m < prev.bottomDepth_m { current.topDepth_m = prev.bottomDepth_m }

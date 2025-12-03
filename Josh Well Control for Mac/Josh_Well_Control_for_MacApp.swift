@@ -11,25 +11,15 @@ import SwiftData
 
 @main
 struct Josh_Well_Control_for_MacApp: App {
+
+    private let container = AppContainer.make(
+        cloudKitContainerID: "iCloud.com.josh-sallows-wellcontrolapp"
+    )
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            PlatformAdaptiveContentView()
         }
-        .modelContainer(for: [
-            ProjectState.self,
-            DrillStringSection.self,
-            AnnulusSection.self,
-            PressureWindow.self,
-            PressureWindowPoint.self,
-            SlugPlan.self,
-            SlugStep.self,
-            BackfillPlan.self,
-            BackfillRule.self,
-            TripSettings.self,
-            SwabInput.self,
-            MudStep.self,
-            FinalFluidLayer.self,
-            MudProperties.self,
-        ])
+        .modelContainer(container)
     }
 }

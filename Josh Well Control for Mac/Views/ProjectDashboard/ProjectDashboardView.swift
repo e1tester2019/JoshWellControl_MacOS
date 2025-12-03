@@ -18,15 +18,211 @@ struct ProjectDashboardView: View {
     @State private var viewmodel: ViewModel
     @State private var newTransferToEdit: MaterialTransfer?
 
-    init(project: ProjectState) {
+    // Optional navigation controls for iOS
+    var wells: [Well]?
+    @Binding var selectedWell: Well?
+    @Binding var selectedProject: ProjectState?
+    var onNewWell: (() -> Void)?
+    var onNewProject: (() -> Void)?
+    var onRenameWell: ((Well) -> Void)?
+    var onRenameProject: ((ProjectState) -> Void)?
+    var onDuplicateWell: ((Well) -> Void)?
+    var onDuplicateProject: ((ProjectState) -> Void)?
+    var onDeleteWell: (() -> Void)?
+    var onDeleteProject: (() -> Void)?
+
+    init(
+        project: ProjectState,
+        wells: [Well]? = nil,
+        selectedWell: Binding<Well?>? = nil,
+        selectedProject: Binding<ProjectState?>? = nil,
+        onNewWell: (() -> Void)? = nil,
+        onNewProject: (() -> Void)? = nil,
+        onRenameWell: ((Well) -> Void)? = nil,
+        onRenameProject: ((ProjectState) -> Void)? = nil,
+        onDuplicateWell: ((Well) -> Void)? = nil,
+        onDuplicateProject: ((ProjectState) -> Void)? = nil,
+        onDeleteWell: (() -> Void)? = nil,
+        onDeleteProject: (() -> Void)? = nil
+    ) {
         self._project = Bindable(wrappedValue: project)
         _viewmodel = State(initialValue: ViewModel(project: project))
+        self.wells = wells
+        self._selectedWell = selectedWell ?? .constant(nil)
+        self._selectedProject = selectedProject ?? .constant(nil)
+        self.onNewWell = onNewWell
+        self.onNewProject = onNewProject
+        self.onRenameWell = onRenameWell
+        self.onRenameProject = onRenameProject
+        self.onDuplicateWell = onDuplicateWell
+        self.onDuplicateProject = onDuplicateProject
+        self.onDeleteWell = onDeleteWell
+        self.onDeleteProject = onDeleteProject
+    }
+
+    private var pageBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .underPageBackgroundColor)
+        #else
+        Color(.systemGroupedBackground)
+        #endif
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Navigation controls (iOS only) - Fixed at top
+            #if os(iOS)
+            if let wells = wells {
+                VStack(spacing: 12) {
+                    // Well and Project pickers
+                    HStack(spacing: 12) {
+                        Menu {
+                            ForEach(wells, id: \.id) { w in
+                                Button {
+                                    selectedWell = w
+                                    selectedProject = (w.projects ?? []).first
+                                } label: {
+                                    if selectedWell?.id == w.id {
+                                        Label(w.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(w.name)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "square.grid.2x2")
+                                Text(selectedWell?.name ?? "Select Well")
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor.opacity(0.15))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.accentColor, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        if let well = selectedWell {
+                            let projects = well.projects ?? []
+                            Menu {
+                                ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
+                                    Button {
+                                        selectedProject = p
+                                    } label: {
+                                        if selectedProject?.id == p.id {
+                                            Label(p.name, systemImage: "checkmark")
+                                        } else {
+                                            Text(p.name)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "folder")
+                                    Text(selectedProject?.name ?? "Select Project")
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.accentColor.opacity(0.15))
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.accentColor, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button("New Well", systemImage: "plus") {
+                                onNewWell?()
+                            }
+                            Button("New Project State", systemImage: "doc.badge.plus") {
+                                onNewProject?()
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Add")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.green.opacity(0.2))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.green, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Menu {
+                            if let well = selectedWell {
+                                Section("Well") {
+                                    Button("Rename Well", systemImage: "pencil") {
+                                        onRenameWell?(well)
+                                    }
+                                    Button("Duplicate Well", systemImage: "doc.on.doc") {
+                                        onDuplicateWell?(well)
+                                    }
+                                    Button("Delete Well", systemImage: "trash", role: .destructive) {
+                                        onDeleteWell?()
+                                    }
+                                }
+                            }
+                            if let project = selectedProject {
+                                Section("Project State") {
+                                    Button("Rename Project", systemImage: "pencil") {
+                                        onRenameProject?(project)
+                                    }
+                                    Button("Duplicate Project", systemImage: "doc.on.doc") {
+                                        onDuplicateProject?(project)
+                                    }
+                                    Button("Delete Project", systemImage: "trash", role: .destructive) {
+                                        onDeleteProject?()
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "ellipsis.circle.fill")
+                                Text("Actions")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.blue, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                .background(Color(uiColor: .secondarySystemBackground))
+            }
+            #endif
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
                     Text("Project Dashboard")
                         .font(.largeTitle)
                         .fontWeight(.bold)
@@ -34,33 +230,33 @@ struct ProjectDashboardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     WellSection(title: "Project", icon: "target", subtitle: "Name and pressure window safety margins.") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Name")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("Project name", text: $project.name)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                             }
                             GridRow {
                                 Text("Pore safety (kPa)")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.poreSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Frac safety (kPa)")
-                                    .frame(width: 140, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.window.fracSafety_kPa, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }
@@ -71,7 +267,7 @@ struct ProjectDashboardView: View {
                             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                                 GridRow {
                                     Text("Well Name")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "Well Name",
@@ -85,11 +281,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("UWI")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "UWI",
@@ -103,11 +299,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("AFE #")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "AFE #",
@@ -121,11 +317,11 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("Requisitioner")
-                                        .frame(width: 140, alignment: .trailing)
+                                        .gridColumnAlignment(.trailing)
                                         .foregroundStyle(.secondary)
                                     TextField(
                                         "Requisitioner",
@@ -139,7 +335,7 @@ struct ProjectDashboardView: View {
                                         )
                                     )
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 360)
+                                    .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Button {
@@ -156,29 +352,29 @@ struct ProjectDashboardView: View {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Active mud weight (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Active mud volume (m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.activeMudVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Surface line volume (m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.surfaceLineVolume_m3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }
@@ -188,29 +384,29 @@ struct ProjectDashboardView: View {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Base annulus density (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseAnnulusDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Base string density (kg/m³)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.baseStringDensity_kgm3, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                             GridRow {
                                 Text("Control measured depth (m)")
-                                    .frame(width: 220, alignment: .trailing)
+                                    .gridColumnAlignment(.trailing)
                                     .foregroundStyle(.secondary)
                                 TextField("", value: $project.pressureDepth_m, format: .number)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 160)
+                                    .frame(maxWidth: .infinity)
                                     .monospacedDigit()
                             }
                         }
@@ -238,7 +434,7 @@ struct ProjectDashboardView: View {
                     .padding()
             }
         })
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(pageBackgroundColor)
         .navigationTitle("Project Dashboard")
     }
 }
@@ -268,11 +464,13 @@ private struct ProjectDashboardPreview: View {
         // Seed a couple of string and annulus sections
         let ds1 = DrillStringSection(name: "DP 5\"", topDepth_m: 0, length_m: 1500, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
         let ds2 = DrillStringSection(name: "DP 5\" HW", topDepth_m: 1500, length_m: 800, outerDiameter_m: 0.127, innerDiameter_m: 0.0953)
-        [ds1, ds2].forEach { s in p.drillString.append(s); ctx.insert(s) }
+        if p.drillString == nil { p.drillString = [] }
+        [ds1, ds2].forEach { s in p.drillString?.append(s); ctx.insert(s) }
 
         let a1 = AnnulusSection(name: "Surface", topDepth_m: 0,    length_m: 600, innerDiameter_m: 0.340, outerDiameter_m: 0.244)
         let a2 = AnnulusSection(name: "Intermediate", topDepth_m: 600, length_m: 900, innerDiameter_m: 0.244, outerDiameter_m: 0.1778)
-        [a1, a2].forEach { s in s.project = p; p.annulus.append(s); ctx.insert(s) }
+        if p.annulus == nil { p.annulus = [] }
+        [a1, a2].forEach { s in s.project = p; p.annulus?.append(s); ctx.insert(s) }
 
         // Seed a few pressure window points
         let w = p.window
@@ -296,7 +494,6 @@ private struct ProjectDashboardPreview: View {
     ProjectDashboardPreview()
 }
 #endif
-
 
 private struct InputNumberBox: View {
     let title: String
@@ -351,11 +548,11 @@ extension ProjectDashboardView {
         var project: ProjectState
         init(project: ProjectState) { self.project = project }
 
-        var drillStringCount: Int { project.drillString.count }
-        var annulusCount: Int { project.annulus.count }
-        var pressurePointCount: Int { project.window.points.count }
-        var surveysCount: Int { project.surveys.count }
-        var mudChecksCount: Int { project.muds.count }
+        var drillStringCount: Int { (project.drillString ?? []).count }
+        var annulusCount: Int { (project.annulus ?? []).count }
+        var pressurePointCount: Int { (project.window.points ?? []).count }
+        var surveysCount: Int { (project.surveys ?? []).count }
+        var mudChecksCount: Int { (project.muds ?? []).count }
     }
 }
 
