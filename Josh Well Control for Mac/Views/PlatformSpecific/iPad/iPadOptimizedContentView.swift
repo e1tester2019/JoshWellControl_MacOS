@@ -46,33 +46,56 @@ struct iPadOptimizedContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarLeading) {
                 if horizontalSizeClass == .compact {
-                    Menu {
-                        wellMenuContent
-                    } label: {
-                        Label(selectedWell?.name ?? "Select Well", systemImage: "building.2")
+                    if wells.isEmpty {
+                        Button(action: { createNewWell() }) {
+                            Label("New Well", systemImage: "plus.circle")
+                        }
+                    } else {
+                        Menu {
+                            wellMenuContent
+                        } label: {
+                            Label(selectedWell?.name ?? "Select Well", systemImage: "building.2")
+                        }
                     }
                 }
             }
 
             ToolbarItemGroup(placement: .principal) {
                 if horizontalSizeClass == .regular {
-                    iPadToolbarContent(
-                        selectedWell: selectedWell,
-                        selectedProject: selectedProject,
-                        selectedWellBinding: $selectedWell,
-                        selectedProjectBinding: $selectedProject,
-                        showRenameWell: $showRenameWell,
-                        showRenameProject: $showRenameProject
-                    )
+                    if wells.isEmpty {
+                        Button(action: { createNewWell() }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Create Your First Well")
+                                    .fontWeight(.semibold)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.blue.opacity(0.2))
+                            .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        iPadToolbarContent(
+                            selectedWell: selectedWell,
+                            selectedProject: selectedProject,
+                            selectedWellBinding: $selectedWell,
+                            selectedProjectBinding: $selectedProject,
+                            showRenameWell: $showRenameWell,
+                            showRenameProject: $showRenameProject
+                        )
+                    }
                 }
             }
 
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if horizontalSizeClass == .compact {
-                    Menu {
-                        projectMenuContent
-                    } label: {
-                        Label(selectedProject?.name ?? "Select Project", systemImage: "folder")
+                    if !wells.isEmpty {
+                        Menu {
+                            projectMenuContent
+                        } label: {
+                            Label(selectedProject?.name ?? "Select Project", systemImage: "folder")
+                        }
                     }
                 }
             }
