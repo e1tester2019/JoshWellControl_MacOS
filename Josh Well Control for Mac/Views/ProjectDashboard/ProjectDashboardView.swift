@@ -424,7 +424,6 @@ struct ProjectDashboardView: View {
                 }
             }
             .padding(24)
-            }
         }
         .sheet(item: $newTransferToEdit, content: { transfer in
             if let well = project.well {
@@ -495,7 +494,6 @@ private struct ProjectDashboardPreview: View {
     ProjectDashboardPreview()
 }
 #endif
-
 
 private struct InputNumberBox: View {
     let title: String
