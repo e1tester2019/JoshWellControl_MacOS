@@ -408,7 +408,7 @@ struct MacOSFluidsSection: View {
             GroupBox("Defined Muds (\((project.muds ?? []).count))") {
                 if let muds = project.muds, !muds.isEmpty {
                     VStack(spacing: 8) {
-                        ForEach(muds) { mud in
+                        ForEach(muds, id: \.id) { mud in
                             HStack {
                                 Circle()
                                     .fill(mud.color)
