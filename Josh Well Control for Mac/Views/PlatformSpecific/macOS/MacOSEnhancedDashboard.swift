@@ -406,7 +406,8 @@ struct MacOSFluidsSection: View {
 
             // All muds
             GroupBox("Defined Muds (\((project.muds ?? []).count))") {
-                if let muds = project.muds, !muds.isEmpty {
+                if let unwrappedMuds = project.muds, !unwrappedMuds.isEmpty {
+                    let muds: [MudProperties] = unwrappedMuds
                     VStack(spacing: 8) {
                         ForEach(muds, id: \.id) { mud in
                             HStack {
