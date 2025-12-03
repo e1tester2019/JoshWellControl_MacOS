@@ -182,10 +182,22 @@ struct iPadSidebarView: View {
     let selectedProject: ProjectState?
 
     var body: some View {
-        List(ViewSelection.allCases, id: \.self, selection: $selectedView) { view in
-            NavigationLink(value: view) {
-                Label(view.title, systemImage: view.icon)
-                    .font(.body)
+        List {
+            ForEach(ViewSelection.allCases) { view in
+                Button(action: {
+                    selectedView = view
+                }) {
+                    HStack {
+                        Label(view.title, systemImage: view.icon)
+                            .font(.body)
+                        Spacer()
+                        if selectedView == view {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+                .listRowBackground(selectedView == view ? Color.accentColor.opacity(0.1) : Color.clear)
             }
         }
         .navigationTitle("Features")
@@ -257,6 +269,9 @@ struct iPadDetailView: View {
 // MARK: - iPad Toolbar
 
 struct iPadToolbarContent: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Well.updatedAt, order: .reverse) private var wells: [Well]
+    
     let selectedWell: Well?
     let selectedProject: ProjectState?
     @Binding var selectedWellBinding: Well?
@@ -268,7 +283,26 @@ struct iPadToolbarContent: View {
         HStack(spacing: 12) {
             // Well Selector
             Menu {
-                // Well menu items here
+                ForEach(wells) { well in
+                    Button(action: {
+                        selectedWellBinding = well
+                        selectedProjectBinding = well.projects?.first
+                    }) {
+                        Label(well.name, systemImage: selectedWell?.id == well.id ? "checkmark" : "building.2")
+                    }
+                }
+                Divider()
+                Button(action: { createNewWell() }) {
+                    Label("New Well", systemImage: "plus")
+                }
+                Button(action: { showRenameWell = true }) {
+                    Label("Rename Well", systemImage: "pencil")
+                }
+                .disabled(selectedWell == nil)
+                Button(role: .destructive, action: { deleteCurrentWell() }) {
+                    Label("Delete Well", systemImage: "trash")
+                }
+                .disabled(selectedWell == nil)
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "building.2")
@@ -289,7 +323,27 @@ struct iPadToolbarContent: View {
 
             // Project Selector
             Menu {
-                // Project menu items here
+                if let well = selectedWell {
+                    ForEach(well.projects ?? []) { project in
+                        Button(action: {
+                            selectedProjectBinding = project
+                        }) {
+                            Label(project.name, systemImage: selectedProject?.id == project.id ? "checkmark" : "folder")
+                        }
+                    }
+                    Divider()
+                    Button(action: { createNewProject() }) {
+                        Label("New Project", systemImage: "plus")
+                    }
+                    Button(action: { showRenameProject = true }) {
+                        Label("Rename Project", systemImage: "pencil")
+                    }
+                    .disabled(selectedProject == nil)
+                    Button(role: .destructive, action: { deleteCurrentProject() }) {
+                        Label("Delete Project", systemImage: "trash")
+                    }
+                    .disabled(selectedProject == nil)
+                }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
@@ -303,7 +357,48 @@ struct iPadToolbarContent: View {
                 .background(.ultraThinMaterial)
                 .cornerRadius(8)
             }
+            .disabled(selectedWell == nil)
         }
+    }
+    
+    private func createNewWell() {
+        let well = Well(name: "New Well")
+        modelContext.insert(well)
+        let project = ProjectState()
+        project.well = well
+        well.projects = [project]
+        modelContext.insert(project)
+        try? modelContext.save()
+        selectedWellBinding = well
+        selectedProjectBinding = project
+    }
+
+    private func createNewProject() {
+        guard let well = selectedWell else { return }
+        let project = ProjectState()
+        project.well = well
+        if well.projects == nil {
+            well.projects = []
+        }
+        well.projects?.append(project)
+        modelContext.insert(project)
+        try? modelContext.save()
+        selectedProjectBinding = project
+    }
+
+    private func deleteCurrentWell() {
+        guard let well = selectedWell else { return }
+        modelContext.delete(well)
+        try? modelContext.save()
+        selectedWellBinding = wells.first
+        selectedProjectBinding = selectedWellBinding?.projects?.first
+    }
+
+    private func deleteCurrentProject() {
+        guard let project = selectedProject else { return }
+        modelContext.delete(project)
+        try? modelContext.save()
+        selectedProjectBinding = selectedWell?.projects?.first
     }
 }
 
