@@ -395,7 +395,7 @@ struct MacOSFluidsSection: View {
                             Text("Rheology")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text(activeMud.rheologyModel.rawValue)
+                            Text(activeMud.rheologyModel)
                                 .font(.subheadline)
                                 .fontWeight(.medium)
                         }
@@ -411,7 +411,7 @@ struct MacOSFluidsSection: View {
                         ForEach(muds) { mud in
                             HStack {
                                 Circle()
-                                    .fill(mud.color)
+                                    .fill(mud.color.wrappedValue)
                                     .frame(width: 24, height: 24)
 
                                 VStack(alignment: .leading, spacing: 2) {

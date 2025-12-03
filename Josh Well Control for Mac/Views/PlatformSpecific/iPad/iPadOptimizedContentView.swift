@@ -192,10 +192,12 @@ struct iPadSidebarView: View {
     let selectedProject: ProjectState?
 
     var body: some View {
-        List(ViewSelection.allCases, id: \.self, selection: $selectedView) { view in
-            NavigationLink(value: view) {
-                Label(view.title, systemImage: view.icon)
-                    .font(.body)
+        List {
+            ForEach(ViewSelection.allCases, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                        .font(.body)
+                }
             }
         }
         .navigationTitle("Features")
@@ -514,11 +516,11 @@ struct iPadRentalsList: View {
     let well: Well?
     var body: some View {
         List {
-            ForEach(well?.rentals ?? []) { rental in
+            ForEach(well?.rentals ?? [], id: \.id) { rental in
                 VStack(alignment: .leading) {
-                    Text(rental.itemName)
+                    Text(rental.name)
                         .font(.headline)
-                    Text(rental.supplier)
+                    Text(rental.detail ?? "")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -530,20 +532,46 @@ struct iPadRentalsList: View {
 
 struct iPadTransfersList: View {
     let well: Well?
+
+    private var transfersArray: [MaterialTransfer] {
+        if let well = well, let transfers = well.transfers {
+            return transfers
+        } else {
+            return []
+        }
+    }
+
     var body: some View {
-        List {
-            ForEach(well?.transfers ?? []) { transfer in
-                VStack(alignment: .leading) {
-                    Text("Transfer #\(transfer.number)")
-                        .font(.headline)
-                    Text(transfer.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        Group {
+            if well == nil {
+                ContentUnavailableView(
+                    "No Well Selected",
+                    systemImage: "building.2.crop.circle.badge.exclamationmark",
+                    description: Text("Select a well to view its material transfers.")
+                )
+            } else if transfersArray.isEmpty {
+                ContentUnavailableView(
+                    "No Transfers",
+                    systemImage: "shippingbox",
+                    description: Text("There are no material transfers for this well.")
+                )
+            } else {
+                List {
+                    ForEach(transfersArray, id: \MaterialTransfer.id) { transfer in
+                        VStack(alignment: .leading) {
+                            Text("Transfer #\(transfer.number)")
+                                .font(.headline)
+                            Text(transfer.date.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .listStyle(.insetGrouped)
             }
         }
-        .listStyle(.insetGrouped)
     }
 }
 
 #endif
+

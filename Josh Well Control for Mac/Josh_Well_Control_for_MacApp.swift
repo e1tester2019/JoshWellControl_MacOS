@@ -18,7 +18,7 @@ struct Josh_Well_Control_for_MacApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            PlatformAdaptiveContentView()
         }
         .modelContainer(container)
     }

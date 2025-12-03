@@ -114,9 +114,6 @@ struct MacOSOptimizedContentView: View {
             setupInitialSelection()
             setupKeyboardShortcuts()
         }
-        .commands {
-            macOSMenuCommands()
-        }
     }
 
     private func setupInitialSelection() {
@@ -163,7 +160,7 @@ struct MacOSOptimizedContentView: View {
                 Button(view.title) {
                     selectedView = view
                 }
-                .keyboardShortcut(view.keyboardShortcut)
+                .optionalKeyboardShortcut(view.keyboardShortcut)
             }
         }
 
@@ -731,4 +728,16 @@ struct MacOSCommandPaletteRow: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func optionalKeyboardShortcut(_ key: KeyEquivalent?) -> some View {
+        if let key {
+            self.keyboardShortcut(key)
+        } else {
+            self
+        }
+    }
+}
+
 #endif
+
