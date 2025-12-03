@@ -22,9 +22,9 @@ final class Well {
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
-    @Relationship(deleteRule: .cascade, inverse: \ProjectState.well) var projects: [ProjectState]?
-    @Relationship(deleteRule: .cascade, inverse: \MaterialTransfer.well) var transfers: [MaterialTransfer]?
-    @Relationship(deleteRule: .cascade, inverse: \RentalItem.well) var rentals: [RentalItem]?
+    @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?
+    @Relationship(deleteRule: .nullify, inverse: \MaterialTransfer.well) var transfers: [MaterialTransfer]?
+    @Relationship(deleteRule: .nullify, inverse: \RentalItem.well) var rentals: [RentalItem]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name

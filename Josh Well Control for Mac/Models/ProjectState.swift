@@ -22,22 +22,22 @@ final class ProjectState {
     @Relationship var well: Well?
 
     // Collections - all optional for CloudKit compatibility
-    @Relationship(deleteRule: .cascade, inverse: \SurveyStation.project) var surveys: [SurveyStation]?
-    @Relationship(deleteRule: .cascade, inverse: \DrillStringSection.project) var drillString: [DrillStringSection]?
-    @Relationship(deleteRule: .cascade, inverse: \AnnulusSection.project) var annulus: [AnnulusSection]?
-    @Relationship(deleteRule: .cascade, inverse: \MudStep.project) var mudSteps: [MudStep]?
-    @Relationship(deleteRule: .cascade, inverse: \FinalFluidLayer.project) var finalLayers: [FinalFluidLayer]?
-    @Relationship(deleteRule: .cascade, inverse: \MudProperties.project) var muds: [MudProperties]?
-    @Relationship(deleteRule: .cascade, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
+    @Relationship(deleteRule: .nullify, inverse: \SurveyStation.project) var surveys: [SurveyStation]?
+    @Relationship(deleteRule: .nullify, inverse: \DrillStringSection.project) var drillString: [DrillStringSection]?
+    @Relationship(deleteRule: .nullify, inverse: \AnnulusSection.project) var annulus: [AnnulusSection]?
+    @Relationship(deleteRule: .nullify, inverse: \MudStep.project) var mudSteps: [MudStep]?
+    @Relationship(deleteRule: .nullify, inverse: \FinalFluidLayer.project) var finalLayers: [FinalFluidLayer]?
+    @Relationship(deleteRule: .nullify, inverse: \MudProperties.project) var muds: [MudProperties]?
+    @Relationship(deleteRule: .nullify, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
     @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
     @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
-    @Relationship(deleteRule: .cascade) var _window: PressureWindow?
-    @Relationship(deleteRule: .cascade) var _slug: SlugPlan?
-    @Relationship(deleteRule: .cascade) var _backfill: BackfillPlan?
-    @Relationship(deleteRule: .cascade) var _settings: TripSettings?
-    @Relationship(deleteRule: .cascade) var _swab: SwabInput?
+    @Relationship(deleteRule: .nullify) var _window: PressureWindow?
+    @Relationship(deleteRule: .nullify) var _slug: SlugPlan?
+    @Relationship(deleteRule: .nullify) var _backfill: BackfillPlan?
+    @Relationship(deleteRule: .nullify) var _settings: TripSettings?
+    @Relationship(deleteRule: .nullify) var _swab: SwabInput?
 
     // Public non-optional accessors for backward compatibility
     @Transient var window: PressureWindow {
