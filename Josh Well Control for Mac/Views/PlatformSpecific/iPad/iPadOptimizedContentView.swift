@@ -29,6 +29,38 @@ struct iPadOptimizedContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // Sidebar - Feature Selection
             iPadSidebarView(selectedView: $selectedView, selectedProject: selectedProject)
+                .navigationDestination(for: ViewSelection.self) { selection in
+                    switch selection {
+                    case .dashboard:
+                        iPadQuickStats(project: selectedProject)
+                    case .drillString:
+                        iPadDrillStringList(project: selectedProject)
+                    case .annulus:
+                        iPadAnnulusList(project: selectedProject)
+                    case .surveys:
+                        iPadSurveyList(project: selectedProject)
+                    case .mudCheck:
+                        iPadMudList(project: selectedProject)
+                    case .mixingCalc:
+                        MixingCalculatorView(project: selectedProject ?? ProjectState())
+                    case .pressureWindow:
+                        PressureWindowView(project: selectedProject ?? ProjectState())
+                    case .mudPlacement:
+                        MudPlacementView(project: selectedProject ?? ProjectState())
+                    case .volumeSummary:
+                        VolumeSummaryView(project: selectedProject ?? ProjectState())
+                    case .pumpSchedule:
+                        PumpScheduleView(project: selectedProject ?? ProjectState())
+                    case .swabbing:
+                        SwabbingView(project: selectedProject ?? ProjectState())
+                    case .tripSimulation:
+                        TripSimulationView(project: selectedProject ?? ProjectState())
+                    case .rentals:
+                        RentalItemsView(well: selectedWell ?? Well())
+                    case .transfers:
+                        MaterialTransferListView(well: selectedWell ?? Well())
+                    }
+                }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 300)
         } content: {
             // Middle column - Context/List (for landscape)
