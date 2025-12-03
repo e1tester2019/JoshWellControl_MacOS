@@ -11,8 +11,42 @@ import SwiftData
 #if os(macOS)
 import AppKit
 
+/// A resilient container that re-fetches the ProjectState by persistent identifier
+struct MacOSEnhancedDashboardContainer: View {
+    let projectID: PersistentIdentifier
+    @Environment(\.modelContext) private var modelContext
+    @State private var project: ProjectState?
+
+    var body: some View {
+        Group {
+            if let project {
+                MacOSEnhancedDashboard(project: project)
+            } else {
+                ContentUnavailableView("Project not found", systemImage: "exclamationmark.triangle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: projectID) {
+            await loadProject()
+        }
+    }
+
+    @MainActor
+    private func loadProject() async {
+        do {
+            if let fetched = try modelContext.model(for: projectID) as? ProjectState {
+                project = fetched
+            } else {
+                project = nil
+            }
+        } catch {
+            project = nil
+        }
+    }
+}
+
 struct MacOSEnhancedDashboard: View {
-    let project: ProjectState
+    let project: ProjectState?
     @Environment(\.modelContext) private var modelContext
     @State private var selectedSection: DashboardSection = .overview
 
@@ -44,55 +78,62 @@ struct MacOSEnhancedDashboard: View {
     }
 
     var body: some View {
-        HSplitView {
-            // Left sidebar - section selection
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Dashboard")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .padding()
+        Group {
+            if let project {
+                HSplitView {
+                    // Left sidebar - section selection
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Dashboard")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .padding()
 
-                Divider()
+                        Divider()
 
-                List(DashboardSection.allCases, id: \.self, selection: $selectedSection) { section in
-                    Label(section.title, systemImage: section.icon)
-                        .padding(.vertical, 4)
-                }
-                .listStyle(.sidebar)
+                        List(DashboardSection.allCases, id: \.self, selection: $selectedSection) { section in
+                            Label(section.title, systemImage: section.icon)
+                                .padding(.vertical, 4)
+                        }
+                        .listStyle(.sidebar)
 
-                Spacer()
+                        Spacer()
 
-                // Project info at bottom
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.name)
-                        .font(.headline)
-                    Text("Last updated: \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.5))
-            }
-            .frame(minWidth: 200, idealWidth: 240, maxWidth: 280)
-
-            // Main content area
-            ScrollView {
-                Group {
-                    switch selectedSection {
-                    case .overview:
-                        MacOSOverviewSection(project: project)
-                    case .geometry:
-                        MacOSGeometrySection(project: project)
-                    case .fluids:
-                        MacOSFluidsSection(project: project)
-                    case .operations:
-                        MacOSOperationsSection(project: project)
+                        // Project info at bottom
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(project.name)
+                                .font(.headline)
+                            Text("Last updated: \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.5))
                     }
+                    .frame(minWidth: 200, idealWidth: 240, maxWidth: 280)
+
+                    // Main content area
+                    ScrollView {
+                        Group {
+                            switch selectedSection {
+                            case .overview:
+                                MacOSOverviewSection(project: project)
+                            case .geometry:
+                                MacOSGeometrySection(project: project)
+                            case .fluids:
+                                MacOSFluidsSection(project: project)
+                            case .operations:
+                                MacOSOperationsSection(project: project)
+                            }
+                        }
+                        .padding()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding()
+            } else {
+                ContentUnavailableView("Project not available", systemImage: "exclamationmark.triangle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -403,46 +444,32 @@ struct MacOSFluidsSection: View {
                     .padding()
                 }
             }
+            
+            // Mud properties summary
 
-            // All muds
-            GroupBox("Defined Muds (\((project.muds ?? []).count))") {
-                if let muds = project.muds, !muds.isEmpty {
-                    VStack(spacing: 8) {
-                        ForEach(muds, id: \.id) { mud in
-                            HStack {
-                                Circle()
-                                    .fill(mud.color.wrappedValue)
-                                    .frame(width: 24, height: 24)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(mud.name)
-                                        .font(.subheadline)
-                                    Text("\(Int(mud.density_kgm3)) kg/m³ • \(mud.rheologyModel.rawValue)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
-
-                                if mud.isActive {
-                                    Label("Active", systemImage: "checkmark.circle.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.green)
-                                }
+            GroupBox("Defined Muds (\((project.muds ?? []).count)") {
+                List {
+                    ForEach(project.muds ?? []) { mud in
+                        HStack {
+                            Circle()
+                                .fill(mud.color)
+                                .frame(width: 24, height: 24)
+                            VStack(alignment: .leading) {
+                                Text(mud.name)
+                                    .font(.headline)
+                                Text("\(Int(mud.density_kgm3)) kg/m³")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 4)
-
-                            if mud != muds.last {
-                                Divider()
+                            Spacer()
+                            if mud.isActive {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
                             }
                         }
                     }
-                    .padding()
-                } else {
-                    Text("No muds defined")
-                        .foregroundStyle(.secondary)
-                        .padding()
                 }
+                .listStyle(.inset)
             }
 
             // Mud placement summary
@@ -475,6 +502,12 @@ struct MacOSFluidsSection: View {
                 .padding()
             }
         }
+    }
+}
+
+struct macOSMudList: View {
+    let project: ProjectState
+    var body: some View {
     }
 }
 
@@ -624,3 +657,4 @@ struct MacOSActivityItem: View {
 }
 
 #endif
+
