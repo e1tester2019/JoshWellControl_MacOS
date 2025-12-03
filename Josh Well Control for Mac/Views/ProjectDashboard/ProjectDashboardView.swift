@@ -69,133 +69,160 @@ struct ProjectDashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Navigation controls (iOS only)
-                #if os(iOS)
-                if let wells = wells {
-                    VStack(spacing: 12) {
-                        // Well and Project pickers
-                        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Navigation controls (iOS only) - Fixed at top
+            #if os(iOS)
+            if let wells = wells {
+                VStack(spacing: 12) {
+                    // Well and Project pickers
+                    HStack(spacing: 12) {
+                        Menu {
+                            ForEach(wells, id: \.id) { w in
+                                Button {
+                                    selectedWell = w
+                                    selectedProject = (w.projects ?? []).first
+                                } label: {
+                                    if selectedWell?.id == w.id {
+                                        Label(w.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(w.name)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "square.grid.2x2")
+                                Text(selectedWell?.name ?? "Select Well")
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor.opacity(0.15))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.accentColor, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        if let well = selectedWell {
+                            let projects = well.projects ?? []
                             Menu {
-                                ForEach(wells, id: \.id) { w in
+                                ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
                                     Button {
-                                        selectedWell = w
-                                        selectedProject = (w.projects ?? []).first
+                                        selectedProject = p
                                     } label: {
-                                        if selectedWell?.id == w.id {
-                                            Label(w.name, systemImage: "checkmark")
+                                        if selectedProject?.id == p.id {
+                                            Label(p.name, systemImage: "checkmark")
                                         } else {
-                                            Text(w.name)
+                                            Text(p.name)
                                         }
                                     }
                                 }
                             } label: {
                                 HStack {
-                                    Image(systemName: "square.grid.2x2")
-                                    Text(selectedWell?.name ?? "Select Well")
+                                    Image(systemName: "folder")
+                                    Text(selectedProject?.name ?? "Select Project")
+                                        .lineLimit(1)
                                     Spacer()
                                     Image(systemName: "chevron.down")
                                         .font(.caption)
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
-                                .background(Color.accentColor.opacity(0.1))
+                                .background(Color.accentColor.opacity(0.15))
                                 .cornerRadius(8)
-                            }
-                            .buttonStyle(.plain)
-
-                            if let well = selectedWell {
-                                let projects = well.projects ?? []
-                                Menu {
-                                    ForEach(projects.sorted(by: { $0.createdAt < $1.createdAt }), id: \.id) { p in
-                                        Button {
-                                            selectedProject = p
-                                        } label: {
-                                            if selectedProject?.id == p.id {
-                                                Label(p.name, systemImage: "checkmark")
-                                            } else {
-                                                Text(p.name)
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "folder")
-                                        Text(selectedProject?.name ?? "Select Project")
-                                        Spacer()
-                                        Image(systemName: "chevron.down")
-                                            .font(.caption)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(Color.accentColor.opacity(0.1))
-                                    .cornerRadius(8)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        // Action buttons
-                        HStack(spacing: 12) {
-                            Menu {
-                                Button("New Well", systemImage: "plus") {
-                                    onNewWell?()
-                                }
-                                Button("New Project State", systemImage: "doc.badge.plus") {
-                                    onNewProject?()
-                                }
-                            } label: {
-                                Label("Add", systemImage: "plus.circle.fill")
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color.green.opacity(0.15))
-                                    .cornerRadius(8)
-                            }
-                            .buttonStyle(.plain)
-
-                            Menu {
-                                if let well = selectedWell {
-                                    Section("Well") {
-                                        Button("Rename Well", systemImage: "pencil") {
-                                            onRenameWell?(well)
-                                        }
-                                        Button("Duplicate Well", systemImage: "doc.on.doc") {
-                                            onDuplicateWell?(well)
-                                        }
-                                        Button("Delete Well", systemImage: "trash", role: .destructive) {
-                                            onDeleteWell?()
-                                        }
-                                    }
-                                }
-                                if let project = selectedProject {
-                                    Section("Project State") {
-                                        Button("Rename Project", systemImage: "pencil") {
-                                            onRenameProject?(project)
-                                        }
-                                        Button("Duplicate Project", systemImage: "doc.on.doc") {
-                                            onDuplicateProject?(project)
-                                        }
-                                        Button("Delete Project", systemImage: "trash", role: .destructive) {
-                                            onDeleteProject?()
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Actions", systemImage: "ellipsis.circle.fill")
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color.blue.opacity(0.15))
-                                    .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.accentColor, lineWidth: 1)
+                                )
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.bottom, 8)
-                }
-                #endif
 
-                VStack(alignment: .leading, spacing: 4) {
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button("New Well", systemImage: "plus") {
+                                onNewWell?()
+                            }
+                            Button("New Project State", systemImage: "doc.badge.plus") {
+                                onNewProject?()
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Add")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.green.opacity(0.2))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.green, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Menu {
+                            if let well = selectedWell {
+                                Section("Well") {
+                                    Button("Rename Well", systemImage: "pencil") {
+                                        onRenameWell?(well)
+                                    }
+                                    Button("Duplicate Well", systemImage: "doc.on.doc") {
+                                        onDuplicateWell?(well)
+                                    }
+                                    Button("Delete Well", systemImage: "trash", role: .destructive) {
+                                        onDeleteWell?()
+                                    }
+                                }
+                            }
+                            if let project = selectedProject {
+                                Section("Project State") {
+                                    Button("Rename Project", systemImage: "pencil") {
+                                        onRenameProject?(project)
+                                    }
+                                    Button("Duplicate Project", systemImage: "doc.on.doc") {
+                                        onDuplicateProject?(project)
+                                    }
+                                    Button("Delete Project", systemImage: "trash", role: .destructive) {
+                                        onDeleteProject?()
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "ellipsis.circle.fill")
+                                Text("Actions")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.blue, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                .background(Color(uiColor: .secondarySystemBackground))
+            }
+            #endif
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
                     Text("Project Dashboard")
                         .font(.largeTitle)
                         .fontWeight(.bold)
@@ -397,6 +424,7 @@ struct ProjectDashboardView: View {
                 }
             }
             .padding(24)
+            }
         }
         .sheet(item: $newTransferToEdit, content: { transfer in
             if let well = project.well {
