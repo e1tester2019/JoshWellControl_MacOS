@@ -297,7 +297,7 @@ private extension ContentView {
     /// Helper function to properly delete a project with all its child collections to prevent cascade overflow
     /// CRITICAL: ProjectState has 13+ cascade relationships. Deleting child collections first
     /// breaks up the cascade into manageable chunks and prevents stack overflow.
-    static func deleteProject(_ project: ProjectState, from context: ModelContext) {
+    nonisolated static func deleteProject(_ project: ProjectState, from context: ModelContext) {
         // Delete array collections first
         if let surveys = project.surveys {
             for item in surveys { context.delete(item) }
