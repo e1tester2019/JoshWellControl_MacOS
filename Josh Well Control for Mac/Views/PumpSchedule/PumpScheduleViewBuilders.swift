@@ -37,7 +37,8 @@ struct ProgramStageRow: View {
 
     var body: some View {
         let selectedMud = muds.first(where: { $0.id == mudID })
-        VStack {
+        VStack(spacing: 8) {
+            // Top row: Color, Name, Mud Picker, Delete
             HStack(spacing: 8) {
                 // Color swatch
                 Rectangle()
@@ -49,9 +50,9 @@ struct ProgramStageRow: View {
                 // Name
                 TextField("Name", text: $name)
                     .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 160)
+                    .frame(minWidth: 100, maxWidth: 140)
 
-                // Mud picker
+                // Mud picker - moved left
                 Picker("", selection: Binding<UUID?>(
                     get: { mudID },
                     set: { newID in
@@ -66,42 +67,55 @@ struct ProgramStageRow: View {
                         Text("\(m.name): \(Int(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
                     }
                 }
-                .frame(maxWidth: 240)
+                .frame(minWidth: 140, maxWidth: 200)
                 .pickerStyle(.menu)
-            }
-            HStack (spacing: 12) {
-                // Volume
-                HStack(spacing: 4) {
-                    Text("Volume")
-                        .frame(width: 60, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                    TextField("m³", value: $volume_m3, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                    Text("m³").foregroundStyle(.secondary)
-                }
-
-                // Optional per-stage rate
-                HStack(spacing: 4) {
-                    Text("Rate")
-                        .frame(width: 40, alignment: .trailing)
-                        .foregroundStyle(.secondary)
-                    TextField("m³/min", value: $rate_m3min, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                    Text("m³/min").foregroundStyle(.secondary)
-                }
-
+                
                 Spacer()
-
+                
+                // Delete button - moved up
                 Button(role: .destructive) { onDelete() } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
                 .help("Delete stage")
             }
+            
+            // Bottom row: Volume and Rate inputs with better spacing
+            HStack(spacing: 16) {
+                // Volume
+                HStack(spacing: 6) {
+                    Text("Vol")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, alignment: .trailing)
+                    TextField("m³", value: $volume_m3, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .monospacedDigit()
+                    Text("m³")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Optional per-stage rate
+                HStack(spacing: 6) {
+                    Text("Rate")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 35, alignment: .trailing)
+                    TextField("m³/min", value: $rate_m3min, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .monospacedDigit()
+                    Text("m³/min")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
         }
-        .padding(6)
+        .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
         .onChange(of: name) { pushUpdate() }
         .onChange(of: volume_m3) { pushUpdate() }
@@ -247,7 +261,13 @@ struct PumpScheduleProgramEditorView: View {
                     Text("No program stages. Add one below.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
                 } else {
+                    // Calculate dynamic height based on number of items
+                    let itemHeight: CGFloat = 100 // Approximate height per row
+                    let calculatedHeight = CGFloat(viewModel.program.count) * itemHeight + 40
+                    let maxHeight: CGFloat = 400
+                    
                     List {
                         ForEach(viewModel.program) { stg in
                             let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -275,7 +295,7 @@ struct PumpScheduleProgramEditorView: View {
                             viewModel.saveProgram(to: project)
                         }
                     }
-                    .frame(maxHeight: 260)
+                    .frame(height: min(calculatedHeight, maxHeight))
                     .listStyle(.plain)
                 }
                 HStack(spacing: 8) {
@@ -295,6 +315,7 @@ struct PumpScheduleProgramEditorView: View {
                         viewModel.program.removeAll()
                         viewModel.saveProgram(to: project)
                     }
+                    .disabled(viewModel.program.isEmpty)
                     Spacer()
                     Button("Apply Program") { viewModel.buildStages(project: project) }
                         .buttonStyle(.borderedProminent)

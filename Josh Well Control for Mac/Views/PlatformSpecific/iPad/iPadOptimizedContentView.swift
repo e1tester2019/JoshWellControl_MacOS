@@ -209,11 +209,11 @@ struct iPadDetailView: View {
                 case .mudPlacement:
                     MudPlacementView(project: project)
                 case .pumpSchedule:
-                    PumpScheduleView(project: project)
+                    PumpScheduleViewIOS(project: project)
                 case .swabbing:
                     SwabbingView(project: project)
                 case .tripSimulation:
-                    TripSimulationView(project: project)
+                    TripSimulationViewIOS(project: project)
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)

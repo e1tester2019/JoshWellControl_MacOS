@@ -13,18 +13,9 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
-typealias TripStep = NumericalTripModel.TripStep
-typealias LayerRow = NumericalTripModel.LayerRow
-
-struct KVRow: Identifiable {
-    let id = UUID()
-    let key: String
-    let value: String
-}
-
 /// A compact SwiftUI front‑end over the NumericalTripModel.
 /// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.
-struct TripSimulationView: View {
+struct TripSimulationViewIOS: View {
     // MARK: - Environment
     @Environment(\.modelContext) private var modelContext
 
@@ -35,14 +26,21 @@ struct TripSimulationView: View {
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
 
+
     // MARK: - Body
     var body: some View {
-        VStack(spacing: 12) {
-            headerInputs
-            Divider()
-            content
+        GeometryReader { geo in
+            let isPortrait = geo.size.height > geo.size.width
+            let isNarrow = geo.size.width < 700
+            
+            if isPortrait || isNarrow {
+                // PORTRAIT or NARROW: Stack everything vertically
+                portraitLayout(geo: geo)
+            } else {
+                // LANDSCAPE: Side-by-side layout with visualization on right
+                landscapeLayout(geo: geo)
+            }
         }
-        .padding(12)
         .onAppear { viewmodel.bootstrap(from: project) }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
@@ -51,86 +49,129 @@ struct TripSimulationView: View {
             Text(exportErrorMessage)
         }
     }
-
-    // MARK: - Sections
-    private var headerInputs: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                GroupBox("Bit / Range") {
-                    HStack {
-                        numberField("Start MD", value: $viewmodel.startBitMD_m)
-                        numberField("End MD", value: $viewmodel.endMD_m)
-                        numberField("Control MD", value: controlMDBinding)
-                        numberField("Step (m)", value: $viewmodel.step_m)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    
+    // MARK: - Portrait Layout
+    private func portraitLayout(geo: GeometryProxy) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Header inputs - compact for portrait
+                VStack(alignment: .leading, spacing: 12) {
+                    compactHeaderInputs
                 }
-
-                GroupBox("Fluids") {
-                    HStack {
-                        Text("Base ρ (kg/m³)")
-                            .frame(width: 110, alignment: .trailing)
-                        let active = project.activeMud
-                        Text(active.map { "\($0.name) – \(format0($0.density_kgm3))" } ?? "None")
-                            .frame(width: 160, alignment: .leading)
-                            .monospacedDigit()
-                    }
-                    HStack {
-                        Text("Backfill mud")
-                            .frame(width: 110, alignment: .trailing)
-                        Picker("", selection: Binding(get: { viewmodel.backfillMudID }, set: { newID in
-                            viewmodel.backfillMudID = newID
-                            let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                            if let id = newID, let m = muds.first(where: { $0.id == id }) {
-                                viewmodel.backfillDensity_kgpm3 = m.density_kgm3
-                            } else {
-                                viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                
+                Divider()
+                
+                // Visualization section
+                VStack(spacing: 12) {
+                    if !viewmodel.steps.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Bit Depth")
+                                .font(.headline)
+                                .padding(.horizontal, 16)
+                            
+                            HStack(spacing: 8) {
+                                Slider(
+                                    value: Binding(
+                                        get: { viewmodel.stepSlider },
+                                        set: { newVal in
+                                            viewmodel.stepSlider = newVal
+                                            let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
+                                            viewmodel.selectedIndex = idx
+                                        }
+                                    ),
+                                    in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
+                                )
+                                Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
+                                    .frame(width: 80, alignment: .trailing)
+                                    .monospacedDigit()
+                                    .font(.system(.body, design: .monospaced))
                             }
-                        })) {
-                            ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
-                                Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
-                            }
+                            .padding(.horizontal, 16)
                         }
-                        .frame(width: 240)
-                        .pickerStyle(.menu)
+                        .padding(.vertical, 8)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .cornerRadius(8)
+                        .padding(.horizontal, 16)
                     }
-                    numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
+                    
+                    visualization
+                        .frame(height: 400)
+                        .padding(.horizontal, 16)
+                    
+                    if !esdAtControlText.isEmpty {
+                        Text(esdAtControlText)
+                            .font(.system(size: 14, weight: .medium, design: .monospaced))
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 12)
+                            .frame(maxWidth: .infinity)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(8)
+                            .padding(.horizontal, 16)
+                    }
+                }
+                
+                Divider()
+                
+                // Steps table
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Trip Steps")
+                        .font(.headline)
+                        .padding(.horizontal, 16)
+                    
+                    stepsTable
+                        .frame(height: 300)
+                        .padding(.horizontal, 16)
+                }
+                
+                // Details accordion
+                if viewmodel.showDetails {
+                    VStack(alignment: .leading, spacing: 8) {
+                        detailAccordion
+                            .padding(.horizontal, 16)
+                    }
                 }
             }
-
-            HStack(spacing: 12) {
-                GroupBox("Choke / Float") {
-                    HStack {
-                        numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
-                        numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                        Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
-                    }
-                }
-                // Keep this group compact vertically so it doesn't stretch when the layout updates
-                .frame(height: 80)
-
-                GroupBox("View") {
-                    Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-                }
-
-                GroupBox("Trip speed") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Average (m/s)")
-                                .frame(width: 100, alignment: .trailing)
-                            TextField("Trip speed", value: tripSpeedBinding, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 80)
+            .padding(.bottom, 16)
+        }
+    }
+    
+    // MARK: - Landscape Layout
+    private func landscapeLayout(geo: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            // LEFT SIDE: Controls and table (65% width)
+            ScrollView {
+                VStack(spacing: 16) {
+                    headerInputs
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                    
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        stepsTable
+                            .frame(height: viewmodel.showDetails ? 300 : 450)
+                        
+                        if viewmodel.showDetails {
+                            detailAccordion
                         }
-                        Text(tripSpeedDirectionText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, 16)
                 }
-                .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in. Durations and rates use the magnitude while direction comes from other controls.")
-
+                .padding(.bottom, 16)
+            }
+            .frame(width: geo.size.width * 0.65)
+            
+            Divider()
+            
+            // RIGHT SIDE: Visualization (35% width, full height)
+            VStack(spacing: 12) {
                 if !viewmodel.steps.isEmpty {
-                    GroupBox("Bit Depth (m)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Bit Depth")
+                            .font(.headline)
+                        
                         HStack(spacing: 8) {
                             Slider(
                                 value: Binding(
@@ -144,23 +185,282 @@ struct TripSimulationView: View {
                                 in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
                             )
                             Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
-                                .frame(width: 72, alignment: .trailing)
+                                .frame(width: 80, alignment: .trailing)
                                 .monospacedDigit()
+                                .font(.system(.body, design: .monospaced))
                         }
-                        .frame(width: 240)
                     }
+                    .padding(12)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(8)
                 }
+                
+                visualization
+                    .frame(maxHeight: .infinity)
+                
+                if !esdAtControlText.isEmpty {
+                    Text(esdAtControlText)
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(width: geo.size.width * 0.35)
+        }
+    }
 
+    // MARK: - Sections
+    
+    // MARK: - Compact Header Inputs (for portrait)
+    private var compactHeaderInputs: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // All inputs in a single group box using LazyVGrid
+            GroupBox("Inputs") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 500), spacing: 16)], spacing: 16) {
+                    // Bit/Range section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Bit / Range")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            numberField("Start MD", value: $viewmodel.startBitMD_m)
+                            numberField("End MD", value: $viewmodel.endMD_m)
+                            numberField("Control MD", value: controlMDBinding)
+                            numberField("Step (m)", value: $viewmodel.step_m)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Fluids section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Fluids")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            mudPicker(
+                                label: "Base mud",
+                                selection: Binding(
+                                    get: { project.activeMud?.id },
+                                    set: { _ in }
+                                ),
+                                onSelect: { newID in
+                                    if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
+                                        // Set all muds inactive first
+                                        (project.muds ?? []).forEach { $0.isActive = false }
+                                        // Set the selected mud as active
+                                        m.isActive = true
+                                        viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
+                                    }
+                                }
+                            )
+                            
+                            mudPicker(
+                                label: "Backfill mud",
+                                selection: $viewmodel.backfillMudID,
+                                onSelect: { newID in
+                                    let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                                    if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                        viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                                    } else {
+                                        viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                                    }
+                                }
+                            )
+                            
+                            numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Choke/Float section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Choke / Float")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
+                            numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
+                            Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Options & Trip speed
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Options")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
+                            
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Trip speed (m/s)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                    Text(tripSpeedDirectionText)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            
+            // Action buttons below the group box
+            HStack(spacing: 12) {
+                Toggle("Show details", isOn: $viewmodel.showDetails)
+                    .toggleStyle(.switch)
+                
                 Spacer()
-
+                
+                Button("Run Simulation") {
+                    viewmodel.runSimulation(project: project)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Menu {
+                    Button("Export Project JSON") {
+                        exportProjectJSON()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+    
+    private var headerInputs: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // All inputs in a single group box using LazyVGrid
+            GroupBox("Inputs") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 16, alignment: .top)], spacing: 16) {
+                    // Bit / Range
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Bit / Range")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            numberField("Start MD", value: $viewmodel.startBitMD_m)
+                            numberField("End MD", value: $viewmodel.endMD_m)
+                            numberField("Control MD", value: controlMDBinding)
+                            numberField("Step (m)", value: $viewmodel.step_m)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Fluids
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Fluids")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            mudPicker(
+                                label: "Base mud",
+                                selection: Binding(
+                                    get: { project.activeMud?.id },
+                                    set: { _ in }
+                                ),
+                                onSelect: { newID in
+                                    if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
+                                        // Set all muds inactive first
+                                        (project.muds ?? []).forEach { $0.isActive = false }
+                                        // Set the selected mud as active
+                                        m.isActive = true
+                                        viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
+                                    }
+                                }
+                            )
+                            
+                            mudPicker(
+                                label: "Backfill mud",
+                                selection: $viewmodel.backfillMudID,
+                                onSelect: { newID in
+                                    let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                                    if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                        viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                                    } else {
+                                        viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                                    }
+                                }
+                            )
+                            
+                            numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Choke / Float
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Choke / Float")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
+                            numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
+                            Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Options & Trip speed combined
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Options")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
+                            
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Trip speed (m/s)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(maxWidth: 120)
+                                    Text(tripSpeedDirectionText)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in.")
+                }
+            }
+            
+            // Action buttons below the group box
+            HStack(spacing: 12) {
                 Toggle("Show details", isOn: $viewmodel.showDetails)
                     .toggleStyle(.switch)
 
-                Button("Seed from MudPlacement & Run") { viewmodel.runSimulation(project: project) }
-                    .buttonStyle(.borderedProminent)
+                Spacer()
+
+                Button("Run Simulation") {
+                    viewmodel.runSimulation(project: project)
+                }
+                .buttonStyle(.borderedProminent)
                 
-                // MARK: - New Export Project JSON Button
-                // This button allows the user to export the current project data as JSON to a file.
                 Button("Export Project JSON") {
                     exportProjectJSON()
                 }
@@ -191,47 +491,6 @@ struct TripSimulationView: View {
                     exportErrorMessage = "Failed to export project JSON."
                     showingExportErrorAlert = true
                 }
-            }
-        }
-    }
-
-    private var content: some View {
-        GeometryReader { geo in
-            HStack(spacing: 12) {
-                // LEFT COLUMN: Steps (top) + Details (bottom when shown)
-                GeometryReader { g in
-                    VStack(spacing: 8) {
-                        stepsTable
-                            .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
-                        if viewmodel.showDetails {
-                            ScrollView {
-                                detailAccordion
-                            }
-                            .frame(height: max(0, g.size.height * 0.5 - 4))
-                        } else {
-                            // Reserve 0 height when hidden
-                            Color.clear.frame(height: 0)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
-                .frame(maxHeight: .infinity)
-
-                Divider()
-
-                // RIGHT COLUMN: Well image (own column) + ESD@control label
-                VStack(alignment: .center, spacing: 4) {
-                    visualization
-                        .frame(maxHeight: .infinity)
-                    if !esdAtControlText.isEmpty {
-                        Text(esdAtControlText)
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                            .padding(.top, 4)
-                    }
-                }
-                // Give the visualization about 1/3 of the available width, but don't let it get too narrow
-                .frame(width: max(220, geo.size.width / 3.8))
-                .frame(maxHeight: .infinity)
             }
         }
     }
@@ -520,11 +779,34 @@ struct TripSimulationView: View {
     private func numberField(_ title: String, value: Binding<Double>) -> some View {
         HStack(spacing: 4) {
             Text(title)
-                .frame(width: 100, alignment: .trailing)
+                .frame(minWidth: 100, alignment: .trailing)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
             TextField(title, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 80)
+                .frame(minWidth: 70, maxWidth: 140)
+        }
+    }
+    
+    private func mudPicker(label: String, selection: Binding<UUID?>, onSelect: @escaping (UUID?) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            Picker("", selection: Binding(
+                get: { selection.wrappedValue },
+                set: { newID in
+                    selection.wrappedValue = newID
+                    onSelect(newID)
+                }
+            )) {
+                ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                    Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
+                }
+            }
+            .pickerStyle(.menu)
         }
     }
 
@@ -681,7 +963,7 @@ struct TripSimulationView: View {
 
 
 #if DEBUG
-private struct TripSimulationPreview: View {
+private struct TripSimulationViewIOSPreview: View {
   let container: ModelContainer
   let project: ProjectState
 
@@ -706,14 +988,19 @@ private struct TripSimulationPreview: View {
   }
 
   var body: some View {
-    NavigationStack { TripSimulationView(project: project) }
+    NavigationStack { TripSimulationViewIOS(project: project) }
       .modelContainer(container)
-      .frame(width: 1200, height: 800)
   }
 }
 
-#Preview("Trip Simulation – Sample Data") {
-  TripSimulationPreview()
+#Preview("iPad Landscape", traits: .landscapeLeft) {
+    TripSimulationViewIOSPreview()
+        .frame(width: 1194, height: 834)
+}
+
+#Preview("iPad Portrait", traits: .portrait) {
+    TripSimulationViewIOSPreview()
+        .frame(width: 834, height: 1194)
 }
 #endif
 
