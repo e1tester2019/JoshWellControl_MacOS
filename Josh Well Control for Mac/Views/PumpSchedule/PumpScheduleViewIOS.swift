@@ -4,7 +4,7 @@
 //
 //  iPad-optimized pump schedule simulation view with responsive layouts
 //
-
+#if os(iOS)
 import SwiftUI
 import SwiftData
 import Observation
@@ -277,4 +277,6 @@ struct PumpScheduleViewIOS_Previews: PreviewProvider {
         }
     }
 }
+#endif
+
 #endif

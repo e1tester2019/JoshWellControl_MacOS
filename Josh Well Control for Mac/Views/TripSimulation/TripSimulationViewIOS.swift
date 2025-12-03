@@ -5,6 +5,7 @@
 // (assistant) Connected and ready – 2025-11-07
 //
 
+#if os(iOS)
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
@@ -1004,3 +1005,4 @@ private struct TripSimulationViewIOSPreview: View {
 }
 #endif
 
+#endif

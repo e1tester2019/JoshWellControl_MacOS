@@ -131,6 +131,7 @@ extension TripSimulationView {
   }
 }
 
+#if (os(iOS))
 extension TripSimulationViewIOS {
   @Observable
   class ViewModel {
@@ -253,3 +254,4 @@ extension TripSimulationViewIOS {
     }
   }
 }
+#endif
