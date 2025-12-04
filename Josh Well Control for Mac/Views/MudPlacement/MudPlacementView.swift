@@ -49,7 +49,7 @@ struct MudPlacementView: View {
                     }
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.controlBackgroundColor)))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.background))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2), lineWidth: 1))
 
                     // Steps Editor
@@ -1000,5 +1000,6 @@ struct MudPlacementView_Previews: PreviewProvider {
 
 
 // ViewModel now in: ViewModels/MudPlacementViewModel.swift
+
 
 
