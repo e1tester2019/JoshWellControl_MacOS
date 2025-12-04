@@ -34,14 +34,29 @@ struct MudPlacementView: View {
 
     var body: some View {
         ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Mud Placement").font(.title2).bold()
-                    Text("Build steps (top/bottom/ρ/name/color/where) and place them as final layers. The interval calculator uses your geometry.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 20) {
+                    // Header Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "drop.triangle")
+                                .font(.title)
+                                .foregroundStyle(.blue.gradient)
+                            Text("Mud Placement").font(.title2).bold()
+                        }
+                        Text("Build steps (top/bottom/ρ/name/color/where) and place them as final layers. The interval calculator uses your geometry.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.controlBackgroundColor)))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2), lineWidth: 1))
 
                     // Steps Editor
-                    GroupBox("Steps") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Steps", icon: "square.stack.3d.up.fill", color: .blue)
+
+                        GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
                             if viewmodel.steps.isEmpty {
                                 Text("No steps yet. Add one below.")
@@ -83,15 +98,27 @@ struct MudPlacementView: View {
                             .controlSize(.small)
                         }
                         .padding(.top, 4)
-                    }
 
-                    if stepsHaveOverlap(viewmodel.steps) {
-                        Text("Note: Steps overlap in depth. Review tops/bottoms.")
+                        if stepsHaveOverlap(viewmodel.steps) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text("Steps overlap in depth. Review tops/bottoms.")
+                            }
                             .font(.caption)
                             .foregroundStyle(.orange)
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.1)))
+                        }
+                    }
                     }
 
-                    GroupBox("Base fluids (initial full column)") {
+                    // Base Fluids Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Base Fluids", icon: "drop.fill", color: .green)
+
+                        GroupBox {
                         HStack(spacing: 12) {
                             label("Annulus ρ")
                             TextField("kg/m³", value: $project.baseAnnulusDensity_kgm3, format: .number)
@@ -106,27 +133,40 @@ struct MudPlacementView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-
-                    // Manual placement action
-                    HStack(spacing: 12) {
-                        Button("Apply Base + Layers") {
-                            rebuildFinalFromBase()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-
-                        .help("Persist final layers and make them available to seed the numerical trip model")
-
-                        Text("Fills each domain with a base fluid, then overlays steps (Annulus/String/Both).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
 
-                    // Final placed layers table
-                    if let finalLayers = project.finalLayers {
-                        
+                    // Apply Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Apply Placement", icon: "arrow.down.circle.fill", color: .purple)
 
-                        GroupBox("Final spotted fluids (base + steps)") {
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 12) {
+                                    Button {
+                                        rebuildFinalFromBase()
+                                    } label: {
+                                        Label("Apply Base + Layers", systemImage: "arrow.down.circle.fill")
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .controlSize(.large)
+                                    .help("Persist final layers and make them available to seed the numerical trip model")
+                                }
+
+                                Text("Fills each domain with a base fluid, then overlays steps (Annulus/String/Both).")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    // Final Layers Section
+                    if let finalLayers = project.finalLayers {
+                        VStack(alignment: .leading, spacing: 0) {
+                            sectionHeader(title: "Final Spotted Fluids", icon: "layers.fill", color: .orange)
+
+                            GroupBox {
                             HStack(alignment: .top, spacing: 16) {
                                 // String column
                                 VStack(alignment: .leading, spacing: 8) {
@@ -204,10 +244,14 @@ struct MudPlacementView: View {
                             }
                             .padding(.vertical, 4)
                         }
+                        }
                     }
 
-                    // Hydrostatic panel
-                    GroupBox("Hydrostatic (from final layers)") {
+                    // Hydrostatic Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Hydrostatic Pressure", icon: "gauge", color: .indigo)
+
+                        GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 16) {
                                 label("Measured Depth (m)")
@@ -263,10 +307,14 @@ struct MudPlacementView: View {
                                 resultBox(title: "ΔP (Ann − Str)", value: pAnn - pStr, unit: "kPa", valueFmt: fmtP)
                             }
                         }
+                        }
                     }
 
-                    // Interval calculator inputs
-                    GroupBox("Interval") {
+                    // Interval Calculator Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Interval Calculator", icon: "function", color: .teal)
+
+                        GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
                                 label("Top (m)")
@@ -330,9 +378,14 @@ struct MudPlacementView: View {
                             }
                         }
                         .padding(.vertical, 4)
-                    }
 
-                    // Quick results for the Interval calculator
+                    // Interval Results
+                    Divider().padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Interval Results")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
                     let t = min(top_m, bottom_m)
                     let b = max(top_m, bottom_m)
                     let r = viewmodel.computeVolumesBetween(top: t, bottom: b)
@@ -385,8 +438,14 @@ struct MudPlacementView: View {
                             resultBox(title: "ΔP over section (preview)", value: dp_kPa, unit: "kPa", valueFmt: fmtP)
                         }
                     }
+                        }
+                    }
 
-                    GroupBox("Planning hints") {
+                    // Planning Hints Section
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader(title: "Planning Hints", icon: "lightbulb.fill", color: .yellow)
+
+                        GroupBox {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("• To spot a **balanced** mud: pump inside = outside volumes so hydrostatic heads match.")
                             Text("• To chase to a target top in string: add the **string capacity** from current top to target depth.")
@@ -395,10 +454,12 @@ struct MudPlacementView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     }
+                        }
+                    }
 
                     Spacer(minLength: 0)
                 }
-                .padding(12)
+                .padding(16)
                 .navigationTitle("Mud Placement")
         }
         .onAppear {
@@ -408,6 +469,24 @@ struct MudPlacementView: View {
                 previewDensity_kgm3 = m.density_kgm3
             }
         }
+    }
+
+    // MARK: - Section Header Helper
+    @ViewBuilder
+    private func sectionHeader(title: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.headline)
+                .foregroundStyle(color.gradient)
+            Text(title)
+                .font(.headline)
+                .fontWeight(.semibold)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(color.opacity(0.1))
+        .cornerRadius(8, corners: [.topLeft, .topRight])
     }
 
     // MARK: - Final layering helpers
@@ -815,6 +894,72 @@ struct MudPlacementView: View {
     
 
     // No longer needed: persistFinalLayers handled by ViewModel
+}
+
+// MARK: - Corner Radius Extension
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: RectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RectCorner: OptionSet {
+    let rawValue: Int
+    static let topLeft = RectCorner(rawValue: 1 << 0)
+    static let topRight = RectCorner(rawValue: 1 << 1)
+    static let bottomLeft = RectCorner(rawValue: 1 << 2)
+    static let bottomRight = RectCorner(rawValue: 1 << 3)
+    static let allCorners: RectCorner = [.topLeft, .topRight, .bottomLeft, .bottomRight]
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: RectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        let tl = corners.contains(.topLeft) ? radius : 0
+        let tr = corners.contains(.topRight) ? radius : 0
+        let bl = corners.contains(.bottomLeft) ? radius : 0
+        let br = corners.contains(.bottomRight) ? radius : 0
+
+        path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        if tr > 0 {
+            path.addArc(center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr),
+                       radius: tr,
+                       startAngle: .degrees(-90),
+                       endAngle: .degrees(0),
+                       clockwise: false)
+        }
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        if br > 0 {
+            path.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
+                       radius: br,
+                       startAngle: .degrees(0),
+                       endAngle: .degrees(90),
+                       clockwise: false)
+        }
+        path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        if bl > 0 {
+            path.addArc(center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl),
+                       radius: bl,
+                       startAngle: .degrees(90),
+                       endAngle: .degrees(180),
+                       clockwise: false)
+        }
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
+        if tl > 0 {
+            path.addArc(center: CGPoint(x: rect.minX + tl, y: rect.minY + tl),
+                       radius: tl,
+                       startAngle: .degrees(180),
+                       endAngle: .degrees(270),
+                       clockwise: false)
+        }
+
+        return path
+    }
 }
 
 // MARK: - Preview
