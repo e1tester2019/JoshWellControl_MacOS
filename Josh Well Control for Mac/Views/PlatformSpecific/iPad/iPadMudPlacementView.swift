@@ -487,7 +487,7 @@ struct iPadMudPlacementView: View {
     }
 
     @ViewBuilder
-    private func layerColumn(title: String, layers: [MudStepPersisted], domain: FinalLayer.Domain) -> some View {
+    private func layerColumn(title: String, layers: [FinalFluidLayer], domain: FinalLayer.Domain) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption)

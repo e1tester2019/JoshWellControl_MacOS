@@ -199,7 +199,7 @@ struct iPadDetailView: View {
                 case .volumeSummary:
                     VolumeSummaryView(project: project)
                 case .surveys:
-                    SurveyListView(project: project)
+                    SurveysPadView(project: project)
                 case .mudCheck:
                     MudCheckView(project: project)
                 case .mixingCalc:
