@@ -207,7 +207,7 @@ struct iPadDetailView: View {
                 case .pressureWindow:
                     PressureWindowView(project: project)
                 case .mudPlacement:
-                    MudPlacementView(project: project)
+                    iPadMudPlacementView(project: project)
                 case .pumpSchedule:
                     PumpScheduleViewIOS(project: project)
                 case .swabbing:
