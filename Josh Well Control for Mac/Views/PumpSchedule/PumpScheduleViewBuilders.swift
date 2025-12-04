@@ -557,6 +557,7 @@ struct PumpScheduleHydraulicsPanelView: View {
                 // Outputs
                 let h = viewModel.hydraulicsForCurrent(project: project)
                 VStack(alignment: .leading, spacing: 6) {
+                    
                     HStack {
                         Text("Hydrostatic Annulus")
                             .frame(width: 140, alignment: .trailing)
@@ -568,7 +569,7 @@ struct PumpScheduleHydraulicsPanelView: View {
                         Text("Friction (annulus)")
                             .frame(width: 140, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.annulusFriction_kPa)).monospacedDigit()
+                        Text(String(format: "%.0f kPa", viewModel.annulusFriction_kPa)).monospacedDigit()
                     }
                     HStack {
                         Text("Hydrostatic String")
@@ -593,7 +594,7 @@ struct PumpScheduleHydraulicsPanelView: View {
                         Text("Annulus at control")
                             .frame(width: 140, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.annulusAtControl_Pa / 1000.0)).monospacedDigit()
+                        Text(String(format: "%.0f kPa", viewModel.annulusAtControl_kPa)).monospacedDigit()
                     }
                     HStack {
                         Text("String at control")
@@ -627,7 +628,7 @@ struct PumpScheduleHydraulicsPanelView: View {
                         Text("ECD")
                             .frame(width: 140, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kg/m³", h.ecd_kgm3)).monospacedDigit()
+                        Text(String(format: "%.0f kg/m³", viewModel.ecd_kgm3)).monospacedDigit()
                     }
                 }
             }
