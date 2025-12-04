@@ -244,6 +244,55 @@ private struct SurveyMiniPlot: View {
                     let y = rect.minY + CGFloat(((s.tvd ?? 0) - tvdMin) / tvdRange) * rect.height
                     Circle().fill(Color.red).frame(width: 8, height: 8).position(x: x, y: y)
                 }
+
+                // Midpoint grid lines
+                Path { p in
+                    // Vertical mid grid (MD mid)
+                    let midX = rect.minX + rect.width * 0.5
+                    p.move(to: CGPoint(x: midX, y: rect.minY))
+                    p.addLine(to: CGPoint(x: midX, y: rect.maxY))
+                    // Horizontal mid grid (TVD mid)
+                    let midY = rect.minY + rect.height * 0.5
+                    p.move(to: CGPoint(x: rect.minX, y: midY))
+                    p.addLine(to: CGPoint(x: rect.maxX, y: midY))
+                }
+                .stroke(Color.gray.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+                // Axis tick labels and titles
+                ZStack {
+                    // X-axis labels (MD)
+                    Text(String(format: "%.0f", mdMin))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.minX, y: rect.maxY + 10)
+                    Text(String(format: "%.0f", (mdMin + mdMax) / 2))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.midX, y: rect.maxY + 10)
+                    Text(String(format: "%.0f", mdMax))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.maxX, y: rect.maxY + 10)
+
+                    // X-axis title
+                    Text("MD (m)")
+                        .font(.caption2).bold().foregroundStyle(.secondary)
+                        .position(x: rect.midX, y: rect.maxY + 24)
+
+                    // Y-axis labels (TVD)
+                    Text(String(format: "%.0f", tvdMax))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.minX - 14, y: rect.minY)
+                    Text(String(format: "%.0f", (tvdMin + tvdMax) / 2))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.minX - 14, y: rect.midY)
+                    Text(String(format: "%.0f", tvdMin))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .position(x: rect.minX - 14, y: rect.maxY)
+
+                    // Y-axis title (vertical)
+                    Text("TVD (m)")
+                        .font(.caption2).bold().foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(-90))
+                        .position(x: rect.minX - 30, y: rect.midY)
+                }
             }
         }
     }
