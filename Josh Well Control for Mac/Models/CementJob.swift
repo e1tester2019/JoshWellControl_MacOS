@@ -41,8 +41,8 @@ final class CementJob {
     /// Lead slurry yield factor (m³ per tonne of dry cement)
     var leadYieldFactor_m3_per_tonne: Double = 0.62
 
-    /// Lead mix water requirement (L per tonne of dry cement)
-    var leadMixWaterRatio_L_per_tonne: Double = 480.0
+    /// Lead mix water requirement (m³ per tonne of dry cement)
+    var leadMixWaterRatio_m3_per_tonne: Double = 0.48
 
     // MARK: - Tail Cement Properties
 
@@ -58,8 +58,8 @@ final class CementJob {
     /// Tail slurry yield factor (m³ per tonne of dry cement)
     var tailYieldFactor_m3_per_tonne: Double = 0.62
 
-    /// Tail mix water requirement (L per tonne of dry cement)
-    var tailMixWaterRatio_L_per_tonne: Double = 480.0
+    /// Tail mix water requirement (m³ per tonne of dry cement)
+    var tailMixWaterRatio_m3_per_tonne: Double = 0.48
 
     // MARK: - Additional Volumes
 
@@ -68,6 +68,9 @@ final class CementJob {
 
     /// Pump out volume (m³)
     var pumpOutVolume_m3: Double = 0.0
+
+    /// Float collar depth (MD in meters) - displacement target
+    var floatCollarDepth_m: Double = 0.0
 
     // MARK: - Legacy/Calculated Values (kept for compatibility)
 
@@ -86,8 +89,8 @@ final class CementJob {
     /// Slurry yield factor (m³ per tonne of dry cement) - legacy, use lead/tail specific
     var yieldFactor_m3_per_tonne: Double = 0.62
 
-    /// Mix water requirement (liters per tonne of dry cement) - legacy, use lead/tail specific
-    var mixWaterRatio_L_per_tonne: Double = 480.0
+    /// Mix water requirement (m³ per tonne of dry cement) - legacy, use lead/tail specific
+    var mixWaterRatio_m3_per_tonne: Double = 0.48
 
     /// Timestamp when this job was created
     var createdAt: Date = Date.now
@@ -199,9 +202,19 @@ final class CementJob {
         totalMixWater_L / 1000.0
     }
 
-    /// Total displacement volume from stages (m³)
-    @Transient var displacementVolume_m3: Double {
+    /// Total mud displacement volume from stages (m³)
+    @Transient var mudDisplacementVolume_m3: Double {
+        sortedStages.filter { $0.stageType == .mudDisplacement }.reduce(0) { $0 + $1.volume_m3 }
+    }
+
+    /// Total water displacement volume from stages (m³)
+    @Transient var waterDisplacementVolume_m3: Double {
         sortedStages.filter { $0.stageType == .displacement }.reduce(0) { $0 + $1.volume_m3 }
+    }
+
+    /// Total displacement volume from all displacement stages (m³) - mud + water
+    @Transient var displacementVolume_m3: Double {
+        mudDisplacementVolume_m3 + waterDisplacementVolume_m3
     }
 
     /// Total displacement volume (L)
@@ -226,50 +239,52 @@ final class CementJob {
         casingType: CasingType = .intermediate,
         topMD_m: Double = 0.0,
         bottomMD_m: Double = 0.0,
+        floatCollarDepth_m: Double = 0.0,
         // Lead cement parameters
         leadExcessPercent: Double = 50.0,
         leadTopMD_m: Double = 0.0,
         leadBottomMD_m: Double = 0.0,
         leadYieldFactor_m3_per_tonne: Double = 0.62,
-        leadMixWaterRatio_L_per_tonne: Double = 480.0,
+        leadMixWaterRatio_m3_per_tonne: Double = 0.48,
         // Tail cement parameters
         tailExcessPercent: Double = 50.0,
         tailTopMD_m: Double = 0.0,
         tailBottomMD_m: Double = 0.0,
         tailYieldFactor_m3_per_tonne: Double = 0.62,
-        tailMixWaterRatio_L_per_tonne: Double = 480.0,
+        tailMixWaterRatio_m3_per_tonne: Double = 0.48,
         // Additional volumes
         washUpVolume_m3: Double = 0.0,
         pumpOutVolume_m3: Double = 0.0,
         // Legacy parameters
         excessPercent: Double = 50.0,
         yieldFactor_m3_per_tonne: Double = 0.62,
-        mixWaterRatio_L_per_tonne: Double = 480.0,
+        mixWaterRatio_m3_per_tonne: Double = 0.48,
         project: ProjectState? = nil
     ) {
         self.name = name
         self.casingTypeRaw = casingType.rawValue
         self.topMD_m = topMD_m
         self.bottomMD_m = bottomMD_m
+        self.floatCollarDepth_m = floatCollarDepth_m
         // Lead cement
         self.leadExcessPercent = leadExcessPercent
         self.leadTopMD_m = leadTopMD_m
         self.leadBottomMD_m = leadBottomMD_m
         self.leadYieldFactor_m3_per_tonne = leadYieldFactor_m3_per_tonne
-        self.leadMixWaterRatio_L_per_tonne = leadMixWaterRatio_L_per_tonne
+        self.leadMixWaterRatio_m3_per_tonne = leadMixWaterRatio_m3_per_tonne
         // Tail cement
         self.tailExcessPercent = tailExcessPercent
         self.tailTopMD_m = tailTopMD_m
         self.tailBottomMD_m = tailBottomMD_m
         self.tailYieldFactor_m3_per_tonne = tailYieldFactor_m3_per_tonne
-        self.tailMixWaterRatio_L_per_tonne = tailMixWaterRatio_L_per_tonne
+        self.tailMixWaterRatio_m3_per_tonne = tailMixWaterRatio_m3_per_tonne
         // Additional volumes
         self.washUpVolume_m3 = washUpVolume_m3
         self.pumpOutVolume_m3 = pumpOutVolume_m3
         // Legacy
         self.excessPercent = excessPercent
         self.yieldFactor_m3_per_tonne = yieldFactor_m3_per_tonne
-        self.mixWaterRatio_L_per_tonne = mixWaterRatio_L_per_tonne
+        self.mixWaterRatio_m3_per_tonne = mixWaterRatio_m3_per_tonne
         self.project = project
     }
 
@@ -358,18 +373,19 @@ extension CementJob {
             "casingType": casingType.rawValue,
             "topMD_m": topMD_m,
             "bottomMD_m": bottomMD_m,
+            "floatCollarDepth_m": floatCollarDepth_m,
             // Lead cement
             "leadExcessPercent": leadExcessPercent,
             "leadTopMD_m": leadTopMD_m,
             "leadBottomMD_m": leadBottomMD_m,
             "leadYieldFactor_m3_per_tonne": leadYieldFactor_m3_per_tonne,
-            "leadMixWaterRatio_L_per_tonne": leadMixWaterRatio_L_per_tonne,
+            "leadMixWaterRatio_m3_per_tonne": leadMixWaterRatio_m3_per_tonne,
             // Tail cement
             "tailExcessPercent": tailExcessPercent,
             "tailTopMD_m": tailTopMD_m,
             "tailBottomMD_m": tailBottomMD_m,
             "tailYieldFactor_m3_per_tonne": tailYieldFactor_m3_per_tonne,
-            "tailMixWaterRatio_L_per_tonne": tailMixWaterRatio_L_per_tonne,
+            "tailMixWaterRatio_m3_per_tonne": tailMixWaterRatio_m3_per_tonne,
             // Additional volumes
             "washUpVolume_m3": washUpVolume_m3,
             "pumpOutVolume_m3": pumpOutVolume_m3,
@@ -383,7 +399,7 @@ extension CementJob {
             // Legacy
             "excessPercent": excessPercent,
             "yieldFactor_m3_per_tonne": yieldFactor_m3_per_tonne,
-            "mixWaterRatio_L_per_tonne": mixWaterRatio_L_per_tonne,
+            "mixWaterRatio_m3_per_tonne": mixWaterRatio_m3_per_tonne,
             "createdAt": ISO8601DateFormatter().string(from: createdAt),
             "updatedAt": ISO8601DateFormatter().string(from: updatedAt),
             "notes": notes,

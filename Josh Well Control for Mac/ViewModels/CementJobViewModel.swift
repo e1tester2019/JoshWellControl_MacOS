@@ -149,19 +149,19 @@ class CementJobViewModel {
         switch stage.stageType {
         case .leadCement:
             yieldFactor = job.leadYieldFactor_m3_per_tonne
-            waterRatio = job.leadMixWaterRatio_L_per_tonne
+            waterRatio = job.leadMixWaterRatio_m3_per_tonne
         case .tailCement:
             yieldFactor = job.tailYieldFactor_m3_per_tonne
-            waterRatio = job.tailMixWaterRatio_L_per_tonne
+            waterRatio = job.tailMixWaterRatio_m3_per_tonne
         default:
             // Use legacy/default values for non-cement stages
             yieldFactor = job.yieldFactor_m3_per_tonne
-            waterRatio = job.mixWaterRatio_L_per_tonne
+            waterRatio = job.mixWaterRatio_m3_per_tonne
         }
 
         stage.updateCalculations(
             yieldFactor: yieldFactor,
-            waterRatio: waterRatio
+            waterRatio_m3_per_tonne: waterRatio
         )
     }
 
@@ -416,16 +416,66 @@ class CementJobViewModel {
         addStage(rigOut, to: job, context: context)
     }
 
-    // MARK: - Displacement Calculation
+    // MARK: - Volume Calculations from Geometry
 
-    /// Calculate displacement volume from string geometry
-    func calculateDisplacementVolume(project: ProjectState, shoeDepth_m: Double) -> Double {
+    /// Calculate annulus volume between two depths using project annulus sections
+    func calculateAnnulusVolume(project: ProjectState, topMD_m: Double, bottomMD_m: Double, excessPercent: Double) -> Double {
+        let sections = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        var totalVolume = 0.0
+
+        for section in sections {
+            // Calculate overlap between cement interval and this section
+            let overlapTop = max(topMD_m, section.topDepth_m)
+            let overlapBottom = min(bottomMD_m, section.bottomDepth_m)
+
+            guard overlapBottom > overlapTop else { continue }
+
+            // Calculate volume for this overlap
+            let overlapLength = overlapBottom - overlapTop
+            let volumeFraction = section.length_m > 0 ? overlapLength / section.length_m : 0
+            let sectionVolume = section.volume_m3 * volumeFraction
+
+            // Apply excess for open hole only
+            if section.isCased {
+                totalVolume += sectionVolume
+            } else {
+                totalVolume += sectionVolume * (1 + excessPercent / 100.0)
+            }
+        }
+
+        return totalVolume
+    }
+
+    /// Calculate lead cement volume from geometry
+    func calculateLeadCementVolume(job: CementJob, project: ProjectState) -> Double {
+        guard job.leadBottomMD_m > job.leadTopMD_m else { return 0 }
+        return calculateAnnulusVolume(
+            project: project,
+            topMD_m: job.leadTopMD_m,
+            bottomMD_m: job.leadBottomMD_m,
+            excessPercent: job.leadExcessPercent
+        )
+    }
+
+    /// Calculate tail cement volume from geometry
+    func calculateTailCementVolume(job: CementJob, project: ProjectState) -> Double {
+        guard job.tailBottomMD_m > job.tailTopMD_m else { return 0 }
+        return calculateAnnulusVolume(
+            project: project,
+            topMD_m: job.tailTopMD_m,
+            bottomMD_m: job.tailBottomMD_m,
+            excessPercent: job.tailExcessPercent
+        )
+    }
+
+    /// Calculate displacement volume from string geometry to float collar depth
+    func calculateDisplacementVolume(project: ProjectState, floatCollarDepth_m: Double) -> Double {
         let drillStrings = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
         var totalVolume = 0.0
 
         for section in drillStrings {
             let overlapTop = max(0, section.topDepth_m)
-            let overlapBottom = min(shoeDepth_m, section.bottomDepth_m)
+            let overlapBottom = min(floatCollarDepth_m, section.bottomDepth_m)
 
             guard overlapBottom > overlapTop else { continue }
 
@@ -438,6 +488,27 @@ class CementJobViewModel {
         totalVolume += project.surfaceLineVolume_m3
 
         return totalVolume
+    }
+
+    /// Calculate all cement job volumes from geometry and return a summary
+    func calculateJobVolumes(job: CementJob, project: ProjectState) -> CalculatedVolumes {
+        let leadVolume = calculateLeadCementVolume(job: job, project: project)
+        let tailVolume = calculateTailCementVolume(job: job, project: project)
+        let displacementVolume = job.floatCollarDepth_m > 0
+            ? calculateDisplacementVolume(project: project, floatCollarDepth_m: job.floatCollarDepth_m)
+            : 0
+
+        return CalculatedVolumes(
+            leadCementVolume_m3: leadVolume,
+            tailCementVolume_m3: tailVolume,
+            totalDisplacementVolume_m3: displacementVolume
+        )
+    }
+
+    struct CalculatedVolumes {
+        var leadCementVolume_m3: Double
+        var tailCementVolume_m3: Double
+        var totalDisplacementVolume_m3: Double
     }
 
     // MARK: - Statistics

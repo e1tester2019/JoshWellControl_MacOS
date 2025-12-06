@@ -72,6 +72,9 @@ final class CementJobStage {
     /// For float check operation: true if floats closed, false if open
     var floatsClosed: Bool = true
 
+    /// For plug drop operation: true if dropped on the fly, false if lines pumped out first
+    var plugDropOnTheFly: Bool = true
+
     /// Additional notes about the stage
     var notes: String = ""
 
@@ -102,8 +105,9 @@ final class CementJobStage {
         case spacer = 1
         case leadCement = 2
         case tailCement = 3
-        case displacement = 4
+        case displacement = 4       // Water displacement
         case operation = 5
+        case mudDisplacement = 6    // Mud displacement (separate from water)
 
         var displayName: String {
             switch self {
@@ -111,14 +115,15 @@ final class CementJobStage {
             case .spacer: return "Spacer/Sweep"
             case .leadCement: return "Lead Cement"
             case .tailCement: return "Tail Cement"
-            case .displacement: return "Displacement"
+            case .displacement: return "Water Displacement"
+            case .mudDisplacement: return "Mud Displacement"
             case .operation: return "Operation"
             }
         }
 
         var isPumpStage: Bool {
             switch self {
-            case .preFlush, .spacer, .leadCement, .tailCement, .displacement:
+            case .preFlush, .spacer, .leadCement, .tailCement, .displacement, .mudDisplacement:
                 return true
             case .operation:
                 return false
@@ -127,6 +132,10 @@ final class CementJobStage {
 
         var isCementStage: Bool {
             self == .leadCement || self == .tailCement
+        }
+
+        var isDisplacementStage: Bool {
+            self == .displacement || self == .mudDisplacement
         }
     }
 
@@ -248,6 +257,7 @@ final class CementJobStage {
         volume_L: Double? = nil,
         time: String? = nil,
         floatsClosed: Bool = true,
+        plugDropOnTheFly: Bool = true,
         notes: String = "",
         cementJob: CementJob? = nil
     ) -> CementJobStage {
@@ -261,6 +271,7 @@ final class CementJobStage {
         stage.operationVolume_L = volume_L
         stage.operationTime = time
         stage.floatsClosed = floatsClosed
+        stage.plugDropOnTheFly = plugDropOnTheFly
         stage.notes = notes
         stage.cementJob = cementJob
         return stage
@@ -269,7 +280,8 @@ final class CementJobStage {
     // MARK: - Calculation Methods
 
     /// Update tonnage and mix water based on cement job parameters
-    func updateCalculations(yieldFactor: Double, waterRatio: Double) {
+    /// waterRatio_m3_per_tonne is in m³ per tonne of dry cement
+    func updateCalculations(yieldFactor: Double, waterRatio_m3_per_tonne: Double) {
         guard stageType.isCementStage else {
             tonnage_t = nil
             mixWater_L = nil
@@ -284,7 +296,8 @@ final class CementJobStage {
 
         let t = volume_m3 / yieldFactor
         tonnage_t = t
-        mixWater_L = t * waterRatio
+        // Convert m³ to L for storage (waterRatio is now in m³/tonne)
+        mixWater_L = t * waterRatio_m3_per_tonne * 1000.0
     }
 
     /// Link to a mud and update density/color from it
@@ -326,6 +339,9 @@ extension CementJobStage {
             text += " \(name) at \(Int(density_kgm3))kg/m³"
             return text
 
+        case .mudDisplacement:
+            return "displaced with \(volumeDisplayString) of \(Int(density_kgm3))kg/m³ \(name)"
+
         case .displacement:
             return "displaced with \(volumeDisplayString) of \(Int(density_kgm3))kg/m³ \(name)"
 
@@ -353,7 +369,15 @@ extension CementJobStage {
             return "trips set"
 
         case .plugDrop:
-            return "dropped plug"
+            if plugDropOnTheFly {
+                return "drop plug on the fly"
+            } else {
+                // Use pump out volume from cement job if available
+                if let job = cementJob, job.pumpOutVolume_m3 > 0 {
+                    return "lines pumped out with \(String(format: "%.1f", job.pumpOutVolume_m3))m³, drop plug"
+                }
+                return "lines pumped out, drop plug"
+            }
 
         case .bumpPlug:
             var text = "bumped plug"
@@ -418,6 +442,7 @@ extension CementJobStage {
         if let vol = operationVolume_L { dict["operationVolume_L"] = vol }
         if let time = operationTime { dict["operationTime"] = time }
         if operationType == .floatCheck { dict["floatsClosed"] = floatsClosed }
+        if operationType == .plugDrop { dict["plugDropOnTheFly"] = plugDropOnTheFly }
         if let mudID = mud?.id { dict["mudID"] = mudID.uuidString }
 
         return dict

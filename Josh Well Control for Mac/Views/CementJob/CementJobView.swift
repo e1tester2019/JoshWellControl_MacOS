@@ -175,7 +175,7 @@ struct CementJobView: View {
                     // Casing type picker
                     HStack {
                         Text("Casing Type:")
-                            .frame(width: 120, alignment: .trailing)
+                            .frame(width: 140, alignment: .trailing)
                         Picker("", selection: Binding(
                             get: { job.casingType },
                             set: { job.casingType = $0 }
@@ -187,10 +187,10 @@ struct CementJobView: View {
                         .labelsHidden()
                     }
 
-                    // Top depth
+                    // Cement Top depth
                     HStack {
                         Text("Cement Top (MD):")
-                            .frame(width: 120, alignment: .trailing)
+                            .frame(width: 140, alignment: .trailing)
                         TextField("", value: Binding(
                             get: { job.topMD_m },
                             set: { job.topMD_m = $0; viewModel.updateVolumes(project: project) }
@@ -201,13 +201,27 @@ struct CementJobView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    // Bottom depth
+                    // Cement Bottom depth
                     HStack {
                         Text("Cement Bottom (MD):")
-                            .frame(width: 120, alignment: .trailing)
+                            .frame(width: 140, alignment: .trailing)
                         TextField("", value: Binding(
                             get: { job.bottomMD_m },
                             set: { job.bottomMD_m = $0; viewModel.updateVolumes(project: project) }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Float collar depth
+                    HStack {
+                        Text("Float Collar (MD):")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.floatCollarDepth_m },
+                            set: { job.floatCollarDepth_m = $0 }
                         ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
@@ -278,15 +292,15 @@ struct CementJobView: View {
                         Text("Mix Water:")
                             .frame(width: 100, alignment: .trailing)
                         TextField("", value: Binding(
-                            get: { job.leadMixWaterRatio_L_per_tonne },
+                            get: { job.leadMixWaterRatio_m3_per_tonne },
                             set: {
-                                job.leadMixWaterRatio_L_per_tonne = $0
+                                job.leadMixWaterRatio_m3_per_tonne = $0
                                 viewModel.updateAllStageCalculations(job)
                             }
-                        ), format: .number)
+                        ), format: .number.precision(.fractionLength(3)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        Text("L/t")
+                        Text("m³/t")
                             .foregroundColor(.secondary)
                     }
                 }
@@ -353,15 +367,15 @@ struct CementJobView: View {
                         Text("Mix Water:")
                             .frame(width: 100, alignment: .trailing)
                         TextField("", value: Binding(
-                            get: { job.tailMixWaterRatio_L_per_tonne },
+                            get: { job.tailMixWaterRatio_m3_per_tonne },
                             set: {
-                                job.tailMixWaterRatio_L_per_tonne = $0
+                                job.tailMixWaterRatio_m3_per_tonne = $0
                                 viewModel.updateAllStageCalculations(job)
                             }
-                        ), format: .number)
+                        ), format: .number.precision(.fractionLength(3)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        Text("L/t")
+                        Text("m³/t")
                             .foregroundColor(.secondary)
                     }
                 }
@@ -510,7 +524,8 @@ struct CementJobView: View {
                     Button("Add Spacer") { addStage(.spacer, to: job) }
                     Button("Add Lead Cement") { addStage(.leadCement, to: job) }
                     Button("Add Tail Cement") { addStage(.tailCement, to: job) }
-                    Button("Add Displacement") { addStage(.displacement, to: job) }
+                    Button("Add Mud Displacement") { addStage(.mudDisplacement, to: job) }
+                    Button("Add Water Displacement") { addStage(.displacement, to: job) }
                     Divider()
                     Menu("Add Operation") {
                         ForEach(CementJobStage.OperationType.allCases, id: \.self) { opType in
@@ -799,6 +814,10 @@ struct StageRow: View {
 
                 if opType == .floatCheck {
                     Toggle("Floats Closed/Held", isOn: $stage.floatsClosed)
+                }
+
+                if opType == .plugDrop {
+                    Toggle("Drop Plug On The Fly", isOn: $stage.plugDropOnTheFly)
                 }
             } else {
                 // Pump stage fields
