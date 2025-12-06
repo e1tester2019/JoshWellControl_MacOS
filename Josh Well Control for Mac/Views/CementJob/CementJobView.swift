@@ -168,102 +168,237 @@ struct CementJobView: View {
     // MARK: - Job Settings Section
 
     private func jobSettingsSection(job: CementJob) -> some View {
-        GroupBox("Job Settings") {
-            VStack(alignment: .leading, spacing: 12) {
-                // Casing type picker
-                HStack {
-                    Text("Casing Type:")
-                        .frame(width: 120, alignment: .trailing)
-                    Picker("", selection: Binding(
-                        get: { job.casingType },
-                        set: { job.casingType = $0 }
-                    )) {
-                        ForEach(CementJob.CasingType.allCases, id: \.self) { type in
-                            Text(type.displayName).tag(type)
+        VStack(alignment: .leading, spacing: 12) {
+            // General Settings
+            GroupBox("General Settings") {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Casing type picker
+                    HStack {
+                        Text("Casing Type:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("", selection: Binding(
+                            get: { job.casingType },
+                            set: { job.casingType = $0 }
+                        )) {
+                            ForEach(CementJob.CasingType.allCases, id: \.self) { type in
+                                Text(type.displayName).tag(type)
+                            }
                         }
+                        .labelsHidden()
                     }
-                    .labelsHidden()
-                }
 
-                // Top depth
-                HStack {
-                    Text("Cement Top (MD):")
-                        .frame(width: 120, alignment: .trailing)
-                    TextField("", value: Binding(
-                        get: { job.topMD_m },
-                        set: { job.topMD_m = $0; viewModel.updateVolumes(project: project) }
-                    ), format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
-                    Text("m")
-                        .foregroundColor(.secondary)
-                }
+                    // Top depth
+                    HStack {
+                        Text("Cement Top (MD):")
+                            .frame(width: 120, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.topMD_m },
+                            set: { job.topMD_m = $0; viewModel.updateVolumes(project: project) }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
 
-                // Bottom depth
-                HStack {
-                    Text("Cement Bottom (MD):")
-                        .frame(width: 120, alignment: .trailing)
-                    TextField("", value: Binding(
-                        get: { job.bottomMD_m },
-                        set: { job.bottomMD_m = $0; viewModel.updateVolumes(project: project) }
-                    ), format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
-                    Text("m")
-                        .foregroundColor(.secondary)
+                    // Bottom depth
+                    HStack {
+                        Text("Cement Bottom (MD):")
+                            .frame(width: 120, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.bottomMD_m },
+                            set: { job.bottomMD_m = $0; viewModel.updateVolumes(project: project) }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
                 }
-
-                // Excess percentage
-                HStack {
-                    Text("Open Hole Excess:")
-                        .frame(width: 120, alignment: .trailing)
-                    TextField("", value: Binding(
-                        get: { job.excessPercent },
-                        set: { job.excessPercent = $0; viewModel.updateVolumes(project: project) }
-                    ), format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 80)
-                    Text("%")
-                        .foregroundColor(.secondary)
-                }
-
-                Divider()
-
-                // Yield factor
-                HStack {
-                    Text("Slurry Yield:")
-                        .frame(width: 120, alignment: .trailing)
-                    TextField("", value: Binding(
-                        get: { job.yieldFactor_m3_per_tonne },
-                        set: {
-                            job.yieldFactor_m3_per_tonne = $0
-                            viewModel.updateAllStageCalculations(job)
-                        }
-                    ), format: .number.precision(.fractionLength(3)))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 80)
-                    Text("m³/t")
-                        .foregroundColor(.secondary)
-                }
-
-                // Mix water ratio
-                HStack {
-                    Text("Mix Water:")
-                        .frame(width: 120, alignment: .trailing)
-                    TextField("", value: Binding(
-                        get: { job.mixWaterRatio_L_per_tonne },
-                        set: {
-                            job.mixWaterRatio_L_per_tonne = $0
-                            viewModel.updateAllStageCalculations(job)
-                        }
-                    ), format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 80)
-                    Text("L/t")
-                        .foregroundColor(.secondary)
-                }
+                .padding(8)
             }
-            .padding(8)
+
+            // Lead Cement Settings
+            GroupBox("Lead Cement") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Top (MD):")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.leadTopMD_m },
+                            set: { job.leadTopMD_m = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+
+                        Text("Bottom:")
+                            .frame(width: 60, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.leadBottomMD_m },
+                            set: { job.leadBottomMD_m = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Excess:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.leadExcessPercent },
+                            set: { job.leadExcessPercent = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 60)
+                        Text("%")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Yield:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.leadYieldFactor_m3_per_tonne },
+                            set: {
+                                job.leadYieldFactor_m3_per_tonne = $0
+                                viewModel.updateAllStageCalculations(job)
+                            }
+                        ), format: .number.precision(.fractionLength(3)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m³/t")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Mix Water:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.leadMixWaterRatio_L_per_tonne },
+                            set: {
+                                job.leadMixWaterRatio_L_per_tonne = $0
+                                viewModel.updateAllStageCalculations(job)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("L/t")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+            }
+
+            // Tail Cement Settings
+            GroupBox("Tail Cement") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Top (MD):")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.tailTopMD_m },
+                            set: { job.tailTopMD_m = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+
+                        Text("Bottom:")
+                            .frame(width: 60, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.tailBottomMD_m },
+                            set: { job.tailBottomMD_m = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Excess:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.tailExcessPercent },
+                            set: { job.tailExcessPercent = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 60)
+                        Text("%")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Yield:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.tailYieldFactor_m3_per_tonne },
+                            set: {
+                                job.tailYieldFactor_m3_per_tonne = $0
+                                viewModel.updateAllStageCalculations(job)
+                            }
+                        ), format: .number.precision(.fractionLength(3)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m³/t")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Mix Water:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.tailMixWaterRatio_L_per_tonne },
+                            set: {
+                                job.tailMixWaterRatio_L_per_tonne = $0
+                                viewModel.updateAllStageCalculations(job)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("L/t")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+            }
+
+            // Additional Volumes
+            GroupBox("Additional Volumes") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Wash Up:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.washUpVolume_m3 },
+                            set: { job.washUpVolume_m3 = $0 }
+                        ), format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m³")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Pump Out:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { job.pumpOutVolume_m3 },
+                            set: { job.pumpOutVolume_m3 = $0 }
+                        ), format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        Text("m³")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(8)
+            }
         }
     }
 
@@ -319,11 +454,43 @@ struct CementJobView: View {
 
         return GroupBox("Summary") {
             VStack(alignment: .leading, spacing: 8) {
+                // Cement volumes
                 StatRow(label: "Lead Cement:", value: String(format: "%.2f m³", stats.leadCementVolume_m3))
                 StatRow(label: "Tail Cement:", value: String(format: "%.2f m³", stats.tailCementVolume_m3))
                 StatRow(label: "Total Tonnage:", value: String(format: "%.2f t", stats.totalCementTonnage_t))
-                StatRow(label: "Mix Water:", value: String(format: "%.0f L", stats.totalMixWater_L))
-                StatRow(label: "Displacement:", value: String(format: "%.2f m³", stats.displacementVolume_m3))
+                StatRow(label: "Mix Water:", value: String(format: "%.2f m³ (%.0f L)", stats.totalMixWater_m3, stats.totalMixWater_L))
+
+                Divider()
+
+                // Displacement
+                StatRow(label: "Displacement:", value: String(format: "%.2f m³ (%.0f L)", stats.displacementVolume_m3, stats.displacementVolume_L))
+
+                // Additional volumes
+                if stats.washUpVolume_m3 > 0 || stats.pumpOutVolume_m3 > 0 {
+                    if stats.washUpVolume_m3 > 0 {
+                        StatRow(label: "Wash Up:", value: String(format: "%.2f m³", stats.washUpVolume_m3))
+                    }
+                    if stats.pumpOutVolume_m3 > 0 {
+                        StatRow(label: "Pump Out:", value: String(format: "%.2f m³", stats.pumpOutVolume_m3))
+                    }
+                }
+
+                Divider()
+
+                // Total water usage
+                HStack {
+                    Text("Total Water:")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Text(String(format: "%.2f m³ (%.0f L)", stats.totalWaterUsage_m3, stats.totalWaterUsage_L))
+                        .fontWeight(.semibold)
+                        .monospacedDigit()
+                }
+                .font(.callout)
+
+                Text("(displacement + mix water + pump out + wash up)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             .padding(8)
         }
@@ -628,6 +795,10 @@ struct StageRow: View {
                         Text("L")
                             .foregroundColor(.secondary)
                     }
+                }
+
+                if opType == .floatCheck {
+                    Toggle("Floats Closed/Held", isOn: $stage.floatsClosed)
                 }
             } else {
                 // Pump stage fields

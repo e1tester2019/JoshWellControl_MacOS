@@ -141,10 +141,27 @@ class CementJobViewModel {
     }
 
     /// Update calculations for a cement stage (tonnage, mix water)
+    /// Uses lead-specific or tail-specific yield/water ratios based on stage type
     func updateStageCalculations(_ stage: CementJobStage, job: CementJob) {
+        let yieldFactor: Double
+        let waterRatio: Double
+
+        switch stage.stageType {
+        case .leadCement:
+            yieldFactor = job.leadYieldFactor_m3_per_tonne
+            waterRatio = job.leadMixWaterRatio_L_per_tonne
+        case .tailCement:
+            yieldFactor = job.tailYieldFactor_m3_per_tonne
+            waterRatio = job.tailMixWaterRatio_L_per_tonne
+        default:
+            // Use legacy/default values for non-cement stages
+            yieldFactor = job.yieldFactor_m3_per_tonne
+            waterRatio = job.mixWaterRatio_L_per_tonne
+        }
+
         stage.updateCalculations(
-            yieldFactor: job.yieldFactor_m3_per_tonne,
-            waterRatio: job.mixWaterRatio_L_per_tonne
+            yieldFactor: yieldFactor,
+            waterRatio: waterRatio
         )
     }
 
@@ -230,6 +247,12 @@ class CementJobViewModel {
                     parts.append("Pre flush to surface and \(String(format: "%.1f", excessVol))m³ cement to surface")
                 }
             }
+        }
+
+        // Add total displacement summary
+        let displacementVol = job.displacementVolume_m3
+        if displacementVol > 0 {
+            parts.append("total displacement \(String(format: "%.2f", displacementVol))m³ (\(String(format: "%.0f", displacementVol * 1000))L)")
         }
 
         // Build the final string with proper punctuation
@@ -433,7 +456,13 @@ class CementJobViewModel {
             tailCementVolume_m3: job.tailCementVolume_m3,
             totalCementTonnage_t: job.totalCementTonnage_t,
             totalMixWater_L: job.totalMixWater_L,
+            totalMixWater_m3: job.totalMixWater_m3,
             displacementVolume_m3: job.displacementVolume_m3,
+            displacementVolume_L: job.displacementVolume_L,
+            washUpVolume_m3: job.washUpVolume_m3,
+            pumpOutVolume_m3: job.pumpOutVolume_m3,
+            totalWaterUsage_m3: job.totalWaterUsage_m3,
+            totalWaterUsage_L: job.totalWaterUsage_L,
             numberOfOperations: operations.count,
             numberOfCementStages: cementStages.count
         )
@@ -445,7 +474,13 @@ class CementJobViewModel {
         var tailCementVolume_m3: Double
         var totalCementTonnage_t: Double
         var totalMixWater_L: Double
+        var totalMixWater_m3: Double
         var displacementVolume_m3: Double
+        var displacementVolume_L: Double
+        var washUpVolume_m3: Double
+        var pumpOutVolume_m3: Double
+        var totalWaterUsage_m3: Double
+        var totalWaterUsage_L: Double
         var numberOfOperations: Int
         var numberOfCementStages: Int
     }
