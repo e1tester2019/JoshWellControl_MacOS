@@ -13,14 +13,15 @@ import SwiftUI
 final class MudProperties {
     var id: UUID = UUID()
 
-    // Optional relationship back to a project (no inverse required)
-    @Relationship(deleteRule: .nullify)
+    // Optional relationship back to a project
+    @Relationship(deleteRule: .nullify, inverse: \ProjectState.muds)
     var project: ProjectState?
 
     // Inverse relationships for entities referencing this mud
     @Relationship(inverse: \FinalFluidLayer.mud) var finalLayers: [FinalFluidLayer]?
     @Relationship(inverse: \MudStep.mud) var mudSteps: [MudStep]?
     @Relationship(inverse: \PumpProgramStage.mud) var pumpStages: [PumpProgramStage]?
+    @Relationship(deleteRule: .nullify, inverse: \CementJobStage.mud) var cementStages: [CementJobStage]?
 
     var name: String = ""
     var density_kgm3: Double = 0.0
@@ -181,3 +182,4 @@ final class MudProperties {
         }
     }
 }
+

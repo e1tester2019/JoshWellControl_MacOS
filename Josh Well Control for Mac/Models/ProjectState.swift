@@ -31,7 +31,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
     @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
     @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
-    @Relationship(deleteRule: .cascade, inverse: \CementJob.project) var cementJobs: [CementJob]?
+    @Relationship(deleteRule: .nullify, inverse: \CementJob.project) var cementJobs: [CementJob]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .nullify) var _window: PressureWindow?

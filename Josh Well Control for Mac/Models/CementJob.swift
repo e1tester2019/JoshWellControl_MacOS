@@ -57,11 +57,11 @@ final class CementJob {
     var notes: String = ""
 
     /// Stages for this cement job (pre-flush, spacers, cement, displacement, operations)
-    @Relationship(deleteRule: .cascade, inverse: \CementJobStage.cementJob)
+    @Relationship(deleteRule: .nullify, inverse: \CementJobStage.cementJob)
     var stages: [CementJobStage]?
 
     /// Back-reference to the owning project
-    @Relationship(deleteRule: .nullify)
+    @Relationship(deleteRule: .nullify, inverse: \ProjectState.cementJobs)
     var project: ProjectState?
 
     // MARK: - Casing Type Enum
