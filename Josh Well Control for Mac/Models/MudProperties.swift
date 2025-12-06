@@ -21,6 +21,7 @@ final class MudProperties {
     @Relationship(inverse: \FinalFluidLayer.mud) var finalLayers: [FinalFluidLayer]?
     @Relationship(inverse: \MudStep.mud) var mudSteps: [MudStep]?
     @Relationship(inverse: \PumpProgramStage.mud) var pumpStages: [PumpProgramStage]?
+    @Relationship(inverse: \CementJobStage.mud) var cementStages: [CementJobStage]?
 
     var name: String = ""
     var density_kgm3: Double = 0.0
