@@ -27,6 +27,50 @@ final class CementJob {
     /// Desired cement bottom depth (MD in meters) - typically shoe depth
     var bottomMD_m: Double = 0.0
 
+    // MARK: - Lead Cement Properties
+
+    /// Excess percentage for lead cement (e.g., 50 = 50% excess)
+    var leadExcessPercent: Double = 50.0
+
+    /// Lead cement top depth (MD in meters)
+    var leadTopMD_m: Double = 0.0
+
+    /// Lead cement bottom depth (MD in meters)
+    var leadBottomMD_m: Double = 0.0
+
+    /// Lead slurry yield factor (m³ per tonne of dry cement)
+    var leadYieldFactor_m3_per_tonne: Double = 0.62
+
+    /// Lead mix water requirement (L per tonne of dry cement)
+    var leadMixWaterRatio_L_per_tonne: Double = 480.0
+
+    // MARK: - Tail Cement Properties
+
+    /// Excess percentage for tail cement (e.g., 50 = 50% excess)
+    var tailExcessPercent: Double = 50.0
+
+    /// Tail cement top depth (MD in meters)
+    var tailTopMD_m: Double = 0.0
+
+    /// Tail cement bottom depth (MD in meters)
+    var tailBottomMD_m: Double = 0.0
+
+    /// Tail slurry yield factor (m³ per tonne of dry cement)
+    var tailYieldFactor_m3_per_tonne: Double = 0.62
+
+    /// Tail mix water requirement (L per tonne of dry cement)
+    var tailMixWaterRatio_L_per_tonne: Double = 480.0
+
+    // MARK: - Additional Volumes
+
+    /// Wash up volume (m³)
+    var washUpVolume_m3: Double = 0.0
+
+    /// Pump out volume (m³)
+    var pumpOutVolume_m3: Double = 0.0
+
+    // MARK: - Legacy/Calculated Values (kept for compatibility)
+
     /// Excess percentage to apply to open hole sections (e.g., 50 = 50% excess)
     var excessPercent: Double = 50.0
 
@@ -39,12 +83,10 @@ final class CementJob {
     /// Total volume including excess on open hole (m³)
     var totalVolumeWithExcess_m3: Double = 0.0
 
-    /// Slurry yield factor (m³ per tonne of dry cement)
-    /// Typical range: 0.5-0.7 m³/t for standard cements
+    /// Slurry yield factor (m³ per tonne of dry cement) - legacy, use lead/tail specific
     var yieldFactor_m3_per_tonne: Double = 0.62
 
-    /// Mix water requirement (liters per tonne of dry cement)
-    /// Typical range: 400-550 L/t depending on cement type
+    /// Mix water requirement (liters per tonne of dry cement) - legacy, use lead/tail specific
     var mixWaterRatio_L_per_tonne: Double = 480.0
 
     /// Timestamp when this job was created
@@ -127,16 +169,54 @@ final class CementJob {
             .reduce(0) { $0 + ($1.tonnage_t ?? 0) }
     }
 
-    /// Total mix water required (liters)
-    @Transient var totalMixWater_L: Double {
-        sortedStages
-            .filter { $0.stageType == .leadCement || $0.stageType == .tailCement }
-            .reduce(0) { $0 + ($1.mixWater_L ?? 0) }
+    /// Lead cement tonnage
+    @Transient var leadCementTonnage_t: Double {
+        sortedStages.filter { $0.stageType == .leadCement }.reduce(0) { $0 + ($1.tonnage_t ?? 0) }
     }
 
-    /// Total displacement volume from stages
+    /// Tail cement tonnage
+    @Transient var tailCementTonnage_t: Double {
+        sortedStages.filter { $0.stageType == .tailCement }.reduce(0) { $0 + ($1.tonnage_t ?? 0) }
+    }
+
+    /// Lead cement mix water (L)
+    @Transient var leadMixWater_L: Double {
+        sortedStages.filter { $0.stageType == .leadCement }.reduce(0) { $0 + ($1.mixWater_L ?? 0) }
+    }
+
+    /// Tail cement mix water (L)
+    @Transient var tailMixWater_L: Double {
+        sortedStages.filter { $0.stageType == .tailCement }.reduce(0) { $0 + ($1.mixWater_L ?? 0) }
+    }
+
+    /// Total mix water required (L)
+    @Transient var totalMixWater_L: Double {
+        leadMixWater_L + tailMixWater_L
+    }
+
+    /// Total mix water required (m³)
+    @Transient var totalMixWater_m3: Double {
+        totalMixWater_L / 1000.0
+    }
+
+    /// Total displacement volume from stages (m³)
     @Transient var displacementVolume_m3: Double {
         sortedStages.filter { $0.stageType == .displacement }.reduce(0) { $0 + $1.volume_m3 }
+    }
+
+    /// Total displacement volume (L)
+    @Transient var displacementVolume_L: Double {
+        displacementVolume_m3 * 1000.0
+    }
+
+    /// Total water usage: displacement + cement mix water + pump out + wash up (m³)
+    @Transient var totalWaterUsage_m3: Double {
+        displacementVolume_m3 + totalMixWater_m3 + pumpOutVolume_m3 + washUpVolume_m3
+    }
+
+    /// Total water usage (L)
+    @Transient var totalWaterUsage_L: Double {
+        totalWaterUsage_m3 * 1000.0
     }
 
     // MARK: - Initializer
@@ -146,6 +226,22 @@ final class CementJob {
         casingType: CasingType = .intermediate,
         topMD_m: Double = 0.0,
         bottomMD_m: Double = 0.0,
+        // Lead cement parameters
+        leadExcessPercent: Double = 50.0,
+        leadTopMD_m: Double = 0.0,
+        leadBottomMD_m: Double = 0.0,
+        leadYieldFactor_m3_per_tonne: Double = 0.62,
+        leadMixWaterRatio_L_per_tonne: Double = 480.0,
+        // Tail cement parameters
+        tailExcessPercent: Double = 50.0,
+        tailTopMD_m: Double = 0.0,
+        tailBottomMD_m: Double = 0.0,
+        tailYieldFactor_m3_per_tonne: Double = 0.62,
+        tailMixWaterRatio_L_per_tonne: Double = 480.0,
+        // Additional volumes
+        washUpVolume_m3: Double = 0.0,
+        pumpOutVolume_m3: Double = 0.0,
+        // Legacy parameters
         excessPercent: Double = 50.0,
         yieldFactor_m3_per_tonne: Double = 0.62,
         mixWaterRatio_L_per_tonne: Double = 480.0,
@@ -155,6 +251,22 @@ final class CementJob {
         self.casingTypeRaw = casingType.rawValue
         self.topMD_m = topMD_m
         self.bottomMD_m = bottomMD_m
+        // Lead cement
+        self.leadExcessPercent = leadExcessPercent
+        self.leadTopMD_m = leadTopMD_m
+        self.leadBottomMD_m = leadBottomMD_m
+        self.leadYieldFactor_m3_per_tonne = leadYieldFactor_m3_per_tonne
+        self.leadMixWaterRatio_L_per_tonne = leadMixWaterRatio_L_per_tonne
+        // Tail cement
+        self.tailExcessPercent = tailExcessPercent
+        self.tailTopMD_m = tailTopMD_m
+        self.tailBottomMD_m = tailBottomMD_m
+        self.tailYieldFactor_m3_per_tonne = tailYieldFactor_m3_per_tonne
+        self.tailMixWaterRatio_L_per_tonne = tailMixWaterRatio_L_per_tonne
+        // Additional volumes
+        self.washUpVolume_m3 = washUpVolume_m3
+        self.pumpOutVolume_m3 = pumpOutVolume_m3
+        // Legacy
         self.excessPercent = excessPercent
         self.yieldFactor_m3_per_tonne = yieldFactor_m3_per_tonne
         self.mixWaterRatio_L_per_tonne = mixWaterRatio_L_per_tonne
@@ -246,10 +358,30 @@ extension CementJob {
             "casingType": casingType.rawValue,
             "topMD_m": topMD_m,
             "bottomMD_m": bottomMD_m,
-            "excessPercent": excessPercent,
+            // Lead cement
+            "leadExcessPercent": leadExcessPercent,
+            "leadTopMD_m": leadTopMD_m,
+            "leadBottomMD_m": leadBottomMD_m,
+            "leadYieldFactor_m3_per_tonne": leadYieldFactor_m3_per_tonne,
+            "leadMixWaterRatio_L_per_tonne": leadMixWaterRatio_L_per_tonne,
+            // Tail cement
+            "tailExcessPercent": tailExcessPercent,
+            "tailTopMD_m": tailTopMD_m,
+            "tailBottomMD_m": tailBottomMD_m,
+            "tailYieldFactor_m3_per_tonne": tailYieldFactor_m3_per_tonne,
+            "tailMixWaterRatio_L_per_tonne": tailMixWaterRatio_L_per_tonne,
+            // Additional volumes
+            "washUpVolume_m3": washUpVolume_m3,
+            "pumpOutVolume_m3": pumpOutVolume_m3,
+            // Calculated values
             "casedVolume_m3": casedVolume_m3,
             "openHoleVolume_m3": openHoleVolume_m3,
             "totalVolumeWithExcess_m3": totalVolumeWithExcess_m3,
+            "displacementVolume_m3": displacementVolume_m3,
+            "totalMixWater_m3": totalMixWater_m3,
+            "totalWaterUsage_m3": totalWaterUsage_m3,
+            // Legacy
+            "excessPercent": excessPercent,
             "yieldFactor_m3_per_tonne": yieldFactor_m3_per_tonne,
             "mixWaterRatio_L_per_tonne": mixWaterRatio_L_per_tonne,
             "createdAt": ISO8601DateFormatter().string(from: createdAt),

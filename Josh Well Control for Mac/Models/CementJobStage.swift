@@ -69,6 +69,9 @@ final class CementJobStage {
     /// Time stamp for operations like "plug down at 04:45 hrs"
     var operationTime: String?
 
+    /// For float check operation: true if floats closed, false if open
+    var floatsClosed: Bool = true
+
     /// Additional notes about the stage
     var notes: String = ""
 
@@ -244,6 +247,7 @@ final class CementJobStage {
         duration_min: Double? = nil,
         volume_L: Double? = nil,
         time: String? = nil,
+        floatsClosed: Bool = true,
         notes: String = "",
         cementJob: CementJob? = nil
     ) -> CementJobStage {
@@ -256,6 +260,7 @@ final class CementJobStage {
         stage.duration_min = duration_min
         stage.operationVolume_L = volume_L
         stage.operationTime = time
+        stage.floatsClosed = floatsClosed
         stage.notes = notes
         stage.cementJob = cementJob
         return stage
@@ -371,11 +376,11 @@ extension CementJobStage {
             return text
 
         case .floatCheck:
-            return "floats held"
+            return floatsClosed ? "floats held" : "floats open"
 
         case .bleedBack:
             if let vol = operationVolume_L {
-                return "bled back \(Int(vol))ltrs"
+                return "bled back \(Int(vol))L"
             }
             return "bled back"
 
@@ -412,6 +417,7 @@ extension CementJobStage {
         if let d = duration_min { dict["duration_min"] = d }
         if let vol = operationVolume_L { dict["operationVolume_L"] = vol }
         if let time = operationTime { dict["operationTime"] = time }
+        if operationType == .floatCheck { dict["floatsClosed"] = floatsClosed }
         if let mudID = mud?.id { dict["mudID"] = mudID.uuidString }
 
         return dict

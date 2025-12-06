@@ -313,6 +313,22 @@ extension ProjectState {
                 casingType: cj0.casingType,
                 topMD_m: cj0.topMD_m,
                 bottomMD_m: cj0.bottomMD_m,
+                // Lead cement
+                leadExcessPercent: cj0.leadExcessPercent,
+                leadTopMD_m: cj0.leadTopMD_m,
+                leadBottomMD_m: cj0.leadBottomMD_m,
+                leadYieldFactor_m3_per_tonne: cj0.leadYieldFactor_m3_per_tonne,
+                leadMixWaterRatio_L_per_tonne: cj0.leadMixWaterRatio_L_per_tonne,
+                // Tail cement
+                tailExcessPercent: cj0.tailExcessPercent,
+                tailTopMD_m: cj0.tailTopMD_m,
+                tailBottomMD_m: cj0.tailBottomMD_m,
+                tailYieldFactor_m3_per_tonne: cj0.tailYieldFactor_m3_per_tonne,
+                tailMixWaterRatio_L_per_tonne: cj0.tailMixWaterRatio_L_per_tonne,
+                // Additional volumes
+                washUpVolume_m3: cj0.washUpVolume_m3,
+                pumpOutVolume_m3: cj0.pumpOutVolume_m3,
+                // Legacy
                 excessPercent: cj0.excessPercent,
                 yieldFactor_m3_per_tonne: cj0.yieldFactor_m3_per_tonne,
                 mixWaterRatio_L_per_tonne: cj0.mixWaterRatio_L_per_tonne,
@@ -346,6 +362,7 @@ extension ProjectState {
                 s.duration_min = s0.duration_min
                 s.operationVolume_L = s0.operationVolume_L
                 s.operationTime = s0.operationTime
+                s.floatsClosed = s0.floatsClosed
                 s.notes = s0.notes
                 cj.stages?.append(s)
             }
