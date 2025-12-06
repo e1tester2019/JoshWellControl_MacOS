@@ -296,6 +296,7 @@ final class CementJob {
         guard let project = project else { return }
 
         let sections = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        let drillStrings = project.drillString ?? []
 
         var casedVol = 0.0
         var openHoleVol = 0.0
@@ -307,10 +308,12 @@ final class CementJob {
 
             guard overlapBottom > overlapTop else { continue }
 
-            // Calculate volume for this overlap
+            // Calculate volume fraction for the overlap
             let overlapLength = overlapBottom - overlapTop
             let volumeFraction = overlapLength / section.length_m
-            let sectionVolume = section.volume_m3 * volumeFraction
+
+            // Use effective annular volume (accounts for drill string ODs)
+            let sectionVolume = section.effectiveAnnularVolume(with: drillStrings) * volumeFraction
 
             if section.isCased {
                 casedVol += sectionVolume
@@ -331,9 +334,9 @@ final class CementJob {
         return volume_m3 / yieldFactor_m3_per_tonne
     }
 
-    /// Calculate mix water from tonnage using water ratio
+    /// Calculate mix water from tonnage using water ratio (returns liters)
     func mixWaterFromTonnage(_ tonnage_t: Double) -> Double {
-        return tonnage_t * mixWaterRatio_L_per_tonne
+        return tonnage_t * mixWaterRatio_m3_per_tonne * 1000
     }
 
     // MARK: - Stage Management

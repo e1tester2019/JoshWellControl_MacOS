@@ -42,10 +42,28 @@ class CementJobViewModel {
     // MARK: - Volume Breakdown
 
     struct VolumeBreakdown {
-        var casedVolume_m3: Double = 0
-        var openHoleVolume_m3: Double = 0
-        var excessVolume_m3: Double = 0
+        // Lead cement volumes
+        var leadCasedVolume_m3: Double = 0
+        var leadOpenHoleVolume_m3: Double = 0
+        var leadExcessPercent: Double = 0
+        var leadExcessVolume_m3: Double = 0
+        var leadTotalVolume_m3: Double = 0
+
+        // Tail cement volumes
+        var tailCasedVolume_m3: Double = 0
+        var tailOpenHoleVolume_m3: Double = 0
+        var tailExcessPercent: Double = 0
+        var tailExcessVolume_m3: Double = 0
+        var tailTotalVolume_m3: Double = 0
+
+        // Combined totals
         var totalVolume_m3: Double = 0
+
+        // Mud return (volume of cement pumped = mud displaced)
+        var mudReturn_m3: Double = 0
+
+        // Volume to bump (drill string volume to float collar)
+        var volumeToBump_m3: Double = 0
 
         /// Volume breakdown by section
         var sectionVolumes: [SectionVolume] = []
@@ -69,22 +87,87 @@ class CementJobViewModel {
     /// Calculate detailed volume breakdown for a cement job
     func calculateVolumeBreakdown(for job: CementJob, project: ProjectState) -> VolumeBreakdown {
         let sections = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        let drillStrings = project.drillString ?? []
 
         var breakdown = VolumeBreakdown()
-        var casedVol = 0.0
-        var openHoleVol = 0.0
+
+        // Calculate lead cement volumes (leadTopMD_m to leadBottomMD_m)
+        var leadCased = 0.0
+        var leadOpenHole = 0.0
 
         for section in sections {
-            // Calculate overlap between cement interval and this section
+            let overlapTop = max(job.leadTopMD_m, section.topDepth_m)
+            let overlapBottom = min(job.leadBottomMD_m, section.bottomDepth_m)
+
+            guard overlapBottom > overlapTop else { continue }
+
+            let overlapLength = overlapBottom - overlapTop
+            let volumeFraction = section.length_m > 0 ? overlapLength / section.length_m : 0
+            let sectionVolume = section.effectiveAnnularVolume(with: drillStrings) * volumeFraction
+
+            if section.isCased {
+                leadCased += sectionVolume
+            } else {
+                leadOpenHole += sectionVolume
+            }
+        }
+
+        breakdown.leadCasedVolume_m3 = leadCased
+        breakdown.leadOpenHoleVolume_m3 = leadOpenHole
+        breakdown.leadExcessPercent = job.leadExcessPercent
+        breakdown.leadExcessVolume_m3 = leadOpenHole * (job.leadExcessPercent / 100.0)
+        breakdown.leadTotalVolume_m3 = leadCased + leadOpenHole + breakdown.leadExcessVolume_m3
+
+        // Calculate tail cement volumes (tailTopMD_m to tailBottomMD_m)
+        var tailCased = 0.0
+        var tailOpenHole = 0.0
+
+        for section in sections {
+            let overlapTop = max(job.tailTopMD_m, section.topDepth_m)
+            let overlapBottom = min(job.tailBottomMD_m, section.bottomDepth_m)
+
+            guard overlapBottom > overlapTop else { continue }
+
+            let overlapLength = overlapBottom - overlapTop
+            let volumeFraction = section.length_m > 0 ? overlapLength / section.length_m : 0
+            let sectionVolume = section.effectiveAnnularVolume(with: drillStrings) * volumeFraction
+
+            if section.isCased {
+                tailCased += sectionVolume
+            } else {
+                tailOpenHole += sectionVolume
+            }
+        }
+
+        breakdown.tailCasedVolume_m3 = tailCased
+        breakdown.tailOpenHoleVolume_m3 = tailOpenHole
+        breakdown.tailExcessPercent = job.tailExcessPercent
+        breakdown.tailExcessVolume_m3 = tailOpenHole * (job.tailExcessPercent / 100.0)
+        breakdown.tailTotalVolume_m3 = tailCased + tailOpenHole + breakdown.tailExcessVolume_m3
+
+        // Combined total
+        breakdown.totalVolume_m3 = breakdown.leadTotalVolume_m3 + breakdown.tailTotalVolume_m3
+
+        // Mud return = total cement volume pumped (what goes in pushes mud out)
+        breakdown.mudReturn_m3 = breakdown.totalVolume_m3
+
+        // Volume to bump = drill string internal volume from surface to float collar
+        breakdown.volumeToBump_m3 = calculateDrillStringVolume(
+            drillStrings: drillStrings,
+            toDepth: job.floatCollarDepth_m,
+            surfaceLineVolume: project.surfaceLineVolume_m3
+        )
+
+        // Build section volumes for display (using full cement interval)
+        for section in sections {
             let overlapTop = max(job.topMD_m, section.topDepth_m)
             let overlapBottom = min(job.bottomMD_m, section.bottomDepth_m)
 
             guard overlapBottom > overlapTop else { continue }
 
-            // Calculate volume for this overlap
             let overlapLength = overlapBottom - overlapTop
             let volumeFraction = section.length_m > 0 ? overlapLength / section.length_m : 0
-            let sectionVolume = section.volume_m3 * volumeFraction
+            let sectionVolume = section.effectiveAnnularVolume(with: drillStrings) * volumeFraction
 
             let sectionInfo = VolumeBreakdown.SectionVolume(
                 sectionName: section.name,
@@ -94,20 +177,27 @@ class CementJobViewModel {
                 bottomMD_m: overlapBottom
             )
             breakdown.sectionVolumes.append(sectionInfo)
-
-            if section.isCased {
-                casedVol += sectionVolume
-            } else {
-                openHoleVol += sectionVolume
-            }
         }
 
-        breakdown.casedVolume_m3 = casedVol
-        breakdown.openHoleVolume_m3 = openHoleVol
-        breakdown.excessVolume_m3 = openHoleVol * (job.excessPercent / 100.0)
-        breakdown.totalVolume_m3 = casedVol + openHoleVol + breakdown.excessVolume_m3
-
         return breakdown
+    }
+
+    /// Calculate drill string internal volume from surface to a given depth
+    private func calculateDrillStringVolume(drillStrings: [DrillStringSection], toDepth: Double, surfaceLineVolume: Double) -> Double {
+        var totalVolume = surfaceLineVolume
+
+        for section in drillStrings {
+            let overlapTop = max(0, section.topDepth_m)
+            let overlapBottom = min(toDepth, section.bottomDepth_m)
+
+            guard overlapBottom > overlapTop else { continue }
+
+            let overlapLength = overlapBottom - overlapTop
+            let area = .pi * pow(section.innerDiameter_m / 2, 2)
+            totalVolume += area * overlapLength
+        }
+
+        return totalVolume
     }
 
     /// Update volume calculations for the selected job
@@ -116,9 +206,9 @@ class CementJobViewModel {
 
         volumeBreakdown = calculateVolumeBreakdown(for: job, project: project)
 
-        // Update the job's stored values
-        job.casedVolume_m3 = volumeBreakdown.casedVolume_m3
-        job.openHoleVolume_m3 = volumeBreakdown.openHoleVolume_m3
+        // Update the job's stored values (combine lead + tail)
+        job.casedVolume_m3 = volumeBreakdown.leadCasedVolume_m3 + volumeBreakdown.tailCasedVolume_m3
+        job.openHoleVolume_m3 = volumeBreakdown.leadOpenHoleVolume_m3 + volumeBreakdown.tailOpenHoleVolume_m3
         job.totalVolumeWithExcess_m3 = volumeBreakdown.totalVolume_m3
         job.updatedAt = .now
     }
@@ -421,6 +511,7 @@ class CementJobViewModel {
     /// Calculate annulus volume between two depths using project annulus sections
     func calculateAnnulusVolume(project: ProjectState, topMD_m: Double, bottomMD_m: Double, excessPercent: Double) -> Double {
         let sections = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        let drillStrings = project.drillString ?? []
         var totalVolume = 0.0
 
         for section in sections {
@@ -430,10 +521,12 @@ class CementJobViewModel {
 
             guard overlapBottom > overlapTop else { continue }
 
-            // Calculate volume for this overlap
+            // Calculate volume fraction for the overlap
             let overlapLength = overlapBottom - overlapTop
             let volumeFraction = section.length_m > 0 ? overlapLength / section.length_m : 0
-            let sectionVolume = section.volume_m3 * volumeFraction
+
+            // Use effective annular volume (accounts for drill string ODs)
+            let sectionVolume = section.effectiveAnnularVolume(with: drillStrings) * volumeFraction
 
             // Apply excess for open hole only
             if section.isCased {
@@ -554,5 +647,67 @@ class CementJobViewModel {
         var totalWaterUsage_L: Double
         var numberOfOperations: Int
         var numberOfCementStages: Int
+    }
+
+    // MARK: - Water Requirements Breakdown
+
+    /// Get per-stage water requirements (excludes mud displacement)
+    func getWaterRequirements(_ job: CementJob) -> WaterRequirements {
+        let stages = job.sortedStages
+
+        // Pre-flush water (volume is the water requirement)
+        let preFlushWater_L = stages
+            .filter { $0.stageType == .preFlush }
+            .reduce(0.0) { $0 + $1.volume_m3 * 1000 }
+
+        // Spacer water (volume is the water requirement)
+        let spacerWater_L = stages
+            .filter { $0.stageType == .spacer }
+            .reduce(0.0) { $0 + $1.volume_m3 * 1000 }
+
+        // Lead cement mix water
+        let leadMixWater_L = stages
+            .filter { $0.stageType == .leadCement }
+            .reduce(0.0) { $0 + ($1.mixWater_L ?? 0) }
+
+        // Tail cement mix water
+        let tailMixWater_L = stages
+            .filter { $0.stageType == .tailCement }
+            .reduce(0.0) { $0 + ($1.mixWater_L ?? 0) }
+
+        // Water displacement only (excludes mud displacement)
+        let displacementWater_L = stages
+            .filter { $0.stageType == .displacement }
+            .reduce(0.0) { $0 + $1.volume_m3 * 1000 }
+
+        // Additional water volumes from job
+        let washUpWater_L = job.washUpVolume_m3 * 1000
+        let pumpOutWater_L = job.pumpOutVolume_m3 * 1000
+
+        let totalWater_L = preFlushWater_L + spacerWater_L + leadMixWater_L + tailMixWater_L + displacementWater_L + washUpWater_L + pumpOutWater_L
+
+        return WaterRequirements(
+            preFlushWater_L: preFlushWater_L,
+            spacerWater_L: spacerWater_L,
+            leadMixWater_L: leadMixWater_L,
+            tailMixWater_L: tailMixWater_L,
+            displacementWater_L: displacementWater_L,
+            washUpWater_L: washUpWater_L,
+            pumpOutWater_L: pumpOutWater_L,
+            totalWater_L: totalWater_L
+        )
+    }
+
+    struct WaterRequirements {
+        var preFlushWater_L: Double
+        var spacerWater_L: Double
+        var leadMixWater_L: Double
+        var tailMixWater_L: Double
+        var displacementWater_L: Double
+        var washUpWater_L: Double
+        var pumpOutWater_L: Double
+        var totalWater_L: Double
+
+        var totalWater_m3: Double { totalWater_L / 1000.0 }
     }
 }

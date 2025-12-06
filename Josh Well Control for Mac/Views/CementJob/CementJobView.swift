@@ -419,42 +419,85 @@ struct CementJobView: View {
     // MARK: - Volume Breakdown Section
 
     private func volumeBreakdownSection(job: CementJob) -> some View {
-        GroupBox("Volume Breakdown") {
+        let vb = viewModel.volumeBreakdown
+
+        return GroupBox("Volume Breakdown") {
             VStack(alignment: .leading, spacing: 8) {
-                // By section
-                ForEach(viewModel.volumeBreakdown.sectionVolumes) { section in
-                    HStack {
-                        Image(systemName: section.isCased ? "pipe.and.drop" : "circle.dotted")
-                            .foregroundColor(section.isCased ? .blue : .orange)
-                        Text(section.sectionName)
-                        Spacer()
-                        Text(String(format: "%.2f m³", section.volume_m3))
-                            .monospacedDigit()
-                        Text(section.isCased ? "(cased)" : "(open)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                // Lead cement section
+                if vb.leadTotalVolume_m3 > 0 {
+                    Text("Lead Cement")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+
+                    if vb.leadCasedVolume_m3 > 0 {
+                        VolumeRow(label: "Cased:", value: vb.leadCasedVolume_m3, unit: "m³")
                     }
-                    .font(.caption)
+                    VolumeRow(label: "Open Hole:", value: vb.leadOpenHoleVolume_m3, unit: "m³")
+                    VolumeRow(label: "Excess (\(Int(vb.leadExcessPercent))%):", value: vb.leadExcessVolume_m3, unit: "m³")
+
+                    HStack {
+                        Text("Lead Total:")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(String(format: "%.2f m³", vb.leadTotalVolume_m3))
+                            .fontWeight(.medium)
+                            .monospacedDigit()
+                    }
+                    .font(.callout)
                 }
 
-                if !viewModel.volumeBreakdown.sectionVolumes.isEmpty {
-                    Divider()
-                }
+                // Tail cement section
+                if vb.tailTotalVolume_m3 > 0 {
+                    if vb.leadTotalVolume_m3 > 0 {
+                        Divider()
+                    }
 
-                // Totals
-                VolumeRow(label: "Cased Hole:", value: viewModel.volumeBreakdown.casedVolume_m3, unit: "m³")
-                VolumeRow(label: "Open Hole:", value: viewModel.volumeBreakdown.openHoleVolume_m3, unit: "m³")
-                VolumeRow(label: "Excess (\(Int(job.excessPercent))%):", value: viewModel.volumeBreakdown.excessVolume_m3, unit: "m³")
+                    Text("Tail Cement")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+
+                    if vb.tailCasedVolume_m3 > 0 {
+                        VolumeRow(label: "Cased:", value: vb.tailCasedVolume_m3, unit: "m³")
+                    }
+                    VolumeRow(label: "Open Hole:", value: vb.tailOpenHoleVolume_m3, unit: "m³")
+                    VolumeRow(label: "Excess (\(Int(vb.tailExcessPercent))%):", value: vb.tailExcessVolume_m3, unit: "m³")
+
+                    HStack {
+                        Text("Tail Total:")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(String(format: "%.2f m³", vb.tailTotalVolume_m3))
+                            .fontWeight(.medium)
+                            .monospacedDigit()
+                    }
+                    .font(.callout)
+                }
 
                 Divider()
 
+                // Total cement required
                 HStack {
-                    Text("Total Required:")
+                    Text("Total Cement:")
                         .fontWeight(.semibold)
                     Spacer()
-                    Text(String(format: "%.2f m³", viewModel.volumeBreakdown.totalVolume_m3))
+                    Text(String(format: "%.2f m³", vb.totalVolume_m3))
                         .fontWeight(.semibold)
                         .monospacedDigit()
+                }
+
+                Divider()
+
+                // Mud return
+                VolumeRow(label: "Mud Return:", value: vb.mudReturn_m3, unit: "m³")
+
+                // Volume to bump
+                if vb.volumeToBump_m3 > 0 {
+                    VolumeRow(label: "Volume to Bump:", value: vb.volumeToBump_m3, unit: "m³")
+                    Text("(to float collar @ \(String(format: "%.0f", job.floatCollarDepth_m))m)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(8)
@@ -465,6 +508,7 @@ struct CementJobView: View {
 
     private func statisticsSection(job: CementJob) -> some View {
         let stats = viewModel.getJobStatistics(job)
+        let water = viewModel.getWaterRequirements(job)
 
         return GroupBox("Summary") {
             VStack(alignment: .leading, spacing: 8) {
@@ -472,21 +516,35 @@ struct CementJobView: View {
                 StatRow(label: "Lead Cement:", value: String(format: "%.2f m³", stats.leadCementVolume_m3))
                 StatRow(label: "Tail Cement:", value: String(format: "%.2f m³", stats.tailCementVolume_m3))
                 StatRow(label: "Total Tonnage:", value: String(format: "%.2f t", stats.totalCementTonnage_t))
-                StatRow(label: "Mix Water:", value: String(format: "%.2f m³ (%.0f L)", stats.totalMixWater_m3, stats.totalMixWater_L))
 
                 Divider()
 
-                // Displacement
-                StatRow(label: "Displacement:", value: String(format: "%.2f m³ (%.0f L)", stats.displacementVolume_m3, stats.displacementVolume_L))
+                // Water requirements by stage
+                Text("Water Requirements")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
 
-                // Additional volumes
-                if stats.washUpVolume_m3 > 0 || stats.pumpOutVolume_m3 > 0 {
-                    if stats.washUpVolume_m3 > 0 {
-                        StatRow(label: "Wash Up:", value: String(format: "%.2f m³", stats.washUpVolume_m3))
-                    }
-                    if stats.pumpOutVolume_m3 > 0 {
-                        StatRow(label: "Pump Out:", value: String(format: "%.2f m³", stats.pumpOutVolume_m3))
-                    }
+                if water.preFlushWater_L > 0 {
+                    StatRow(label: "Pre-Flush:", value: String(format: "%.2f m³", water.preFlushWater_L / 1000))
+                }
+                if water.spacerWater_L > 0 {
+                    StatRow(label: "Spacer:", value: String(format: "%.2f m³", water.spacerWater_L / 1000))
+                }
+                if water.leadMixWater_L > 0 {
+                    StatRow(label: "Lead Mix Water:", value: String(format: "%.2f m³", water.leadMixWater_L / 1000))
+                }
+                if water.tailMixWater_L > 0 {
+                    StatRow(label: "Tail Mix Water:", value: String(format: "%.2f m³", water.tailMixWater_L / 1000))
+                }
+                if water.displacementWater_L > 0 {
+                    StatRow(label: "Displacement:", value: String(format: "%.2f m³", water.displacementWater_L / 1000))
+                }
+                if water.washUpWater_L > 0 {
+                    StatRow(label: "Wash Up:", value: String(format: "%.2f m³", water.washUpWater_L / 1000))
+                }
+                if water.pumpOutWater_L > 0 {
+                    StatRow(label: "Pump Out:", value: String(format: "%.2f m³", water.pumpOutWater_L / 1000))
                 }
 
                 Divider()
@@ -496,13 +554,13 @@ struct CementJobView: View {
                     Text("Total Water:")
                         .fontWeight(.semibold)
                     Spacer()
-                    Text(String(format: "%.2f m³ (%.0f L)", stats.totalWaterUsage_m3, stats.totalWaterUsage_L))
+                    Text(String(format: "%.2f m³", water.totalWater_m3))
                         .fontWeight(.semibold)
                         .monospacedDigit()
                 }
                 .font(.callout)
 
-                Text("(displacement + mix water + pump out + wash up)")
+                Text("(excludes mud displacement)")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

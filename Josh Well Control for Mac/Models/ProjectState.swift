@@ -318,20 +318,20 @@ extension ProjectState {
                 leadTopMD_m: cj0.leadTopMD_m,
                 leadBottomMD_m: cj0.leadBottomMD_m,
                 leadYieldFactor_m3_per_tonne: cj0.leadYieldFactor_m3_per_tonne,
-                leadMixWaterRatio_L_per_tonne: cj0.leadMixWaterRatio_L_per_tonne,
+                leadMixWaterRatio_m3_per_tonne: cj0.leadMixWaterRatio_m3_per_tonne,
                 // Tail cement
                 tailExcessPercent: cj0.tailExcessPercent,
                 tailTopMD_m: cj0.tailTopMD_m,
                 tailBottomMD_m: cj0.tailBottomMD_m,
                 tailYieldFactor_m3_per_tonne: cj0.tailYieldFactor_m3_per_tonne,
-                tailMixWaterRatio_L_per_tonne: cj0.tailMixWaterRatio_L_per_tonne,
+                tailMixWaterRatio_m3_per_tonne: cj0.tailMixWaterRatio_m3_per_tonne,
                 // Additional volumes
                 washUpVolume_m3: cj0.washUpVolume_m3,
                 pumpOutVolume_m3: cj0.pumpOutVolume_m3,
                 // Legacy
                 excessPercent: cj0.excessPercent,
                 yieldFactor_m3_per_tonne: cj0.yieldFactor_m3_per_tonne,
-                mixWaterRatio_L_per_tonne: cj0.mixWaterRatio_L_per_tonne,
+                mixWaterRatio_m3_per_tonne: cj0.mixWaterRatio_m3_per_tonne,
                 project: p
             )
             cj.casedVolume_m3 = cj0.casedVolume_m3
