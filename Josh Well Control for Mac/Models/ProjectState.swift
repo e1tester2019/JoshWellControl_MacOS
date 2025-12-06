@@ -31,6 +31,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \PumpProgramStage.project) var programStages: [PumpProgramStage]?
     @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
     @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
+    @Relationship(deleteRule: .cascade, inverse: \CementJob.project) var cementJobs: [CementJob]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .nullify) var _window: PressureWindow?
@@ -252,6 +253,7 @@ extension ProjectState {
                 outerDiameter_m: a0.outerDiameter_m,
                 inclination_deg: a0.inclination_deg,
                 wallRoughness_m: a0.wallRoughness_m,
+                isCased: a0.isCased,
                 rheologyModel: a0.rheologyModel,
                 density_kg_per_m3: a0.density_kg_per_m3,
                 dynamicViscosity_Pa_s: a0.dynamicViscosity_Pa_s,
@@ -301,6 +303,54 @@ extension ProjectState {
                 mud: linked
             )
             p.finalLayers?.append(f)
+        }
+
+        // --- Cement Jobs (with stages) ---
+        if p.cementJobs == nil { p.cementJobs = [] }
+        for cj0 in (self.cementJobs ?? []) {
+            let cj = CementJob(
+                name: cj0.name,
+                casingType: cj0.casingType,
+                topMD_m: cj0.topMD_m,
+                bottomMD_m: cj0.bottomMD_m,
+                excessPercent: cj0.excessPercent,
+                yieldFactor_m3_per_tonne: cj0.yieldFactor_m3_per_tonne,
+                mixWaterRatio_L_per_tonne: cj0.mixWaterRatio_L_per_tonne,
+                project: p
+            )
+            cj.casedVolume_m3 = cj0.casedVolume_m3
+            cj.openHoleVolume_m3 = cj0.openHoleVolume_m3
+            cj.totalVolumeWithExcess_m3 = cj0.totalVolumeWithExcess_m3
+            cj.notes = cj0.notes
+
+            // Clone stages
+            if cj.stages == nil { cj.stages = [] }
+            for s0 in (cj0.stages ?? []).sorted(by: { $0.orderIndex < $1.orderIndex }) {
+                let linked: MudProperties? = s0.mud.flatMap { old in mudMap[old.id] }
+                let s = CementJobStage(
+                    stageType: s0.stageType,
+                    name: s0.name,
+                    volume_m3: s0.volume_m3,
+                    density_kgm3: s0.density_kgm3,
+                    pumpRate_m3permin: s0.pumpRate_m3permin,
+                    color: s0.color,
+                    mud: linked,
+                    cementJob: cj
+                )
+                s.orderIndex = s0.orderIndex
+                s.tonnage_t = s0.tonnage_t
+                s.mixWater_L = s0.mixWater_L
+                s.operationTypeRaw = s0.operationTypeRaw
+                s.pressure_MPa = s0.pressure_MPa
+                s.overPressure_MPa = s0.overPressure_MPa
+                s.duration_min = s0.duration_min
+                s.operationVolume_L = s0.operationVolume_L
+                s.operationTime = s0.operationTime
+                s.notes = s0.notes
+                cj.stages?.append(s)
+            }
+
+            p.cementJobs?.append(cj)
         }
 
         // --- Singletons (force unwrap safe because init() creates them) ---
@@ -427,6 +477,7 @@ extension AnnulusSection {
             "outerDiameter_m": outerDiameter_m,
             "inclination_deg": inclination_deg,
             "wallRoughness_m": wallRoughness_m,
+            "isCased": isCased,
             "rheologyModel": rheologyModel.rawValue,
             "density_kg_per_m3": density_kg_per_m3,
             "dynamicViscosity_Pa_s": dynamicViscosity_Pa_s,

@@ -24,9 +24,19 @@ struct AnnulusListView: View {
                 List(selection: $viewmodel.selection) {
                     ForEach(Array(viewmodel.sortedSections.enumerated()), id: \.element.id) { index, sec in
                         HStack(alignment: .firstTextBaseline) {
+                            // Cased/Open Hole indicator
+                            Image(systemName: sec.isCased ? "pipe.and.drop" : "circle.dotted")
+                                .foregroundColor(sec.isCased ? .blue : .orange)
+                                .help(sec.isCased ? "Cased Hole" : "Open Hole")
+
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(sec.name)
-                                    .font(.headline)
+                                HStack(spacing: 4) {
+                                    Text(sec.name)
+                                        .font(.headline)
+                                    Text(sec.isCased ? "(Cased)" : "(Open)")
+                                        .font(.caption)
+                                        .foregroundStyle(sec.isCased ? .blue : .orange)
+                                }
                                 // Gap warning (if any)
                                 let prevBottom = index > 0 ? viewmodel.sortedSections[index - 1].bottomDepth_m : nil
                                 if let prevBottom, sec.topDepth_m > prevBottom {

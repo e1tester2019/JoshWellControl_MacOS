@@ -1,0 +1,416 @@
+//
+//  CementJobStage.swift
+//  Josh Well Control for Mac
+//
+//  Represents a single stage in a cement job (pump stage or operation).
+//
+
+import Foundation
+import SwiftData
+import SwiftUI
+
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+/// Represents a single stage in a cement job.
+/// Can be either a pump stage (preFlush, spacer, cement, displacement) or an operation (pressure test, plug drop, etc.)
+@Model
+final class CementJobStage {
+    var id: UUID = UUID()
+
+    /// Order of this stage in the cement job sequence
+    var orderIndex: Int = 0
+
+    /// Type of stage (pump vs operation)
+    var stageTypeRaw: Int = StageType.spacer.rawValue
+
+    /// Descriptive name for this stage (e.g., "MAG EV 1300-BC", "Pressure Test Lines")
+    var name: String = ""
+
+    // MARK: - Pump Stage Properties
+
+    /// Volume to pump (m³) - for pump stages
+    var volume_m3: Double = 0.0
+
+    /// Density of fluid being pumped (kg/m³)
+    var density_kgm3: Double = 1200.0
+
+    /// Pump rate (m³/min) - optional
+    var pumpRate_m3permin: Double?
+
+    /// Calculated tonnage for cement stages (tonnes)
+    /// Computed from volume / yield factor
+    var tonnage_t: Double?
+
+    /// Calculated mix water requirement (liters)
+    /// Computed from tonnage × water ratio
+    var mixWater_L: Double?
+
+    // MARK: - Operation Properties
+
+    /// Type of operation for non-pump stages
+    var operationTypeRaw: Int?
+
+    /// Pressure for pressure tests or bump plug (MPa)
+    var pressure_MPa: Double?
+
+    /// Secondary pressure (e.g., "over FCP" for bump plug)
+    var overPressure_MPa: Double?
+
+    /// Duration of operation (minutes)
+    var duration_min: Double?
+
+    /// Volume for bleed-back or similar operations (liters)
+    var operationVolume_L: Double?
+
+    /// Time stamp for operations like "plug down at 04:45 hrs"
+    var operationTime: String?
+
+    /// Additional notes about the stage
+    var notes: String = ""
+
+    // MARK: - Visual Properties
+
+    /// Color for visualization (RGBA 0..1)
+    var colorR: Double = 0.5
+    var colorG: Double = 0.5
+    var colorB: Double = 0.5
+    var colorA: Double = 1.0
+
+    // MARK: - Relationships
+
+    /// Optional link to a MudProperties (for spacers, displacement fluids that use existing muds)
+    @Relationship var mud: MudProperties?
+
+    /// Back-reference to the cement job
+    @Relationship(deleteRule: .nullify)
+    var cementJob: CementJob?
+
+    // MARK: - Stage Type Enum
+
+    enum StageType: Int, Codable, CaseIterable {
+        case preFlush = 0
+        case spacer = 1
+        case leadCement = 2
+        case tailCement = 3
+        case displacement = 4
+        case operation = 5
+
+        var displayName: String {
+            switch self {
+            case .preFlush: return "Pre-Flush"
+            case .spacer: return "Spacer/Sweep"
+            case .leadCement: return "Lead Cement"
+            case .tailCement: return "Tail Cement"
+            case .displacement: return "Displacement"
+            case .operation: return "Operation"
+            }
+        }
+
+        var isPumpStage: Bool {
+            switch self {
+            case .preFlush, .spacer, .leadCement, .tailCement, .displacement:
+                return true
+            case .operation:
+                return false
+            }
+        }
+
+        var isCementStage: Bool {
+            self == .leadCement || self == .tailCement
+        }
+    }
+
+    // MARK: - Operation Type Enum
+
+    enum OperationType: Int, Codable, CaseIterable {
+        case pressureTestLines = 0
+        case tripSet = 1
+        case plugDrop = 2
+        case bumpPlug = 3
+        case pressureTestCasing = 4
+        case floatCheck = 5
+        case bleedBack = 6
+        case rigOut = 7
+        case other = 8
+
+        var displayName: String {
+            switch self {
+            case .pressureTestLines: return "Pressure Test Lines"
+            case .tripSet: return "Trips Set"
+            case .plugDrop: return "Plug Drop"
+            case .bumpPlug: return "Bump Plug"
+            case .pressureTestCasing: return "Pressure Test Casing"
+            case .floatCheck: return "Float Check"
+            case .bleedBack: return "Bleed Back"
+            case .rigOut: return "Rig Out Cementers"
+            case .other: return "Other"
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    @Transient var stageType: StageType {
+        get { StageType(rawValue: stageTypeRaw) ?? .spacer }
+        set { stageTypeRaw = newValue.rawValue }
+    }
+
+    @Transient var operationType: OperationType? {
+        get { operationTypeRaw.flatMap { OperationType(rawValue: $0) } }
+        set { operationTypeRaw = newValue?.rawValue }
+    }
+
+    @Transient var color: Color {
+        get { Color(red: colorR, green: colorG, blue: colorB, opacity: colorA) }
+        set {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            #if canImport(UIKit)
+            UIColor(newValue).getRed(&r, green: &g, blue: &b, alpha: &a)
+            #elseif canImport(AppKit)
+            let ns = NSColor(newValue)
+            let inSRGB = ns.usingColorSpace(.sRGB) ?? ns.usingColorSpace(.deviceRGB)
+            inSRGB?.getRed(&r, green: &g, blue: &b, alpha: &a)
+            #endif
+            colorR = Double(r)
+            colorG = Double(g)
+            colorB = Double(b)
+            colorA = Double(a)
+        }
+    }
+
+    /// Display string for volume (handles both m³ and liters appropriately)
+    @Transient var volumeDisplayString: String {
+        if volume_m3 >= 1.0 {
+            return String(format: "%.1f m³", volume_m3)
+        } else {
+            return String(format: "%.0f L", volume_m3 * 1000)
+        }
+    }
+
+    /// Display string for tonnage
+    @Transient var tonnageDisplayString: String? {
+        guard let t = tonnage_t else { return nil }
+        return String(format: "%.2f t", t)
+    }
+
+    // MARK: - Initializer
+
+    init(
+        stageType: StageType = .spacer,
+        name: String = "",
+        volume_m3: Double = 0.0,
+        density_kgm3: Double = 1200.0,
+        pumpRate_m3permin: Double? = nil,
+        color: Color = .gray,
+        mud: MudProperties? = nil,
+        cementJob: CementJob? = nil
+    ) {
+        self.stageTypeRaw = stageType.rawValue
+        self.name = name
+        self.volume_m3 = volume_m3
+        self.density_kgm3 = density_kgm3
+        self.pumpRate_m3permin = pumpRate_m3permin
+        self.mud = mud
+        self.cementJob = cementJob
+
+        // Set color
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        #if canImport(UIKit)
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #elseif canImport(AppKit)
+        let ns = NSColor(color)
+        let inSRGB = ns.usingColorSpace(.sRGB) ?? ns.usingColorSpace(.deviceRGB)
+        inSRGB?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        #endif
+        self.colorR = Double(r)
+        self.colorG = Double(g)
+        self.colorB = Double(b)
+        self.colorA = Double(a)
+    }
+
+    /// Convenience initializer for operation stages
+    static func operation(
+        type: OperationType,
+        name: String? = nil,
+        pressure_MPa: Double? = nil,
+        overPressure_MPa: Double? = nil,
+        duration_min: Double? = nil,
+        volume_L: Double? = nil,
+        time: String? = nil,
+        notes: String = "",
+        cementJob: CementJob? = nil
+    ) -> CementJobStage {
+        let stage = CementJobStage()
+        stage.stageType = .operation
+        stage.operationType = type
+        stage.name = name ?? type.displayName
+        stage.pressure_MPa = pressure_MPa
+        stage.overPressure_MPa = overPressure_MPa
+        stage.duration_min = duration_min
+        stage.operationVolume_L = volume_L
+        stage.operationTime = time
+        stage.notes = notes
+        stage.cementJob = cementJob
+        return stage
+    }
+
+    // MARK: - Calculation Methods
+
+    /// Update tonnage and mix water based on cement job parameters
+    func updateCalculations(yieldFactor: Double, waterRatio: Double) {
+        guard stageType.isCementStage else {
+            tonnage_t = nil
+            mixWater_L = nil
+            return
+        }
+
+        guard yieldFactor > 0 else {
+            tonnage_t = nil
+            mixWater_L = nil
+            return
+        }
+
+        let t = volume_m3 / yieldFactor
+        tonnage_t = t
+        mixWater_L = t * waterRatio
+    }
+
+    /// Link to a mud and update density/color from it
+    func linkToMud(_ mud: MudProperties) {
+        self.mud = mud
+        self.density_kgm3 = mud.density_kgm3
+        self.color = mud.color
+        if name.isEmpty {
+            self.name = mud.name
+        }
+    }
+}
+
+// MARK: - Summary Text Generation
+
+extension CementJobStage {
+    /// Generate summary text for clipboard export
+    func summaryText() -> String {
+        switch stageType {
+        case .preFlush:
+            return "pump \(volumeDisplayString) \(name) at \(Int(density_kgm3))kg/m³"
+
+        case .spacer:
+            return "pump \(volumeDisplayString) \(name) at \(Int(density_kgm3))kg/m³"
+
+        case .leadCement:
+            var text = "pump lead cement \(volumeDisplayString)"
+            if let t = tonnage_t {
+                text += " (\(String(format: "%.2f", t))t)"
+            }
+            text += " \(name) at \(Int(density_kgm3))kg/m³"
+            return text
+
+        case .tailCement:
+            var text = "pump tail cement \(volumeDisplayString)"
+            if let t = tonnage_t {
+                text += " (\(String(format: "%.2f", t))t)"
+            }
+            text += " \(name) at \(Int(density_kgm3))kg/m³"
+            return text
+
+        case .displacement:
+            return "displaced with \(volumeDisplayString) of \(Int(density_kgm3))kg/m³ \(name)"
+
+        case .operation:
+            return operationSummaryText()
+        }
+    }
+
+    private func operationSummaryText() -> String {
+        guard let opType = operationType else {
+            return notes.isEmpty ? name : notes
+        }
+
+        switch opType {
+        case .pressureTestLines:
+            if let p = pressure_MPa {
+                return "pressure test lines to \(String(format: "%.1f", p))MPa"
+            }
+            return "pressure test lines"
+
+        case .tripSet:
+            if let p = pressure_MPa {
+                return "trips set at \(String(format: "%.1f", p))MPa"
+            }
+            return "trips set"
+
+        case .plugDrop:
+            return "dropped plug"
+
+        case .bumpPlug:
+            var text = "bumped plug"
+            if let over = overPressure_MPa, let p = pressure_MPa {
+                text += " \(String(format: "%.1f", over))MPa over FCP to \(String(format: "%.1f", p))MPa"
+            } else if let p = pressure_MPa {
+                text += " to \(String(format: "%.1f", p))MPa"
+            }
+            return text
+
+        case .pressureTestCasing:
+            var text = "pressure tested casing"
+            if let p = pressure_MPa {
+                text += " to \(String(format: "%.1f", p))MPa"
+            }
+            if let d = duration_min {
+                text += " (\(Int(d))min)"
+            }
+            text += " ok"
+            return text
+
+        case .floatCheck:
+            return "floats held"
+
+        case .bleedBack:
+            if let vol = operationVolume_L {
+                return "bled back \(Int(vol))ltrs"
+            }
+            return "bled back"
+
+        case .rigOut:
+            return "Rig out cementers"
+
+        case .other:
+            return notes.isEmpty ? name : notes
+        }
+    }
+}
+
+// MARK: - Export Dictionary
+
+extension CementJobStage {
+    var exportDictionary: [String: Any] {
+        var dict: [String: Any] = [
+            "id": id.uuidString,
+            "orderIndex": orderIndex,
+            "stageType": stageType.rawValue,
+            "name": name,
+            "volume_m3": volume_m3,
+            "density_kgm3": density_kgm3,
+            "color": ["r": colorR, "g": colorG, "b": colorB, "a": colorA],
+            "notes": notes
+        ]
+
+        if let rate = pumpRate_m3permin { dict["pumpRate_m3permin"] = rate }
+        if let t = tonnage_t { dict["tonnage_t"] = t }
+        if let water = mixWater_L { dict["mixWater_L"] = water }
+        if let opType = operationType { dict["operationType"] = opType.rawValue }
+        if let p = pressure_MPa { dict["pressure_MPa"] = p }
+        if let op = overPressure_MPa { dict["overPressure_MPa"] = op }
+        if let d = duration_min { dict["duration_min"] = d }
+        if let vol = operationVolume_L { dict["operationVolume_L"] = vol }
+        if let time = operationTime { dict["operationTime"] = time }
+        if let mudID = mud?.id { dict["mudID"] = mudID.uuidString }
+
+        return dict
+    }
+}

@@ -18,6 +18,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case pressureWindow
     case mudPlacement
     case pumpSchedule
+    case cementJob
     case swabbing
     case tripSimulation
     case rentals
@@ -37,6 +38,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .pressureWindow: return "Pressure Window"
         case .mudPlacement: return "Mud Placement"
         case .pumpSchedule: return "Pump Schedule"
+        case .cementJob: return "Cement Job"
         case .swabbing: return "Swabbing"
         case .tripSimulation: return "Trip Simulation"
         case .rentals: return "Rentals"
@@ -56,6 +58,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .pressureWindow: return "waveform.path.ecg"
         case .mudPlacement: return "square.stack.3d.up.fill"
         case .pumpSchedule: return "timer"
+        case .cementJob: return "cylinder.split.1x2.fill"
         case .swabbing: return "arrow.up.circle.fill"
         case .tripSimulation: return "play.circle.fill"
         case .rentals: return "bag.fill"
@@ -76,6 +79,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .pressureWindow: return "8"
         case .mudPlacement: return "9"
         case .pumpSchedule: return nil
+        case .cementJob: return nil
         case .swabbing: return nil
         case .tripSimulation: return nil
         case .rentals: return nil
@@ -106,6 +110,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Mud placement and final layers"
         case .pumpSchedule:
             return "Pump program and hydraulics"
+        case .cementJob:
+            return "Cement job planning and calculations"
         case .swabbing:
             return "Swabbing analysis and charts"
         case .tripSimulation:

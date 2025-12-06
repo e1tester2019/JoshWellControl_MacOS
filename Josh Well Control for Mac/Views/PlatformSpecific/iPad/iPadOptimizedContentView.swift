@@ -210,6 +210,8 @@ struct iPadDetailView: View {
                     iPadMudPlacementView(project: project)
                 case .pumpSchedule:
                     PumpScheduleViewIOS(project: project)
+                case .cementJob:
+                    CementJobView(project: project)
                 case .swabbing:
                     SwabbingView(project: project)
                 case .tripSimulation:

@@ -28,6 +28,10 @@ final class AnnulusSection {
     // Wall roughness (m) – typical casing/wellbore equivalent sand roughness
     var wallRoughness_m: Double = 4.6e-5
 
+    // Indicates whether this section is cased (true) or open hole (false)
+    // Used for cement calculations - excess is only applied to open hole sections
+    var isCased: Bool = false
+
     // Fluid (per-section; used for ECD/ΔP)
     enum RheologyModel: Int, Codable {
         case newtonian = 0
@@ -111,6 +115,7 @@ final class AnnulusSection {
         outerDiameter_m: Double,
         inclination_deg: Double = 0,
         wallRoughness_m: Double = 4.6e-5,
+        isCased: Bool = false,
         rheologyModel: RheologyModel = .bingham,
         density_kg_per_m3: Double = 1100,
         dynamicViscosity_Pa_s: Double = 0.01,
@@ -135,6 +140,7 @@ final class AnnulusSection {
         self.innerDiameter_m = innerDiameter_m
         self.outerDiameter_m = outerDiameter_m
         self.wallRoughness_m = wallRoughness_m
+        self.isCased = isCased
         self.rheologyModelRaw = rheologyModel.rawValue
         self.density_kg_per_m3 = density_kg_per_m3
         self.dynamicViscosity_Pa_s = dynamicViscosity_Pa_s

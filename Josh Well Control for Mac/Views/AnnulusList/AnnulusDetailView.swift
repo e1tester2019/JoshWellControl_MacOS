@@ -49,8 +49,37 @@ struct AnnulusDetailView: View {
                             TextField("Name", text: $section.name)
                                 .textFieldStyle(.roundedBorder)
                         }
+                        GridRow {
+                            Text("Section Type")
+                                .frame(width: 160, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Toggle(isOn: $section.isCased) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: section.isCased ? "pipe.and.drop" : "circle.dotted")
+                                            .foregroundColor(section.isCased ? .blue : .orange)
+                                        Text(section.isCased ? "Cased Hole" : "Open Hole")
+                                    }
+                                }
+                                .toggleStyle(.switch)
+                                Spacer()
+                            }
+                        }
                     }
                     .padding(8)
+                }
+
+                if section.isCased {
+                    GroupBox {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("Cased sections do not receive excess volume during cement calculations.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(8)
+                    }
                 }
 
                 GroupBox("Placement (m)") {
