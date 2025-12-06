@@ -83,11 +83,13 @@ final class CementJobStage {
     // MARK: - Relationships
 
     /// Optional link to a MudProperties (for spacers, displacement fluids that use existing muds)
-    @Relationship(deleteRule: .nullify, inverse: \MudProperties.cementStages)
+    /// Inverse is declared on MudProperties.cementStages
+    @Relationship(deleteRule: .nullify)
     var mud: MudProperties?
 
     /// Back-reference to the cement job
-    @Relationship(deleteRule: .nullify, inverse: \CementJob.stages)
+    /// Inverse is declared on CementJob.stages
+    @Relationship(deleteRule: .nullify)
     var cementJob: CementJob?
 
     // MARK: - Stage Type Enum

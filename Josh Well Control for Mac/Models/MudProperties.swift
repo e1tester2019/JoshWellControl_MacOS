@@ -14,7 +14,8 @@ final class MudProperties {
     var id: UUID = UUID()
 
     // Optional relationship back to a project
-    @Relationship(deleteRule: .nullify, inverse: \ProjectState.muds)
+    // Inverse is declared on ProjectState.muds
+    @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
     // Inverse relationships for entities referencing this mud
