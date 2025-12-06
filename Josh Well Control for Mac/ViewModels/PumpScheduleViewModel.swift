@@ -8,10 +8,13 @@
 import Foundation
 import SwiftUI
 import Observation
+import SwiftData
 
 @Observable
 class PumpScheduleViewModel {
     enum Side { case annulus, string }
+    private(set) var context: ModelContext?
+    private var didBootstrap = false
 
     struct Stage {
         let name: String
@@ -219,11 +222,22 @@ class PumpScheduleViewModel {
         updateHydraulics(project: project)
     }
 
+    func bootstrap(project: ProjectState, context: ModelContext) {
+        guard !didBootstrap else { return }
+        self.context = context
+        self.bind(project: project)
+        self.loadProgram(from: project)
+        self.buildStages(project: project)
+        self.updateHydraulics(project: project)
+        didBootstrap = true
+    }
+
+    // Keep your existing bootstrap(project:) if still used elsewhere
     func bootstrap(project: ProjectState) {
-        loadProgram(from: project)
-        buildStages(project: project)
-        controlMD_m = project.pressureDepth_m
-        bind(project: project)
+        self.bind(project: project)
+        self.loadProgram(from: project)
+        self.buildStages(project: project)
+        self.updateHydraulics(project: project)
     }
 
     func nextStageOrWrap() {

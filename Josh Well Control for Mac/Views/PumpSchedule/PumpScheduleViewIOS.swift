@@ -10,6 +10,7 @@ import SwiftData
 import Observation
 
 struct PumpScheduleViewIOS: View {
+    @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
     @State private var viewModel = PumpScheduleViewModel()
 
@@ -26,7 +27,7 @@ struct PumpScheduleViewIOS: View {
                 landscapeLayout(geo: geo)
             }
         }
-        .onAppear { viewModel.bootstrap(project: project) }
+        .onAppear { viewModel.bootstrap(project: project, context: modelContext) }
     }
     
     // MARK: - Portrait Layout
@@ -213,6 +214,11 @@ struct PumpScheduleViewIOS: View {
             (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
     }
+    
+    init(project: ProjectState, viewModel: PumpScheduleViewModel = PumpScheduleViewModel()) {
+        self._project = Bindable(project)
+        self._viewModel = State(initialValue: viewModel)
+    }
 }
 
 #if DEBUG
@@ -280,3 +286,4 @@ struct PumpScheduleViewIOS_Previews: PreviewProvider {
 #endif
 
 #endif
+

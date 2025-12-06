@@ -10,6 +10,7 @@ import SwiftData
 import Observation
 
 struct PumpScheduleView: View {
+    @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
     @State private var viewModel = PumpScheduleViewModel()
 
@@ -38,7 +39,7 @@ struct PumpScheduleView: View {
             Divider()
         }
         .padding(12)
-        .onAppear { viewModel.bootstrap(project: project) }
+        .onAppear { viewModel.bootstrap(project: project, context: modelContext) }
         .navigationTitle("Pump Schedule")
     }
 
@@ -47,6 +48,11 @@ struct PumpScheduleView: View {
             (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
             (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
         )
+    }
+    
+    init(project: ProjectState, viewModel: PumpScheduleViewModel = PumpScheduleViewModel()) {
+        self._project = Bindable(project)
+        self._viewModel = State(initialValue: viewModel)
     }
 }
 
@@ -93,3 +99,4 @@ struct PumpSchedule_Previews: PreviewProvider {
     }
 }
 #endif
+
