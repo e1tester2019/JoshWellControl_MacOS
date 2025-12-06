@@ -14,6 +14,7 @@ struct CementJobView: View {
     @State private var viewModel = CementJobViewModel()
     @State private var showingNewJobSheet = false
     @State private var showingDeleteConfirmation = false
+    @State private var showingSimulation = false
     @State private var jobToDelete: CementJob?
 
     var body: some View {
@@ -44,6 +45,12 @@ struct CementJobView: View {
             }
         } message: {
             Text("This will permanently delete the cement job and all its stages.")
+        }
+        .sheet(isPresented: $showingSimulation) {
+            if let job = viewModel.selectedJob {
+                CementJobSimulationView(project: project, job: job)
+                    .frame(minWidth: 1000, minHeight: 700)
+            }
         }
     }
 
@@ -157,6 +164,11 @@ struct CementJobView: View {
             }
 
             Spacer()
+
+            Button(action: { showingSimulation = true }) {
+                Label("Run Simulation", systemImage: "play.circle")
+            }
+            .buttonStyle(.borderedProminent)
 
             Button(action: { viewModel.copyToClipboard(job) }) {
                 Label("Copy Summary", systemImage: "doc.on.doc")

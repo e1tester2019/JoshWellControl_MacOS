@@ -148,15 +148,18 @@ class CementJobViewModel {
         // Combined total
         breakdown.totalVolume_m3 = breakdown.leadTotalVolume_m3 + breakdown.tailTotalVolume_m3
 
-        // Mud return = total cement volume pumped (what goes in pushes mud out)
-        breakdown.mudReturn_m3 = breakdown.totalVolume_m3
-
         // Volume to bump = drill string internal volume from surface to float collar
-        breakdown.volumeToBump_m3 = calculateDrillStringVolume(
+        let stringVolume = calculateDrillStringVolume(
             drillStrings: drillStrings,
-            toDepth: job.floatCollarDepth_m,
-            surfaceLineVolume: project.surfaceLineVolume_m3
+            toDepth: job.floatCollarDepth_m
         )
+        breakdown.volumeToBump_m3 = stringVolume
+
+        // Mud return = annulus volume (cased + open hole, NO excess) + string volume
+        // This is the actual mud volume that will be displaced to surface
+        let totalAnnulusNoExcess = (breakdown.leadCasedVolume_m3 + breakdown.leadOpenHoleVolume_m3 +
+                                    breakdown.tailCasedVolume_m3 + breakdown.tailOpenHoleVolume_m3)
+        breakdown.mudReturn_m3 = totalAnnulusNoExcess + stringVolume
 
         // Build section volumes for display (using full cement interval)
         for section in sections {
@@ -182,19 +185,25 @@ class CementJobViewModel {
         return breakdown
     }
 
-    /// Calculate drill string internal volume from surface to a given depth
-    private func calculateDrillStringVolume(drillStrings: [DrillStringSection], toDepth: Double, surfaceLineVolume: Double) -> Double {
-        var totalVolume = surfaceLineVolume
+    /// Calculate drill string internal volume from surface to float collar depth
+    private func calculateDrillStringVolume(drillStrings: [DrillStringSection], toDepth: Double) -> Double {
+        guard toDepth > 0 else { return 0 }
 
-        for section in drillStrings {
-            let overlapTop = max(0, section.topDepth_m)
-            let overlapBottom = min(toDepth, section.bottomDepth_m)
+        let sortedSections = drillStrings.sorted { $0.topDepth_m < $1.topDepth_m }
+        var totalVolume = 0.0
 
-            guard overlapBottom > overlapTop else { continue }
+        for section in sortedSections {
+            let sectionTop = section.topDepth_m
+            let sectionBottom = min(section.bottomDepth_m, toDepth)
 
-            let overlapLength = overlapBottom - overlapTop
+            guard sectionBottom > sectionTop else { continue }
+
+            let length = sectionBottom - sectionTop
             let area = .pi * pow(section.innerDiameter_m / 2, 2)
-            totalVolume += area * overlapLength
+            totalVolume += area * length
+
+            // Stop if we've reached the float collar depth
+            if section.bottomDepth_m >= toDepth { break }
         }
 
         return totalVolume
