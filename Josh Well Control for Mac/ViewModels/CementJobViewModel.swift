@@ -239,6 +239,21 @@ class CementJobViewModel {
         try? context.save()
     }
 
+    /// Move a stage up or down in the order
+    func moveStage(_ stage: CementJobStage, direction: Int, in job: CementJob) {
+        let stages = job.sortedStages
+        guard let currentIndex = stages.firstIndex(where: { $0.id == stage.id }) else { return }
+
+        let newIndex = currentIndex + direction
+        guard newIndex >= 0 && newIndex < stages.count else { return }
+
+        // Swap order indices
+        let otherStage = stages[newIndex]
+        let tempOrder = stage.orderIndex
+        stage.orderIndex = otherStage.orderIndex
+        otherStage.orderIndex = tempOrder
+    }
+
     /// Update calculations for a cement stage (tonnage, mix water)
     /// Uses lead-specific or tail-specific yield/water ratios based on stage type
     func updateStageCalculations(_ stage: CementJobStage, job: CementJob) {

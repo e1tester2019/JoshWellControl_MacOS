@@ -9,10 +9,22 @@ struct SurveysPadView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
 
-    @Query(sort: [SortDescriptor(\SurveyStation.md)]) private var queriedSurveys: [SurveyStation]
+    // Use @Query with filter predicate for proper CloudKit sync
+    @Query private var surveys: [SurveyStation]
 
     // Selection for the list
     @State private var selectedSurveyID: PersistentIdentifier? = nil
+
+    init(project: ProjectState) {
+        self._project = Bindable(wrappedValue: project)
+        let projectID = project.persistentModelID
+        _surveys = Query(
+            filter: #Predicate<SurveyStation> { survey in
+                survey.project?.persistentModelID == projectID
+            },
+            sort: [SortDescriptor(\.md)]
+        )
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -64,14 +76,14 @@ struct SurveysPadView: View {
                 .buttonStyle(.bordered)
             }
 
-            if queriedSurveys.isEmpty {
+            if surveys.isEmpty {
                 Text("No surveys yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
                 List(selection: $selectedSurveyID) {
-                    ForEach(queriedSurveys, id: \.id) { s in
+                    ForEach(surveys, id: \.id) { s in
                         HStack(spacing: 8) {
                             Text("MD: \(fmt(s.md, 1)) m")
                                 .font(.subheadline)
@@ -108,7 +120,7 @@ struct SurveysPadView: View {
                 Spacer()
             }
 
-            if let sel = selectedSurvey, let index = queriedSurveys.firstIndex(where: { $0.persistentModelID == sel.persistentModelID }) {
+            if let sel = selectedSurvey, let index = surveys.firstIndex(where: { $0.persistentModelID == sel.persistentModelID }) {
                 SurveyEditorRow(station: sel)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 24) {
@@ -125,7 +137,7 @@ struct SurveysPadView: View {
                     .foregroundStyle(.secondary)
                 }
                 Divider()
-                SurveyMiniPlot(surveys: queriedSurveys, highlightedIndex: index)
+                SurveyMiniPlot(surveys: surveys, highlightedIndex: index)
                     .frame(minHeight: 220)
             } else {
                 Text("Select a survey to edit.")
@@ -145,28 +157,26 @@ struct SurveysPadView: View {
     // MARK: - Helpers
     private var selectedSurvey: SurveyStation? {
         guard let id = selectedSurveyID else { return nil }
-        return queriedSurveys.first(where: { $0.persistentModelID == id })
+        return surveys.first(where: { $0.persistentModelID == id })
     }
 
     private func addSurvey() {
-        let nextMD = (queriedSurveys.last?.md ?? 0) + 30
-        let nextTVD = (queriedSurveys.last?.tvd ?? 0) + 30
+        let nextMD = (surveys.last?.md ?? 0) + 30
+        let nextTVD = (surveys.last?.tvd ?? 0) + 30
         let s = SurveyStation(md: nextMD, inc: 0, azi: 0, tvd: nextTVD)
+        // Set the relationship - this makes @Query pick it up
+        s.project = project
         modelContext.insert(s)
         selectedSurveyID = s.persistentModelID
     }
 
     private func deleteSurveys(at offsets: IndexSet) {
-        let items = offsets.map { queriedSurveys[$0] }
+        let items = offsets.map { surveys[$0] }
         for s in items {
             modelContext.delete(s)
         }
-        // After deletion, the query will refresh; select the first remaining item by md
-        if let first = queriedSurveys.first {
-            selectedSurveyID = first.persistentModelID
-        } else {
-            selectedSurveyID = nil
-        }
+        // Select the first remaining item
+        selectedSurveyID = nil
     }
 
     private func fmt(_ v: Double, _ p: Int = 1) -> String { String(format: "%0.*f", p, v) }

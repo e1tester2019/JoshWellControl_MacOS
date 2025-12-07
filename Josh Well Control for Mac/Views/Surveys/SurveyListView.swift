@@ -7,21 +7,35 @@ struct SurveyListView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
 
+    // Use @Query with filter for proper CloudKit sync
+    @Query private var surveys: [SurveyStation]
+
     @State private var vm = ViewModel()
+
+    init(project: ProjectState) {
+        self._project = Bindable(wrappedValue: project)
+        let projectID = project.persistentModelID
+        _surveys = Query(
+            filter: #Predicate<SurveyStation> { survey in
+                survey.project?.persistentModelID == projectID
+            },
+            sort: [SortDescriptor(\.md)]
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             List(selection: $vm.selection) {
                 Section {
-                    ForEach(vm.sortedSurveys) { s in
-                        SurveyRow(station: s, onDelete: { vm.delete(s) }) { field in
-                            vm.onSurveyChange(field)
+                    ForEach(surveys) { s in
+                        SurveyRow(station: s, onDelete: { vm.delete(s, from: surveys) }) { field in
+                            vm.onSurveyChange(field, surveys: surveys)
                         }
                         .tag(s)
                     }
                     .onDelete { idx in
-                        let items = idx.map { vm.sortedSurveys[$0] }
-                        items.forEach { vm.delete($0) }
+                        let items = idx.map { surveys[$0] }
+                        items.forEach { vm.delete($0, from: surveys) }
                     }
                 } header: { header }
             }
@@ -30,11 +44,12 @@ struct SurveyListView: View {
             .id(vm.listVersion)
             footer
         }
-        .onAppear { vm.attach(project: project, context: modelContext); vm.recomputeTVD() }
+        .onAppear { vm.attach(project: project, context: modelContext); vm.recomputeTVD(surveys: surveys) }
+        .onChange(of: surveys.count) { vm.recomputeTVD(surveys: surveys) }
         .fileImporter(isPresented: $vm.showingImporter,
                       allowedContentTypes: [.commaSeparatedText, .plainText, .utf8PlainText],
                       allowsMultipleSelection: false) { (result: Result<[URL], Error>) in
-            vm.handleImport(result)
+            vm.handleImport(result, existingSurveys: surveys)
         }
         .alert("Import Error",
                isPresented: Binding(get: { vm.importError != nil }, set: { if !$0 { vm.importError = nil } })) {
@@ -44,7 +59,7 @@ struct SurveyListView: View {
         }
         .toolbar { toolbar }
         #if os(macOS)
-        .onDeleteCommand { if let sel = vm.selection { vm.delete(sel) } }
+        .onDeleteCommand { if let sel = vm.selection { vm.delete(sel, from: surveys) } }
         #endif
     }
 
@@ -70,8 +85,8 @@ struct SurveyListView: View {
 
     private var footer: some View {
         HStack {
-            Button("Add Station") { vm.add() }
-            Button("Clear Stations") { vm.clearStations() }
+            Button("Add Station") { vm.add(after: surveys.last) }
+            Button("Clear Stations") { vm.clearStations(surveys) }
             Spacer()
             Button("Import Surveys…") { vm.showingImporter = true }
         }
@@ -81,7 +96,7 @@ struct SurveyListView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
             Button("Delete", role: .destructive) {
-                if let sel = vm.selection { vm.delete(sel) }
+                if let sel = vm.selection { vm.delete(sel, from: surveys) }
             }
             .disabled(vm.selection == nil)
             .keyboardShortcut(.delete, modifiers: [])
@@ -95,7 +110,7 @@ extension SurveyListView {
     @Observable
     class ViewModel {
         @ObservationIgnored var modelContext: ModelContext!
-        @ObservationIgnored private(set) var project: ProjectState!
+        @ObservationIgnored private(set) var project: ProjectState?
 
         enum SurveyField { case md, inc, azi }
 
@@ -107,50 +122,14 @@ extension SurveyListView {
 
         // Attach once from the view
         func attach(project: ProjectState, context: ModelContext) {
-            if self.project == nil { self.project = project }
-            // Bind the model context for internal saves
             self.modelContext = context
+            self.project = project
         }
 
-        var sortedSurveys: [SurveyStation] {
-            guard let project else { return [] }
-            return (project.surveys ?? []).sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
-                if lhs.md != rhs.md { return lhs.md < rhs.md }
-                if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
-                if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
-                let lt = lhs.tvd ?? .infinity
-                let rt = rhs.tvd ?? .infinity
-                return lt < rt
-            }
-        }
-
-        func sortByMDAndRefresh() {
-            guard let project else { return }
-            project.surveys?.sort { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
-                if lhs.md != rhs.md { return lhs.md < rhs.md }
-                if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
-                if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
-                let lt = lhs.tvd ?? .infinity
-                let rt = rhs.tvd ?? .infinity
-                return lt < rt
-            }
-            listVersion &+= 1
-            recomputeTVD()
-            try? modelContext.save()
-        }
-
-        func recomputeTVD() {
-            guard let project else { return }
-            let ordered = (project.surveys ?? []).sorted { (lhs: SurveyStation, rhs: SurveyStation) -> Bool in
-                if lhs.md != rhs.md { return lhs.md < rhs.md }
-                if lhs.inc != rhs.inc { return lhs.inc < rhs.inc }
-                if lhs.azi != rhs.azi { return lhs.azi < rhs.azi }
-                let lt = lhs.tvd ?? .infinity
-                let rt = rhs.tvd ?? .infinity
-                return lt < rt
-            }
+        func recomputeTVD(surveys: [SurveyStation]) {
+            // Surveys are already sorted by @Query
             var last: SurveyStation? = nil
-            for s in ordered {
+            for s in surveys {
                 if let prev = last {
                     let dmd = s.md - prev.md
                     let inc1 = prev.inc * .pi / 180.0
@@ -164,52 +143,41 @@ extension SurveyListView {
                 }
                 last = s
             }
-            try? modelContext.save()
         }
 
-        func onSurveyChange(_ field: SurveyField) {
-            if case .md = field { sortByMDAndRefresh() } else { recomputeTVD() }
+        func onSurveyChange(_ field: SurveyField, surveys: [SurveyStation]) {
+            // MD changes trigger re-sort via @Query, then TVD recompute via onChange
+            if case .md = field {
+                listVersion &+= 1
+            }
+            recomputeTVD(surveys: surveys)
         }
 
-        func clearStations() {
+        func clearStations(_ surveys: [SurveyStation]) {
+            for s in surveys {
+                modelContext.delete(s)
+            }
+        }
+
+        func add(after lastSurvey: SurveyStation?) {
             guard let project else { return }
-            project.surveys?.removeAll()
-            try? modelContext.save()
-        }
-
-        func add() {
-            guard let project else { return }
-            let lastSurvey = sortedSurveys.last ?? SurveyStation(md: 0, inc: 0, azi: 0, tvd: nil)
-            let s = SurveyStation(md: lastSurvey.md + 30, inc: lastSurvey.inc, azi: lastSurvey.azi, tvd: lastSurvey.tvd)
-            project.surveys?.append(s)
+            let last = lastSurvey ?? SurveyStation(md: 0, inc: 0, azi: 0, tvd: nil)
+            let s = SurveyStation(md: last.md + 30, inc: last.inc, azi: last.azi, tvd: last.tvd)
+            // Set relationship for @Query to pick it up
+            s.project = project
             modelContext.insert(s)
-            try? modelContext.save()
-            recomputeTVD()
         }
 
-        func delete(_ s: SurveyStation) {
-            guard let project else { return }
-
-            // Determine new selection BEFORE deleting (to avoid accessing deleted objects)
-            var newSelection: SurveyStation? = selection
+        func delete(_ s: SurveyStation, from surveys: [SurveyStation]) {
+            // Clear selection if deleting selected item
             if selection?.id == s.id {
-                newSelection = nil
+                selection = nil
             }
-
-            // Remove from array
-            if let i = (project.surveys ?? []).firstIndex(where: { $0.id == s.id }) {
-                project.surveys?.remove(at: i)
-            }
-
-            // Delete from context (after determining new selection)
             modelContext.delete(s)
-            try? modelContext.save()
-
-            // Apply the new selection
-            selection = newSelection
         }
 
-        func handleImport(_ result: Result<[URL], Error>) {
+        func handleImport(_ result: Result<[URL], Error>, existingSurveys: [SurveyStation]) {
+            guard let project else { return }
             switch result {
             case .failure(let err):
                 importError = err.localizedDescription
@@ -220,7 +188,10 @@ extension SurveyListView {
                     guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
                         throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unable to decode file as UTF‑8 or ASCII."])
                     }
-                    project.surveys?.removeAll()
+                    // Clear existing surveys by deleting them
+                    for s in existingSurveys {
+                        modelContext.delete(s)
+                    }
                     if PasonParser.looksLikePason(text) {
                         try importPasonText(text, fileName: url.lastPathComponent)
                     } else {
@@ -265,13 +236,12 @@ extension SurveyListView {
 
                 let s = SurveyStation(md: mdVal ?? 0, inc: incVal ?? 0, azi: azmVal ?? 0, tvd: tvdVal)
                 s.tvd = tvdVal
-
-                created.append(s)
-                project.surveys?.append(s)
+                // Set relationship for @Query to pick it up
+                s.project = project
                 modelContext.insert(s)
+                created.append(s)
             }
-            try? modelContext.save()
-            sortByMDAndRefresh()
+            listVersion &+= 1
             selection = created.last
         }
 
@@ -319,13 +289,12 @@ extension SurveyListView {
                 s.turnRate_deg_per30m = val(idx.turn)
                 s.vsd_direction_deg = vsd
                 s.sourceFileName = fileName
-
-                project.surveys?.append(s)
+                // Set relationship for @Query to pick it up
+                s.project = project
                 modelContext.insert(s)
                 created.append(s)
             }
-            try? modelContext.save()
-            sortByMDAndRefresh()
+            listVersion &+= 1
             selection = created.last
         }
     }

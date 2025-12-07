@@ -56,14 +56,19 @@ class CementJobSimulationViewModel {
 
     /// Initial mud tank volume at start of job (m³)
     var initialTankVolume_m3: Double = 0.0 {
-        didSet { updateExpectedTankVolume() }
+        didSet {
+            syncTankVolumeToExpected()
+            updateFluidStacks()
+        }
     }
 
     /// Current tank volume reading (m³) - can be overridden by user
     var currentTankVolume_m3: Double = 0.0
 
-    /// Expected tank volume based on 1:1 return ratio
-    var expectedTankVolume_m3: Double = 0.0
+    /// Expected tank volume based on 1:1 return ratio (computed to always be accurate)
+    var expectedTankVolume_m3: Double {
+        initialTankVolume_m3 + cumulativePumpedVolume_m3
+    }
 
     /// Whether current tank volume is being auto-tracked (vs user override)
     var isAutoTrackingTankVolume: Bool = true
@@ -84,9 +89,8 @@ class CementJobSimulationViewModel {
         stageNotes[stageId] ?? ""
     }
 
-    /// Update expected tank volume based on pumped volume
-    func updateExpectedTankVolume() {
-        expectedTankVolume_m3 = initialTankVolume_m3 + cumulativePumpedVolume_m3
+    /// Sync current tank volume to expected (when auto-tracking)
+    func syncTankVolumeToExpected() {
         if isAutoTrackingTankVolume {
             currentTankVolume_m3 = expectedTankVolume_m3
         }
@@ -156,8 +160,14 @@ class CementJobSimulationViewModel {
     var stringStack: [FluidSegment] = []
     var annulusStack: [FluidSegment] = []
 
-    /// Total cement volume currently in the annulus (m³)
-    var cementReturns_m3: Double = 0.0
+    /// Simulated cement returns (cement that overflowed at surface assuming 1:1 return)
+    private var simulatedCementReturns_m3: Double = 0.0
+
+    /// Adjusted cement returns accounting for tank volume difference
+    /// If tank shows less than expected (losses), cement returns is reduced by that amount
+    var cementReturns_m3: Double {
+        return max(0, simulatedCementReturns_m3 + tankVolumeDifference_m3)
+    }
 
     // MARK: - Geometry
 
@@ -267,7 +277,7 @@ class CementJobSimulationViewModel {
             // Reset to auto-tracking for new stage
             isAutoTrackingTankVolume = true
         }
-        updateExpectedTankVolume()
+        syncTankVolumeToExpected()
         updateFluidStacks()
     }
 
@@ -278,13 +288,13 @@ class CementJobSimulationViewModel {
             currentStageIndex -= 1
             progress = 1.0
         }
-        updateExpectedTankVolume()
+        syncTankVolumeToExpected()
         updateFluidStacks()
     }
 
     func setProgress(_ newProgress: Double) {
         progress = max(0, min(1, newProgress))
-        updateExpectedTankVolume()
+        syncTankVolumeToExpected()
         updateFluidStacks()
     }
 
@@ -293,7 +303,7 @@ class CementJobSimulationViewModel {
         currentStageIndex = index
         progress = 0
         isAutoTrackingTankVolume = true
-        updateExpectedTankVolume()
+        syncTankVolumeToExpected()
         updateFluidStacks()
     }
 
@@ -404,15 +414,13 @@ class CementJobSimulationViewModel {
             }
         }
 
-        // Push expelled parcels into bottom of annulus
-        // Apply return ratio to adjust how much actually enters annulus
-        let effectiveReturnRatio = overallReturnRatio
+        // Push expelled parcels into bottom of annulus (1:1 ratio - no scaling)
+        // Cement returns will be adjusted by tank volume difference separately
         for parcel in expelledAtBit {
-            let adjustedVolume = parcel.volume_m3 * effectiveReturnRatio
-            if adjustedVolume > 0.001 {
+            if parcel.volume_m3 > 0.001 {
                 pushToBottomAndOverflowTop(
                     annulusParcels: &annulusParcels,
-                    add: VolumeParcel(volume_m3: adjustedVolume, color: parcel.color, name: parcel.name, density_kgm3: parcel.density_kgm3, isCement: parcel.isCement),
+                    add: parcel,
                     capacity_m3: annulusCapacity_m3,
                     overflowAtSurface: &overflowAtSurface
                 )
@@ -423,8 +431,8 @@ class CementJobSimulationViewModel {
         stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
         annulusStack = segmentsFromAnnulusParcels(annulusParcels, maxDepth: shoeDepth_m, geom: geom)
 
-        // Calculate cement returns volume (cement that overflowed at surface - came out of the well)
-        cementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+        // Calculate simulated cement returns volume (cement that overflowed at surface assuming 1:1 return)
+        simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
     }
 
     // MARK: - Parcel Pushing Helpers
@@ -701,16 +709,27 @@ class CementJobSimulationViewModel {
 
         lines.append("")
 
-        // Cement tops in annulus
+        // Cement tops in annulus (merge adjacent segments with same name)
         lines.append("CEMENT TOPS (THEORETICAL):")
-        let cementSegments = annulusStack.filter { $0.isCement }
+        let cementSegments = annulusStack.filter { $0.isCement }.sorted { $0.topMD_m < $1.topMD_m }
         if cementSegments.isEmpty {
             lines.append("  No cement in annulus yet")
         } else {
+            // Merge adjacent segments with same name
+            var mergedSegments: [(name: String, topMD: Double, bottomMD: Double, topTVD: Double, bottomTVD: Double)] = []
             for segment in cementSegments {
+                if let last = mergedSegments.last, last.name == segment.name, abs(last.bottomMD - segment.topMD_m) < 1.0 {
+                    // Merge with previous segment
+                    mergedSegments[mergedSegments.count - 1].bottomMD = segment.bottomMD_m
+                    mergedSegments[mergedSegments.count - 1].bottomTVD = segment.bottomTVD_m
+                } else {
+                    mergedSegments.append((segment.name, segment.topMD_m, segment.bottomMD_m, segment.topTVD_m, segment.bottomTVD_m))
+                }
+            }
+            for segment in mergedSegments {
                 lines.append("  \(segment.name):")
-                lines.append("    Top: \(Int(segment.topMD_m))m MD / \(Int(segment.topTVD_m))m TVD")
-                lines.append("    Bottom: \(Int(segment.bottomMD_m))m MD / \(Int(segment.bottomTVD_m))m TVD")
+                lines.append("    Top: \(Int(segment.topMD))m MD / \(Int(segment.topTVD))m TVD")
+                lines.append("    Bottom: \(Int(segment.bottomMD))m MD / \(Int(segment.bottomTVD))m TVD")
             }
         }
 
@@ -731,8 +750,7 @@ class CementJobSimulationViewModel {
         lines.append("")
 
         // Cement returns
-        lines.append("CEMENT RETURNS:")
-        lines.append("  Total cement in annulus: \(String(format: "%.2f", cementReturns_m3))m³")
+        lines.append("Cement returns: \(String(format: "%.2f", cementReturns_m3))m³")
 
         lines.append("")
 
@@ -748,5 +766,133 @@ class CementJobSimulationViewModel {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    /// Generate prose-style job report summary for pasting into reports
+    func generateJobReportText(jobName: String, casingType: String) -> String {
+        var parts: [String] = []
+
+        // Header
+        parts.append("\(casingType) cement job")
+
+        // Track total displacement
+        var totalDisplacement_m3: Double = 0
+
+        for stage in stages {
+            if stage.isOperation {
+                guard let sourceStage = stage.sourceStage else { continue }
+                let opType = stage.operationType
+
+                switch opType {
+                case .pressureTestLines:
+                    if let pressure = sourceStage.pressure_MPa {
+                        parts.append("pressure test lines to \(String(format: "%.1f", pressure))MPa")
+                    } else {
+                        parts.append("pressure test lines")
+                    }
+
+                case .tripSet:
+                    if let pressure = sourceStage.pressure_MPa {
+                        parts.append("trips set at \(String(format: "%.1f", pressure))MPa")
+                    } else {
+                        parts.append("trips set")
+                    }
+
+                case .plugDrop:
+                    if let volume = sourceStage.operationVolume_L, volume > 0 {
+                        parts.append("lines pumped out with \(String(format: "%.1f", volume / 1000))m³, drop plug")
+                    } else {
+                        parts.append("drop plug")
+                    }
+
+                case .bumpPlug:
+                    if let overPressure = sourceStage.overPressure_MPa, let finalPressure = sourceStage.pressure_MPa {
+                        parts.append("bumped plug \(String(format: "%.1f", overPressure))MPa over FCP to \(String(format: "%.1f", finalPressure))MPa")
+                    } else if let finalPressure = sourceStage.pressure_MPa {
+                        parts.append("bumped plug to \(String(format: "%.1f", finalPressure))MPa")
+                    } else {
+                        parts.append("bumped plug")
+                    }
+
+                case .pressureTestCasing:
+                    var text = "pressure tested casing"
+                    if let pressure = sourceStage.pressure_MPa {
+                        text += " to \(String(format: "%.1f", pressure))MPa"
+                    }
+                    if let duration = sourceStage.duration_min {
+                        text += " (\(Int(duration))min)"
+                    }
+                    // Add notes if present (for "ok" or other results)
+                    if !sourceStage.notes.isEmpty {
+                        text += " \(sourceStage.notes)"
+                    }
+                    parts.append(text)
+
+                case .floatCheck:
+                    if sourceStage.floatsClosed {
+                        parts.append("floats held")
+                    } else {
+                        parts.append("floats did not hold")
+                    }
+
+                case .bleedBack:
+                    if let volume = sourceStage.operationVolume_L, volume > 0 {
+                        parts.append("bled back \(Int(volume))L")
+                    } else {
+                        parts.append("bled back")
+                    }
+
+                case .rigOut:
+                    parts.append(stage.name)
+
+                case .other, .none:
+                    if !stage.name.isEmpty {
+                        parts.append(stage.name)
+                    }
+                }
+            } else {
+                // Pump stage
+                let volume = stage.volume_m3
+                let density = stage.density_kgm3
+                let name = stage.name
+
+                switch stage.stageType {
+                case .preFlush, .spacer:
+                    parts.append("pump \(String(format: "%.1f", volume)) m³ \(name) at \(Int(density))kg/m³")
+
+                case .leadCement:
+                    if let sourceStage = stage.sourceStage, let tonnage = sourceStage.tonnage_t {
+                        parts.append("pump lead cement \(String(format: "%.1f", volume)) m³ (\(String(format: "%.2f", tonnage))t) \(name) at \(Int(density))kg/m³")
+                    } else {
+                        parts.append("pump lead cement \(String(format: "%.1f", volume)) m³ \(name) at \(Int(density))kg/m³")
+                    }
+
+                case .tailCement:
+                    if let sourceStage = stage.sourceStage, let tonnage = sourceStage.tonnage_t {
+                        parts.append("pump tail cement \(String(format: "%.1f", volume)) m³ (\(String(format: "%.2f", tonnage))t) \(name) at \(Int(density))kg/m³")
+                    } else {
+                        parts.append("pump tail cement \(String(format: "%.1f", volume)) m³ \(name) at \(Int(density))kg/m³")
+                    }
+
+                case .mudDisplacement:
+                    totalDisplacement_m3 += volume
+                    parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ \(name)")
+
+                case .displacement:
+                    totalDisplacement_m3 += volume
+                    parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ water")
+
+                case .operation:
+                    break // Handled above
+                }
+            }
+        }
+
+        // Add total displacement at end if there was any
+        if totalDisplacement_m3 > 0.01 {
+            parts.append("total displacement \(String(format: "%.2f", totalDisplacement_m3))m³ (\(Int(totalDisplacement_m3 * 1000))L)")
+        }
+
+        return parts.joined(separator: ", ") + "."
     }
 }
