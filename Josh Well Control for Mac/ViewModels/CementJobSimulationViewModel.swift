@@ -20,6 +20,31 @@ class CementJobSimulationViewModel {
     var boundProject: ProjectState?
     var boundJob: CementJob?
 
+    // MARK: - Loss Zone
+
+    /// Defines a loss zone at a specific depth where losses can occur
+    struct LossZone {
+        let depth_m: Double          // MD of the loss zone
+        let tvd_m: Double            // TVD of the loss zone
+        let frac_kPa: Double         // Fracture pressure at this depth (kPa)
+        let fracGradient_kPa_per_m: Double  // Frac gradient (kPa/m)
+        var isActive: Bool = true    // Whether to use this loss zone in simulation
+
+        /// Frac gradient as EMW (kg/m³)
+        var fracEMW_kg_m3: Double {
+            fracGradient_kPa_per_m * 1000.0 / 9.80665
+        }
+    }
+
+    /// Active loss zones for this simulation (sorted by depth, deepest first)
+    var lossZones: [LossZone] = []
+
+    /// Total volume lost to formation during simulation (m³)
+    var totalLossVolume_m3: Double = 0.0
+
+    /// Debug info for loss zone state
+    var lossZoneDebugInfo: String = ""
+
     // MARK: - Simulation Stages
 
     struct SimulationStage: Identifiable {
@@ -89,10 +114,10 @@ class CementJobSimulationViewModel {
         stageNotes[stageId] ?? ""
     }
 
-    /// Sync current tank volume to expected (when auto-tracking)
+    /// Sync current tank volume to expected minus losses (when auto-tracking)
     func syncTankVolumeToExpected() {
         if isAutoTrackingTankVolume {
-            currentTankVolume_m3 = expectedTankVolume_m3
+            currentTankVolume_m3 = expectedTankVolume_m3 - totalLossVolume_m3
         }
     }
 
@@ -320,10 +345,10 @@ class CementJobSimulationViewModel {
         updateFluidStacks()
     }
 
-    /// Reset tank volume to expected (resume auto-tracking)
+    /// Reset tank volume to expected minus losses (resume auto-tracking)
     func resetTankVolumeToExpected() {
         isAutoTrackingTankVolume = true
-        currentTankVolume_m3 = expectedTankVolume_m3
+        currentTankVolume_m3 = expectedTankVolume_m3 - totalLossVolume_m3
         if let stage = currentStage {
             tankReadings.removeValue(forKey: stage.id)
         }
@@ -358,6 +383,121 @@ class CementJobSimulationViewModel {
         return currentTankVolume_m3 - expectedTankVolume_m3
     }
 
+    // MARK: - Loss Zone Setup
+
+    /// Add a loss zone at a specific MD depth. Fetches frac pressure from project's pressure window.
+    func addLossZone(atMD depth_m: Double) {
+        guard let project = boundProject else { return }
+        let tvd = project.tvd(of: depth_m)
+        guard let frac_kPa = project.window.frac_kPa(atTVD: tvd) else { return }
+
+        // Calculate gradient (kPa/m of TVD)
+        let fracGradient = tvd > 0 ? frac_kPa / tvd : 0
+
+        let zone = LossZone(
+            depth_m: depth_m,
+            tvd_m: tvd,
+            frac_kPa: frac_kPa,
+            fracGradient_kPa_per_m: fracGradient
+        )
+        lossZones.append(zone)
+        // Keep sorted deepest first (closest to bit first)
+        lossZones.sort { $0.depth_m > $1.depth_m }
+    }
+
+    /// Clear all loss zones
+    func clearLossZones() {
+        lossZones.removeAll()
+    }
+
+    // MARK: - Loss Zone Pressure Calculations
+
+    /// Calculate hydrostatic pressure (kPa) of fluid above a loss zone depth
+    /// Uses fast approximation: assumes linear volume-to-length ratio for performance
+    private func hydrostaticPressureAboveLossZone(
+        lossZoneDepth_m: Double,
+        aboveZoneParcels: [VolumeParcel],
+        aboveZoneCapacity_m3: Double,
+        geom: ProjectGeometryService
+    ) -> Double {
+        guard let project = boundProject else { return 0 }
+
+        // Fast approximation: use average length-per-volume ratio
+        // This avoids expensive binary search for each parcel
+        let totalLength = lossZoneDepth_m  // From surface to loss zone
+        let avgLengthPerVolume = totalLength / max(aboveZoneCapacity_m3, 0.001)
+
+        // Get TVD ratio (for deviated wells)
+        let lossZoneTVD = project.tvd(of: lossZoneDepth_m)
+        let tvdRatio = lossZoneTVD / max(lossZoneDepth_m, 1.0)
+
+        let g = 9.80665
+        var totalHP_kPa = 0.0
+        var usedVolume: Double = 0.0
+
+        for parcel in aboveZoneParcels {
+            guard parcel.volume_m3 > 1e-9 else { continue }
+
+            // Approximate TVD height from volume
+            let length = parcel.volume_m3 * avgLengthPerVolume
+            let tvdHeight = length * tvdRatio
+
+            // HP contribution = ρ × g × h (in kPa)
+            totalHP_kPa += (parcel.density_kgm3 * g * tvdHeight) / 1000.0
+            usedVolume += parcel.volume_m3
+        }
+
+        return totalHP_kPa
+    }
+
+    /// Calculate the volume that can be added above the loss zone before the valve opens
+    /// Uses fast analytical calculation based on density difference
+    private func volumeToTransition(
+        lossZone: LossZone,
+        aboveZoneParcels: [VolumeParcel],
+        newParcelDensity: Double,
+        aboveZoneCapacity: Double,
+        currentHP: Double,
+        geom: ProjectGeometryService
+    ) -> Double {
+        guard let project = boundProject else { return 0 }
+
+        // If already at or above frac, no volume can pass
+        if currentHP >= lossZone.frac_kPa {
+            return 0
+        }
+
+        // Fast analytical calculation:
+        // When new fluid enters, it displaces old fluid (which overflows to surface)
+        // The HP change depends on density difference between new and displaced fluid
+        let margin_kPa = lossZone.frac_kPa - currentHP
+
+        // Get the density of fluid that will be displaced (top of the stack = last parcel)
+        let displacedDensity = aboveZoneParcels.last?.density_kgm3 ?? 1000.0
+
+        // Net density change per unit volume
+        let densityDiff = newParcelDensity - displacedDensity
+
+        // If new fluid is lighter or same, valve won't open from this fluid
+        if densityDiff <= 0 {
+            return Double.greatestFiniteMagnitude  // Can add unlimited amount
+        }
+
+        // Calculate volume that causes margin_kPa pressure increase
+        // HP = ρ × g × h, and h ≈ V × (L / V_total) × tvdRatio
+        let lossZoneTVD = project.tvd(of: lossZone.depth_m)
+        let tvdRatio = lossZoneTVD / max(lossZone.depth_m, 1.0)
+        let lengthPerVolume = lossZone.depth_m / max(aboveZoneCapacity, 0.001)
+
+        let g = 9.80665
+        // ΔHP = Δρ × g × Δh / 1000
+        // margin = densityDiff × g × (V × lengthPerVolume × tvdRatio) / 1000
+        // V = margin × 1000 / (densityDiff × g × lengthPerVolume × tvdRatio)
+        let volumeToFrac = (margin_kPa * 1000.0) / (densityDiff * g * lengthPerVolume * tvdRatio)
+
+        return max(0, volumeToFrac)
+    }
+
     // MARK: - Fluid Stack Calculation
 
     func updateFluidStacks() {
@@ -378,13 +518,7 @@ class CementJobSimulationViewModel {
             VolumeParcel(volume_m3: stringCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
         ]
 
-        // Initialize annulus with active mud (ordered deep -> shallow)
-        var annulusParcels: [VolumeParcel] = [
-            VolumeParcel(volume_m3: annulusCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
-        ]
-
         var expelledAtBit: [VolumeParcel] = []
-        var overflowAtSurface: [VolumeParcel] = []
 
         // Collect all pumped volumes in chronological order
         for i in 0..<stages.count {
@@ -414,25 +548,213 @@ class CementJobSimulationViewModel {
             }
         }
 
-        // Push expelled parcels into bottom of annulus (1:1 ratio - no scaling)
-        // Cement returns will be adjusted by tank volume difference separately
-        for parcel in expelledAtBit {
-            if parcel.volume_m3 > 0.001 {
+        // Get the active loss zone (for now, just the first/deepest one)
+        let activeLossZone = lossZones.first(where: { $0.isActive })
+
+        if let lossZone = activeLossZone {
+            // --- Loss Zone Logic ---
+            // Split annulus into two sections: below loss zone and above loss zone
+
+            let belowZoneCapacity_m3 = geom.volumeInAnnulus_m3(lossZone.depth_m, shoeDepth_m)
+            let aboveZoneCapacity_m3 = geom.volumeInAnnulus_m3(0, lossZone.depth_m)
+
+            // Initialize both sections with active mud
+            var belowZoneParcels: [VolumeParcel] = [
+                VolumeParcel(volume_m3: belowZoneCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+            ]
+            var aboveZoneParcels: [VolumeParcel] = [
+                VolumeParcel(volume_m3: aboveZoneCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+            ]
+
+            var lostToFormation: [VolumeParcel] = []
+            var overflowAtSurface: [VolumeParcel] = []
+            var debugLines: [String] = []
+
+            // Calculate initial HP (before any pumping)
+            let initialHP = hydrostaticPressureAboveLossZone(
+                lossZoneDepth_m: lossZone.depth_m,
+                aboveZoneParcels: aboveZoneParcels,
+                aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                geom: geom
+            )
+
+            debugLines.append("Loss Zone @ \(String(format: "%.0f", lossZone.depth_m))m MD (TVD: \(String(format: "%.0f", project.tvd(of: lossZone.depth_m)))m)")
+            debugLines.append("Frac pressure: \(String(format: "%.0f", lossZone.frac_kPa)) kPa")
+            debugLines.append("Initial HP: \(String(format: "%.0f", initialHP)) kPa")
+            debugLines.append("Margin: \(String(format: "%.0f", lossZone.frac_kPa - initialHP)) kPa")
+            debugLines.append("Below zone: \(String(format: "%.1f", belowZoneCapacity_m3)) m³")
+            debugLines.append("Above zone: \(String(format: "%.1f", aboveZoneCapacity_m3)) m³")
+            debugLines.append("---")
+
+            // Process each expelled parcel through the loss zone valve
+            for parcel in expelledAtBit {
+                guard parcel.volume_m3 > 0.001 else { continue }
+
+                // First, push into below-zone section
+                var overflowFromBelow: [VolumeParcel] = []
                 pushToBottomAndOverflowTop(
-                    annulusParcels: &annulusParcels,
+                    annulusParcels: &belowZoneParcels,
                     add: parcel,
-                    capacity_m3: annulusCapacity_m3,
-                    overflowAtSurface: &overflowAtSurface
+                    capacity_m3: belowZoneCapacity_m3,
+                    overflowAtSurface: &overflowFromBelow
                 )
+
+                // Any overflow from below-zone arrives at the loss zone valve
+                for overflow in overflowFromBelow {
+                    guard overflow.volume_m3 > 0.001 else { continue }
+
+                    // Check current valve state ONCE per parcel for performance
+                    let currentHP = hydrostaticPressureAboveLossZone(
+                        lossZoneDepth_m: lossZone.depth_m,
+                        aboveZoneParcels: aboveZoneParcels,
+                        aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                        geom: geom
+                    )
+                    let valveOpen = currentHP >= lossZone.frac_kPa
+
+                    if valveOpen {
+                        // Valve is open - all goes to losses
+                        lostToFormation.append(VolumeParcel(
+                            volume_m3: overflow.volume_m3,
+                            color: overflow.color,
+                            name: overflow.name,
+                            density_kgm3: overflow.density_kgm3,
+                            isCement: overflow.isCement
+                        ))
+                        debugLines.append("OPEN: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → loss (HP=\(String(format: "%.0f", currentHP)))")
+                    } else {
+                        // Valve is closed - calculate how much can pass before it opens
+                        let volumeToOpen = volumeToTransition(
+                            lossZone: lossZone,
+                            aboveZoneParcels: aboveZoneParcels,
+                            newParcelDensity: overflow.density_kgm3,
+                            aboveZoneCapacity: aboveZoneCapacity_m3,
+                            currentHP: currentHP,
+                            geom: geom
+                        )
+
+                        if volumeToOpen <= 0.01 {
+                            // Valve about to open - send all to losses
+                            lostToFormation.append(VolumeParcel(
+                                volume_m3: overflow.volume_m3,
+                                color: overflow.color,
+                                name: overflow.name,
+                                density_kgm3: overflow.density_kgm3,
+                                isCement: overflow.isCement
+                            ))
+                            debugLines.append("OPENING: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → loss")
+                        } else if volumeToOpen >= overflow.volume_m3 - 0.01 {
+                            // Entire parcel can pass without opening valve
+                            var surfaceOverflow: [VolumeParcel] = []
+                            pushToBottomAndOverflowTop(
+                                annulusParcels: &aboveZoneParcels,
+                                add: overflow,
+                                capacity_m3: aboveZoneCapacity_m3,
+                                overflowAtSurface: &surfaceOverflow
+                            )
+                            overflowAtSurface.append(contentsOf: surfaceOverflow)
+                            debugLines.append("CLOSED: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → above (HP=\(String(format: "%.0f", currentHP)))")
+                        } else {
+                            // Partial transfer - some passes, rest goes to losses
+                            var surfaceOverflow: [VolumeParcel] = []
+                            pushToBottomAndOverflowTop(
+                                annulusParcels: &aboveZoneParcels,
+                                add: VolumeParcel(
+                                    volume_m3: volumeToOpen,
+                                    color: overflow.color,
+                                    name: overflow.name,
+                                    density_kgm3: overflow.density_kgm3,
+                                    isCement: overflow.isCement
+                                ),
+                                capacity_m3: aboveZoneCapacity_m3,
+                                overflowAtSurface: &surfaceOverflow
+                            )
+                            overflowAtSurface.append(contentsOf: surfaceOverflow)
+
+                            let lossVolume = overflow.volume_m3 - volumeToOpen
+                            lostToFormation.append(VolumeParcel(
+                                volume_m3: lossVolume,
+                                color: overflow.color,
+                                name: overflow.name,
+                                density_kgm3: overflow.density_kgm3,
+                                isCement: overflow.isCement
+                            ))
+                            debugLines.append("SPLIT: \(String(format: "%.2f", volumeToOpen)) m³ → above, \(String(format: "%.2f", lossVolume)) m³ → loss")
+                        }
+                    }
+                }
             }
+
+            // Calculate final HP and valve state for debug
+            let finalHP = hydrostaticPressureAboveLossZone(
+                lossZoneDepth_m: lossZone.depth_m,
+                aboveZoneParcels: aboveZoneParcels,
+                aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                geom: geom
+            )
+
+            // Calculate total losses
+            totalLossVolume_m3 = lostToFormation.reduce(0) { $0 + $1.volume_m3 }
+
+            // Calculate above-zone fluid breakdown
+            let aboveZoneCement = aboveZoneParcels.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+            let aboveZoneTotal = aboveZoneParcels.reduce(0.0) { $0 + $1.volume_m3 }
+
+            debugLines.append("---")
+            debugLines.append("FINAL STATE:")
+            debugLines.append("HP: \(String(format: "%.0f", finalHP)) kPa (frac: \(String(format: "%.0f", lossZone.frac_kPa)))")
+            debugLines.append("Valve: \(finalHP >= lossZone.frac_kPa ? "OPEN" : "CLOSED")")
+            debugLines.append("Above zone: \(String(format: "%.2f", aboveZoneTotal)) m³ (cement: \(String(format: "%.2f", aboveZoneCement)) m³)")
+            debugLines.append("Losses: \(String(format: "%.2f", totalLossVolume_m3)) m³")
+
+            // Combine the two sections for visualization
+            // Above zone parcels come first (they're at shallower depth)
+            // Below zone parcels come after (they're at deeper depth)
+            var combinedAnnulusParcels: [VolumeParcel] = []
+
+            // Add below-zone parcels first (they're at the bottom of the annulus)
+            combinedAnnulusParcels.append(contentsOf: belowZoneParcels)
+
+            // Add above-zone parcels (they're above the loss zone)
+            combinedAnnulusParcels.append(contentsOf: aboveZoneParcels)
+
+            // Convert to segments - need special handling for two-section annulus
+            stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
+            annulusStack = segmentsFromTwoSectionAnnulus(
+                belowZoneParcels: belowZoneParcels,
+                aboveZoneParcels: aboveZoneParcels,
+                lossZoneDepth_m: lossZone.depth_m,
+                shoeDepth_m: shoeDepth_m,
+                geom: geom
+            )
+
+            simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+            lossZoneDebugInfo = debugLines.joined(separator: "\n")
+
+        } else {
+            // --- No Loss Zone - Original Simple Logic ---
+            var annulusParcels: [VolumeParcel] = [
+                VolumeParcel(volume_m3: annulusCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+            ]
+            var overflowAtSurface: [VolumeParcel] = []
+
+            for parcel in expelledAtBit {
+                if parcel.volume_m3 > 0.001 {
+                    pushToBottomAndOverflowTop(
+                        annulusParcels: &annulusParcels,
+                        add: parcel,
+                        capacity_m3: annulusCapacity_m3,
+                        overflowAtSurface: &overflowAtSurface
+                    )
+                }
+            }
+
+            stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
+            annulusStack = segmentsFromAnnulusParcels(annulusParcels, maxDepth: shoeDepth_m, geom: geom)
+            simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+            totalLossVolume_m3 = 0
+            lossZoneDebugInfo = "No active loss zones"
         }
-
-        // Convert parcel stacks to MD segments
-        stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
-        annulusStack = segmentsFromAnnulusParcels(annulusParcels, maxDepth: shoeDepth_m, geom: geom)
-
-        // Calculate simulated cement returns volume (cement that overflowed at surface assuming 1:1 return)
-        simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
     }
 
     // MARK: - Parcel Pushing Helpers
@@ -581,6 +903,93 @@ class CementJobSimulationViewModel {
             usedFromBottom += length
 
             if usedFromBottom >= maxDepth - 1e-9 { break }
+        }
+
+        // Sort shallow to deep for display
+        return segments.sorted { $0.topMD_m < $1.topMD_m }
+    }
+
+    /// Convert two-section annulus (below and above loss zone) into MD segments for visualization
+    private func segmentsFromTwoSectionAnnulus(
+        belowZoneParcels: [VolumeParcel],
+        aboveZoneParcels: [VolumeParcel],
+        lossZoneDepth_m: Double,
+        shoeDepth_m: Double,
+        geom: ProjectGeometryService
+    ) -> [FluidSegment] {
+        var segments: [FluidSegment] = []
+
+        // Process below-zone parcels (from shoe upward to loss zone)
+        var usedFromBottom: Double = 0.0
+        let belowZoneLength = shoeDepth_m - lossZoneDepth_m
+
+        for parcel in belowZoneParcels {
+            let v = max(0.0, parcel.volume_m3)
+            guard v > 1e-12 else { continue }
+
+            let length = lengthForAnnulusVolumeFromBottom(
+                volume: v,
+                bottomMD: shoeDepth_m,
+                usedFromBottom: usedFromBottom,
+                geom: geom
+            )
+            if length <= 1e-12 { continue }
+
+            let topMD = max(lossZoneDepth_m, shoeDepth_m - usedFromBottom - length)
+            let botMD = max(lossZoneDepth_m, shoeDepth_m - usedFromBottom)
+
+            if botMD > topMD + 0.5 {
+                var segment = FluidSegment(
+                    topMD_m: topMD,
+                    bottomMD_m: botMD,
+                    color: parcel.color,
+                    name: parcel.name,
+                    density_kgm3: parcel.density_kgm3,
+                    isCement: parcel.isCement
+                )
+                segment.topTVD_m = tvd(of: topMD)
+                segment.bottomTVD_m = tvd(of: botMD)
+                segments.append(segment)
+            }
+            usedFromBottom += length
+
+            if usedFromBottom >= belowZoneLength - 1e-9 { break }
+        }
+
+        // Process above-zone parcels (from loss zone upward to surface)
+        usedFromBottom = 0.0
+
+        for parcel in aboveZoneParcels {
+            let v = max(0.0, parcel.volume_m3)
+            guard v > 1e-12 else { continue }
+
+            let length = lengthForAnnulusVolumeFromBottom(
+                volume: v,
+                bottomMD: lossZoneDepth_m,
+                usedFromBottom: usedFromBottom,
+                geom: geom
+            )
+            if length <= 1e-12 { continue }
+
+            let topMD = max(0.0, lossZoneDepth_m - usedFromBottom - length)
+            let botMD = max(0.0, lossZoneDepth_m - usedFromBottom)
+
+            if botMD > topMD + 0.5 {
+                var segment = FluidSegment(
+                    topMD_m: topMD,
+                    bottomMD_m: botMD,
+                    color: parcel.color,
+                    name: parcel.name,
+                    density_kgm3: parcel.density_kgm3,
+                    isCement: parcel.isCement
+                )
+                segment.topTVD_m = tvd(of: topMD)
+                segment.bottomTVD_m = tvd(of: botMD)
+                segments.append(segment)
+            }
+            usedFromBottom += length
+
+            if usedFromBottom >= lossZoneDepth_m - 1e-9 { break }
         }
 
         // Sort shallow to deep for display

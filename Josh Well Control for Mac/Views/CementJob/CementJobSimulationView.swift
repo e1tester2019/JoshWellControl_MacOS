@@ -20,6 +20,8 @@ struct CementJobSimulationView: View {
     @Bindable var job: CementJob
     @State private var viewModel = CementJobSimulationViewModel()
     @State private var showCopiedAlert = false
+    @State private var lossZoneDepthInput: Double = 0
+    @State private var showLossZoneDebug = false
 
     var body: some View {
         #if os(macOS)
@@ -33,6 +35,7 @@ struct CementJobSimulationView: View {
                 // Left panel: Stage list and controls
                 VStack(spacing: 12) {
                     tankVolumeSection
+                    lossZoneSection
                     stageListSection
                     returnSummarySection
                 }
@@ -335,6 +338,137 @@ struct CementJobSimulationView: View {
                         Text("Manual override active")
                             .font(.caption)
                             .foregroundColor(.orange)
+                    }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    // MARK: - Loss Zone Section
+
+    private var lossZoneSection: some View {
+        GroupBox("Loss Zone Simulation") {
+            VStack(alignment: .leading, spacing: 12) {
+                // Add loss zone input
+                HStack {
+                    Text("Depth:")
+                        .frame(width: 80, alignment: .leading)
+                    TextField("MD", value: $lossZoneDepthInput, format: .number.precision(.fractionLength(0)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                    Text("m MD")
+                        .foregroundColor(.secondary)
+
+                    Button(action: {
+                        if lossZoneDepthInput > 0 && lossZoneDepthInput < viewModel.shoeDepth_m {
+                            viewModel.addLossZone(atMD: lossZoneDepthInput)
+                        }
+                    }) {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(lossZoneDepthInput <= 0 || lossZoneDepthInput >= viewModel.shoeDepth_m)
+                }
+
+                // Active loss zones
+                if viewModel.lossZones.isEmpty {
+                    Text("No loss zones configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(viewModel.lossZones.enumerated()), id: \.offset) { index, zone in
+                        HStack(alignment: .top) {
+                            Image(systemName: zone.isActive ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(zone.isActive ? .green : .secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("\(Int(zone.depth_m))m MD")
+                                        .fontWeight(.medium)
+                                    Text("(\(Int(zone.tvd_m))m TVD)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                // Frac pressure and gradient
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("Frac Pressure")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("\(String(format: "%.0f", zone.frac_kPa)) kPa")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.red)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("Gradient")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("\(String(format: "%.2f", zone.fracGradient_kPa_per_m)) kPa/m")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("EMW")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("\(String(format: "%.0f", zone.fracEMW_kg_m3)) kg/m³")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+                                }
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                viewModel.lossZones.remove(at: index)
+                                viewModel.updateFluidStacks()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                // Show losses info if any
+                if viewModel.totalLossVolume_m3 > 0.01 {
+                    Divider()
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Formation Losses:")
+                        Spacer()
+                        Text(String(format: "%.2f m³", viewModel.totalLossVolume_m3))
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                            .monospacedDigit()
+                    }
+                }
+
+                // Debug toggle
+                if !viewModel.lossZones.isEmpty {
+                    Divider()
+                    Toggle("Show Debug", isOn: $showLossZoneDebug)
+                        .font(.caption)
+
+                    if showLossZoneDebug {
+                        ScrollView {
+                            Text(viewModel.lossZoneDebugInfo)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 150)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(4)
                     }
                 }
             }
@@ -798,15 +932,18 @@ struct CementJobSimulationView: View {
 
                     Spacer().frame(width: 16)
 
-                    // Cement tops labels
+                    // Fluid tops labels with callout lines
                     VStack(spacing: 8) {
-                        Text("Cement Tops")
+                        Text("Fluid Tops")
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 28)
                         fluidTopLabels(segments: viewModel.annulusStack, maxDepth: maxDepth, height: columnHeight)
-                            .frame(width: 140)
+                            .padding(.leading, 28)  // Space for callout lines
                     }
+                    .frame(width: 170)
 
                     Spacer()
 
@@ -888,32 +1025,101 @@ struct CementJobSimulationView: View {
     }
 
     private func fluidTopLabels(segments: [CementJobSimulationViewModel.FluidSegment], maxDepth: Double, height: CGFloat) -> some View {
-        let cementSegments = segments.filter { $0.isCement }
+        // Find actual fluid transitions (where fluid type changes)
+        let sortedSegments = segments.sorted { $0.topMD_m < $1.topMD_m }
+
+        // Build list of fluid transitions to display
+        var transitions: [(name: String, color: Color, md: Double, tvd: Double, isTop: Bool)] = []
+        var lastFluidName: String? = nil
+
+        for (index, segment) in sortedSegments.enumerated() {
+            let isLastSegment = index == sortedSegments.count - 1
+
+            if segment.name != lastFluidName {
+                transitions.append((
+                    name: segment.name,
+                    color: segment.color,
+                    md: segment.topMD_m,
+                    tvd: segment.topTVD_m,
+                    isTop: true
+                ))
+            }
+
+            if segment.isCement && !isLastSegment {
+                let nextSegment = sortedSegments[index + 1]
+                if nextSegment.name != segment.name {
+                    transitions.append((
+                        name: "\(segment.name) BTM",
+                        color: segment.color,
+                        md: segment.bottomMD_m,
+                        tvd: segment.bottomTVD_m,
+                        isTop: false
+                    ))
+                }
+            }
+
+            lastFluidName = segment.name
+        }
+
+        // Space out labels to avoid overlap (minimum 32pt apart)
+        let minSpacing: CGFloat = 32
+        var labelYPositions: [CGFloat] = []
+        for transition in transitions {
+            let naturalY = CGFloat(transition.md / maxDepth) * height
+            var adjustedY = naturalY
+
+            // Push down if overlapping with previous label
+            if let lastY = labelYPositions.last {
+                if adjustedY < lastY + minSpacing {
+                    adjustedY = lastY + minSpacing
+                }
+            }
+            // Don't go past bottom
+            adjustedY = min(adjustedY, height - 20)
+            labelYPositions.append(adjustedY)
+        }
 
         return Canvas { context, size in
             guard maxDepth > 0 else { return }
 
-            for segment in cementSegments {
-                let y = CGFloat(segment.topMD_m / maxDepth) * size.height
+            for (index, transition) in transitions.enumerated() {
+                let actualY = CGFloat(transition.md / maxDepth) * size.height
+                let labelY = labelYPositions[index]
 
-                // Draw segment name
-                let nameText = Text(segment.name)
+                // Draw callout line from label to actual position
+                if abs(labelY - actualY) > 2 {
+                    var path = Path()
+                    path.move(to: CGPoint(x: 0, y: labelY + 6))
+                    path.addLine(to: CGPoint(x: -8, y: labelY + 6))
+                    path.addLine(to: CGPoint(x: -12, y: actualY))
+                    path.addLine(to: CGPoint(x: -20, y: actualY))
+                    context.stroke(path, with: .color(transition.color.opacity(0.6)), lineWidth: 1)
+
+                    // Small circle at actual position
+                    let circle = Path(ellipseIn: CGRect(x: -23, y: actualY - 3, width: 6, height: 6))
+                    context.fill(circle, with: .color(transition.color))
+                } else {
+                    // Just a short line
+                    var path = Path()
+                    path.move(to: CGPoint(x: 0, y: actualY))
+                    path.addLine(to: CGPoint(x: -20, y: actualY))
+                    context.stroke(path, with: .color(transition.color.opacity(0.6)), lineWidth: 1)
+                    let circle = Path(ellipseIn: CGRect(x: -23, y: actualY - 3, width: 6, height: 6))
+                    context.fill(circle, with: .color(transition.color))
+                }
+
+                // Draw fluid name
+                let nameText = Text(transition.name)
                     .font(.caption2)
                     .fontWeight(.medium)
-                    .foregroundColor(segment.color)
-                context.draw(context.resolve(nameText), at: CGPoint(x: 4, y: y), anchor: .topLeading)
+                    .foregroundColor(transition.color)
+                context.draw(context.resolve(nameText), at: CGPoint(x: 2, y: labelY), anchor: .topLeading)
 
-                // Draw MD
-                let mdText = Text("MD: \(Int(segment.topMD_m))m")
+                // Draw MD/TVD on same line
+                let depthText = Text("\(Int(transition.md))m / \(Int(transition.tvd))m")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                context.draw(context.resolve(mdText), at: CGPoint(x: 4, y: y + 12), anchor: .topLeading)
-
-                // Draw TVD
-                let tvdText = Text("TVD: \(Int(segment.topTVD_m))m")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                context.draw(context.resolve(tvdText), at: CGPoint(x: 4, y: y + 24), anchor: .topLeading)
+                context.draw(context.resolve(depthText), at: CGPoint(x: 2, y: labelY + 12), anchor: .topLeading)
             }
         }
         .frame(height: height)
@@ -1337,21 +1543,45 @@ struct CementJobSimulationView: View {
     }
 
     private var cementTopsDisplayIOS: some View {
-        let cementSegments = viewModel.annulusStack.filter { $0.isCement }
+        // Find actual fluid transitions (where fluid type changes)
+        let sortedSegments = viewModel.annulusStack.sorted { $0.topMD_m < $1.topMD_m }
 
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("Cement Tops")
+        var transitions: [(name: String, color: Color, md: Double, tvd: Double)] = []
+        var lastFluidName: String? = nil
+
+        for (index, segment) in sortedSegments.enumerated() {
+            let isLastSegment = index == sortedSegments.count - 1
+
+            if segment.name != lastFluidName {
+                transitions.append((segment.name, segment.color, segment.topMD_m, segment.topTVD_m))
+            }
+
+            if segment.isCement && !isLastSegment {
+                let nextSegment = sortedSegments[index + 1]
+                if nextSegment.name != segment.name {
+                    transitions.append(("\(segment.name) BTM", segment.color, segment.bottomMD_m, segment.bottomTVD_m))
+                }
+            }
+
+            lastFluidName = segment.name
+        }
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Fluid Tops")
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
 
-            ForEach(cementSegments) { segment in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(segment.name)
-                        .font(.caption)
+            ForEach(Array(transitions.enumerated()), id: \.offset) { _, transition in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(transition.color)
+                        .frame(width: 6, height: 6)
+                    Text(transition.name)
+                        .font(.caption2)
                         .fontWeight(.medium)
-                        .foregroundColor(segment.color)
-                    Text("MD: \(Int(segment.topMD_m))m  TVD: \(Int(segment.topTVD_m))m")
+                        .foregroundColor(transition.color)
+                    Text("\(Int(transition.md))m / \(Int(transition.tvd))m")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
