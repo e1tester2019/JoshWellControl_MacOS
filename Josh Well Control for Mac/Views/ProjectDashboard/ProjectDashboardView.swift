@@ -21,18 +21,6 @@ struct ProjectDashboardView: View {
     @State private var viewmodel: ViewModel
     @State private var newTransferToEdit: MaterialTransfer?
 
-    // DEBUG: basic "cloud sync" trigger + status
-    @State private var showMudSyncAlert: Bool = false
-    @State private var mudSyncStatusTitle: String = ""
-    @State private var mudSyncStatusMessage: String = ""
-
-#if DEBUG
-    @State private var cloudEventLines: [String] = []
-    @State private var cloudLastEventAt: Date? = nil
-    @State private var cloudLastError: String? = nil
-    @State private var cloudMonitorStarted: Bool = false
-    @State private var cloudSyncBanner: String = "No CloudKit events observed yet"
-#endif
 
     // Optional navigation controls for iOS
     var wells: [Well]?
@@ -244,43 +232,6 @@ struct ProjectDashboardView: View {
                         .fontWeight(.bold)
                     Text("Curate project inputs, system defaults, and a snapshot of the work already captured.")
                         .foregroundStyle(.secondary)
-
-                    #if DEBUG
-                    HStack(spacing: 12) {
-                        Button {
-                            debugTriggerMudCloudSync()
-                        } label: {
-                            Label("Debug: Sync Muds", systemImage: "icloud.and.arrow.up")
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Saves mud changes locally and requests CloudKit sync.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(cloudSyncBanner)
-                                .font(.caption)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    debugClearCloudEvents()
-                                } label: {
-                                    Label("Clear Events", systemImage: "trash")
-                                }
-                                .buttonStyle(.bordered)
-
-                                Button {
-                                    debugCopyCloudEventsToClipboard()
-                                } label: {
-                                    Label("Copy Events", systemImage: "doc.on.doc")
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            .font(.caption)
-                        }
-                    }
-                    #endif
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
@@ -488,20 +439,7 @@ struct ProjectDashboardView: View {
             }
         })
         .background(pageBackgroundColor)
-#if DEBUG
-        .onAppear {
-            if !cloudMonitorStarted {
-                cloudMonitorStarted = true
-                startCloudKitEventMonitor()
-            }
-        }
-#endif
         .navigationTitle("Project Dashboard")
-        .alert(mudSyncStatusTitle, isPresented: $showMudSyncAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(mudSyncStatusMessage)
-        }
     }
 }
 
@@ -606,125 +544,6 @@ extension ProjectDashboardView {
     fileprivate func copyProjectInfoToClipboard() {
         ClipboardService.shared.copyToClipboard(makeProjectInfoString())
     }
-
-#if DEBUG
-    /// Attempts to force a save of any pending mud changes and nudge SwiftData/CloudKit to upload.
-    /// This will confirm whether the local save succeeded. CloudKit upload completion isn't directly
-    /// observable from SwiftData here without additional container/event plumbing.
-    fileprivate func debugTriggerMudCloudSync() {
-        appendCloudEventLine("[Manual] Requested mud sync: save() + expect CloudKit event")
-        // Nudge the relationship so SwiftUI/SwiftData see a mutation attempt.
-        // (This does not change values, but ensures access of the relationship occurs.)
-        _ = (project.muds ?? []).count
-
-        do {
-            try modelContext.save()
-            appendCloudEventLine("[Local] modelContext.save() OK")
-            mudSyncStatusTitle = "Mud Sync: Local Save OK"
-            mudSyncStatusMessage = "Local SwiftData save succeeded. If iCloud sync is enabled, CloudKit upload will be attempted automatically when possible.\n\nTip: if you need definitive CloudKit success/failure, we can wire CloudKit event callbacks (NSPersistentCloudKitContainer event notifications) or add explicit CloudKit status tracking."
-        } catch {
-            appendCloudEventLine("[Local] modelContext.save() FAILED: \(error.localizedDescription)")
-            cloudLastError = error.localizedDescription
-            mudSyncStatusTitle = "Mud Sync: Save FAILED"
-            mudSyncStatusMessage = "Local save failed: \(error.localizedDescription)"
-        }
-
-        showMudSyncAlert = true
-    }
-
-    // MARK: - CloudKit Event Monitoring (DEBUG)
-
-    fileprivate func startCloudKitEventMonitor() {
-        // NSPersistentCloudKitContainer posts these when it schedules/completes import/export work.
-        NotificationCenter.default.addObserver(
-            forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: nil,
-            queue: .main
-        ) { note in
-            guard let event = note.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
-                    as? NSPersistentCloudKitContainer.Event else {
-                appendCloudEventLine("[CloudKit] eventChangedNotification (no event in userInfo)")
-                cloudSyncBanner = "CloudKit event notification received (unparsed)"
-                return
-            }
-
-            cloudLastEventAt = Date()
-
-            // Type: .import / .export / .setup
-            let typeStr: String
-            switch event.type {
-            case .setup: typeStr = "setup"
-            case .import: typeStr = "import"
-            case .export: typeStr = "export"
-            @unknown default: typeStr = "unknown"
-            }
-
-            let endStr = event.endDate == nil ? "(running)" : "(ended)"
-            var line = "[CloudKit] \(typeStr) \(endStr)"
-
-            let storeID = event.storeIdentifier
-            if !storeID.isEmpty {
-                line += " store=\(storeID)"
-            }
-
-            if let err = event.error as NSError? {
-                cloudLastError = err.localizedDescription
-                line += " ERROR=\(err.localizedDescription)"
-            }
-
-            appendCloudEventLine(line)
-
-            // Banner for quick glance
-            if let err = event.error {
-                cloudSyncBanner = "Last CloudKit \(typeStr): ERROR – \(err.localizedDescription)"
-            } else {
-                if event.endDate == nil {
-                    cloudSyncBanner = "CloudKit \(typeStr) in progress…"
-                } else {
-                    cloudSyncBanner = "Last CloudKit \(typeStr) completed successfully"
-                }
-            }
-        }
-
-        // Also listen for remote changes coming in (useful to verify the OTHER device pushed data).
-        NotificationCenter.default.addObserver(
-            forName: .NSPersistentStoreRemoteChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            cloudLastEventAt = Date()
-            appendCloudEventLine("[CloudKit] NSPersistentStoreRemoteChange")
-            if cloudLastError == nil {
-                cloudSyncBanner = "Remote change received (import likely occurred)"
-            }
-        }
-
-        appendCloudEventLine("[Monitor] CloudKit event monitor started")
-        cloudSyncBanner = "CloudKit monitor running — trigger a save to see export/import"
-    }
-
-    fileprivate func appendCloudEventLine(_ s: String) {
-        let ts = ISO8601DateFormatter().string(from: Date())
-        cloudEventLines.append("\(ts) \(s)")
-        // Avoid unbounded growth
-        if cloudEventLines.count > 200 {
-            cloudEventLines.removeFirst(cloudEventLines.count - 200)
-        }
-    }
-
-    fileprivate func debugClearCloudEvents() {
-        cloudEventLines.removeAll()
-        cloudLastEventAt = nil
-        cloudLastError = nil
-        cloudSyncBanner = "Cleared. Trigger a save to observe CloudKit events."
-    }
-
-    fileprivate func debugCopyCloudEventsToClipboard() {
-        let text = cloudEventLines.joined(separator: "\n")
-        ClipboardService.shared.copyToClipboard(text.isEmpty ? "<no cloud events captured>" : text)
-        appendCloudEventLine("[Manual] Copied events to clipboard")
-    }
-#endif
 }
 
 extension ProjectDashboardView {
