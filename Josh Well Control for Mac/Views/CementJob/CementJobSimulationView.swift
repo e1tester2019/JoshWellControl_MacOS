@@ -2310,32 +2310,19 @@ private struct WellProfileRenderView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Header with app icon and well name
-            HStack(alignment: .center, spacing: 12) {
-                // App icon on left
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 48, height: 48)
-                    .cornerRadius(10)
-                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-
-                VStack(spacing: 4) {
-                    Text(wellName)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.black)
-                    Text(job.name.isEmpty ? "Cement Job" : job.name)
-                        .font(.headline)
-                        .foregroundColor(.black)
-                    Text("\(job.casingType.displayName) - \(String(format: "%.0f", job.topMD_m))m to \(String(format: "%.0f", job.bottomMD_m))m")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                }
-
-                Spacer()
+            // Header with well name
+            VStack(spacing: 4) {
+                Text(wellName)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .foregroundColor(.black)
+                Text(job.name.isEmpty ? "Cement Job" : job.name)
+                    .font(.headline)
+                    .foregroundColor(.black)
+                Text("\(job.casingType.displayName) - \(String(format: "%.0f", job.topMD_m))m to \(String(format: "%.0f", job.bottomMD_m))m")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
             }
-            .padding(.horizontal, 20)
             .padding(.top, 12)
 
             // Main content
