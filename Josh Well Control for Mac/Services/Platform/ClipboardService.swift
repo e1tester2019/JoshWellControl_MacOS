@@ -54,4 +54,52 @@ class ClipboardService {
         return false
         #endif
     }
+
+    #if os(macOS)
+    /// Copy NSImage to clipboard (macOS)
+    /// - Parameter image: The NSImage to copy
+    func copyImageToClipboard(_ image: NSImage) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
+    }
+
+    /// Copy a SwiftUI view to clipboard as an image (macOS)
+    /// - Parameters:
+    ///   - view: The SwiftUI view to render
+    ///   - size: The size to render at
+    /// - Returns: True if successful
+    @MainActor
+    func copyViewToClipboard<V: View>(_ view: V, size: CGSize) -> Bool {
+        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
+        renderer.scale = 2.0 // Retina quality
+
+        guard let nsImage = renderer.nsImage else { return false }
+        copyImageToClipboard(nsImage)
+        return true
+    }
+    #endif
+
+    #if os(iOS)
+    /// Copy UIImage to clipboard (iOS)
+    /// - Parameter image: The UIImage to copy
+    func copyImageToClipboard(_ image: UIImage) {
+        UIPasteboard.general.image = image
+    }
+
+    /// Copy a SwiftUI view to clipboard as an image (iOS)
+    /// - Parameters:
+    ///   - view: The SwiftUI view to render
+    ///   - size: The size to render at
+    /// - Returns: True if successful
+    @MainActor
+    func copyViewToClipboard<V: View>(_ view: V, size: CGSize) -> Bool {
+        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
+        renderer.scale = UIScreen.main.scale
+
+        guard let uiImage = renderer.uiImage else { return false }
+        copyImageToClipboard(uiImage)
+        return true
+    }
+    #endif
 }

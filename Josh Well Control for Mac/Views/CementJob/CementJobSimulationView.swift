@@ -22,6 +22,7 @@ struct CementJobSimulationView: View {
     @State private var showCopiedAlert = false
     @State private var lossZoneDepthInput: Double = 0
     @State private var showLossZoneDebug = false
+    @State private var editableJobReport: String = ""
 
     var body: some View {
         #if os(macOS)
@@ -39,6 +40,7 @@ struct CementJobSimulationView: View {
                     pumpRateSection
                     stageListSection
                     returnSummarySection
+                    jobReportSection
                 }
                 .frame(width: 320)
 
@@ -55,6 +57,10 @@ struct CementJobSimulationView: View {
         }
         .onAppear {
             viewModel.bootstrap(job: job, project: project, context: modelContext)
+            editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
+        }
+        .onChange(of: viewModel.currentStageIndex) {
+            editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
         }
         .navigationTitle("Cement Job Simulation")
         #else
@@ -102,6 +108,10 @@ struct CementJobSimulationView: View {
                         Button(action: copySimulationSummary) {
                             Label("Copy Detailed Summary", systemImage: "doc.on.doc")
                         }
+                        Divider()
+                        Button(action: copyWellProfileImage) {
+                            Label("Copy Well Profile Image", systemImage: "photo")
+                        }
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
@@ -122,6 +132,10 @@ struct CementJobSimulationView: View {
         }
         .onAppear {
             viewModel.bootstrap(job: job, project: project, context: modelContext)
+            editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
+        }
+        .onChange(of: viewModel.currentStageIndex) {
+            editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
         }
     }
 
@@ -141,17 +155,22 @@ struct CementJobSimulationView: View {
     private var landscapeLayoutIOS: some View {
         HStack(alignment: .top, spacing: 16) {
             // Left: Controls
-            VStack(spacing: 12) {
-                currentStageInfoSectionIOS
-                tankVolumeSectionIOS
-                returnSummarySectionIOS
+            ScrollView {
+                VStack(spacing: 12) {
+                    currentStageInfoSectionIOS
+                    tankVolumeSectionIOS
+                    lossZoneSectionIOS
+                    pumpRateSectionIOS
+                    returnSummarySectionIOS
+                }
             }
             .frame(width: 340)
 
-            // Right: Visualization and stage list
+            // Right: Visualization, stage list, and job report
             VStack(spacing: 12) {
                 fluidVisualizationSectionIOS
                 stageListSectionIOS
+                jobReportSectionIOS
             }
         }
         .padding()
@@ -173,6 +192,15 @@ struct CementJobSimulationView: View {
                 tankVolumeSectionIOS
                 returnSummarySectionIOS
             }
+
+            // Loss zone and pump rate
+            HStack(alignment: .top, spacing: 12) {
+                lossZoneSectionIOS
+                pumpRateSectionIOS
+            }
+
+            // Job report
+            jobReportSectionIOS
         }
         .padding()
     }
@@ -223,6 +251,10 @@ struct CementJobSimulationView: View {
                     }
                     Button(action: copySimulationSummary) {
                         Label("Copy Detailed Summary", systemImage: "doc.on.doc")
+                    }
+                    Divider()
+                    Button(action: copyWellProfileImage) {
+                        Label("Copy Well Profile Image", systemImage: "photo")
                     }
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
@@ -896,6 +928,42 @@ struct CementJobSimulationView: View {
         return .orange
     }
 
+    // MARK: - Job Report Section
+
+    private var jobReportSection: some View {
+        GroupBox("Job Report") {
+            VStack(alignment: .leading, spacing: 8) {
+                TextEditor(text: $editableJobReport)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(minHeight: 80, maxHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(4)
+
+                HStack {
+                    Button {
+                        editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+
+                    Spacer()
+
+                    Button {
+                        copyToClipboard(editableJobReport)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+            .padding(8)
+        }
+    }
+
     // MARK: - Current Stage Info Section
 
     private var currentStageInfoSection: some View {
@@ -1502,6 +1570,254 @@ struct CementJobSimulationView: View {
         }
     }
 
+    // MARK: - Job Report Section iOS
+
+    private var jobReportSectionIOS: some View {
+        GroupBox("Job Report") {
+            VStack(alignment: .leading, spacing: 8) {
+                TextEditor(text: $editableJobReport)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(minHeight: 80, maxHeight: 100)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(4)
+
+                HStack {
+                    Button {
+                        editableJobReport = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+
+                    Spacer()
+
+                    Button {
+                        UIPasteboard.general.string = editableJobReport
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    // MARK: - Loss Zone Section iOS
+
+    private var lossZoneSectionIOS: some View {
+        GroupBox("Loss Zone") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Add loss zone input
+                HStack {
+                    Text("Depth:")
+                    TextField("MD", value: $lossZoneDepthInput, format: .number.precision(.fractionLength(0)))
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.numberPad)
+                        .frame(width: 70)
+                    Text("m")
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    Button(action: {
+                        if lossZoneDepthInput > 0 && lossZoneDepthInput < viewModel.shoeDepth_m {
+                            viewModel.addLossZone(atMD: lossZoneDepthInput)
+                        }
+                    }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                    }
+                    .disabled(lossZoneDepthInput <= 0 || lossZoneDepthInput >= viewModel.shoeDepth_m)
+                }
+
+                // Active loss zones
+                if viewModel.lossZones.isEmpty {
+                    Text("No loss zones configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(viewModel.lossZones.enumerated()), id: \.offset) { index, zone in
+                        HStack {
+                            Image(systemName: zone.isActive ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(zone.isActive ? .green : .secondary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text("\(Int(zone.depth_m))m MD")
+                                        .fontWeight(.medium)
+                                    Text("(\(Int(zone.tvd_m))m TVD)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                HStack(spacing: 8) {
+                                    Text("Frac: \(String(format: "%.0f", zone.frac_kPa)) kPa")
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
+
+                                    Text("EMW: \(String(format: "%.0f", zone.fracEMW_kg_m3)) kg/m³")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                viewModel.lossZones.remove(at: index)
+                                viewModel.updateFluidStacks()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                }
+
+                // Show losses info if any
+                if viewModel.totalLossVolume_m3 > 0.01 {
+                    Divider()
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Losses:")
+                        Spacer()
+                        Text(String(format: "%.2f m³", viewModel.totalLossVolume_m3))
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                            .monospacedDigit()
+                    }
+                }
+
+                // Debug toggle for loss zone info
+                if !viewModel.lossZones.isEmpty || !viewModel.isAutoTrackingTankVolume {
+                    DisclosureGroup("Debug Info", isExpanded: $showLossZoneDebug) {
+                        Text(viewModel.lossZoneDebugInfo)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.caption)
+                }
+            }
+            .font(.callout)
+            .padding(8)
+        }
+    }
+
+    // MARK: - Pump Rate Section iOS
+
+    private var pumpRateSectionIOS: some View {
+        GroupBox("Pump Rate") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Pump rate slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Rate:")
+                        Spacer()
+                        Text(String(format: "%.2f m³/min", viewModel.pumpRate_m3_per_min))
+                            .fontWeight(.medium)
+                            .monospacedDigit()
+                    }
+
+                    Slider(
+                        value: Binding(
+                            get: { viewModel.pumpRate_m3_per_min },
+                            set: { viewModel.setPumpRate($0) }
+                        ),
+                        in: 0.05...2.0,
+                        step: 0.05
+                    )
+
+                    HStack {
+                        Text("0.05")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("2.0 m³/min")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Show APL and total pressure at loss zone if there's an active loss zone
+                if !viewModel.lossZones.isEmpty && viewModel.totalPressureAtLossZone_kPa > 0 {
+                    Divider()
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("APL")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text("\(String(format: "%.0f", viewModel.aplAboveLossZone_kPa)) kPa")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Total @ LZ")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text("\(String(format: "%.0f", viewModel.totalPressureAtLossZone_kPa)) kPa")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                    }
+                }
+
+                // Annular velocities
+                if !viewModel.annulusSectionInfos.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Annular Velocities")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+
+                        ForEach(viewModel.annulusSectionInfos) { section in
+                            HStack {
+                                Text(section.name)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Text(String(format: "%.1f m/min", section.velocity_m_per_min))
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(section.isOverSpeedLimit ? .red : .primary)
+                                    .monospacedDigit()
+
+                                if section.isOverSpeedLimit {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+
+                        // Max velocity limit warning
+                        if let maxVel = viewModel.maxVelocityLimit_m_per_min {
+                            HStack {
+                                Text("Max:")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.1f m/min", maxVel))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .font(.callout)
+            .padding(8)
+        }
+    }
+
     private var stageListSectionIOS: some View {
         GroupBox("Stages") {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1626,7 +1942,7 @@ struct CementJobSimulationView: View {
                 }
                 .padding(8)
             }
-            .frame(minHeight: 300)
+            .frame(minHeight: 220, maxHeight: 280)
         }
     }
 
@@ -1921,6 +2237,42 @@ struct CementJobSimulationView: View {
             }
         }
     }
+
+    // MARK: - Copy Well Profile Image
+
+    private func copyWellProfileImage() {
+        let jobReportText = viewModel.generateJobReportText(jobName: job.name, casingType: job.casingType.displayName)
+        let wellName = project.well?.name ?? "Unknown Well"
+
+        let profileView = WellProfileRenderView(
+            job: job,
+            wellName: wellName,
+            stringStack: viewModel.stringStack,
+            annulusStack: viewModel.annulusStack,
+            shoeDepth_m: viewModel.shoeDepth_m,
+            floatCollarDepth_m: viewModel.floatCollarDepth_m,
+            cementReturns_m3: viewModel.cementReturns_m3,
+            totalLosses_m3: viewModel.totalLossVolume_m3,
+            tvdMapper: { viewModel.tvd(of: $0) },
+            uniqueFluids: uniqueFluids,
+            jobReportText: jobReportText
+        )
+
+        let size = CGSize(width: 700, height: 620)
+        let success = ClipboardService.shared.copyViewToClipboard(profileView, size: size)
+
+        if success {
+            withAnimation {
+                showCopiedAlert = true
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation {
+                    showCopiedAlert = false
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Supporting Views
@@ -1937,6 +2289,287 @@ private struct SummaryRow: View {
                 .monospacedDigit()
         }
         .font(.callout)
+    }
+}
+
+// MARK: - Well Profile Render View (for clipboard export)
+
+/// A self-contained view that renders the well profile for clipboard export
+private struct WellProfileRenderView: View {
+    let job: CementJob
+    let wellName: String
+    let stringStack: [CementJobSimulationViewModel.FluidSegment]
+    let annulusStack: [CementJobSimulationViewModel.FluidSegment]
+    let shoeDepth_m: Double
+    let floatCollarDepth_m: Double
+    let cementReturns_m3: Double
+    let totalLosses_m3: Double
+    let tvdMapper: (Double) -> Double
+    let uniqueFluids: [(name: String, color: Color)]
+    let jobReportText: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Header with app icon and well name
+            HStack(alignment: .center, spacing: 12) {
+                // App icon on left
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 48, height: 48)
+                    .cornerRadius(10)
+                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+
+                VStack(spacing: 4) {
+                    Text(wellName)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.black)
+                    Text(job.name.isEmpty ? "Cement Job" : job.name)
+                        .font(.headline)
+                        .foregroundColor(.black)
+                    Text("\(job.casingType.displayName) - \(String(format: "%.0f", job.topMD_m))m to \(String(format: "%.0f", job.bottomMD_m))m")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+
+            // Main content
+            HStack(alignment: .top, spacing: 16) {
+                // TVD scale
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("TVD (m)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.gray)
+                    depthScaleColumn(showTVD: true, height: 380)
+                        .frame(width: 50)
+                }
+
+                // String column
+                VStack(spacing: 4) {
+                    Text("String")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.black)
+                    fluidColumn(segments: stringStack, height: 380)
+                        .frame(width: 50)
+                }
+
+                // Annulus column
+                VStack(spacing: 4) {
+                    Text("Annulus")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.black)
+                    fluidColumn(segments: annulusStack, height: 380)
+                        .frame(width: 60)
+                }
+
+                // MD scale
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("MD (m)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.gray)
+                    depthScaleColumn(showTVD: false, height: 380)
+                        .frame(width: 50)
+                }
+
+                // Fluid tops and legend
+                VStack(alignment: .leading, spacing: 12) {
+                    fluidTopsSection
+                    legendSection
+                    cementReturnsSection
+                }
+                .frame(width: 200)
+            }
+            .padding(.horizontal, 20)
+
+            // Job Report Text
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Job Summary")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.gray)
+
+                Text(jobReportText)
+                    .font(.system(size: 11))
+                    .foregroundColor(.black)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.gray.opacity(0.1))
+        }
+        .background(Color.white)
+    }
+
+    private func depthScaleColumn(showTVD: Bool, height: CGFloat) -> some View {
+        let interval = depthInterval(for: shoeDepth_m)
+        let depths = Array(stride(from: 0.0, through: shoeDepth_m, by: interval))
+
+        return Canvas { context, size in
+            guard shoeDepth_m > 0 else { return }
+
+            for md in depths {
+                let displayValue = showTVD ? tvdMapper(md) : md
+                let y = CGFloat(md / shoeDepth_m) * size.height
+
+                // Draw tick
+                let tickX = showTVD ? size.width - 4 : 0
+                let tickRect = CGRect(x: tickX, y: y - 0.5, width: 4, height: 1)
+                context.fill(Path(tickRect), with: .color(.gray.opacity(0.5)))
+
+                // Draw text
+                let text = Text("\(Int(displayValue))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                let resolvedText = context.resolve(text)
+                context.draw(resolvedText, at: CGPoint(x: showTVD ? size.width - 6 : 6, y: y), anchor: showTVD ? .trailing : .leading)
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func depthInterval(for maxDepth: Double) -> Double {
+        if maxDepth <= 500 { return 100 }
+        if maxDepth <= 1000 { return 200 }
+        if maxDepth <= 2000 { return 500 }
+        return 1000
+    }
+
+    private func fluidColumn(segments: [CementJobSimulationViewModel.FluidSegment], height: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.1))
+
+            ForEach(segments) { segment in
+                let top = shoeDepth_m > 0 ? CGFloat(segment.topMD_m / shoeDepth_m) * height : 0
+                let bottom = shoeDepth_m > 0 ? CGFloat(segment.bottomMD_m / shoeDepth_m) * height : 0
+                let segmentHeight = max(1, bottom - top)
+
+                Rectangle()
+                    .fill(segment.color)
+                    .frame(height: segmentHeight)
+                    .offset(y: top)
+            }
+
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(Color.primary.opacity(0.3), lineWidth: 1)
+        }
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var fluidTopsSection: some View {
+        let sortedSegments = annulusStack.sorted { $0.topMD_m < $1.topMD_m }
+
+        var transitions: [(name: String, color: Color, md: Double, tvd: Double)] = []
+        var lastFluidName: String? = nil
+
+        for (index, segment) in sortedSegments.enumerated() {
+            let isLastSegment = index == sortedSegments.count - 1
+
+            if segment.name != lastFluidName {
+                transitions.append((segment.name, segment.color, segment.topMD_m, segment.topTVD_m))
+            }
+
+            if segment.isCement && !isLastSegment {
+                let nextSegment = sortedSegments[index + 1]
+                if nextSegment.name != segment.name {
+                    transitions.append(("\(segment.name) BTM", segment.color, segment.bottomMD_m, segment.bottomTVD_m))
+                }
+            }
+
+            lastFluidName = segment.name
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Fluid Tops")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+
+            ForEach(Array(transitions.enumerated()), id: \.offset) { _, transition in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(transition.color)
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(transition.name)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(transition.color)
+                        Text("\(Int(transition.md))m MD / \(Int(transition.tvd))m TVD")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var legendSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Fluids")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+
+            ForEach(uniqueFluids, id: \.name) { fluid in
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(fluid.color)
+                        .frame(width: 14, height: 14)
+                    Text(fluid.name)
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var cementReturnsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Cement Returns
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cement Returns")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.gray)
+
+                Text(String(format: "%.2f m³", cementReturns_m3))
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.orange)
+                    .monospacedDigit()
+            }
+
+            // Losses (if any)
+            if totalLosses_m3 > 0.01 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Formation Losses")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.gray)
+
+                    Text(String(format: "%.2f m³", totalLosses_m3))
+                        .font(.callout)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.red)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.1)))
     }
 }
 

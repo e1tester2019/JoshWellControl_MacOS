@@ -227,6 +227,9 @@ class CementJobSimulationViewModel {
     /// Simulated cement returns (cement that overflowed at surface assuming 1:1 return)
     private var simulatedCementReturns_m3: Double = 0.0
 
+    /// All fluid returns in order they came out of annulus (name, volume)
+    var fluidReturnsInOrder: [(name: String, volume_m3: Double)] = []
+
     /// Adjusted cement returns accounting for tank volume difference
     /// If tank shows less than expected (losses), cement returns is reduced by that amount
     var cementReturns_m3: Double {
@@ -983,16 +986,70 @@ class CementJobSimulationViewModel {
             )
 
             simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+
+            // Calculate returns in order they came out (merge consecutive same-name parcels)
+            fluidReturnsInOrder = buildOrderedReturns(from: overflowAtSurface)
+
             lossZoneDebugInfo = debugLines.joined(separator: "\n")
 
         } else {
-            // --- No Loss Zone - Original Simple Logic ---
+            // --- No Loss Zone - Simple Logic with Tank Volume Override Support ---
+
+            // Calculate loss volume from tank override BEFORE building annulus
+            var lossVolumeFromOverride: Double = 0.0
+            if !isAutoTrackingTankVolume {
+                let difference = tankVolumeDifference_m3  // negative means losses
+                if difference < -0.01 {
+                    lossVolumeFromOverride = -difference
+                }
+            }
+
+            // Start with annulus full of active fluid (mud)
             var annulusParcels: [VolumeParcel] = [
                 VolumeParcel(volume_m3: annulusCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
             ]
             var overflowAtSurface: [VolumeParcel] = []
 
-            for parcel in expelledAtBit {
+            // If we have losses from tank override, reduce the expelled volumes proportionally
+            // This simulates fluid being lost before it can displace the annulus
+            var adjustedExpelledAtBit = expelledAtBit
+            if lossVolumeFromOverride > 0.01 {
+                var remainingLossToApply = lossVolumeFromOverride
+
+                // Remove loss volume from the expelled parcels (starting from the end/most recent)
+                // This represents fluid that was lost and never made it to displace the annulus
+                var i = adjustedExpelledAtBit.count - 1
+                while i >= 0 && remainingLossToApply > 0.001 {
+                    let parcel = adjustedExpelledAtBit[i]
+                    if parcel.volume_m3 <= remainingLossToApply {
+                        remainingLossToApply -= parcel.volume_m3
+                        adjustedExpelledAtBit[i] = VolumeParcel(
+                            volume_m3: 0,
+                            color: parcel.color,
+                            name: parcel.name,
+                            density_kgm3: parcel.density_kgm3,
+                            isCement: parcel.isCement,
+                            plasticViscosity_cP: parcel.plasticViscosity_cP,
+                            yieldPoint_Pa: parcel.yieldPoint_Pa
+                        )
+                    } else {
+                        adjustedExpelledAtBit[i] = VolumeParcel(
+                            volume_m3: parcel.volume_m3 - remainingLossToApply,
+                            color: parcel.color,
+                            name: parcel.name,
+                            density_kgm3: parcel.density_kgm3,
+                            isCement: parcel.isCement,
+                            plasticViscosity_cP: parcel.plasticViscosity_cP,
+                            yieldPoint_Pa: parcel.yieldPoint_Pa
+                        )
+                        remainingLossToApply = 0
+                    }
+                    i -= 1
+                }
+            }
+
+            // Now push the adjusted expelled volumes into the annulus
+            for parcel in adjustedExpelledAtBit {
                 if parcel.volume_m3 > 0.001 {
                     pushToBottomAndOverflowTop(
                         annulusParcels: &annulusParcels,
@@ -1006,10 +1063,22 @@ class CementJobSimulationViewModel {
             stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
             annulusStack = segmentsFromAnnulusParcels(annulusParcels, maxDepth: shoeDepth_m, geom: geom)
             simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
-            totalLossVolume_m3 = 0
+
+            // Calculate returns in order they came out (merge consecutive same-name parcels)
+            fluidReturnsInOrder = buildOrderedReturns(from: overflowAtSurface)
+
+            totalLossVolume_m3 = lossVolumeFromOverride
             aplAboveLossZone_kPa = 0
             totalPressureAtLossZone_kPa = 0
-            lossZoneDebugInfo = "No active loss zones"
+
+            // Update debug info based on override state
+            if !isAutoTrackingTankVolume && lossVolumeFromOverride > 0.01 {
+                lossZoneDebugInfo = "Tank override active: \(String(format: "%.2f", lossVolumeFromOverride)) m³ losses removed from displacement"
+            } else if !isAutoTrackingTankVolume {
+                lossZoneDebugInfo = "Tank override active (no losses)"
+            } else {
+                lossZoneDebugInfo = "No active loss zones"
+            }
         }
 
         // Update annular velocity info for all sections
@@ -1132,6 +1201,27 @@ class CementJobSimulationViewModel {
                 overflow = 0
             }
         }
+    }
+
+    // MARK: - Build Ordered Returns
+
+    /// Build ordered returns list from overflow parcels, merging consecutive same-name fluids
+    private func buildOrderedReturns(from overflowParcels: [VolumeParcel]) -> [(name: String, volume_m3: Double)] {
+        var result: [(name: String, volume_m3: Double)] = []
+
+        for parcel in overflowParcels {
+            guard parcel.volume_m3 > 0.001 else { continue }
+
+            // If the last entry has the same name, add to it; otherwise create new entry
+            if let lastIndex = result.indices.last, result[lastIndex].name == parcel.name {
+                result[lastIndex].volume_m3 += parcel.volume_m3
+            } else {
+                result.append((name: parcel.name, volume_m3: parcel.volume_m3))
+            }
+        }
+
+        // Filter out very small volumes
+        return result.filter { $0.volume_m3 > 0.01 }
     }
 
     // MARK: - Parcel to Segment Conversion
@@ -1491,10 +1581,11 @@ class CementJobSimulationViewModel {
         // Header
         parts.append("\(casingType) cement job")
 
-        // Track total displacement
+        // Track total displacement and when displacements end
         var totalDisplacement_m3: Double = 0
+        var lastDisplacementIndex: Int = -1
 
-        for stage in stages {
+        for (index, stage) in stages.enumerated() {
             if stage.isOperation {
                 guard let sourceStage = stage.sourceStage else { continue }
                 let opType = stage.operationType
@@ -1518,10 +1609,15 @@ class CementJobSimulationViewModel {
                     if let volume = sourceStage.operationVolume_L, volume > 0 {
                         parts.append("lines pumped out with \(String(format: "%.1f", volume / 1000))m³, drop plug")
                     } else {
-                        parts.append("drop plug")
+                        parts.append("drop plug on the fly")
                     }
 
                 case .bumpPlug:
+                    // Insert total displacement before bump plug if we have any
+                    if totalDisplacement_m3 > 0.01 && lastDisplacementIndex >= 0 {
+                        parts.append("total displacement \(String(format: "%.2f", totalDisplacement_m3))m³")
+                        totalDisplacement_m3 = 0 // Reset so we don't add it again
+                    }
                     if let overPressure = sourceStage.overPressure_MPa, let finalPressure = sourceStage.pressure_MPa {
                         parts.append("bumped plug \(String(format: "%.1f", overPressure))MPa over FCP to \(String(format: "%.1f", finalPressure))MPa")
                     } else if let finalPressure = sourceStage.pressure_MPa {
@@ -1592,11 +1688,24 @@ class CementJobSimulationViewModel {
 
                 case .mudDisplacement:
                     totalDisplacement_m3 += volume
-                    parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ \(name)")
+                    lastDisplacementIndex = index
+                    // Check if previous part was also a displacement
+                    if let lastPart = parts.last, lastPart.hasPrefix("displaced with") {
+                        // Remove "displaced with" prefix and add as continuation
+                        parts.append("\(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ \(name)")
+                    } else {
+                        parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ \(name)")
+                    }
 
                 case .displacement:
                     totalDisplacement_m3 += volume
-                    parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ water")
+                    lastDisplacementIndex = index
+                    // Check if previous part was also a displacement
+                    if let lastPart = parts.last, (lastPart.hasPrefix("displaced with") || lastPart.contains("m³ of")) {
+                        parts.append("\(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ water")
+                    } else {
+                        parts.append("displaced with \(String(format: "%.1f", volume)) m³ of \(Int(density))kg/m³ water")
+                    }
 
                 case .operation:
                     break // Handled above
@@ -1604,9 +1713,22 @@ class CementJobSimulationViewModel {
             }
         }
 
-        // Add total displacement at end if there was any
+        // Add total displacement at end if it wasn't already added (no bump plug operation)
         if totalDisplacement_m3 > 0.01 {
-            parts.append("total displacement \(String(format: "%.2f", totalDisplacement_m3))m³ (\(Int(totalDisplacement_m3 * 1000))L)")
+            parts.append("total displacement \(String(format: "%.2f", totalDisplacement_m3))m³")
+        }
+
+        // Add returns information in order they came out of annulus (skip mud)
+        var returnsText: [String] = []
+        for (fluidName, volume) in fluidReturnsInOrder {
+            // Skip mud returns as they're expected
+            if !fluidName.lowercased().contains("mud") {
+                returnsText.append("\(String(format: "%.2f", volume))m³ \(fluidName) returns")
+            }
+        }
+
+        if !returnsText.isEmpty {
+            parts.append(returnsText.joined(separator: ", "))
         }
 
         return parts.joined(separator: ", ") + "."

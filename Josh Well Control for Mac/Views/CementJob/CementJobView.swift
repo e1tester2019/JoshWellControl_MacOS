@@ -17,11 +17,20 @@ import UIKit
 struct CementJobView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
+
+    // Query CementJobs directly instead of using relationship (more reliable with CloudKit sync)
+    @Query private var allCementJobs: [CementJob]
+
     @State private var viewModel = CementJobViewModel()
     @State private var showingNewJobSheet = false
     @State private var showingDeleteConfirmation = false
     @State private var showingSimulation = false
     @State private var jobToDelete: CementJob?
+
+    /// CementJobs for the current project (filtered from query)
+    private var cementJobs: [CementJob] {
+        allCementJobs.filter { $0.project?.id == project.id }
+    }
 
     var body: some View {
         #if os(macOS)
@@ -59,6 +68,10 @@ struct CementJobView: View {
                     .frame(minWidth: 1000, minHeight: 700)
             }
         }
+        .onChange(of: viewModel.selectedJob?.updatedAt) { _, _ in
+            // Explicit save for CloudKit sync when job properties change
+            try? modelContext.save()
+        }
         #else
         // iOS/iPadOS layout
         NavigationSplitView {
@@ -90,6 +103,10 @@ struct CementJobView: View {
                 CementJobSimulationView(project: project, job: job)
             }
         }
+        .onChange(of: viewModel.selectedJob?.updatedAt) { _, _ in
+            // Explicit save for CloudKit sync when job properties change
+            try? modelContext.save()
+        }
         #endif
     }
 
@@ -109,7 +126,7 @@ struct CementJobView: View {
 
             Divider()
 
-            if (project.cementJobs ?? []).isEmpty {
+            if cementJobs.isEmpty {
                 Text("No cement jobs yet.\nClick + to create one.")
                     .foregroundColor(.secondary)
                     .font(.caption)
@@ -118,14 +135,14 @@ struct CementJobView: View {
                 List(selection: Binding(
                     get: { viewModel.selectedJob?.id },
                     set: { id in
-                        viewModel.selectedJob = (project.cementJobs ?? []).first { $0.id == id }
+                        viewModel.selectedJob = cementJobs.first { $0.id == id }
                         if let job = viewModel.selectedJob {
                             viewModel.updateVolumes(project: project)
                             viewModel.updateAllStageCalculations(job)
                         }
                     }
                 )) {
-                    ForEach(project.cementJobs ?? [], id: \.id) { job in
+                    ForEach(cementJobs, id: \.id) { job in
                         JobListRow(job: job)
                             .tag(job.id)
                             .contextMenu {
@@ -153,19 +170,19 @@ struct CementJobView: View {
         List(selection: Binding(
             get: { viewModel.selectedJob?.id },
             set: { id in
-                viewModel.selectedJob = (project.cementJobs ?? []).first { $0.id == id }
+                viewModel.selectedJob = cementJobs.first { $0.id == id }
                 if let job = viewModel.selectedJob {
                     viewModel.updateVolumes(project: project)
                     viewModel.updateAllStageCalculations(job)
                 }
             }
         )) {
-            if (project.cementJobs ?? []).isEmpty {
+            if cementJobs.isEmpty {
                 Text("No cement jobs yet.\nTap + to create one.")
                     .foregroundColor(.secondary)
                     .font(.caption)
             } else {
-                ForEach(project.cementJobs ?? [], id: \.id) { job in
+                ForEach(cementJobs, id: \.id) { job in
                     JobListRow(job: job)
                         .tag(job.id)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -312,13 +329,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Cement Top (MD):")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.topMD_m },
-                            set: { job.topMD_m = $0; viewModel.updateVolumes(project: project) }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.topMD_m },
+                                set: { job.topMD_m = $0 }
+                            ),
+                            fractionDigits: 0,
+                            onCommit: { viewModel.updateVolumes(project: project) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
-                        .keyboardType(.decimalPad)
                         Text("m")
                             .foregroundColor(.secondary)
                     }
@@ -326,13 +347,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Cement Bottom (MD):")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.bottomMD_m },
-                            set: { job.bottomMD_m = $0; viewModel.updateVolumes(project: project) }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.bottomMD_m },
+                                set: { job.bottomMD_m = $0 }
+                            ),
+                            fractionDigits: 2,
+                            onCommit: { viewModel.updateVolumes(project: project) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
-                        .keyboardType(.decimalPad)
                         Text("m")
                             .foregroundColor(.secondary)
                     }
@@ -340,13 +365,16 @@ struct CementJobView: View {
                     HStack {
                         Text("Float Collar (MD):")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.floatCollarDepth_m },
-                            set: { job.floatCollarDepth_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.floatCollarDepth_m },
+                                set: { job.floatCollarDepth_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
-                        .keyboardType(.decimalPad)
                         Text("m")
                             .foregroundColor(.secondary)
                     }
@@ -358,23 +386,35 @@ struct CementJobView: View {
             GroupBox("Lead Cement") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Top/Bottom:")
+                        Text("Top (MD):")
                         Spacer()
-                        TextField("Top", value: Binding(
-                            get: { job.leadTopMD_m },
-                            set: { job.leadTopMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "Top",
+                            value: Binding(
+                                get: { job.leadTopMD_m },
+                                set: { job.leadTopMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-                        .keyboardType(.decimalPad)
-                        Text("-")
-                        TextField("Bottom", value: Binding(
-                            get: { job.leadBottomMD_m },
-                            set: { job.leadBottomMD_m = $0 }
-                        ), format: .number)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Bottom:")
+                        Spacer()
+                        NumericTextField(
+                            placeholder: "Bottom",
+                            value: Binding(
+                                get: { job.leadBottomMD_m },
+                                set: { job.leadBottomMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-                        .keyboardType(.decimalPad)
+                        .frame(width: 80)
                         Text("m")
                             .foregroundColor(.secondary)
                     }
@@ -382,13 +422,16 @@ struct CementJobView: View {
                     HStack {
                         Text("Excess:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.leadExcessPercent },
-                            set: { job.leadExcessPercent = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadExcessPercent },
+                                set: { job.leadExcessPercent = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
-                        .keyboardType(.decimalPad)
                         Text("%")
                             .foregroundColor(.secondary)
                     }
@@ -396,16 +439,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Yield:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.leadYieldFactor_m3_per_tonne },
-                            set: {
-                                job.leadYieldFactor_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadYieldFactor_m3_per_tonne },
+                                set: { job.leadYieldFactor_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³/t")
                             .foregroundColor(.secondary)
                     }
@@ -413,16 +457,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Mix Water:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.leadMixWaterRatio_m3_per_tonne },
-                            set: {
-                                job.leadMixWaterRatio_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadMixWaterRatio_m3_per_tonne },
+                                set: { job.leadMixWaterRatio_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³/t")
                             .foregroundColor(.secondary)
                     }
@@ -434,23 +479,35 @@ struct CementJobView: View {
             GroupBox("Tail Cement") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Top/Bottom:")
+                        Text("Top (MD):")
                         Spacer()
-                        TextField("Top", value: Binding(
-                            get: { job.tailTopMD_m },
-                            set: { job.tailTopMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "Top",
+                            value: Binding(
+                                get: { job.tailTopMD_m },
+                                set: { job.tailTopMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-                        .keyboardType(.decimalPad)
-                        Text("-")
-                        TextField("Bottom", value: Binding(
-                            get: { job.tailBottomMD_m },
-                            set: { job.tailBottomMD_m = $0 }
-                        ), format: .number)
+                        .frame(width: 80)
+                        Text("m")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Bottom:")
+                        Spacer()
+                        NumericTextField(
+                            placeholder: "Bottom",
+                            value: Binding(
+                                get: { job.tailBottomMD_m },
+                                set: { job.tailBottomMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 70)
-                        .keyboardType(.decimalPad)
+                        .frame(width: 80)
                         Text("m")
                             .foregroundColor(.secondary)
                     }
@@ -458,13 +515,16 @@ struct CementJobView: View {
                     HStack {
                         Text("Excess:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.tailExcessPercent },
-                            set: { job.tailExcessPercent = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailExcessPercent },
+                                set: { job.tailExcessPercent = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
-                        .keyboardType(.decimalPad)
                         Text("%")
                             .foregroundColor(.secondary)
                     }
@@ -472,16 +532,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Yield:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.tailYieldFactor_m3_per_tonne },
-                            set: {
-                                job.tailYieldFactor_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailYieldFactor_m3_per_tonne },
+                                set: { job.tailYieldFactor_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³/t")
                             .foregroundColor(.secondary)
                     }
@@ -489,16 +550,17 @@ struct CementJobView: View {
                     HStack {
                         Text("Mix Water:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.tailMixWaterRatio_m3_per_tonne },
-                            set: {
-                                job.tailMixWaterRatio_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailMixWaterRatio_m3_per_tonne },
+                                set: { job.tailMixWaterRatio_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³/t")
                             .foregroundColor(.secondary)
                     }
@@ -512,13 +574,16 @@ struct CementJobView: View {
                     HStack {
                         Text("Wash Up:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.washUpVolume_m3 },
-                            set: { job.washUpVolume_m3 = $0 }
-                        ), format: .number.precision(.fractionLength(2)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.washUpVolume_m3 },
+                                set: { job.washUpVolume_m3 = $0 }
+                            ),
+                            fractionDigits: 2
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³")
                             .foregroundColor(.secondary)
                     }
@@ -526,13 +591,16 @@ struct CementJobView: View {
                     HStack {
                         Text("Pump Out:")
                         Spacer()
-                        TextField("", value: Binding(
-                            get: { job.pumpOutVolume_m3 },
-                            set: { job.pumpOutVolume_m3 = $0 }
-                        ), format: .number.precision(.fractionLength(2)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.pumpOutVolume_m3 },
+                                set: { job.pumpOutVolume_m3 = $0 }
+                            ),
+                            fractionDigits: 2
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
-                        .keyboardType(.decimalPad)
                         Text("m³")
                             .foregroundColor(.secondary)
                     }
@@ -663,10 +731,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Cement Top (MD):")
                             .frame(width: 140, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.topMD_m },
-                            set: { job.topMD_m = $0; viewModel.updateVolumes(project: project) }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.topMD_m },
+                                set: { job.topMD_m = $0 }
+                            ),
+                            fractionDigits: 0,
+                            onCommit: { viewModel.updateVolumes(project: project) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         Text("m")
@@ -677,10 +750,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Cement Bottom (MD):")
                             .frame(width: 140, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.bottomMD_m },
-                            set: { job.bottomMD_m = $0; viewModel.updateVolumes(project: project) }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.bottomMD_m },
+                                set: { job.bottomMD_m = $0 }
+                            ),
+                            fractionDigits: 2,
+                            onCommit: { viewModel.updateVolumes(project: project) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         Text("m")
@@ -691,10 +769,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Float Collar (MD):")
                             .frame(width: 140, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.floatCollarDepth_m },
-                            set: { job.floatCollarDepth_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.floatCollarDepth_m },
+                                set: { job.floatCollarDepth_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         Text("m")
@@ -710,10 +792,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Top (MD):")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.leadTopMD_m },
-                            set: { job.leadTopMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadTopMD_m },
+                                set: { job.leadTopMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m")
@@ -721,10 +807,14 @@ struct CementJobView: View {
 
                         Text("Bottom:")
                             .frame(width: 60, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.leadBottomMD_m },
-                            set: { job.leadBottomMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadBottomMD_m },
+                                set: { job.leadBottomMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m")
@@ -734,10 +824,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Excess:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.leadExcessPercent },
-                            set: { job.leadExcessPercent = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadExcessPercent },
+                                set: { job.leadExcessPercent = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         Text("%")
@@ -747,13 +841,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Yield:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.leadYieldFactor_m3_per_tonne },
-                            set: {
-                                job.leadYieldFactor_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadYieldFactor_m3_per_tonne },
+                                set: { job.leadYieldFactor_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³/t")
@@ -763,13 +859,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Mix Water:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.leadMixWaterRatio_m3_per_tonne },
-                            set: {
-                                job.leadMixWaterRatio_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.leadMixWaterRatio_m3_per_tonne },
+                                set: { job.leadMixWaterRatio_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³/t")
@@ -785,10 +883,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Top (MD):")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.tailTopMD_m },
-                            set: { job.tailTopMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailTopMD_m },
+                                set: { job.tailTopMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m")
@@ -796,10 +898,14 @@ struct CementJobView: View {
 
                         Text("Bottom:")
                             .frame(width: 60, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.tailBottomMD_m },
-                            set: { job.tailBottomMD_m = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailBottomMD_m },
+                                set: { job.tailBottomMD_m = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m")
@@ -809,10 +915,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Excess:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.tailExcessPercent },
-                            set: { job.tailExcessPercent = $0 }
-                        ), format: .number)
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailExcessPercent },
+                                set: { job.tailExcessPercent = $0 }
+                            ),
+                            fractionDigits: 0
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         Text("%")
@@ -822,13 +932,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Yield:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.tailYieldFactor_m3_per_tonne },
-                            set: {
-                                job.tailYieldFactor_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailYieldFactor_m3_per_tonne },
+                                set: { job.tailYieldFactor_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³/t")
@@ -838,13 +950,15 @@ struct CementJobView: View {
                     HStack {
                         Text("Mix Water:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.tailMixWaterRatio_m3_per_tonne },
-                            set: {
-                                job.tailMixWaterRatio_m3_per_tonne = $0
-                                viewModel.updateAllStageCalculations(job)
-                            }
-                        ), format: .number.precision(.fractionLength(3)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.tailMixWaterRatio_m3_per_tonne },
+                                set: { job.tailMixWaterRatio_m3_per_tonne = $0 }
+                            ),
+                            fractionDigits: 3,
+                            onCommit: { viewModel.updateAllStageCalculations(job) }
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³/t")
@@ -860,10 +974,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Wash Up:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.washUpVolume_m3 },
-                            set: { job.washUpVolume_m3 = $0 }
-                        ), format: .number.precision(.fractionLength(2)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.washUpVolume_m3 },
+                                set: { job.washUpVolume_m3 = $0 }
+                            ),
+                            fractionDigits: 2
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³")
@@ -873,10 +991,14 @@ struct CementJobView: View {
                     HStack {
                         Text("Pump Out:")
                             .frame(width: 100, alignment: .trailing)
-                        TextField("", value: Binding(
-                            get: { job.pumpOutVolume_m3 },
-                            set: { job.pumpOutVolume_m3 = $0 }
-                        ), format: .number.precision(.fractionLength(2)))
+                        NumericTextField(
+                            placeholder: "",
+                            value: Binding(
+                                get: { job.pumpOutVolume_m3 },
+                                set: { job.pumpOutVolume_m3 = $0 }
+                            ),
+                            fractionDigits: 2
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         Text("m³")
@@ -1257,13 +1379,13 @@ struct StageRow: View {
                 Spacer()
 
                 // Move up/down buttons
-                Button(action: { viewModel.moveStage(stage, direction: -1, in: job) }) {
+                Button(action: { viewModel.moveStage(stage, direction: -1, in: job, context: context) }) {
                     Image(systemName: "chevron.up")
                 }
                 .buttonStyle(.borderless)
                 .disabled(stage.orderIndex == 0)
 
-                Button(action: { viewModel.moveStage(stage, direction: 1, in: job) }) {
+                Button(action: { viewModel.moveStage(stage, direction: 1, in: job, context: context) }) {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(.borderless)
@@ -1483,12 +1605,12 @@ struct StageRowIOS: View {
                 }
 
                 // Move up/down buttons
-                Button(action: { viewModel.moveStage(stage, direction: -1, in: job) }) {
+                Button(action: { viewModel.moveStage(stage, direction: -1, in: job, context: context) }) {
                     Image(systemName: "chevron.up")
                 }
                 .disabled(stage.orderIndex == 0)
 
-                Button(action: { viewModel.moveStage(stage, direction: 1, in: job) }) {
+                Button(action: { viewModel.moveStage(stage, direction: 1, in: job, context: context) }) {
                     Image(systemName: "chevron.down")
                 }
                 .disabled(stage.orderIndex >= (job.sortedStages.count - 1))

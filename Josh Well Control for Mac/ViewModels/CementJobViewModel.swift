@@ -210,7 +210,7 @@ class CementJobViewModel {
     }
 
     /// Update volume calculations for the selected job
-    func updateVolumes(project: ProjectState) {
+    func updateVolumes(project: ProjectState, context: ModelContext? = nil) {
         guard let job = selectedJob else { return }
 
         volumeBreakdown = calculateVolumeBreakdown(for: job, project: project)
@@ -220,6 +220,11 @@ class CementJobViewModel {
         job.openHoleVolume_m3 = volumeBreakdown.leadOpenHoleVolume_m3 + volumeBreakdown.tailOpenHoleVolume_m3
         job.totalVolumeWithExcess_m3 = volumeBreakdown.totalVolume_m3
         job.updatedAt = .now
+
+        // Explicit save for CloudKit sync
+        if let context = context {
+            try? context.save()
+        }
     }
 
     // MARK: - Stage Management
@@ -240,7 +245,7 @@ class CementJobViewModel {
     }
 
     /// Move a stage up or down in the order
-    func moveStage(_ stage: CementJobStage, direction: Int, in job: CementJob) {
+    func moveStage(_ stage: CementJobStage, direction: Int, in job: CementJob, context: ModelContext? = nil) {
         let stages = job.sortedStages
         guard let currentIndex = stages.firstIndex(where: { $0.id == stage.id }) else { return }
 
@@ -252,6 +257,12 @@ class CementJobViewModel {
         let tempOrder = stage.orderIndex
         stage.orderIndex = otherStage.orderIndex
         otherStage.orderIndex = tempOrder
+        job.updatedAt = .now
+
+        // Explicit save for CloudKit sync
+        if let context = context {
+            try? context.save()
+        }
     }
 
     /// Update calculations for a cement stage (tonnage, mix water)
@@ -307,10 +318,8 @@ class CementJobViewModel {
             project: project
         )
 
-        if project.cementJobs == nil {
-            project.cementJobs = []
-        }
-        project.cementJobs?.append(job)
+        // Just insert the job - the relationship is set via job.project = project
+        // Don't manually modify project.cementJobs array (more reliable with CloudKit sync)
         context.insert(job)
 
         // Calculate volumes
@@ -322,7 +331,8 @@ class CementJobViewModel {
 
     /// Delete a cement job
     func deleteCementJob(_ job: CementJob, from project: ProjectState, context: ModelContext) {
-        project.cementJobs?.removeAll { $0.id == job.id }
+        // Don't manually modify relationship array - let SwiftData handle via delete
+        // This is more reliable with CloudKit sync
         context.delete(job)
         try? context.save()
 

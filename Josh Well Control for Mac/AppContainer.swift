@@ -69,6 +69,15 @@ enum AppContainer {
                 let ck = ModelConfiguration(schema: fullSchema, cloudKitDatabase: .private(id))
                 let container = try ModelContainer(for: fullSchema, configurations: [ck])
                 print("✅ Using CloudKit container:", id)
+
+                // Debug: Log CementJob count on launch
+                Task { @MainActor in
+                    let ctx = container.mainContext
+                    let cementJobCount = (try? ctx.fetchCount(FetchDescriptor<CementJob>())) ?? -1
+                    let projectCount = (try? ctx.fetchCount(FetchDescriptor<ProjectState>())) ?? -1
+                    print("📊 [Sync Debug] Launch state: \(projectCount) projects, \(cementJobCount) cement jobs")
+                }
+
                 return container
             } catch {
                 print("⚠️ CloudKit container failed:", error)
