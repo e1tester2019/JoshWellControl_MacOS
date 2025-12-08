@@ -41,6 +41,16 @@ final class CementJobStage {
     /// Pump rate (m³/min) - optional
     var pumpRate_m3permin: Double?
 
+    // MARK: - Rheology Properties (for friction/APL calculations)
+
+    /// Plastic Viscosity (cP = mPa·s) - Bingham Plastic model
+    /// Typical values: Mud 15-25, Spacer 10-20, Lead cement 40-80, Tail cement 60-100
+    var plasticViscosity_cP: Double = 30.0
+
+    /// Yield Point (Pa) - Bingham Plastic model
+    /// Typical values: Mud 5-15, Spacer 3-10, Lead cement 5-15, Tail cement 10-20
+    var yieldPoint_Pa: Double = 10.0
+
     /// Calculated tonnage for cement stages (tonnes)
     /// Computed from volume / yield factor
     var tonnage_t: Double?
@@ -136,6 +146,30 @@ final class CementJobStage {
 
         var isDisplacementStage: Bool {
             self == .displacement || self == .mudDisplacement
+        }
+
+        /// Default plastic viscosity (cP) for this stage type
+        var defaultPlasticViscosity_cP: Double {
+            switch self {
+            case .preFlush: return 15.0
+            case .spacer: return 20.0
+            case .leadCement: return 60.0
+            case .tailCement: return 80.0
+            case .displacement, .mudDisplacement: return 20.0
+            case .operation: return 20.0
+            }
+        }
+
+        /// Default yield point (Pa) for this stage type
+        var defaultYieldPoint_Pa: Double {
+            switch self {
+            case .preFlush: return 5.0
+            case .spacer: return 8.0
+            case .leadCement: return 10.0
+            case .tailCement: return 15.0
+            case .displacement, .mudDisplacement: return 8.0
+            case .operation: return 8.0
+            }
         }
     }
 

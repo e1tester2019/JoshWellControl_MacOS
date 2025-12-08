@@ -36,6 +36,7 @@ struct CementJobSimulationView: View {
                 VStack(spacing: 12) {
                     tankVolumeSection
                     lossZoneSection
+                    pumpRateSection
                     stageListSection
                     returnSummarySection
                 }
@@ -469,6 +470,121 @@ struct CementJobSimulationView: View {
                         .frame(maxHeight: 150)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(4)
+                    }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    // MARK: - Pump Rate Section
+
+    private var pumpRateSection: some View {
+        GroupBox("Pump Rate & Velocities") {
+            VStack(alignment: .leading, spacing: 12) {
+                // Pump rate slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Pump Rate:")
+                            .frame(width: 90, alignment: .leading)
+                        Text(String(format: "%.2f m³/min", viewModel.pumpRate_m3_per_min))
+                            .fontWeight(.medium)
+                            .monospacedDigit()
+                        Spacer()
+                    }
+
+                    Slider(
+                        value: Binding(
+                            get: { viewModel.pumpRate_m3_per_min },
+                            set: { viewModel.setPumpRate($0) }
+                        ),
+                        in: 0.05...2.0,
+                        step: 0.05
+                    )
+
+                    HStack {
+                        Text("0.05")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("2.0 m³/min")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Show APL and total pressure at loss zone if there's an active loss zone
+                if !viewModel.lossZones.isEmpty && viewModel.totalPressureAtLossZone_kPa > 0 {
+                    Divider()
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("APL")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text("\(String(format: "%.0f", viewModel.aplAboveLossZone_kPa)) kPa")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Total @ LZ")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text("\(String(format: "%.0f", viewModel.totalPressureAtLossZone_kPa)) kPa")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                    }
+                }
+
+                // Annular velocities per section
+                if !viewModel.annulusSectionInfos.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Annular Velocities")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+
+                        ForEach(viewModel.annulusSectionInfos) { section in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(section.name)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                    Text("\(Int(section.topMD_m))-\(Int(section.bottomMD_m))m")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Text(String(format: "%.1f m/min", section.velocity_m_per_min))
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(section.isOverSpeedLimit ? .red : .primary)
+                                    .monospacedDigit()
+
+                                if section.isOverSpeedLimit {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            }
+                        }
+
+                        // Max velocity limit warning
+                        if let maxVel = viewModel.maxVelocityLimit_m_per_min {
+                            HStack {
+                                Text("Max limit:")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text(String(format: "%.1f m/min", maxVel))
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
             }

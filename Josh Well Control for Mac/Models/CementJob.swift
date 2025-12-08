@@ -72,6 +72,15 @@ final class CementJob {
     /// Float collar depth (MD in meters) - displacement target
     var floatCollarDepth_m: Double = 0.0
 
+    // MARK: - Pump Rate / Velocity Limits
+
+    /// Maximum allowed annular velocity (m/min) - optional operator limit
+    /// When set, velocities exceeding this will trigger a warning
+    var maxAnnularVelocity_m_per_min: Double?
+
+    /// Default pump rate for simulation (m³/min)
+    var defaultPumpRate_m3_per_min: Double = 0.5
+
     // MARK: - Legacy/Calculated Values (kept for compatibility)
 
     /// Excess percentage to apply to open hole sections (e.g., 50 = 50% excess)

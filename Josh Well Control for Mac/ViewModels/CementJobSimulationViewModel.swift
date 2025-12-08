@@ -45,6 +45,38 @@ class CementJobSimulationViewModel {
     /// Debug info for loss zone state
     var lossZoneDebugInfo: String = ""
 
+    // MARK: - Pump Rate and APL
+
+    /// Current pump rate (m³/min) - adjustable during simulation
+    var pumpRate_m3_per_min: Double = 0.5
+
+    /// Calculated annular pressure loss above loss zone (kPa)
+    var aplAboveLossZone_kPa: Double = 0.0
+
+    /// Total pressure at loss zone (HP + APL)
+    var totalPressureAtLossZone_kPa: Double = 0.0
+
+    /// Info about each annulus geometry section for display
+    struct AnnulusSectionInfo: Identifiable {
+        let id = UUID()
+        let name: String           // e.g., "Open Hole", "9-5/8\" Casing"
+        let topMD_m: Double
+        let bottomMD_m: Double
+        let innerDiameter_m: Double  // Pipe OD
+        let outerDiameter_m: Double  // Hole/Casing ID
+        let area_m2: Double
+        let velocity_m_per_min: Double
+        let isOverSpeedLimit: Bool
+    }
+
+    /// Current annular velocities per geometry section
+    var annulusSectionInfos: [AnnulusSectionInfo] = []
+
+    /// Maximum velocity limit from job (if set)
+    var maxVelocityLimit_m_per_min: Double? {
+        boundJob?.maxAnnularVelocity_m_per_min
+    }
+
     // MARK: - Simulation Stages
 
     struct SimulationStage: Identifiable {
@@ -57,6 +89,10 @@ class CementJobSimulationViewModel {
         let density_kgm3: Double
         let isOperation: Bool
         let operationType: CementJobStage.OperationType?
+
+        // Rheology for APL calculations
+        let plasticViscosity_cP: Double
+        let yieldPoint_Pa: Double
 
         // Runtime tracking
         var tankVolumeAfter_m3: Double?
@@ -180,6 +216,9 @@ class CementJobSimulationViewModel {
         var name: String
         var density_kgm3: Double
         var isCement: Bool = false
+        // Rheology for APL calculations
+        var plasticViscosity_cP: Double = 20.0
+        var yieldPoint_Pa: Double = 8.0
     }
 
     var stringStack: [FluidSegment] = []
@@ -243,6 +282,9 @@ class CementJobSimulationViewModel {
     private func buildStages(from job: CementJob) {
         stages.removeAll()
 
+        // Initialize pump rate from job default
+        pumpRate_m3_per_min = job.defaultPumpRate_m3_per_min
+
         for stage in job.sortedStages {
             let simStage = SimulationStage(
                 id: stage.id,
@@ -253,7 +295,9 @@ class CementJobSimulationViewModel {
                 color: stage.color,
                 density_kgm3: stage.density_kgm3,
                 isOperation: stage.stageType == .operation,
-                operationType: stage.operationType
+                operationType: stage.operationType,
+                plasticViscosity_cP: stage.plasticViscosity_cP,
+                yieldPoint_Pa: stage.yieldPoint_Pa
             )
             stages.append(simStage)
         }
@@ -320,6 +364,12 @@ class CementJobSimulationViewModel {
     func setProgress(_ newProgress: Double) {
         progress = max(0, min(1, newProgress))
         syncTankVolumeToExpected()
+        updateFluidStacks()
+    }
+
+    /// Set pump rate and recalculate pressures and velocities
+    func setPumpRate(_ rate_m3_per_min: Double) {
+        pumpRate_m3_per_min = max(0, rate_m3_per_min)
         updateFluidStacks()
     }
 
@@ -498,6 +548,164 @@ class CementJobSimulationViewModel {
         return max(0, volumeToFrac)
     }
 
+    // MARK: - APL (Annular Pressure Loss) Calculations
+
+    /// Calculate annular velocity given flow rate and geometry
+    /// - Parameters:
+    ///   - flowRate_m3_per_min: Flow rate in m³/min
+    ///   - holeDiameter_m: Hole or casing ID (m)
+    ///   - pipeDiameter_m: Pipe OD (m)
+    /// - Returns: Velocity in m/min
+    private func annularVelocity(
+        flowRate_m3_per_min: Double,
+        holeDiameter_m: Double,
+        pipeDiameter_m: Double
+    ) -> Double {
+        let area_m2 = Double.pi / 4.0 * (pow(holeDiameter_m, 2) - pow(pipeDiameter_m, 2))
+        guard area_m2 > 1e-9 else { return 0 }
+        return flowRate_m3_per_min / area_m2
+    }
+
+    /// Calculate friction pressure gradient using Bingham Plastic model (laminar flow)
+    /// - Parameters:
+    ///   - velocity_m_per_s: Flow velocity in m/s
+    ///   - holeDiameter_m: Hole or casing ID (m)
+    ///   - pipeDiameter_m: Pipe OD (m)
+    ///   - plasticViscosity_cP: Plastic viscosity in centipoise (mPa·s)
+    ///   - yieldPoint_Pa: Yield point in Pascals
+    /// - Returns: Friction gradient in kPa/m
+    private func binghamFrictionGradient(
+        velocity_m_per_s: Double,
+        holeDiameter_m: Double,
+        pipeDiameter_m: Double,
+        plasticViscosity_cP: Double,
+        yieldPoint_Pa: Double
+    ) -> Double {
+        let hydraulicDiameter = holeDiameter_m - pipeDiameter_m
+        guard hydraulicDiameter > 1e-6 else { return 0 }
+
+        // Convert PV from cP to Pa·s
+        let pv_Pa_s = plasticViscosity_cP / 1000.0
+
+        // Bingham plastic friction gradient for laminar flow in annulus:
+        // dP/dL = (4 × YP) / (D_h - D_p) + (8 × PV × V) / (D_h - D_p)²
+        // Result in Pa/m, convert to kPa/m
+
+        let yieldTerm = (4.0 * yieldPoint_Pa) / hydraulicDiameter
+        let viscousTerm = (8.0 * pv_Pa_s * velocity_m_per_s) / pow(hydraulicDiameter, 2)
+
+        return (yieldTerm + viscousTerm) / 1000.0  // kPa/m
+    }
+
+    /// Calculate total APL above a loss zone from the fluid parcels
+    private func annularPressureLossAboveLossZone(
+        lossZoneDepth_m: Double,
+        aboveZoneParcels: [VolumeParcel],
+        aboveZoneCapacity_m3: Double,
+        pumpRate_m3_per_min: Double,
+        geom: ProjectGeometryService
+    ) -> Double {
+        guard let project = boundProject else { return 0 }
+        guard pumpRate_m3_per_min > 0.001 else { return 0 }
+
+        // Get annulus sections above the loss zone
+        let annulusSections = project.annulus ?? []
+        let drillStrings = project.drillString ?? []
+
+        var totalAPL_kPa = 0.0
+        let flowRate_m3_per_s = pumpRate_m3_per_min / 60.0
+
+        // For simplicity, use average rheology from parcels weighted by volume
+        var totalVolume = 0.0
+        var weightedPV = 0.0
+        var weightedYP = 0.0
+
+        for parcel in aboveZoneParcels {
+            guard parcel.volume_m3 > 1e-9 else { continue }
+            totalVolume += parcel.volume_m3
+            weightedPV += parcel.plasticViscosity_cP * parcel.volume_m3
+            weightedYP += parcel.yieldPoint_Pa * parcel.volume_m3
+        }
+
+        let avgPV = totalVolume > 0 ? weightedPV / totalVolume : 20.0
+        let avgYP = totalVolume > 0 ? weightedYP / totalVolume : 8.0
+
+        // Calculate APL for each geometry section above loss zone
+        for section in annulusSections {
+            // Only consider sections above the loss zone
+            let sectionTop = section.topDepth_m
+            let sectionBottom = min(section.bottomDepth_m, lossZoneDepth_m)
+
+            guard sectionBottom > sectionTop else { continue }
+            let sectionLength = sectionBottom - sectionTop
+
+            // Get geometry
+            let holeID = section.innerDiameter_m
+            let pipeOD = drillStrings.first?.outerDiameter_m ?? 0.127  // Default 5" pipe
+
+            // Calculate velocity and friction
+            let area_m2 = Double.pi / 4.0 * (pow(holeID, 2) - pow(pipeOD, 2))
+            guard area_m2 > 1e-9 else { continue }
+
+            let velocity_m_per_s = flowRate_m3_per_s / area_m2
+            let frictionGrad = binghamFrictionGradient(
+                velocity_m_per_s: velocity_m_per_s,
+                holeDiameter_m: holeID,
+                pipeDiameter_m: pipeOD,
+                plasticViscosity_cP: avgPV,
+                yieldPoint_Pa: avgYP
+            )
+
+            totalAPL_kPa += frictionGrad * sectionLength
+        }
+
+        return totalAPL_kPa
+    }
+
+    /// Update annulus section info for display (velocities per section)
+    private func updateAnnulusSectionInfos(pumpRate_m3_per_min: Double, geom: ProjectGeometryService) {
+        guard let project = boundProject else {
+            annulusSectionInfos = []
+            return
+        }
+
+        let annulusSections = project.annulus ?? []
+        let drillStrings = project.drillString ?? []
+        let maxVelocity = maxVelocityLimit_m_per_min
+
+        var infos: [AnnulusSectionInfo] = []
+
+        for section in annulusSections {
+            // Only show sections in the annulus (above shoe)
+            guard section.topDepth_m < shoeDepth_m else { continue }
+
+            let holeID = section.innerDiameter_m
+            let pipeOD = drillStrings.first?.outerDiameter_m ?? 0.127
+
+            let area_m2 = Double.pi / 4.0 * (pow(holeID, 2) - pow(pipeOD, 2))
+            let velocity_m_per_min = area_m2 > 1e-9 ? pumpRate_m3_per_min / area_m2 : 0
+
+            let isOverLimit = maxVelocity.map { velocity_m_per_min > $0 } ?? false
+
+            let sectionName = section.isCased
+                ? "\(String(format: "%.1f", holeID * 1000))mm Casing"
+                : "Open Hole \(String(format: "%.1f", holeID * 1000))mm"
+
+            infos.append(AnnulusSectionInfo(
+                name: sectionName,
+                topMD_m: section.topDepth_m,
+                bottomMD_m: min(section.bottomDepth_m, shoeDepth_m),
+                innerDiameter_m: pipeOD,
+                outerDiameter_m: holeID,
+                area_m2: area_m2,
+                velocity_m_per_min: velocity_m_per_min,
+                isOverSpeedLimit: isOverLimit
+            ))
+        }
+
+        annulusSectionInfos = infos.sorted { $0.topMD_m < $1.topMD_m }
+    }
+
     // MARK: - Fluid Stack Calculation
 
     func updateFluidStacks() {
@@ -541,7 +749,15 @@ class CementJobSimulationViewModel {
                 // Push into top of string, collect what exits at bit
                 pushToTopAndOverflow(
                     stringParcels: &stringParcels,
-                    add: VolumeParcel(volume_m3: stagePumped, color: stage.color, name: stage.name, density_kgm3: stage.density_kgm3, isCement: isCement),
+                    add: VolumeParcel(
+                        volume_m3: stagePumped,
+                        color: stage.color,
+                        name: stage.name,
+                        density_kgm3: stage.density_kgm3,
+                        isCement: isCement,
+                        plasticViscosity_cP: stage.plasticViscosity_cP,
+                        yieldPoint_Pa: stage.yieldPoint_Pa
+                    ),
                     capacity_m3: stringCapacity_m3,
                     expelled: &expelledAtBit
                 )
@@ -570,20 +786,27 @@ class CementJobSimulationViewModel {
             var overflowAtSurface: [VolumeParcel] = []
             var debugLines: [String] = []
 
-            // Calculate initial HP (before any pumping)
+            // Calculate initial HP and APL (before any pumping)
             let initialHP = hydrostaticPressureAboveLossZone(
                 lossZoneDepth_m: lossZone.depth_m,
                 aboveZoneParcels: aboveZoneParcels,
                 aboveZoneCapacity_m3: aboveZoneCapacity_m3,
                 geom: geom
             )
+            let initialAPL = annularPressureLossAboveLossZone(
+                lossZoneDepth_m: lossZone.depth_m,
+                aboveZoneParcels: aboveZoneParcels,
+                aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                pumpRate_m3_per_min: pumpRate_m3_per_min,
+                geom: geom
+            )
+            let initialTotal = initialHP + initialAPL
 
             debugLines.append("Loss Zone @ \(String(format: "%.0f", lossZone.depth_m))m MD (TVD: \(String(format: "%.0f", project.tvd(of: lossZone.depth_m)))m)")
             debugLines.append("Frac pressure: \(String(format: "%.0f", lossZone.frac_kPa)) kPa")
-            debugLines.append("Initial HP: \(String(format: "%.0f", initialHP)) kPa")
-            debugLines.append("Margin: \(String(format: "%.0f", lossZone.frac_kPa - initialHP)) kPa")
-            debugLines.append("Below zone: \(String(format: "%.1f", belowZoneCapacity_m3)) m³")
-            debugLines.append("Above zone: \(String(format: "%.1f", aboveZoneCapacity_m3)) m³")
+            debugLines.append("Pump rate: \(String(format: "%.2f", pumpRate_m3_per_min)) m³/min")
+            debugLines.append("Initial: HP=\(String(format: "%.0f", initialHP)) + APL=\(String(format: "%.0f", initialAPL)) = \(String(format: "%.0f", initialTotal)) kPa")
+            debugLines.append("Margin: \(String(format: "%.0f", lossZone.frac_kPa - initialTotal)) kPa")
             debugLines.append("---")
 
             // Process each expelled parcel through the loss zone valve
@@ -604,13 +827,22 @@ class CementJobSimulationViewModel {
                     guard overflow.volume_m3 > 0.001 else { continue }
 
                     // Check current valve state ONCE per parcel for performance
+                    // Total pressure = HP (hydrostatic) + APL (friction)
                     let currentHP = hydrostaticPressureAboveLossZone(
                         lossZoneDepth_m: lossZone.depth_m,
                         aboveZoneParcels: aboveZoneParcels,
                         aboveZoneCapacity_m3: aboveZoneCapacity_m3,
                         geom: geom
                     )
-                    let valveOpen = currentHP >= lossZone.frac_kPa
+                    let currentAPL = annularPressureLossAboveLossZone(
+                        lossZoneDepth_m: lossZone.depth_m,
+                        aboveZoneParcels: aboveZoneParcels,
+                        aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                        pumpRate_m3_per_min: pumpRate_m3_per_min,
+                        geom: geom
+                    )
+                    let totalPressure = currentHP + currentAPL
+                    let valveOpen = totalPressure >= lossZone.frac_kPa
 
                     if valveOpen {
                         // Valve is open - all goes to losses
@@ -619,17 +851,20 @@ class CementJobSimulationViewModel {
                             color: overflow.color,
                             name: overflow.name,
                             density_kgm3: overflow.density_kgm3,
-                            isCement: overflow.isCement
+                            isCement: overflow.isCement,
+                            plasticViscosity_cP: overflow.plasticViscosity_cP,
+                            yieldPoint_Pa: overflow.yieldPoint_Pa
                         ))
-                        debugLines.append("OPEN: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → loss (HP=\(String(format: "%.0f", currentHP)))")
+                        debugLines.append("OPEN: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → loss (HP+APL=\(String(format: "%.0f", totalPressure)))")
                     } else {
                         // Valve is closed - calculate how much can pass before it opens
+                        // Use totalPressure (HP + APL) to compute margin to frac
                         let volumeToOpen = volumeToTransition(
                             lossZone: lossZone,
                             aboveZoneParcels: aboveZoneParcels,
                             newParcelDensity: overflow.density_kgm3,
                             aboveZoneCapacity: aboveZoneCapacity_m3,
-                            currentHP: currentHP,
+                            currentHP: totalPressure,  // Use total pressure (HP + APL)
                             geom: geom
                         )
 
@@ -640,7 +875,9 @@ class CementJobSimulationViewModel {
                                 color: overflow.color,
                                 name: overflow.name,
                                 density_kgm3: overflow.density_kgm3,
-                                isCement: overflow.isCement
+                                isCement: overflow.isCement,
+                                plasticViscosity_cP: overflow.plasticViscosity_cP,
+                                yieldPoint_Pa: overflow.yieldPoint_Pa
                             ))
                             debugLines.append("OPENING: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → loss")
                         } else if volumeToOpen >= overflow.volume_m3 - 0.01 {
@@ -653,7 +890,7 @@ class CementJobSimulationViewModel {
                                 overflowAtSurface: &surfaceOverflow
                             )
                             overflowAtSurface.append(contentsOf: surfaceOverflow)
-                            debugLines.append("CLOSED: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → above (HP=\(String(format: "%.0f", currentHP)))")
+                            debugLines.append("CLOSED: \(String(format: "%.2f", overflow.volume_m3)) m³ \(overflow.name) → above (HP+APL=\(String(format: "%.0f", totalPressure)))")
                         } else {
                             // Partial transfer - some passes, rest goes to losses
                             var surfaceOverflow: [VolumeParcel] = []
@@ -664,7 +901,9 @@ class CementJobSimulationViewModel {
                                     color: overflow.color,
                                     name: overflow.name,
                                     density_kgm3: overflow.density_kgm3,
-                                    isCement: overflow.isCement
+                                    isCement: overflow.isCement,
+                                    plasticViscosity_cP: overflow.plasticViscosity_cP,
+                                    yieldPoint_Pa: overflow.yieldPoint_Pa
                                 ),
                                 capacity_m3: aboveZoneCapacity_m3,
                                 overflowAtSurface: &surfaceOverflow
@@ -677,7 +916,9 @@ class CementJobSimulationViewModel {
                                 color: overflow.color,
                                 name: overflow.name,
                                 density_kgm3: overflow.density_kgm3,
-                                isCement: overflow.isCement
+                                isCement: overflow.isCement,
+                                plasticViscosity_cP: overflow.plasticViscosity_cP,
+                                yieldPoint_Pa: overflow.yieldPoint_Pa
                             ))
                             debugLines.append("SPLIT: \(String(format: "%.2f", volumeToOpen)) m³ → above, \(String(format: "%.2f", lossVolume)) m³ → loss")
                         }
@@ -685,13 +926,25 @@ class CementJobSimulationViewModel {
                 }
             }
 
-            // Calculate final HP and valve state for debug
+            // Calculate final HP, APL, and valve state for debug
             let finalHP = hydrostaticPressureAboveLossZone(
                 lossZoneDepth_m: lossZone.depth_m,
                 aboveZoneParcels: aboveZoneParcels,
                 aboveZoneCapacity_m3: aboveZoneCapacity_m3,
                 geom: geom
             )
+            let finalAPL = annularPressureLossAboveLossZone(
+                lossZoneDepth_m: lossZone.depth_m,
+                aboveZoneParcels: aboveZoneParcels,
+                aboveZoneCapacity_m3: aboveZoneCapacity_m3,
+                pumpRate_m3_per_min: pumpRate_m3_per_min,
+                geom: geom
+            )
+            let finalTotal = finalHP + finalAPL
+
+            // Store for external access
+            aplAboveLossZone_kPa = finalAPL
+            totalPressureAtLossZone_kPa = finalTotal
 
             // Calculate total losses
             totalLossVolume_m3 = lostToFormation.reduce(0) { $0 + $1.volume_m3 }
@@ -702,8 +955,9 @@ class CementJobSimulationViewModel {
 
             debugLines.append("---")
             debugLines.append("FINAL STATE:")
-            debugLines.append("HP: \(String(format: "%.0f", finalHP)) kPa (frac: \(String(format: "%.0f", lossZone.frac_kPa)))")
-            debugLines.append("Valve: \(finalHP >= lossZone.frac_kPa ? "OPEN" : "CLOSED")")
+            debugLines.append("HP=\(String(format: "%.0f", finalHP)) + APL=\(String(format: "%.0f", finalAPL)) = \(String(format: "%.0f", finalTotal)) kPa")
+            debugLines.append("Frac: \(String(format: "%.0f", lossZone.frac_kPa)) kPa | Margin: \(String(format: "%.0f", lossZone.frac_kPa - finalTotal)) kPa")
+            debugLines.append("Valve: \(finalTotal >= lossZone.frac_kPa ? "OPEN" : "CLOSED")")
             debugLines.append("Above zone: \(String(format: "%.2f", aboveZoneTotal)) m³ (cement: \(String(format: "%.2f", aboveZoneCement)) m³)")
             debugLines.append("Losses: \(String(format: "%.2f", totalLossVolume_m3)) m³")
 
@@ -753,8 +1007,13 @@ class CementJobSimulationViewModel {
             annulusStack = segmentsFromAnnulusParcels(annulusParcels, maxDepth: shoeDepth_m, geom: geom)
             simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
             totalLossVolume_m3 = 0
+            aplAboveLossZone_kPa = 0
+            totalPressureAtLossZone_kPa = 0
             lossZoneDebugInfo = "No active loss zones"
         }
+
+        // Update annular velocity info for all sections
+        updateAnnulusSectionInfos(pumpRate_m3_per_min: pumpRate_m3_per_min, geom: geom)
     }
 
     // MARK: - Parcel Pushing Helpers
@@ -776,7 +1035,15 @@ class CementJobSimulationViewModel {
         guard addV > 1e-12 else { return }
 
         // Add to top (surface)
-        stringParcels.insert(VolumeParcel(volume_m3: addV, color: add.color, name: add.name, density_kgm3: add.density_kgm3, isCement: add.isCement), at: 0)
+        stringParcels.insert(VolumeParcel(
+            volume_m3: addV,
+            color: add.color,
+            name: add.name,
+            density_kgm3: add.density_kgm3,
+            isCement: add.isCement,
+            plasticViscosity_cP: add.plasticViscosity_cP,
+            yieldPoint_Pa: add.yieldPoint_Pa
+        ), at: 0)
 
         // Overflow exits at the bottom (bit)
         var overflow = totalVolume(stringParcels) - max(0.0, capacity_m3)
@@ -788,8 +1055,24 @@ class CementJobSimulationViewModel {
                 overflow -= v
             } else {
                 // Split the bottom parcel: part expelled, remainder stays in the string
-                expelled.append(VolumeParcel(volume_m3: overflow, color: last.color, name: last.name, density_kgm3: last.density_kgm3, isCement: last.isCement))
-                stringParcels.append(VolumeParcel(volume_m3: v - overflow, color: last.color, name: last.name, density_kgm3: last.density_kgm3, isCement: last.isCement))
+                expelled.append(VolumeParcel(
+                    volume_m3: overflow,
+                    color: last.color,
+                    name: last.name,
+                    density_kgm3: last.density_kgm3,
+                    isCement: last.isCement,
+                    plasticViscosity_cP: last.plasticViscosity_cP,
+                    yieldPoint_Pa: last.yieldPoint_Pa
+                ))
+                stringParcels.append(VolumeParcel(
+                    volume_m3: v - overflow,
+                    color: last.color,
+                    name: last.name,
+                    density_kgm3: last.density_kgm3,
+                    isCement: last.isCement,
+                    plasticViscosity_cP: last.plasticViscosity_cP,
+                    yieldPoint_Pa: last.yieldPoint_Pa
+                ))
                 overflow = 0
             }
         }
@@ -808,7 +1091,15 @@ class CementJobSimulationViewModel {
         guard addV > 1e-12 else { return }
 
         // Add to bottom (bit)
-        annulusParcels.insert(VolumeParcel(volume_m3: addV, color: add.color, name: add.name, density_kgm3: add.density_kgm3, isCement: add.isCement), at: 0)
+        annulusParcels.insert(VolumeParcel(
+            volume_m3: addV,
+            color: add.color,
+            name: add.name,
+            density_kgm3: add.density_kgm3,
+            isCement: add.isCement,
+            plasticViscosity_cP: add.plasticViscosity_cP,
+            yieldPoint_Pa: add.yieldPoint_Pa
+        ), at: 0)
 
         // Overflow leaves at the top (surface)
         var overflow = totalVolume(annulusParcels) - max(0.0, capacity_m3)
@@ -820,8 +1111,24 @@ class CementJobSimulationViewModel {
                 overflow -= v
             } else {
                 // Split the top parcel: part overflows, remainder stays in annulus
-                overflowAtSurface.append(VolumeParcel(volume_m3: overflow, color: last.color, name: last.name, density_kgm3: last.density_kgm3, isCement: last.isCement))
-                annulusParcels.append(VolumeParcel(volume_m3: v - overflow, color: last.color, name: last.name, density_kgm3: last.density_kgm3, isCement: last.isCement))
+                overflowAtSurface.append(VolumeParcel(
+                    volume_m3: overflow,
+                    color: last.color,
+                    name: last.name,
+                    density_kgm3: last.density_kgm3,
+                    isCement: last.isCement,
+                    plasticViscosity_cP: last.plasticViscosity_cP,
+                    yieldPoint_Pa: last.yieldPoint_Pa
+                ))
+                annulusParcels.append(VolumeParcel(
+                    volume_m3: v - overflow,
+                    color: last.color,
+                    name: last.name,
+                    density_kgm3: last.density_kgm3,
+                    isCement: last.isCement,
+                    plasticViscosity_cP: last.plasticViscosity_cP,
+                    yieldPoint_Pa: last.yieldPoint_Pa
+                ))
                 overflow = 0
             }
         }
