@@ -19,12 +19,18 @@ final class Well {
     var uwi: String? = nil
     var afeNumber: String? = nil
     var requisitioner: String? = nil
+    var rigName: String? = nil
+    var costCode: String? = nil
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
     @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?
     @Relationship(deleteRule: .nullify, inverse: \MaterialTransfer.well) var transfers: [MaterialTransfer]?
     @Relationship(deleteRule: .nullify, inverse: \RentalItem.well) var rentals: [RentalItem]?
+    @Relationship(deleteRule: .nullify, inverse: \WorkDay.well) var workDays: [WorkDay]?
+    @Relationship(deleteRule: .nullify, inverse: \InvoiceLineItem.well) var invoiceLineItems: [InvoiceLineItem]?
+    @Relationship(deleteRule: .nullify, inverse: \Expense.well) var expenses: [Expense]?
+    @Relationship(deleteRule: .nullify, inverse: \MileageLog.well) var mileageLogs: [MileageLog]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name

@@ -241,6 +241,7 @@ struct MacOSSidebarView: View {
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers]
+    private let businessViews: [ViewSelection] = [.workTracking]
 
     var body: some View {
         List(selection: $selectedView) {
@@ -281,6 +282,15 @@ struct MacOSSidebarView: View {
             // Operations
             Section("Operations") {
                 ForEach(operationsViews, id: \.self) { view in
+                    NavigationLink(value: view) {
+                        Label(view.title, systemImage: view.icon)
+                    }
+                }
+            }
+
+            // Business / Work Tracking
+            Section("Business") {
+                ForEach(businessViews, id: \.self) { view in
                     NavigationLink(value: view) {
                         Label(view.title, systemImage: view.icon)
                     }
@@ -368,6 +378,8 @@ struct MacOSDetailView: View {
                     if let well = selectedWell {
                         MaterialTransferListView(well: well)
                     }
+                case .workTracking:
+                    WorkTrackingContainerView()
                 }
             } else {
                 ContentUnavailableView {

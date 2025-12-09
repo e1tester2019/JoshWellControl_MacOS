@@ -37,7 +37,18 @@ enum AppContainer {
             RentalAdditionalCost.self,
             PumpProgramStage.self,
             CementJob.self,
-            CementJobStage.self
+            CementJobStage.self,
+            Client.self,
+            WorkDay.self,
+            Invoice.self,
+            InvoiceLineItem.self,
+            Expense.self,
+            MileageLog.self,
+            Employee.self,
+            PayRun.self,
+            PayStub.self,
+            Shareholder.self,
+            Dividend.self
         ]
         let fullSchema = Schema(models)
 

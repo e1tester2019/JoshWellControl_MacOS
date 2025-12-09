@@ -230,10 +230,20 @@ class CementJobSimulationViewModel {
     /// All fluid returns in order they came out of annulus (name, volume)
     var fluidReturnsInOrder: [(name: String, volume_m3: Double)] = []
 
+    /// Flag indicating tank adjustment was already applied via loss zone conveyor belt
+    private var lossZoneTankAdjustmentApplied: Bool = false
+
     /// Adjusted cement returns accounting for tank volume difference
     /// If tank shows less than expected (losses), cement returns is reduced by that amount
+    /// Note: For loss zone case, adjustment is already applied in the conveyor belt logic
     var cementReturns_m3: Double {
-        return max(0, simulatedCementReturns_m3 + tankVolumeDifference_m3)
+        if lossZoneTankAdjustmentApplied {
+            // Already adjusted via conveyor belt - use as-is
+            return max(0, simulatedCementReturns_m3)
+        } else {
+            // No loss zone - apply tank difference directly
+            return max(0, simulatedCementReturns_m3 + tankVolumeDifference_m3)
+        }
     }
 
     // MARK: - Geometry
@@ -714,6 +724,9 @@ class CementJobSimulationViewModel {
     func updateFluidStacks() {
         guard let project = boundProject, let job = boundJob else { return }
 
+        // Reset flags at start of recalculation
+        lossZoneTankAdjustmentApplied = false
+
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: shoeDepth_m)
         let activeMud = project.activeMud
         let activeColor = activeMud?.color ?? .gray.opacity(0.35)
@@ -975,20 +988,185 @@ class CementJobSimulationViewModel {
             // Add above-zone parcels (they're above the loss zone)
             combinedAnnulusParcels.append(contentsOf: aboveZoneParcels)
 
+            // --- Tank Volume Override for Loss Zone ---
+            // Bidirectional adjustment: shuffle parcels between returns, above-zone, and losses
+            // Like a conveyor belt: overflowAtSurface ←→ aboveZoneParcels ←→ lostToFormation
+            var adjustedAboveZone = aboveZoneParcels
+            var adjustedLosses = lostToFormation
+            var adjustedReturns = overflowAtSurface
+
+            if !isAutoTrackingTankVolume {
+                let simulatedLosses = lostToFormation.reduce(0.0) { $0 + $1.volume_m3 }
+                let actualLosses = -tankVolumeDifference_m3  // positive = losses
+
+                // adjustment > 0 means MORE actual losses than simulated (push down)
+                // adjustment < 0 means FEWER actual losses than simulated (push up)
+                let adjustment = actualLosses - simulatedLosses
+
+                if adjustment > 0.01 {
+                    // MORE losses - take from returns, push into top of above-zone, bottom goes to losses
+                    var volumeToShift = adjustment
+                    debugLines.append("Tank override: shifting \(String(format: "%.2f", volumeToShift)) m³ DOWN (more losses)")
+
+                    while volumeToShift > 0.001 && !adjustedReturns.isEmpty {
+                        // Pop from returns (most recent first - end of array)
+                        var returnParcel = adjustedReturns.removeLast()
+                        let takeVolume = min(volumeToShift, returnParcel.volume_m3)
+
+                        if takeVolume < returnParcel.volume_m3 - 0.001 {
+                            // Put remainder back into returns
+                            adjustedReturns.append(VolumeParcel(
+                                volume_m3: returnParcel.volume_m3 - takeVolume,
+                                color: returnParcel.color,
+                                name: returnParcel.name,
+                                density_kgm3: returnParcel.density_kgm3,
+                                isCement: returnParcel.isCement,
+                                plasticViscosity_cP: returnParcel.plasticViscosity_cP,
+                                yieldPoint_Pa: returnParcel.yieldPoint_Pa
+                            ))
+                        }
+
+                        // Insert at TOP of above-zone (end of array = surface)
+                        adjustedAboveZone.append(VolumeParcel(
+                            volume_m3: takeVolume,
+                            color: returnParcel.color,
+                            name: returnParcel.name,
+                            density_kgm3: returnParcel.density_kgm3,
+                            isCement: returnParcel.isCement,
+                            plasticViscosity_cP: returnParcel.plasticViscosity_cP,
+                            yieldPoint_Pa: returnParcel.yieldPoint_Pa
+                        ))
+
+                        // Remove same volume from BOTTOM of above-zone (start of array = loss zone)
+                        var remainingToRemove = takeVolume
+                        while remainingToRemove > 0.001 && !adjustedAboveZone.isEmpty {
+                            if adjustedAboveZone[0].volume_m3 <= remainingToRemove {
+                                let removed = adjustedAboveZone.removeFirst()
+                                remainingToRemove -= removed.volume_m3
+                                // Push to losses
+                                adjustedLosses.append(removed)
+                            } else {
+                                // Partial removal - split the parcel
+                                let bottomParcel = adjustedAboveZone[0]
+                                adjustedLosses.append(VolumeParcel(
+                                    volume_m3: remainingToRemove,
+                                    color: bottomParcel.color,
+                                    name: bottomParcel.name,
+                                    density_kgm3: bottomParcel.density_kgm3,
+                                    isCement: bottomParcel.isCement,
+                                    plasticViscosity_cP: bottomParcel.plasticViscosity_cP,
+                                    yieldPoint_Pa: bottomParcel.yieldPoint_Pa
+                                ))
+                                adjustedAboveZone[0] = VolumeParcel(
+                                    volume_m3: bottomParcel.volume_m3 - remainingToRemove,
+                                    color: bottomParcel.color,
+                                    name: bottomParcel.name,
+                                    density_kgm3: bottomParcel.density_kgm3,
+                                    isCement: bottomParcel.isCement,
+                                    plasticViscosity_cP: bottomParcel.plasticViscosity_cP,
+                                    yieldPoint_Pa: bottomParcel.yieldPoint_Pa
+                                )
+                                remainingToRemove = 0
+                            }
+                        }
+
+                        volumeToShift -= takeVolume
+                    }
+
+                } else if adjustment < -0.01 {
+                    // FEWER losses - take from losses, push into bottom of above-zone, top goes to returns
+                    var volumeToShift = -adjustment
+                    debugLines.append("Tank override: shifting \(String(format: "%.2f", volumeToShift)) m³ UP (fewer losses)")
+
+                    while volumeToShift > 0.001 && !adjustedLosses.isEmpty {
+                        // Pop from losses (most recent first - end of array)
+                        var lossParcel = adjustedLosses.removeLast()
+                        let takeVolume = min(volumeToShift, lossParcel.volume_m3)
+
+                        if takeVolume < lossParcel.volume_m3 - 0.001 {
+                            // Put remainder back into losses
+                            adjustedLosses.append(VolumeParcel(
+                                volume_m3: lossParcel.volume_m3 - takeVolume,
+                                color: lossParcel.color,
+                                name: lossParcel.name,
+                                density_kgm3: lossParcel.density_kgm3,
+                                isCement: lossParcel.isCement,
+                                plasticViscosity_cP: lossParcel.plasticViscosity_cP,
+                                yieldPoint_Pa: lossParcel.yieldPoint_Pa
+                            ))
+                        }
+
+                        // Insert at BOTTOM of above-zone (start of array = loss zone)
+                        adjustedAboveZone.insert(VolumeParcel(
+                            volume_m3: takeVolume,
+                            color: lossParcel.color,
+                            name: lossParcel.name,
+                            density_kgm3: lossParcel.density_kgm3,
+                            isCement: lossParcel.isCement,
+                            plasticViscosity_cP: lossParcel.plasticViscosity_cP,
+                            yieldPoint_Pa: lossParcel.yieldPoint_Pa
+                        ), at: 0)
+
+                        // Remove same volume from TOP of above-zone (end of array = surface)
+                        var remainingToRemove = takeVolume
+                        while remainingToRemove > 0.001 && !adjustedAboveZone.isEmpty {
+                            let lastIdx = adjustedAboveZone.count - 1
+                            if adjustedAboveZone[lastIdx].volume_m3 <= remainingToRemove {
+                                let removed = adjustedAboveZone.removeLast()
+                                remainingToRemove -= removed.volume_m3
+                                // Push to returns
+                                adjustedReturns.append(removed)
+                            } else {
+                                // Partial removal - split the parcel
+                                let topParcel = adjustedAboveZone[lastIdx]
+                                adjustedReturns.append(VolumeParcel(
+                                    volume_m3: remainingToRemove,
+                                    color: topParcel.color,
+                                    name: topParcel.name,
+                                    density_kgm3: topParcel.density_kgm3,
+                                    isCement: topParcel.isCement,
+                                    plasticViscosity_cP: topParcel.plasticViscosity_cP,
+                                    yieldPoint_Pa: topParcel.yieldPoint_Pa
+                                ))
+                                adjustedAboveZone[lastIdx] = VolumeParcel(
+                                    volume_m3: topParcel.volume_m3 - remainingToRemove,
+                                    color: topParcel.color,
+                                    name: topParcel.name,
+                                    density_kgm3: topParcel.density_kgm3,
+                                    isCement: topParcel.isCement,
+                                    plasticViscosity_cP: topParcel.plasticViscosity_cP,
+                                    yieldPoint_Pa: topParcel.yieldPoint_Pa
+                                )
+                                remainingToRemove = 0
+                            }
+                        }
+
+                        volumeToShift -= takeVolume
+                    }
+                }
+            }
+
+            // Update total losses from adjusted collection
+            totalLossVolume_m3 = adjustedLosses.reduce(0.0) { $0 + $1.volume_m3 }
+
+            // Mark that tank adjustment was applied via conveyor belt (prevents double-adjustment)
+            lossZoneTankAdjustmentApplied = !isAutoTrackingTankVolume
+
             // Convert to segments - need special handling for two-section annulus
             stringStack = segmentsFromStringParcels(stringParcels, maxDepth: floatCollarDepth_m, geom: geom)
             annulusStack = segmentsFromTwoSectionAnnulus(
                 belowZoneParcels: belowZoneParcels,
-                aboveZoneParcels: aboveZoneParcels,
+                aboveZoneParcels: adjustedAboveZone,
                 lossZoneDepth_m: lossZone.depth_m,
                 shoeDepth_m: shoeDepth_m,
                 geom: geom
             )
 
-            simulatedCementReturns_m3 = overflowAtSurface.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
+            // Use adjusted returns for cement returns and fluid returns
+            simulatedCementReturns_m3 = adjustedReturns.filter { $0.isCement }.reduce(0.0) { $0 + $1.volume_m3 }
 
             // Calculate returns in order they came out (merge consecutive same-name parcels)
-            fluidReturnsInOrder = buildOrderedReturns(from: overflowAtSurface)
+            fluidReturnsInOrder = buildOrderedReturns(from: adjustedReturns)
 
             lossZoneDebugInfo = debugLines.joined(separator: "\n")
 
@@ -1555,8 +1733,22 @@ class CementJobSimulationViewModel {
 
         lines.append("")
 
+        // Fluid returns breakdown
+        if !fluidReturnsInOrder.isEmpty {
+            lines.append("FLUID RETURNS (in order):")
+            for (fluidName, volume) in fluidReturnsInOrder {
+                lines.append("  \(fluidName): \(String(format: "%.2f", volume))m³")
+            }
+            lines.append("")
+        }
+
         // Cement returns
         lines.append("Cement returns: \(String(format: "%.2f", cementReturns_m3))m³")
+
+        // Losses to formation
+        if totalLossVolume_m3 > 0.01 {
+            lines.append("Losses to formation: \(String(format: "%.2f", totalLossVolume_m3))m³")
+        }
 
         lines.append("")
 
@@ -1569,6 +1761,18 @@ class CementJobSimulationViewModel {
             if abs(tankVolumeDifference_m3) > 0.01 {
                 lines.append("  Difference: \(String(format: "%+.2f", tankVolumeDifference_m3))m³")
             }
+            if totalLossVolume_m3 > 0.01 {
+                lines.append("  Losses: \(String(format: "%.2f", totalLossVolume_m3))m³")
+            }
+        }
+
+        // Loss zone info if active
+        if let lossZone = lossZones.first(where: { $0.isActive }) {
+            lines.append("")
+            lines.append("LOSS ZONE:")
+            lines.append("  Depth: \(Int(lossZone.depth_m))m MD / \(Int(lossZone.tvd_m))m TVD")
+            lines.append("  Frac pressure: \(String(format: "%.0f", lossZone.frac_kPa)) kPa")
+            lines.append("  Final pressure at zone: \(String(format: "%.0f", totalPressureAtLossZone_kPa)) kPa")
         }
 
         return lines.joined(separator: "\n")
@@ -1729,6 +1933,20 @@ class CementJobSimulationViewModel {
 
         if !returnsText.isEmpty {
             parts.append(returnsText.joined(separator: ", "))
+        }
+
+        // Add losses information if there were any
+        if totalLossVolume_m3 > 0.01 {
+            parts.append("\(String(format: "%.2f", totalLossVolume_m3))m³ losses")
+        }
+
+        // Add return ratio if not 1:1 (only when there's meaningful pumped volume)
+        if cumulativePumpedVolume_m3 > 0.1 {
+            let ratio = overallReturnRatio
+            if abs(ratio - 1.0) > 0.02 {
+                // Significant deviation from 1:1
+                parts.append("return ratio 1:\(String(format: "%.2f", ratio))")
+            }
         }
 
         return parts.joined(separator: ", ") + "."

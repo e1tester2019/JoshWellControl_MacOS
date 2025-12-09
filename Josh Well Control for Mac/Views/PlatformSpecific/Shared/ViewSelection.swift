@@ -23,6 +23,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case tripSimulation
     case rentals
     case transfers
+    case workTracking
 
     var id: String { rawValue }
 
@@ -43,6 +44,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "Trip Simulation"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
+        case .workTracking: return "Work Tracking"
         }
     }
 
@@ -63,6 +65,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "play.circle.fill"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
+        case .workTracking: return "dollarsign.circle.fill"
         }
     }
 
@@ -84,6 +87,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return nil
         case .rentals: return nil
         case .transfers: return nil
+        case .workTracking: return nil
         }
     }
     #endif
@@ -120,6 +124,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Equipment rental tracking"
         case .transfers:
             return "Material transfer management"
+        case .workTracking:
+            return "Track work days and generate invoices"
         }
     }
 }

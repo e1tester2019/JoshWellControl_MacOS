@@ -1474,10 +1474,10 @@ struct CementJobSimulationView: View {
                 HStack {
                     Text("Initial:")
                     Spacer()
-                    TextField("m³", value: $viewModel.initialTankVolume_m3, format: .number.precision(.fractionLength(1)))
+                    TextField("m³", value: $viewModel.initialTankVolume_m3, format: .number.precision(.fractionLength(2)))
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.decimalPad)
-                        .frame(width: 80)
+                        .frame(width: 100)
                     Text("m³")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -1499,10 +1499,10 @@ struct CementJobSimulationView: View {
                     TextField("m³", value: Binding(
                         get: { viewModel.currentTankVolume_m3 },
                         set: { viewModel.recordTankVolume($0) }
-                    ), format: .number.precision(.fractionLength(1)))
+                    ), format: .number.precision(.fractionLength(2)))
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.decimalPad)
-                        .frame(width: 80)
+                        .frame(width: 100)
                     Text("m³")
                         .font(.caption)
                         .foregroundColor(.secondary)
