@@ -23,6 +23,14 @@ struct NumericTextField: View {
             .focused($isFocused)
             #if os(iOS)
             .keyboardType(.decimalPad)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isFocused = false
+                    }
+                }
+            }
             #endif
             .onChange(of: isFocused) { _, focused in
                 if focused {
@@ -111,6 +119,14 @@ struct OptionalNumericTextField: View {
             .focused($isFocused)
             #if os(iOS)
             .keyboardType(.decimalPad)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isFocused = false
+                    }
+                }
+            }
             #endif
             .onChange(of: isFocused) { _, focused in
                 if focused {

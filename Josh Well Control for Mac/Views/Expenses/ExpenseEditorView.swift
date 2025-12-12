@@ -7,8 +7,10 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
 import PDFKit
 
 struct ExpenseEditorView: View {
@@ -581,3 +583,4 @@ struct PDFPreviewView: NSViewRepresentable {
 #Preview {
     ExpenseEditorView(expense: nil)
 }
+#endif

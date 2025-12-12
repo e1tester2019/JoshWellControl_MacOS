@@ -7,8 +7,11 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
+#endif
 
 struct PayStubEditorView: View {
     @Environment(\.modelContext) private var modelContext
@@ -398,6 +401,7 @@ struct PayStubEditorView: View {
             return
         }
 
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         let employeeName = stub.employee?.fullName.replacingOccurrences(of: " ", with: "_") ?? "Unknown"
@@ -409,6 +413,7 @@ struct PayStubEditorView: View {
                 NSWorkspace.shared.open(url)
             }
         }
+        #endif
     }
 }
 

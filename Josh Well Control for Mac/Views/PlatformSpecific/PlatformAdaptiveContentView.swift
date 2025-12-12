@@ -8,6 +8,10 @@
 import SwiftUI
 import SwiftData
 
+#if os(iOS)
+import UIKit
+#endif
+
 /// Main platform-adaptive content view that routes to platform-specific implementations
 struct PlatformAdaptiveContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -15,7 +19,11 @@ struct PlatformAdaptiveContentView: View {
 
     var body: some View {
         #if os(iOS)
-        iPadOptimizedContentView()
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            iPhoneOptimizedContentView()
+        } else {
+            iPadOptimizedContentView()
+        }
         #elseif os(macOS)
         MacOSOptimizedContentView()
         #endif

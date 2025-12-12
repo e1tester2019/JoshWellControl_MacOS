@@ -21,6 +21,8 @@ import SwiftUI
 
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 // MARK: - Placement
@@ -123,6 +125,11 @@ public extension Color {
         let g = Int((rgb.greenComponent * 255.0).rounded())
         let b = Int((rgb.blueComponent  * 255.0).rounded())
         return String(format: "#%02X%02X%02X", r, g, b)
+        #elseif canImport(UIKit)
+        let ui = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return String(format: "#%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
         #else
         return nil
         #endif

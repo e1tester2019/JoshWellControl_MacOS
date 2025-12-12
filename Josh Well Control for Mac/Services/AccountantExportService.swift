@@ -6,6 +6,8 @@
 //
 
 import Foundation
+
+#if os(macOS)
 import AppKit
 
 class AccountantExportService {
@@ -1056,3 +1058,4 @@ class AccountantExportService {
         """
     }
 }
+#endif

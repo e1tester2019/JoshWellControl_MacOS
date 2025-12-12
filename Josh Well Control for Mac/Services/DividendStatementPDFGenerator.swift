@@ -6,19 +6,33 @@
 //
 
 import Foundation
+
+#if os(macOS)
 import AppKit
+typealias PDFColor = NSColor
+typealias PDFFont = NSFont
+#elseif os(iOS)
+import UIKit
+typealias PDFColor = UIColor
+typealias PDFFont = UIFont
+#endif
 
 class DividendStatementPDFGenerator {
     static let shared = DividendStatementPDFGenerator()
 
     private init() {}
 
-    private let brandColor = NSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
+    enum StatementType: String, CaseIterable {
+        case quarterly = "Quarterly"
+        case yearly = "Yearly"
+    }
+
+    private let brandColor = PDFColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
 
     func generatePDF(
         shareholders: [Shareholder],
         year: Int,
-        statementType: DividendStatementView.StatementType,
+        statementType: StatementType,
         pageSize: CGSize = CGSize(width: 612, height: 792)
     ) -> Data? {
         let pdfInfo = [
@@ -37,7 +51,7 @@ class DividendStatementPDFGenerator {
         let contentWidth = pageSize.width - 2 * margin
 
         // Helper functions
-        func fillRect(_ rect: CGRect, color: NSColor) {
+        func fillRect(_ rect: CGRect, color: PDFColor) {
             pdfContext.setFillColor(color.cgColor)
             pdfContext.fill(rect)
         }
@@ -65,7 +79,7 @@ class DividendStatementPDFGenerator {
             CTLineDraw(line, pdfContext)
         }
 
-        func strokeLine(from: CGPoint, to: CGPoint, color: NSColor, width: CGFloat) {
+        func strokeLine(from: CGPoint, to: CGPoint, color: PDFColor, width: CGFloat) {
             pdfContext.setStrokeColor(color.cgColor)
             pdfContext.setLineWidth(width)
             pdfContext.setLineDash(phase: 0, lengths: [])
@@ -75,11 +89,11 @@ class DividendStatementPDFGenerator {
         }
 
         // Fonts
-        let titleFont = NSFont.systemFont(ofSize: 18, weight: .bold)
-        let headerFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let valueFont = NSFont.systemFont(ofSize: 10, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 9, weight: .regular)
+        let titleFont = PDFFont.systemFont(ofSize: 18, weight: .bold)
+        let headerFont = PDFFont.systemFont(ofSize: 12, weight: .semibold)
+        let labelFont = PDFFont.systemFont(ofSize: 10, weight: .regular)
+        let valueFont = PDFFont.systemFont(ofSize: 10, weight: .medium)
+        let smallFont = PDFFont.systemFont(ofSize: 9, weight: .regular)
 
         let businessInfo = BusinessInfo.shared
         let numberFormatter = NumberFormatter()
@@ -89,7 +103,7 @@ class DividendStatementPDFGenerator {
         // Attributes
         let whiteAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: PDFColor.white
         ]
         let brandAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
@@ -97,23 +111,23 @@ class DividendStatementPDFGenerator {
         ]
         let grayAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: PDFColor.darkGray
         ]
         let blackAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: PDFColor.black
         ]
         let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: PDFFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: PDFColor.black
         ]
         let tableHeaderAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .font: PDFFont.systemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: PDFColor.white
         ]
         let greenAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor(red: 0, green: 0.5, blue: 0, alpha: 1)
+            .foregroundColor: PDFColor(red: 0, green: 0.5, blue: 0, alpha: 1)
         ]
 
         if statementType == .yearly {
@@ -130,7 +144,7 @@ class DividendStatementPDFGenerator {
 
                 let dateAttrs: [NSAttributedString.Key: Any] = [
                     .font: labelFont,
-                    .foregroundColor: NSColor.white
+                    .foregroundColor: PDFColor.white
                 ]
                 drawText("Tax Year \(year)", in: CGRect(x: pageSize.width - margin - 150, y: y - 34, width: 150, height: 20), attributes: dateAttrs, alignment: .right)
 
@@ -151,7 +165,7 @@ class DividendStatementPDFGenerator {
 
                 let shNameAttrs: [NSAttributedString.Key: Any] = [
                     .font: headerFont,
-                    .foregroundColor: NSColor.black
+                    .foregroundColor: PDFColor.black
                 ]
                 drawText(shareholder.fullName, at: CGPoint(x: rightX, y: rightY), attributes: shNameAttrs)
                 rightY -= 14
@@ -256,15 +270,15 @@ class DividendStatementPDFGenerator {
                 y -= 30
 
                 // T5 Reference Box
-                fillRect(CGRect(x: margin, y: y - 70, width: contentWidth, height: 75), color: NSColor(red: 1.0, green: 0.95, blue: 0.9, alpha: 1))
+                fillRect(CGRect(x: margin, y: y - 70, width: contentWidth, height: 75), color: PDFColor(red: 1.0, green: 0.95, blue: 0.9, alpha: 1))
 
                 let refHeaderAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                    .foregroundColor: NSColor.black
+                    .font: PDFFont.systemFont(ofSize: 10, weight: .semibold),
+                    .foregroundColor: PDFColor.black
                 ]
                 let refAttrs: [NSAttributedString.Key: Any] = [
                     .font: smallFont,
-                    .foregroundColor: NSColor.darkGray
+                    .foregroundColor: PDFColor.darkGray
                 ]
 
                 drawText("T5 Slip Box Reference", at: CGPoint(x: margin + 10, y: y - 14), attributes: refHeaderAttrs)
@@ -292,7 +306,7 @@ class DividendStatementPDFGenerator {
                 // Footer
                 let footerAttrs: [NSAttributedString.Key: Any] = [
                     .font: smallFont,
-                    .foregroundColor: NSColor.gray
+                    .foregroundColor: PDFColor.gray
                 ]
                 drawText("This statement is for informational purposes. Please consult your tax professional.", in: CGRect(x: 0, y: 30, width: pageSize.width, height: 14), attributes: footerAttrs, alignment: .center)
 
@@ -318,7 +332,7 @@ class DividendStatementPDFGenerator {
 
                 let dateAttrs: [NSAttributedString.Key: Any] = [
                     .font: labelFont,
-                    .foregroundColor: NSColor.white
+                    .foregroundColor: PDFColor.white
                 ]
                 drawText("Q\(quarter) \(year)", in: CGRect(x: pageSize.width - margin - 100, y: y - 34, width: 100, height: 20), attributes: dateAttrs, alignment: .right)
 
@@ -338,7 +352,7 @@ class DividendStatementPDFGenerator {
 
                 let periodAttrs: [NSAttributedString.Key: Any] = [
                     .font: headerFont,
-                    .foregroundColor: NSColor.black
+                    .foregroundColor: PDFColor.black
                 ]
                 drawText("Quarter \(quarter), \(year)", at: CGPoint(x: rightX, y: rightY), attributes: periodAttrs)
                 rightY -= 14
@@ -401,7 +415,7 @@ class DividendStatementPDFGenerator {
                 // Footer
                 let footerAttrs: [NSAttributedString.Key: Any] = [
                     .font: smallFont,
-                    .foregroundColor: NSColor.gray
+                    .foregroundColor: PDFColor.gray
                 ]
                 drawText("This statement is for informational purposes.", in: CGRect(x: 0, y: 30, width: pageSize.width, height: 14), attributes: footerAttrs, alignment: .center)
 

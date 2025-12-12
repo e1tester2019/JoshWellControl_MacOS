@@ -197,7 +197,7 @@ struct iPadDetailView: View {
                 case .annulus:
                     AnnulusListView(project: project)
                 case .volumeSummary:
-                    VolumeSummaryView(project: project)
+                    VolumeSummaryViewIOS(project: project)
                 case .surveys:
                     SurveysPadView(project: project)
                 case .mudCheck:
@@ -224,6 +224,8 @@ struct iPadDetailView: View {
                     if let well = selectedWell {
                         MaterialTransferListView(well: well)
                     }
+                case .workTracking:
+                    WorkTrackingContainerViewIOS()
                 }
             } else {
                 ContentUnavailableView(

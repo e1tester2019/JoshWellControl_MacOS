@@ -7,8 +7,11 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
+#endif
 
 struct CompanyStatementView: View {
     @Environment(\.modelContext) private var modelContext
@@ -19,15 +22,12 @@ struct CompanyStatementView: View {
     @Query(sort: \MileageLog.date, order: .reverse) private var mileageLogs: [MileageLog]
 
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date.now)
-    @State private var statementType: StatementType = .yearly
+    @State private var statementType: CompanyStatementPDFGenerator.StatementType = .yearly
     @State private var isExporting = false
     @State private var exportError: String?
     @State private var showingExportError = false
 
-    enum StatementType: String, CaseIterable {
-        case quarterly = "Quarterly"
-        case yearly = "Yearly"
-    }
+    typealias StatementType = CompanyStatementPDFGenerator.StatementType
 
     private var availableYears: [Int] {
         var years = Set<Int>()
@@ -462,6 +462,7 @@ struct CompanyStatementView: View {
     }
 
     private func exportPDF() {
+        #if os(macOS)
         let summaries: [(String, FinancialSummary)]
         if statementType == .yearly {
             summaries = [("Annual", generateYearlySummary(year: selectedYear))]
@@ -493,9 +494,11 @@ struct CompanyStatementView: View {
                 NSWorkspace.shared.open(url)
             }
         }
+        #endif
     }
 
     private func exportForAccountant() {
+        #if os(macOS)
         isExporting = true
 
         // Filter data for selected year
@@ -552,6 +555,7 @@ struct CompanyStatementView: View {
                 isExporting = false
             }
         }
+        #endif
     }
 }
 
@@ -610,7 +614,11 @@ struct StatementCard<Content: View>: View {
             content
         }
         .padding(24)
+        #if os(macOS)
         .background(Color(NSColor.controlBackgroundColor))
+        #else
+        .background(Color(uiColor: .secondarySystemBackground))
+        #endif
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
     }

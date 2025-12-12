@@ -4,6 +4,7 @@
 //
 //  Displays project-wide volume totals including drill string and annulus volumes.
 
+#if os(macOS)
 import SwiftUI
 import SwiftData
 
@@ -167,5 +168,6 @@ private struct VolumeSummaryPreview: View {
 #Preview("Volume Summary – Sample Data") {
     VolumeSummaryPreview()
 }
-#endif
+#endif // DEBUG
+#endif // os(macOS)
 

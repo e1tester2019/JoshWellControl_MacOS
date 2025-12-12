@@ -6,15 +6,28 @@
 //
 
 import Foundation
+
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 class InvoicePDFGenerator {
     static let shared = InvoicePDFGenerator()
 
+    #if os(macOS)
+    private typealias InvColor = NSColor
+    private typealias InvFont = NSFont
+    #elseif os(iOS)
+    private typealias InvColor = UIColor
+    private typealias InvFont = UIFont
+    #endif
+
     private init() {}
 
     // Brand color matching the invoice header
-    private let brandColor = NSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
+    private let brandColor = InvColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
 
     func generatePDF(for invoice: Invoice, pageSize: CGSize = CGSize(width: 612, height: 792)) -> Data? {
         let pdfInfo = [
@@ -36,7 +49,7 @@ class InvoicePDFGenerator {
         var y: CGFloat = pageSize.height // Start from top
 
         // Helper to draw filled rectangle
-        func fillRect(_ rect: CGRect, color: NSColor) {
+        func fillRect(_ rect: CGRect, color: InvColor) {
             pdfContext.setFillColor(color.cgColor)
             pdfContext.fill(rect)
         }
@@ -66,7 +79,7 @@ class InvoicePDFGenerator {
             CTLineDraw(line, pdfContext)
         }
 
-        func strokeLine(from: CGPoint, to: CGPoint, color: NSColor, width: CGFloat, dashed: Bool = false) {
+        func strokeLine(from: CGPoint, to: CGPoint, color: InvColor, width: CGFloat, dashed: Bool = false) {
             pdfContext.setStrokeColor(color.cgColor)
             pdfContext.setLineWidth(width)
             if dashed {
@@ -86,8 +99,8 @@ class InvoicePDFGenerator {
         func endPage() {
             // Draw page number
             let pageNumAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10),
-                .foregroundColor: NSColor.gray
+                .font: InvFont.systemFont(ofSize: 10),
+                .foregroundColor: InvColor.gray
             ]
             drawText("\(currentPage)", in: CGRect(x: 0, y: 20, width: pageSize.width, height: 20), attributes: pageNumAttrs, alignment: .center)
             pdfContext.endPDFPage()
@@ -103,12 +116,12 @@ class InvoicePDFGenerator {
         }
 
         // Setup fonts and attributes
-        let headerFont = NSFont.systemFont(ofSize: 16, weight: .bold)
-        let titleFont = NSFont.systemFont(ofSize: 24, weight: .light)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let valueFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let smallFont = NSFont.systemFont(ofSize: 9, weight: .regular)
-        let boldFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let headerFont = InvFont.systemFont(ofSize: 16, weight: .bold)
+        let titleFont = InvFont.systemFont(ofSize: 24, weight: .light)
+        let labelFont = InvFont.systemFont(ofSize: 10, weight: .regular)
+        let valueFont = InvFont.systemFont(ofSize: 10, weight: .regular)
+        let smallFont = InvFont.systemFont(ofSize: 9, weight: .regular)
+        let boldFont = InvFont.systemFont(ofSize: 10, weight: .semibold)
 
         let businessInfo = BusinessInfo.shared
 
@@ -121,7 +134,7 @@ class InvoicePDFGenerator {
         // Company name in header
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: headerFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: InvColor.white
         ]
         drawText(businessInfo.companyName, at: CGPoint(x: margin, y: pageSize.height - 34), attributes: headerAttrs)
 
@@ -137,13 +150,13 @@ class InvoicePDFGenerator {
 
         let regularAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: InvColor.darkGray
         ]
 
         // Left column - INVOICE title and business info
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: InvColor.darkGray
         ]
         drawText("INVOICE", at: CGPoint(x: margin, y: y), attributes: titleAttrs)
 
@@ -209,8 +222,8 @@ class InvoicePDFGenerator {
         fillRect(CGRect(x: margin, y: y - 18, width: contentWidth, height: 22), color: brandColor)
 
         let tableHeaderAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .font: InvFont.systemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: InvColor.white
         ]
 
         let columns: [(String, CGFloat, NSTextAlignment)] = [
@@ -239,12 +252,12 @@ class InvoicePDFGenerator {
 
         let descAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: InvColor.black
         ]
 
         let detailAttrs: [NSAttributedString.Key: Any] = [
             .font: smallFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: InvColor.darkGray
         ]
 
         for item in sortedItems {
@@ -252,7 +265,7 @@ class InvoicePDFGenerator {
             checkPageBreak(neededHeight: rowHeight + 20)
 
             // Row background
-            fillRect(CGRect(x: margin, y: y - rowHeight, width: contentWidth, height: rowHeight), color: NSColor(white: 0.98, alpha: 1.0))
+            fillRect(CGRect(x: margin, y: y - rowHeight, width: contentWidth, height: rowHeight), color: InvColor(white: 0.98, alpha: 1.0))
 
             xOffset = margin + 8
             var textY = y - 14
@@ -318,12 +331,12 @@ class InvoicePDFGenerator {
 
         let totalLabelAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: InvColor.darkGray
         ]
 
         let totalValueAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: InvColor.black
         ]
 
         // Subtotal
@@ -342,12 +355,12 @@ class InvoicePDFGenerator {
 
         // Total
         let grandTotalLabelAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: InvFont.systemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: InvColor.black
         ]
         let grandTotalValueAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: InvFont.systemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: InvColor.black
         ]
 
         drawText("Total", at: CGPoint(x: totalsX, y: y), attributes: grandTotalLabelAttrs)

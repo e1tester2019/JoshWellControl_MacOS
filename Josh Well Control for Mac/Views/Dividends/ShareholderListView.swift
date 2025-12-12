@@ -5,6 +5,7 @@
 //  Created by Josh Sallows on 2025-12-08.
 //
 
+#if os(macOS)
 import SwiftUI
 import SwiftData
 
@@ -238,3 +239,4 @@ struct ShareholderEditorView: View {
 #Preview {
     ShareholderListView()
 }
+#endif

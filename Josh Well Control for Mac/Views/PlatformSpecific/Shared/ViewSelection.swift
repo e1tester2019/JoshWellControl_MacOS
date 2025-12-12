@@ -27,6 +27,45 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    // MARK: - Categories for Tab Organization
+
+    enum Category: String, CaseIterable {
+        case technical = "Technical"
+        case operations = "Operations"
+        case simulation = "Simulation"
+        case business = "Business"
+        case more = "More"
+
+        var icon: String {
+            switch self {
+            case .technical: return "gauge.with.dots.needle.67percent"
+            case .operations: return "drop.fill"
+            case .simulation: return "play.circle.fill"
+            case .business: return "dollarsign.circle.fill"
+            case .more: return "ellipsis.circle.fill"
+            }
+        }
+    }
+
+    var category: Category {
+        switch self {
+        case .dashboard, .drillString, .annulus, .volumeSummary, .surveys:
+            return .technical
+        case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing:
+            return .operations
+        case .pumpSchedule, .cementJob, .tripSimulation:
+            return .simulation
+        case .workTracking:
+            return .business
+        case .rentals, .transfers:
+            return .more
+        }
+    }
+
+    static func viewsForCategory(_ category: Category) -> [ViewSelection] {
+        allCases.filter { $0.category == category }
+    }
+
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"

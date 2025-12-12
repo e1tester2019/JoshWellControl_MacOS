@@ -5,6 +5,7 @@
 //  Created by Josh Sallows on 2025-11-02.
 //
 
+#if os(macOS)
 import SwiftUI
 import SwiftData
 import Foundation
@@ -812,4 +813,5 @@ private extension ContentView {
         }
     }
 }
+#endif
 

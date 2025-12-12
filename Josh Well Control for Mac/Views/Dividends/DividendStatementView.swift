@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+#if canImport(AppKit)
 import AppKit
 import UniformTypeIdentifiers
 
@@ -17,12 +18,9 @@ struct DividendStatementView: View {
 
     @State private var selectedShareholder: Shareholder?
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date.now)
-    @State private var statementType: StatementType = .yearly
+    @State private var statementType: DividendStatementPDFGenerator.StatementType = .yearly
 
-    enum StatementType: String, CaseIterable {
-        case quarterly = "Quarterly"
-        case yearly = "Yearly"
-    }
+    typealias StatementType = DividendStatementPDFGenerator.StatementType
 
     private var availableYears: [Int] {
         let years = Set(dividends.map { $0.year })
@@ -456,3 +454,4 @@ struct DividendStatementView: View {
 #Preview {
     DividendStatementView()
 }
+#endif

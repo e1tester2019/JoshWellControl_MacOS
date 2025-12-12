@@ -18,8 +18,8 @@ struct MudPlacementView: View {
     @State private var viewmodel: MudPlacementViewModel
 
     // Interval inputs (meters). Used for the quick calculator row.
-    @State private var top_m: Double = 3150
-    @State private var bottom_m: Double = 6000
+    @State private var top_m: Double = 0
+    @State private var bottom_m: Double = 0
 
     // Preview mud density for quick interval pressure/step add
     @State private var previewDensity_kgm3: Double = 1260
@@ -28,6 +28,18 @@ struct MudPlacementView: View {
     init(project: ProjectState) {
         self._project = Bindable(wrappedValue: project)
         _viewmodel = State(initialValue: MudPlacementViewModel(project: project))
+
+        // Smart defaults based on well geometry
+        let casingShoe = (project.annulus ?? [])
+            .filter { $0.isCased }
+            .map { $0.bottomDepth_m }
+            .max() ?? 0
+        let totalDepth = max(
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        )
+        _top_m = State(initialValue: casingShoe > 0 ? casingShoe : 0)
+        _bottom_m = State(initialValue: totalDepth > 0 ? totalDepth : 1000)
     }
 
 

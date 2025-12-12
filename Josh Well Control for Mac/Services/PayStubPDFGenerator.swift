@@ -6,14 +6,23 @@
 //
 
 import Foundation
+
+#if os(macOS)
 import AppKit
+typealias PSColor = NSColor
+typealias PSFont = NSFont
+#elseif os(iOS)
+import UIKit
+typealias PSColor = UIColor
+typealias PSFont = UIFont
+#endif
 
 class PayStubPDFGenerator {
     static let shared = PayStubPDFGenerator()
 
     private init() {}
 
-    private let brandColor = NSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
+    private let brandColor = PSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
 
     func generatePDF(for stub: PayStub, payRun: PayRun, pageSize: CGSize = CGSize(width: 612, height: 792)) -> Data? {
         guard let employee = stub.employee else { return nil }
@@ -34,7 +43,7 @@ class PayStubPDFGenerator {
         let contentWidth = pageSize.width - 2 * margin
 
         // Helper functions
-        func fillRect(_ rect: CGRect, color: NSColor) {
+        func fillRect(_ rect: CGRect, color: PSColor) {
             pdfContext.setFillColor(color.cgColor)
             pdfContext.fill(rect)
         }
@@ -62,7 +71,7 @@ class PayStubPDFGenerator {
             CTLineDraw(line, pdfContext)
         }
 
-        func strokeLine(from: CGPoint, to: CGPoint, color: NSColor, width: CGFloat) {
+        func strokeLine(from: CGPoint, to: CGPoint, color: PSColor, width: CGFloat) {
             pdfContext.setStrokeColor(color.cgColor)
             pdfContext.setLineWidth(width)
             pdfContext.setLineDash(phase: 0, lengths: [])
@@ -72,11 +81,11 @@ class PayStubPDFGenerator {
         }
 
         // Fonts
-        let titleFont = NSFont.systemFont(ofSize: 18, weight: .bold)
-        let headerFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let valueFont = NSFont.systemFont(ofSize: 10, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 9, weight: .regular)
+        let titleFont = PSFont.systemFont(ofSize: 18, weight: .bold)
+        let headerFont = PSFont.systemFont(ofSize: 12, weight: .semibold)
+        let labelFont = PSFont.systemFont(ofSize: 10, weight: .regular)
+        let valueFont = PSFont.systemFont(ofSize: 10, weight: .medium)
+        let smallFont = PSFont.systemFont(ofSize: 9, weight: .regular)
 
         let businessInfo = BusinessInfo.shared
 
@@ -90,13 +99,13 @@ class PayStubPDFGenerator {
 
         let whiteAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: PSColor.white
         ]
         drawText("PAY STUB", at: CGPoint(x: margin, y: y - 34), attributes: whiteAttrs)
 
         let dateAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: PSColor.white
         ]
         drawText("Pay Date: \(payRun.payDateString)", in: CGRect(x: pageSize.width - margin - 200, y: y - 34, width: 200, height: 20), attributes: dateAttrs, alignment: .right)
 
@@ -116,14 +125,14 @@ class PayStubPDFGenerator {
         // Employee info (right side)
         let grayAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: PSColor.darkGray
         ]
         let rightX = pageSize.width / 2 + 20
         var rightY = pageSize.height - 70
 
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: headerFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: PSColor.black
         ]
         drawText(employee.fullName, at: CGPoint(x: rightX, y: rightY), attributes: headerAttrs)
         rightY -= 14
@@ -151,8 +160,8 @@ class PayStubPDFGenerator {
         fillRect(CGRect(x: margin, y: y - 18, width: contentWidth, height: 22), color: brandColor)
 
         let tableHeaderAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .font: PSFont.systemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: PSColor.white
         ]
         drawText("EARNINGS", at: CGPoint(x: margin + 8, y: y - 14), attributes: tableHeaderAttrs)
         drawText("Hours", in: CGRect(x: margin + contentWidth * 0.5, y: y - 14, width: 60, height: 16), attributes: tableHeaderAttrs, alignment: .right)
@@ -163,7 +172,7 @@ class PayStubPDFGenerator {
 
         let blackAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: PSColor.black
         ]
 
         let numberFormatter = NumberFormatter()
@@ -208,8 +217,8 @@ class PayStubPDFGenerator {
         // Gross total
         strokeLine(from: CGPoint(x: margin, y: y + 4), to: CGPoint(x: pageSize.width - margin, y: y + 4), color: .lightGray, width: 0.5)
         let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: PSFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: PSColor.black
         ]
         drawText("GROSS PAY", at: CGPoint(x: margin + 8, y: y - 4), attributes: boldAttrs)
         let grossStr = numberFormatter.string(from: NSNumber(value: stub.grossPay)) ?? "$0.00"
@@ -226,7 +235,7 @@ class PayStubPDFGenerator {
 
         let redAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
+            .foregroundColor: PSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
         ]
 
         func drawDeductionRow(description: String, amount: Double) {
@@ -250,25 +259,25 @@ class PayStubPDFGenerator {
         drawText("TOTAL DEDUCTIONS", at: CGPoint(x: margin + 8, y: y - 4), attributes: boldAttrs)
         let deductStr = numberFormatter.string(from: NSNumber(value: stub.totalDeductions)) ?? "$0.00"
         let boldRedAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
+            .font: PSFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: PSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
         ]
         drawText(deductStr, in: CGRect(x: margin + contentWidth * 0.8, y: y - 4, width: contentWidth * 0.18, height: 14), attributes: boldRedAttrs, alignment: .right)
 
         y -= 50
 
         // Net Pay box
-        fillRect(CGRect(x: margin, y: y - 40, width: contentWidth, height: 45), color: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1))
+        fillRect(CGRect(x: margin, y: y - 40, width: contentWidth, height: 45), color: PSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1))
 
         let netPayLabelAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: PSFont.systemFont(ofSize: 14, weight: .bold),
+            .foregroundColor: PSColor.black
         ]
         drawText("NET PAY", at: CGPoint(x: margin + 10, y: y - 26), attributes: netPayLabelAttrs)
 
         let netPayValueAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 18, weight: .bold),
-            .foregroundColor: NSColor(red: 0, green: 0.6, blue: 0, alpha: 1)
+            .font: PSFont.systemFont(ofSize: 18, weight: .bold),
+            .foregroundColor: PSColor(red: 0, green: 0.6, blue: 0, alpha: 1)
         ]
         let netStr = numberFormatter.string(from: NSNumber(value: stub.netPay)) ?? "$0.00"
         drawText(netStr, in: CGRect(x: margin + contentWidth * 0.6, y: y - 28, width: contentWidth * 0.38, height: 20), attributes: netPayValueAttrs, alignment: .right)
@@ -304,7 +313,7 @@ class PayStubPDFGenerator {
         strokeLine(from: CGPoint(x: margin, y: y + 10), to: CGPoint(x: pageSize.width - margin, y: y + 10), color: .lightGray, width: 0.5)
         let blueAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.blue
+            .foregroundColor: PSColor.blue
         ]
         drawText("Vacation Accrued This Period:", at: CGPoint(x: margin + 8, y: y - 4), attributes: grayAttrs)
         let vacAccrStr = numberFormatter.string(from: NSNumber(value: stub.vacationAccrued)) ?? "$0.00"
@@ -318,7 +327,7 @@ class PayStubPDFGenerator {
         // Footer
         let footerAttrs: [NSAttributedString.Key: Any] = [
             .font: smallFont,
-            .foregroundColor: NSColor.gray
+            .foregroundColor: PSColor.gray
         ]
         drawText("This pay stub is for informational purposes. Please retain for your records.", in: CGRect(x: 0, y: 30, width: pageSize.width, height: 14), attributes: footerAttrs, alignment: .center)
 

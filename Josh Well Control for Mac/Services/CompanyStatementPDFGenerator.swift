@@ -6,19 +6,33 @@
 //
 
 import Foundation
+
+#if os(macOS)
 import AppKit
+typealias CSColor = NSColor
+typealias CSFont = NSFont
+#elseif os(iOS)
+import UIKit
+typealias CSColor = UIColor
+typealias CSFont = UIFont
+#endif
 
 class CompanyStatementPDFGenerator {
     static let shared = CompanyStatementPDFGenerator()
 
     private init() {}
 
-    private let brandColor = NSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
+    enum StatementType: String, CaseIterable {
+        case quarterly = "Quarterly"
+        case yearly = "Yearly"
+    }
+
+    private let brandColor = CSColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
 
     func generatePDF(
         summaries: [(String, FinancialSummary)],
         year: Int,
-        statementType: CompanyStatementView.StatementType,
+        statementType: StatementType,
         pageSize: CGSize = CGSize(width: 612, height: 792)
     ) -> Data? {
         let pdfInfo = [
@@ -37,7 +51,7 @@ class CompanyStatementPDFGenerator {
         let contentWidth = pageSize.width - 2 * margin
 
         // Helper functions
-        func fillRect(_ rect: CGRect, color: NSColor) {
+        func fillRect(_ rect: CGRect, color: CSColor) {
             pdfContext.setFillColor(color.cgColor)
             pdfContext.fill(rect)
         }
@@ -65,7 +79,7 @@ class CompanyStatementPDFGenerator {
             CTLineDraw(line, pdfContext)
         }
 
-        func strokeLine(from: CGPoint, to: CGPoint, color: NSColor, width: CGFloat) {
+        func strokeLine(from: CGPoint, to: CGPoint, color: CSColor, width: CGFloat) {
             pdfContext.setStrokeColor(color.cgColor)
             pdfContext.setLineWidth(width)
             pdfContext.setLineDash(phase: 0, lengths: [])
@@ -75,12 +89,12 @@ class CompanyStatementPDFGenerator {
         }
 
         // Fonts
-        let titleFont = NSFont.systemFont(ofSize: 18, weight: .bold)
-        let headerFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let valueFont = NSFont.systemFont(ofSize: 10, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 9, weight: .regular)
-        let sectionFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let titleFont = CSFont.systemFont(ofSize: 18, weight: .bold)
+        let headerFont = CSFont.systemFont(ofSize: 12, weight: .semibold)
+        let labelFont = CSFont.systemFont(ofSize: 10, weight: .regular)
+        let valueFont = CSFont.systemFont(ofSize: 10, weight: .medium)
+        let smallFont = CSFont.systemFont(ofSize: 9, weight: .regular)
+        let sectionFont = CSFont.systemFont(ofSize: 11, weight: .semibold)
 
         let businessInfo = BusinessInfo.shared
         let numberFormatter = NumberFormatter()
@@ -90,7 +104,7 @@ class CompanyStatementPDFGenerator {
         // Attributes
         let whiteAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: CSColor.white
         ]
         let brandAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
@@ -98,15 +112,15 @@ class CompanyStatementPDFGenerator {
         ]
         let grayAttrs: [NSAttributedString.Key: Any] = [
             .font: labelFont,
-            .foregroundColor: NSColor.darkGray
+            .foregroundColor: CSColor.darkGray
         ]
         let blackAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor.black
+            .foregroundColor: CSColor.black
         ]
         let boldAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.black
+            .font: CSFont.systemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: CSColor.black
         ]
         let sectionAttrs: [NSAttributedString.Key: Any] = [
             .font: sectionFont,
@@ -114,11 +128,11 @@ class CompanyStatementPDFGenerator {
         ]
         let greenAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor(red: 0, green: 0.5, blue: 0, alpha: 1)
+            .foregroundColor: CSColor(red: 0, green: 0.5, blue: 0, alpha: 1)
         ]
         let redAttrs: [NSAttributedString.Key: Any] = [
             .font: valueFont,
-            .foregroundColor: NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
+            .foregroundColor: CSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
         ]
 
         for (periodName, summary) in summaries {
@@ -133,7 +147,7 @@ class CompanyStatementPDFGenerator {
 
             let dateAttrs: [NSAttributedString.Key: Any] = [
                 .font: labelFont,
-                .foregroundColor: NSColor.white
+                .foregroundColor: CSColor.white
             ]
             drawText("\(periodName) \(year)", in: CGRect(x: pageSize.width - margin - 150, y: y - 34, width: 150, height: 20), attributes: dateAttrs, alignment: .right)
 
@@ -208,10 +222,10 @@ class CompanyStatementPDFGenerator {
             // OPERATING INCOME
             let operatingIncome = summary.collectedRevenue - summary.totalExpenses - summary.totalPayrollCost
             drawSectionHeader("OPERATING RESULTS")
-            fillRect(CGRect(x: margin, y: y - 4, width: contentWidth, height: 20), color: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1))
+            fillRect(CGRect(x: margin, y: y - 4, width: contentWidth, height: 20), color: CSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1))
             let opIncomeAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-                .foregroundColor: operatingIncome >= 0 ? NSColor(red: 0, green: 0.5, blue: 0, alpha: 1) : NSColor.red
+                .font: CSFont.systemFont(ofSize: 11, weight: .bold),
+                .foregroundColor: operatingIncome >= 0 ? CSColor(red: 0, green: 0.5, blue: 0, alpha: 1) : CSColor.red
             ]
             drawText("Operating Income", at: CGPoint(x: col1X, y: y), attributes: boldAttrs)
             let opStr = numberFormatter.string(from: NSNumber(value: operatingIncome)) ?? "$0.00"
@@ -228,8 +242,8 @@ class CompanyStatementPDFGenerator {
             drawSectionHeader("NET POSITION")
             fillRect(CGRect(x: margin, y: y - 4, width: contentWidth, height: 20), color: brandColor.withAlphaComponent(0.1))
             let netAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-                .foregroundColor: netPosition >= 0 ? NSColor.black : NSColor.red
+                .font: CSFont.systemFont(ofSize: 11, weight: .bold),
+                .foregroundColor: netPosition >= 0 ? CSColor.black : CSColor.red
             ]
             drawText("Retained Earnings (After Dividends)", at: CGPoint(x: col1X, y: y), attributes: boldAttrs)
             let netStr = numberFormatter.string(from: NSNumber(value: netPosition)) ?? "$0.00"
@@ -240,7 +254,7 @@ class CompanyStatementPDFGenerator {
             drawSectionHeader("TAX INFORMATION")
             y -= 4
 
-            fillRect(CGRect(x: margin, y: y - 50, width: contentWidth, height: 55), color: NSColor(red: 1.0, green: 0.98, blue: 0.94, alpha: 1))
+            fillRect(CGRect(x: margin, y: y - 50, width: contentWidth, height: 55), color: CSColor(red: 1.0, green: 0.98, blue: 0.94, alpha: 1))
 
             let taxCol1 = margin + 10
             let taxCol2 = margin + contentWidth * 0.35
@@ -256,8 +270,8 @@ class CompanyStatementPDFGenerator {
 
             let netGST = summary.gstCollected - summary.gstPaid
             let gstOwingAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-                .foregroundColor: netGST > 0 ? NSColor.red : NSColor(red: 0, green: 0.5, blue: 0, alpha: 1)
+                .font: CSFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: netGST > 0 ? CSColor.red : CSColor(red: 0, green: 0.5, blue: 0, alpha: 1)
             ]
             drawText("Net GST Owing:", at: CGPoint(x: taxCol3, y: y - 12), attributes: grayAttrs)
             let netGSTStr = numberFormatter.string(from: NSNumber(value: netGST)) ?? "$0.00"
@@ -273,7 +287,7 @@ class CompanyStatementPDFGenerator {
             // Footer
             let footerAttrs: [NSAttributedString.Key: Any] = [
                 .font: smallFont,
-                .foregroundColor: NSColor.gray
+                .foregroundColor: CSColor.gray
             ]
             drawText("This statement is for internal use only. Please consult your accountant for official financial statements.", in: CGRect(x: 0, y: 30, width: pageSize.width, height: 14), attributes: footerAttrs, alignment: .center)
 

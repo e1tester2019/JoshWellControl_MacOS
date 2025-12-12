@@ -9,10 +9,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
-
-#if os(macOS)
-import AppKit
-#endif
+import UIKit
 
 /// A compact SwiftUI front‑end over the NumericalTripModel.
 /// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.

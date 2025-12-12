@@ -7,8 +7,11 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 import UniformTypeIdentifiers
+
+#if os(macOS)
+import AppKit
+#endif
 
 struct InvoiceDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -257,6 +260,7 @@ struct InvoiceDetailView: View {
             return
         }
 
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "Invoice_\(invoice.invoiceNumber).pdf"
@@ -267,6 +271,7 @@ struct InvoiceDetailView: View {
                 NSWorkspace.shared.open(url)
             }
         }
+        #endif
     }
 
     private func deleteInvoice() {

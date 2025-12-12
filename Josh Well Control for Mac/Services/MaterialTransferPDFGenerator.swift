@@ -11,17 +11,21 @@ import CoreGraphics
 
 #if os(macOS)
 import AppKit
-typealias PlatformFont = NSFont
-typealias PlatformColor = NSColor
 #elseif os(iOS)
 import UIKit
-typealias PlatformFont = UIFont
-typealias PlatformColor = UIColor
 #endif
 
 /// Service for generating Material Transfer PDF reports in a cross-platform way
 class MaterialTransferPDFGenerator {
     static let shared = MaterialTransferPDFGenerator()
+
+    #if os(macOS)
+    private typealias MTFont = NSFont
+    private typealias MTColor = NSColor
+    #elseif os(iOS)
+    private typealias MTFont = UIFont
+    private typealias MTColor = UIColor
+    #endif
 
     private init() {}
 
@@ -35,32 +39,32 @@ class MaterialTransferPDFGenerator {
         ctx.beginPDFPage(nil)
 
         // Setup fonts
-        let titleFont = PlatformFont.systemFont(ofSize: 18, weight: .semibold)
-        let headerFont = PlatformFont.systemFont(ofSize: 14, weight: .medium)
-        let regularFont = PlatformFont.systemFont(ofSize: 12)
-        let boldFont = PlatformFont.systemFont(ofSize: 12, weight: .bold)
+        let titleFont = MTFont.systemFont(ofSize: 18, weight: .semibold)
+        let headerFont = MTFont.systemFont(ofSize: 14, weight: .medium)
+        let regularFont = MTFont.systemFont(ofSize: 12)
+        let boldFont = MTFont.systemFont(ofSize: 12, weight: .bold)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .left
 
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: titleFont,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: PlatformColor.black
+            .foregroundColor: MTColor.black
         ]
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: headerFont,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: PlatformColor.black
+            .foregroundColor: MTColor.black
         ]
         let regularAttrs: [NSAttributedString.Key: Any] = [
             .font: regularFont,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: PlatformColor.black
+            .foregroundColor: MTColor.black
         ]
         let boldAttrs: [NSAttributedString.Key: Any] = [
             .font: boldFont,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: PlatformColor.black
+            .foregroundColor: MTColor.black
         ]
 
         // Flip coordinate system for top-left origin
@@ -74,7 +78,7 @@ class MaterialTransferPDFGenerator {
         // Helper to draw text
         func drawText(_ text: String, at point: CGPoint, attrs: [NSAttributedString.Key: Any], width: CGFloat, height: CGFloat) -> CGFloat {
             var a = attrs
-            if a[.foregroundColor] == nil { a[.foregroundColor] = PlatformColor.black }
+            if a[.foregroundColor] == nil { a[.foregroundColor] = MTColor.black }
             let nsText = NSAttributedString(string: text, attributes: a)
             let rect = CGRect(x: point.x, y: point.y, width: width, height: height)
             nsText.draw(in: rect)
@@ -157,7 +161,7 @@ class MaterialTransferPDFGenerator {
             let headerAttr: [NSAttributedString.Key: Any] = [
                 .font: boldFont,
                 .paragraphStyle: attr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             NSString(string: title).draw(in: rect, withAttributes: headerAttr)
             xOffset += CGFloat(width)
@@ -165,7 +169,7 @@ class MaterialTransferPDFGenerator {
         y += headerHeight + 6
 
         // Header line
-        ctx.setStrokeColor(PlatformColor.black.cgColor)
+        ctx.setStrokeColor(MTColor.black.cgColor)
         ctx.setLineWidth(1)
         ctx.move(to: CGPoint(x: margin, y: y))
         ctx.addLine(to: CGPoint(x: pageSize.width - margin, y: y))
@@ -188,7 +192,7 @@ class MaterialTransferPDFGenerator {
             let qtyAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: qtyAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             NSString(string: "\(item.quantity)").draw(in: qtyRect, withAttributes: qtyAttrs)
             xOffset += CGFloat(columns[0].1)
@@ -205,7 +209,7 @@ class MaterialTransferPDFGenerator {
             let accAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: accAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             NSString(string: item.accountCode ?? "").draw(in: accRect, withAttributes: accAttrs)
             xOffset += CGFloat(columns[2].1)
@@ -217,7 +221,7 @@ class MaterialTransferPDFGenerator {
             let condAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: condAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             NSString(string: item.conditionCode ?? "").draw(in: condRect, withAttributes: condAttrs)
             xOffset += CGFloat(columns[3].1)
@@ -229,7 +233,7 @@ class MaterialTransferPDFGenerator {
             let unitAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: unitAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             let unit = item.unitPrice ?? 0
             let unitString = numberFormatter.string(from: NSNumber(value: unit)) ?? "$0.00"
@@ -248,7 +252,7 @@ class MaterialTransferPDFGenerator {
             let tkAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: tkAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             NSString(string: item.transportedBy ?? transfer.transportedBy ?? "").draw(in: tkRect, withAttributes: tkAttrs)
             xOffset += CGFloat(columns[6].1)
@@ -260,7 +264,7 @@ class MaterialTransferPDFGenerator {
             let totalAttrs: [NSAttributedString.Key: Any] = [
                 .font: regularFont,
                 .paragraphStyle: totalAttr,
-                .foregroundColor: PlatformColor.black
+                .foregroundColor: MTColor.black
             ]
             let totalValue = unit * Double(item.quantity)
             let totalString = numberFormatter.string(from: NSNumber(value: totalValue)) ?? "$0.00"
@@ -270,7 +274,7 @@ class MaterialTransferPDFGenerator {
         }
 
         // Draw vertical grid lines
-        ctx.setStrokeColor(PlatformColor.black.cgColor)
+        ctx.setStrokeColor(MTColor.black.cgColor)
         ctx.setLineWidth(0.5)
 
         var xGrid: CGFloat = margin
