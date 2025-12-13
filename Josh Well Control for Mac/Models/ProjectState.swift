@@ -407,7 +407,7 @@ extension ProjectState {
         dict["name"] = name
         dict["createdAt"] = ISO8601DateFormatter().string(from: createdAt)
         dict["updatedAt"] = ISO8601DateFormatter().string(from: updatedAt)
-        dict["basedOnProjectID"] = basedOnProjectID?.uuidString as Any
+        dict["basedOnProjectID"] = basedOnProjectID?.uuidString ?? NSNull()
 
         dict["baseAnnulusDensity_kgm3"] = baseAnnulusDensity_kgm3
         dict["baseStringDensity_kgm3"] = baseStringDensity_kgm3
@@ -461,7 +461,7 @@ extension SurveyStation {
             "md": md,
             "inc": inc,
             "azi": azi,
-            "tvd": tvd as Any? ?? NSNull()
+            "tvd": tvd ?? NSNull()
         ]
     }
 }
@@ -474,11 +474,11 @@ extension DrillStringSection {
             "length_m": length_m,
             "outerDiameter_m": outerDiameter_m,
             "innerDiameter_m": innerDiameter_m,
-            "toolJointOD_m": toolJointOD_m,
+            "toolJointOD_m": toolJointOD_m ?? NSNull(),
             "jointLength_m": jointLength_m,
-            "grade": grade,
+            "grade": grade ?? NSNull(),
             "steelDensity_kg_per_m3": steelDensity_kg_per_m3,
-            "unitWeight_kg_per_m": unitWeight_kg_per_m,
+            "unitWeight_kg_per_m": unitWeight_kg_per_m ?? NSNull(),
             "internalRoughness_m": internalRoughness_m
         ]
     }
@@ -519,7 +519,7 @@ extension MudStep {
             "density_kgm3": density_kgm3,
             "colorHex": colorHex,
             "placementRaw": placementRaw,
-            "mudID": mud?.id.uuidString as Any? ?? NSNull()
+            "mudID": mud?.id.uuidString ?? NSNull()
         ]
     }
 }
@@ -539,7 +539,7 @@ extension FinalFluidLayer {
                 "a": colorA
             ],
             "createdAt": ISO8601DateFormatter().string(from: createdAt),
-            "mudID": mud?.id.uuidString as Any? ?? NSNull()
+            "mudID": mud?.id.uuidString ?? NSNull()
         ]
     }
 }

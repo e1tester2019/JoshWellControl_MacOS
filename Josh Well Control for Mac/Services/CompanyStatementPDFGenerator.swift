@@ -90,7 +90,7 @@ class CompanyStatementPDFGenerator {
 
         // Fonts
         let titleFont = CSFont.systemFont(ofSize: 18, weight: .bold)
-        let headerFont = CSFont.systemFont(ofSize: 12, weight: .semibold)
+        _ = CSFont.systemFont(ofSize: 12, weight: .semibold) // headerFont reserved for future use
         let labelFont = CSFont.systemFont(ofSize: 10, weight: .regular)
         let valueFont = CSFont.systemFont(ofSize: 10, weight: .medium)
         let smallFont = CSFont.systemFont(ofSize: 9, weight: .regular)

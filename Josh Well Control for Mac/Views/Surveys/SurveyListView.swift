@@ -177,7 +177,7 @@ extension SurveyListView {
         }
 
         func handleImport(_ result: Result<[URL], Error>, existingSurveys: [SurveyStation]) {
-            guard let project else { return }
+            guard project != nil else { return }
             switch result {
             case .failure(let err):
                 importError = err.localizedDescription

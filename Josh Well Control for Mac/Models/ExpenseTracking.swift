@@ -84,6 +84,14 @@ enum PaymentMethod: String, Codable, CaseIterable {
     case other = "Other"
 }
 
+// MARK: - Trip Tracking Mode
+
+enum TripTrackingMode: String, Codable, CaseIterable {
+    case manual = "Manual"
+    case pointToPoint = "Point-to-Point"
+    case activeTracking = "Active Tracking"
+}
+
 // MARK: - Expense
 
 @Model
@@ -125,6 +133,24 @@ final class Expense {
     @Attribute(.externalStorage) var receiptThumbnailData: Data?
     var receiptFileName: String?
     var receiptIsPDF: Bool = false
+
+    // OCR-extracted fields (iOS receipt scanning)
+    var ocrVendor: String?
+    var ocrDate: Date?
+    var ocrTotalAmount: Double?
+    var ocrSubtotal: Double?
+    var ocrGSTAmount: Double?
+    var ocrPSTAmount: Double?
+    var ocrSuggestedCategoryRaw: String?
+    var ocrSuggestedCategory: ExpenseCategory? {
+        get {
+            guard let raw = ocrSuggestedCategoryRaw else { return nil }
+            return ExpenseCategory(rawValue: raw)
+        }
+        set { ocrSuggestedCategoryRaw = newValue?.rawValue }
+    }
+    var wasOCRProcessed: Bool = false
+    var ocrConfidence: Double?
 
     // Reimbursement tracking
     var isReimbursable: Bool = false
@@ -207,6 +233,30 @@ final class MileageLog {
     static let secondTierRate: Double = 0.64
     static let firstTierLimit: Double = 5000
 
+    // GPS Coordinates (iOS tracking)
+    var startLatitude: Double?
+    var startLongitude: Double?
+    var endLatitude: Double?
+    var endLongitude: Double?
+
+    // Trip timing (for active tracking)
+    var tripStartTime: Date?
+    var tripEndTime: Date?
+    var duration: TimeInterval? // seconds
+
+    // Tracking mode
+    var trackingModeRaw: String = TripTrackingMode.manual.rawValue
+    var trackingMode: TripTrackingMode {
+        get { TripTrackingMode(rawValue: trackingModeRaw) ?? .manual }
+        set { trackingModeRaw = newValue.rawValue }
+    }
+
+    // Route points for active tracking
+    @Relationship(deleteRule: .cascade) var routePoints: [TripRoutePoint]?
+
+    // Map snapshot for PDF export
+    @Attribute(.externalStorage) var mapSnapshotData: Data?
+
     // Optional links
     @Relationship(deleteRule: .nullify) var client: Client?
     @Relationship(deleteRule: .nullify) var well: Well?
@@ -221,6 +271,27 @@ final class MileageLog {
 
     var effectiveDistance: Double {
         isRoundTrip ? distance * 2 : distance
+    }
+
+    var hasGPSData: Bool {
+        startLatitude != nil && startLongitude != nil &&
+        endLatitude != nil && endLongitude != nil
+    }
+
+    var hasRoute: Bool {
+        guard let points = routePoints else { return false }
+        return !points.isEmpty
+    }
+
+    var formattedDuration: String? {
+        guard let duration = duration else { return nil }
+        let hours = Int(duration) / 3600
+        let minutes = (Int(duration) % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes) min"
+        }
     }
 
     var displayDate: String {
@@ -239,6 +310,28 @@ final class MileageLog {
         } else {
             return "\(startLocation) → \(endLocation)"
         }
+    }
+}
+
+// MARK: - Trip Route Point (for GPS tracking)
+
+@Model
+final class TripRoutePoint {
+    var id: UUID = UUID()
+    var latitude: Double = 0
+    var longitude: Double = 0
+    var altitude: Double?
+    var timestamp: Date = Date.now
+    var speed: Double? // m/s
+    var course: Double? // degrees
+
+    @Relationship(inverse: \MileageLog.routePoints)
+    var mileageLog: MileageLog?
+
+    init(latitude: Double, longitude: Double, timestamp: Date = Date.now) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timestamp = timestamp
     }
 }
 

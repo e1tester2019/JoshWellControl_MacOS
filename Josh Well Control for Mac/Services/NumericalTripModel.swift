@@ -301,7 +301,7 @@ final class NumericalTripModel {
         let initTotPocket = sum(initPocketRows)
         let initTotAnn = sum(initAnnRows)
         let initTotStr = sum(initStrRows)
-        var initSabpRaw = max(0.0, targetP_TD_kPa - initTotPocket.deltaP_kPa - initTotAnn.deltaP_kPa)
+        let initSabpRaw = max(0.0, targetP_TD_kPa - initTotPocket.deltaP_kPa - initTotAnn.deltaP_kPa)
         // Respect HoldSABPOpen for the initial state as well
         if input.holdSABPOpen {
             sabp_kPa = 0.0
@@ -379,7 +379,7 @@ final class NumericalTripModel {
         }
         
         // Loop
-        var _wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
+        // var _wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
 
         while bitMD > input.endMD_m + 1e-9 {
             let nextMD = max(input.endMD_m, bitMD - step)
@@ -454,8 +454,8 @@ final class NumericalTripModel {
             // Surface backfill required
             let needBefore = floatClosed ? geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD) : geom.steelArea_m2(oldBitMD) * dL
             var need = needBefore
-            var _usedKill = 0.0 // Placeholder for tracking
-            var _usedBase = 0.0 // Placeholder for tracking
+            // Tracking placeholders commented out to silence warnings
+            // var _usedKill = 0.0, _usedBase = 0.0
             if need > 1e-12 {
                 var useKill = min(need, backfillRemaining)
                 if !input.switchToBaseAfterFixed { useKill = need }
@@ -463,11 +463,11 @@ final class NumericalTripModel {
                     annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD)
                     backfillRemaining -= useKill
                     need -= useKill
-                    _usedKill = useKill
+                    // _usedKill = useKill
                 }
                 if need > 1e-12, input.switchToBaseAfterFixed {
                     annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD)
-                    _usedBase = need
+                    // _usedBase = need
                     need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)
@@ -487,8 +487,8 @@ final class NumericalTripModel {
             let totString = sum(strRows)
             
             // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
-            var swab_kPa = 0.0 // placeholder hook for future SwabEstimatorService
-            var sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
+            let swab_kPa = 0.0 // placeholder hook for future SwabEstimatorService
+            let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
             if input.holdSABPOpen {
                 sabp_kPa = 0.0
             } else {
@@ -515,9 +515,9 @@ final class NumericalTripModel {
                                     totalsPocket: totPocket,
                                     totalsAnnulus: totAnn,
                                     totalsString: totString))
-            _wasClosedPrev = floatClosed
+            // _wasClosedPrev = floatClosed
         }
-        
+
         return results
     }
     // MARK: - Optional color mappers (use in View layer or when seeding composition colors)

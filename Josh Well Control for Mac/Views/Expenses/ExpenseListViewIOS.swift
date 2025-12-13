@@ -261,21 +261,32 @@ struct ExpenseDetailViewIOS: View {
             Section("Receipt") {
                 if let receiptData = expense.receiptImageData,
                    let uiImage = UIImage(data: receiptData) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 200)
-                        .cornerRadius(8)
+                    HStack {
+                        Spacer()
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 200)
+                            .cornerRadius(8)
+                        Spacer()
+                    }
+
+                    if expense.wasOCRProcessed {
+                        OCRBadge(expense: expense)
+                    }
 
                     Button(role: .destructive) {
                         expense.receiptImageData = nil
+                        expense.receiptThumbnailData = nil
                     } label: {
                         Label("Remove Receipt", systemImage: "trash")
                     }
                 }
 
+                ReceiptScannerButton(expense: expense)
+
                 PhotosPicker(selection: $selectedItem, matching: .images) {
-                    Label(expense.receiptImageData == nil ? "Add Receipt" : "Replace Receipt", systemImage: "camera")
+                    Label(expense.receiptImageData == nil ? "Choose from Library" : "Replace from Library", systemImage: "photo.on.rectangle")
                 }
                 .onChange(of: selectedItem) { _, item in
                     Task {
@@ -303,30 +314,90 @@ private struct AddExpenseSheetIOS: View {
     @State private var amount: Double = 0
     @State private var date = Date()
     @State private var isReimbursable = false
+    @State private var gstAmount: Double = 0
+    @State private var pstAmount: Double = 0
+    @State private var receiptImageData: Data?
+    @State private var receiptThumbnailData: Data?
+    @State private var showingScanner = false
+    @State private var wasOCRProcessed = false
+    @State private var ocrConfidence: Double?
 
     var body: some View {
         NavigationStack {
             Form {
-                Picker("Category", selection: $category) {
-                    ForEach(ExpenseCategory.allCases, id: \.self) { cat in
-                        Text(cat.rawValue).tag(cat)
+                // Receipt scanning section at top for easy access
+                Section("Receipt") {
+                    Button {
+                        showingScanner = true
+                    } label: {
+                        HStack {
+                            Label("Scan Receipt", systemImage: "doc.text.viewfinder")
+                            Spacer()
+                            if wasOCRProcessed {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                    Text("Scanned")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    if let imageData = receiptImageData,
+                       let image = UIImage(data: imageData) {
+                        HStack {
+                            Spacer()
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 150)
+                                .cornerRadius(8)
+                            Spacer()
+                        }
                     }
                 }
 
-                TextField("Vendor", text: $vendor)
+                Section("Details") {
+                    Picker("Category", selection: $category) {
+                        ForEach(ExpenseCategory.allCases, id: \.self) { cat in
+                            Text(cat.rawValue).tag(cat)
+                        }
+                    }
 
-                HStack {
-                    Text("Amount")
-                    Spacer()
-                    TextField("Amount", value: $amount, format: .number)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
+                    TextField("Vendor", text: $vendor)
+
+                    HStack {
+                        Text("Amount")
+                        Spacer()
+                        TextField("Amount", value: $amount, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
                 }
 
-                DatePicker("Date", selection: $date, displayedComponents: .date)
+                Section("Tax (if extracted)") {
+                    HStack {
+                        Text("GST")
+                        Spacer()
+                        Text(gstAmount, format: .currency(code: "CAD"))
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("PST")
+                        Spacer()
+                        Text(pstAmount, format: .currency(code: "CAD"))
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
-                Toggle("Reimbursable", isOn: $isReimbursable)
+                Section {
+                    Toggle("Reimbursable", isOn: $isReimbursable)
+                }
             }
             .navigationTitle("Add Expense")
             .navigationBarTitleDisplayMode(.inline)
@@ -342,171 +413,86 @@ private struct AddExpenseSheetIOS: View {
                     .disabled(amount <= 0)
                 }
             }
+            .sheet(isPresented: $showingScanner) {
+                ReceiptScannerViewIOS(expense: .constant(nil)) { result, image in
+                    applyOCRResult(result, image: image)
+                }
+            }
         }
+    }
+
+    private func applyOCRResult(_ result: ReceiptOCRService.OCRResult, image: UIImage) {
+        // Apply OCR values to form fields
+        if let extractedVendor = result.vendor {
+            vendor = extractedVendor
+        }
+        if let extractedDate = result.date {
+            date = extractedDate
+        }
+        if let extractedTotal = result.totalAmount {
+            amount = extractedTotal
+        }
+        if let extractedGST = result.gstAmount {
+            gstAmount = extractedGST
+        }
+        if let extractedPST = result.pstAmount {
+            pstAmount = extractedPST
+        }
+        if let extractedCategory = result.suggestedCategory {
+            category = extractedCategory
+        }
+
+        wasOCRProcessed = true
+        ocrConfidence = result.confidence
+
+        // Store receipt image
+        if let jpegData = image.jpegData(compressionQuality: 0.8) {
+            receiptImageData = jpegData
+
+            // Create thumbnail
+            if let thumbnail = createThumbnail(from: image, maxSize: 150) {
+                receiptThumbnailData = thumbnail.jpegData(compressionQuality: 0.7)
+            }
+        }
+    }
+
+    private func createThumbnail(from image: UIImage, maxSize: CGFloat) -> UIImage? {
+        let size = image.size
+        let ratio = min(maxSize / size.width, maxSize / size.height)
+        let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
+
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 0)
+        defer { UIGraphicsEndImageContext() }
+
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        return UIGraphicsGetImageFromCurrentImageContext()
     }
 
     private func addExpense() {
         let expense = Expense(date: date, amount: amount, category: category)
         expense.vendor = vendor
         expense.isReimbursable = isReimbursable
-        expense.calculateTaxes()
+        expense.taxIncludedInAmount = true
+
+        // Set tax amounts from OCR or calculate
+        if gstAmount > 0 || pstAmount > 0 {
+            expense.gstAmount = gstAmount
+            expense.pstAmount = pstAmount
+        } else {
+            expense.calculateTaxes()
+        }
+
+        // Attach receipt if scanned
+        expense.receiptImageData = receiptImageData
+        expense.receiptThumbnailData = receiptThumbnailData
+        expense.wasOCRProcessed = wasOCRProcessed
+        expense.ocrConfidence = ocrConfidence
+
         modelContext.insert(expense)
         try? modelContext.save()
     }
 }
 
-// MARK: - Mileage Log View
-
-struct MileageLogViewIOS: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \MileageLog.date, order: .reverse) private var logs: [MileageLog]
-    @State private var showingAddSheet = false
-
-    private var totalDistance: Double {
-        logs.reduce(0) { $0 + $1.effectiveDistance }
-    }
-
-    private var totalDeduction: Double {
-        MileageSummary.calculateDeduction(totalKm: totalDistance)
-    }
-
-    var body: some View {
-        List {
-            Section {
-                HStack {
-                    Text("Total Distance")
-                    Spacer()
-                    Text("\(totalDistance, format: .number) km")
-                        .fontWeight(.medium)
-                }
-
-                HStack {
-                    Text("Estimated Deduction")
-                    Spacer()
-                    Text(totalDeduction, format: .currency(code: "CAD"))
-                        .fontWeight(.medium)
-                }
-            }
-
-            Section("Logs") {
-                ForEach(logs) { log in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(log.purpose.isEmpty ? "Trip" : log.purpose)
-                                .font(.subheadline)
-                            HStack {
-                                Text(log.date, style: .date)
-                                if !log.locationString.isEmpty {
-                                    Text("•")
-                                    Text(log.locationString)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(log.effectiveDistance, format: .number) km")
-                            if log.isRoundTrip {
-                                Text("Round trip")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            modelContext.delete(log)
-                            try? modelContext.save()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Mileage Log")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingAddSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-        }
-        .sheet(isPresented: $showingAddSheet) {
-            AddMileageSheetIOS(isPresented: $showingAddSheet)
-        }
-    }
-}
-
-// MARK: - Add Mileage Sheet
-
-private struct AddMileageSheetIOS: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @Binding var isPresented: Bool
-
-    @State private var distance: Double = 0
-    @State private var purpose = ""
-    @State private var startLocation = ""
-    @State private var endLocation = ""
-    @State private var date = Date()
-    @State private var isRoundTrip = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                HStack {
-                    Text("Distance")
-                    Spacer()
-                    TextField("km", value: $distance, format: .number)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
-                    Text("km")
-                        .foregroundStyle(.secondary)
-                }
-
-                Toggle("Round Trip", isOn: $isRoundTrip)
-
-                TextField("Purpose", text: $purpose)
-                TextField("Start Location", text: $startLocation)
-                TextField("End Location", text: $endLocation)
-
-                DatePicker("Date", selection: $date, displayedComponents: .date)
-            }
-            .navigationTitle("Add Mileage")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        addLog()
-                        dismiss()
-                    }
-                    .disabled(distance <= 0)
-                }
-            }
-        }
-    }
-
-    private func addLog() {
-        let log = MileageLog(date: date, distance: distance)
-        log.purpose = purpose
-        log.startLocation = startLocation
-        log.endLocation = endLocation
-        log.isRoundTrip = isRoundTrip
-        modelContext.insert(log)
-        try? modelContext.save()
-    }
-}
+// Note: MileageLogViewIOS is now in MileageTrackingViewIOS.swift with full GPS support
 
 #endif

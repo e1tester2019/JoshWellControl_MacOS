@@ -121,7 +121,7 @@ class InvoicePDFGenerator {
         let labelFont = InvFont.systemFont(ofSize: 10, weight: .regular)
         let valueFont = InvFont.systemFont(ofSize: 10, weight: .regular)
         let smallFont = InvFont.systemFont(ofSize: 9, weight: .regular)
-        let boldFont = InvFont.systemFont(ofSize: 10, weight: .semibold)
+        _ = InvFont.systemFont(ofSize: 10, weight: .semibold) // boldFont reserved for future use
 
         let businessInfo = BusinessInfo.shared
 

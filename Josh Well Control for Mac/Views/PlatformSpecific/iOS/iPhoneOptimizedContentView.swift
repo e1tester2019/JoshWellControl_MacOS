@@ -267,6 +267,20 @@ struct iPhoneOptimizedContentView: View {
                 }
             }
 
+            Section("Expenses & Mileage") {
+                NavigationLink {
+                    ExpenseListViewIOS()
+                } label: {
+                    Label("Expenses", systemImage: "creditcard.fill")
+                }
+
+                NavigationLink {
+                    MileageLogViewIOS()
+                } label: {
+                    Label("Mileage Log", systemImage: "car.fill")
+                }
+            }
+
             Section("Equipment") {
                 if let well = selectedWell {
                     NavigationLink {

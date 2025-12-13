@@ -44,6 +44,7 @@ enum AppContainer {
             InvoiceLineItem.self,
             Expense.self,
             MileageLog.self,
+            TripRoutePoint.self,
             Employee.self,
             PayRun.self,
             PayStub.self,

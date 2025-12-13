@@ -722,7 +722,7 @@ class CementJobSimulationViewModel {
     // MARK: - Fluid Stack Calculation
 
     func updateFluidStacks() {
-        guard let project = boundProject, let job = boundJob else { return }
+        guard let project = boundProject, boundJob != nil else { return }
 
         // Reset flags at start of recalculation
         lossZoneTankAdjustmentApplied = false
@@ -1010,7 +1010,7 @@ class CementJobSimulationViewModel {
 
                     while volumeToShift > 0.001 && !adjustedReturns.isEmpty {
                         // Pop from returns (most recent first - end of array)
-                        var returnParcel = adjustedReturns.removeLast()
+                        let returnParcel = adjustedReturns.removeLast()
                         let takeVolume = min(volumeToShift, returnParcel.volume_m3)
 
                         if takeVolume < returnParcel.volume_m3 - 0.001 {
@@ -1080,7 +1080,7 @@ class CementJobSimulationViewModel {
 
                     while volumeToShift > 0.001 && !adjustedLosses.isEmpty {
                         // Pop from losses (most recent first - end of array)
-                        var lossParcel = adjustedLosses.removeLast()
+                        let lossParcel = adjustedLosses.removeLast()
                         let takeVolume = min(volumeToShift, lossParcel.volume_m3)
 
                         if takeVolume < lossParcel.volume_m3 - 0.001 {

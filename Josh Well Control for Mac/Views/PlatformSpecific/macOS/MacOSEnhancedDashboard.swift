@@ -33,13 +33,9 @@ struct MacOSEnhancedDashboardContainer: View {
 
     @MainActor
     private func loadProject() async {
-        do {
-            if let fetched = try modelContext.model(for: projectID) as? ProjectState {
-                project = fetched
-            } else {
-                project = nil
-            }
-        } catch {
+        if let fetched = modelContext.model(for: projectID) as? ProjectState {
+            project = fetched
+        } else {
             project = nil
         }
     }
