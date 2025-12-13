@@ -205,9 +205,17 @@ class MudPlacementViewModel {
     // MARK: - Final Layer Persistence
 
     func persistFinalLayers(from ann: [FinalLayer], _ str: [FinalLayer]) {
+        // Delete existing layers from context
         for layer in (project.finalLayers ?? []) {
             context?.delete(layer)
         }
+
+        // Clear the relationship array explicitly
+        project.finalLayers = []
+
+        // Create and save new layers
+        var newLayers: [FinalFluidLayer] = []
+
         func save(_ lay: FinalLayer, where placement: Placement) {
             let f = FinalFluidLayer(
                 project: project,
@@ -220,10 +228,21 @@ class MudPlacementViewModel {
                 mud: lay.mud
             )
             context?.insert(f)
+            newLayers.append(f)
         }
+
         for a in ann { save(a, where: .annulus) }
         for s in str { save(s, where: .string) }
+
+        // Explicitly set the relationship array
+        project.finalLayers = newLayers
+
+        // Save to persist all changes
         try? context?.save()
+
+        #if DEBUG
+        print("[MudPlacement] Persisted \(newLayers.count) final layers (ann: \(ann.count), str: \(str.count))")
+        #endif
     }
 }
 

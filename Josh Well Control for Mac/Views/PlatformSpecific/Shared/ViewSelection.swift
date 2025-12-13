@@ -8,6 +8,7 @@
 import SwiftUI
 
 enum ViewSelection: String, CaseIterable, Identifiable {
+    case wellsDashboard
     case dashboard
     case drillString
     case annulus
@@ -68,7 +69,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .dashboard: return "Dashboard"
+        case .wellsDashboard: return "Wells Dashboard"
+        case .dashboard: return "Project Dashboard"
         case .drillString: return "Drill String"
         case .annulus: return "Annulus"
         case .volumeSummary: return "Volume Summary"
@@ -89,6 +91,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .wellsDashboard: return "list.clipboard"
         case .dashboard: return "gauge.with.dots.needle.67percent"
         case .drillString: return "cylinder.split.1x2"
         case .annulus: return "circle.hexagonpath"
@@ -111,6 +114,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     #if os(macOS)
     var keyboardShortcut: KeyEquivalent? {
         switch self {
+        case .wellsDashboard: return "0"
         case .dashboard: return "1"
         case .drillString: return "2"
         case .annulus: return "3"
@@ -133,6 +137,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var description: String {
         switch self {
+        case .wellsDashboard:
+            return "Tasks and handover notes across all wells"
         case .dashboard:
             return "Project overview and configuration"
         case .drillString:

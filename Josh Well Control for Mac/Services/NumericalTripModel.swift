@@ -282,15 +282,17 @@ final class NumericalTripModel {
         
         let ann = project.finalAnnulusLayersSorted
         let str = project.finalStringLayersSorted
-        
+
         annulusStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
         for l in ann {
-            StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3)
+            let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
+            StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
         }
 
         stringStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
         for l in str {
-            StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3)
+            let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
+            StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
         }
 
         // --- Pre-step initial snapshot (state BEFORE any movement) ---
@@ -367,14 +369,30 @@ final class NumericalTripModel {
             for r in rows { tvd += max(0, r.bottomTVD - r.topTVD); dP += r.deltaHydroStatic_kPa }
             return Totals(count: rows.count, tvd_m: tvd, deltaP_kPa: dP)
         }
-        func addPocketBelowBit(rho: Double, len: Double, bitMD: Double) {
+        func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil) {
             guard len > 1e-9 else { return }
             let top = bitMD
             let bot = bitMD + len
+            // Check if we can merge with the last pocket layer (same density and color)
             if let last = pocket.last, abs(last.rho - rho) < 1e-6, abs(last.bottomMD - top) < 1e-9 {
-                var L = last; L.bottomMD = bot; pocket[pocket.count-1] = L
+                // When merging, blend colors by length
+                let lastLen = last.bottomMD - last.topMD
+                let newLen = len
+                let totalLen = lastLen + newLen
+                var mergedColor: ColorRGBA? = nil
+                if let lastColor = last.color, let newColor = color, totalLen > 1e-9 {
+                    mergedColor = ColorRGBA(
+                        r: (lastColor.r * lastLen + newColor.r * newLen) / totalLen,
+                        g: (lastColor.g * lastLen + newColor.g * newLen) / totalLen,
+                        b: (lastColor.b * lastLen + newColor.b * newLen) / totalLen,
+                        a: (lastColor.a * lastLen + newColor.a * newLen) / totalLen
+                    )
+                } else {
+                    mergedColor = last.color ?? color
+                }
+                pocket[pocket.count-1] = Layer(rho: rho, topMD: last.topMD, bottomMD: bot, color: mergedColor)
             } else {
-                pocket.append(Layer(rho: rho, topMD: top, bottomMD: bot))
+                pocket.append(Layer(rho: rho, topMD: top, bottomMD: bot, color: color))
             }
         }
         
@@ -395,9 +413,13 @@ final class NumericalTripModel {
             var lenA = 0.0, volA = 0.0, massA = 0.0
             var lenS = 0.0, volS = 0.0, massS = 0.0
             
-            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double) {
+            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?) {
                 var remaining = lenReq
                 var totLen = 0.0, totVol = 0.0, totMass = 0.0
+                // For color blending: track volume-weighted color components
+                var colorR = 0.0, colorG = 0.0, colorB = 0.0, colorA = 0.0
+                var colorVol = 0.0
+
                 while remaining > 1e-9, !stack.layers.isEmpty {
                     var last = stack.layers.removeLast()
                     let span = last.bottomMD - last.topMD
@@ -408,18 +430,40 @@ final class NumericalTripModel {
                     let segVol = isAnnulus ? stack.geom.volumeInAnnulus_m3(segTop, segBot) : stack.geom.volumeInString_m3(segTop, segBot)
                     let segMass = last.rho * segVol
                     totLen += take; totVol += segVol; totMass += segMass
+
+                    // Accumulate volume-weighted color
+                    if let c = last.color {
+                        colorR += c.r * segVol
+                        colorG += c.g * segVol
+                        colorB += c.b * segVol
+                        colorA += c.a * segVol
+                        colorVol += segVol
+                    }
+
                     last.bottomMD -= take
                     if last.bottomMD - last.topMD > 1e-12 { stack.layers.append(last) }
                     remaining -= take
                 }
-                return (totLen, totMass, totVol)
+
+                // Calculate blended color
+                let blendedColor: ColorRGBA? = colorVol > 1e-12 ? ColorRGBA(
+                    r: colorR / colorVol,
+                    g: colorG / colorVol,
+                    b: colorB / colorVol,
+                    a: colorA / colorVol
+                ) : nil
+
+                return (totLen, totMass, totVol, blendedColor)
             }
             
+            var colorA: ColorRGBA? = nil
+            var colorS: ColorRGBA? = nil
+
             if !floatClosed {
                 let s = takeBottomByLen(stringStack, isAnnulus: false, lenReq: dL)
                 let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
-                lenS = s.len; volS = s.vol; massS = s.mass
-                lenA = a.len; volA = a.vol; massA = a.mass
+                lenS = s.len; volS = s.vol; massS = s.mass; colorS = s.blendedColor
+                lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
                 // steel displacement goes to annulus side
                 let vSteel = geom.steelArea_m2(oldBitMD) * dL
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
@@ -427,16 +471,44 @@ final class NumericalTripModel {
                 volA += vSteel
             } else {
                 let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
-                lenA = a.len; volA = a.vol; massA = a.mass
+                lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
                 let vOD = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
                 massA += rhoA * vOD
                 volA += vOD
             }
-            
+
             let vPocket = volA + (floatClosed ? 0.0 : volS)
             let mPocket = massA + (floatClosed ? 0.0 : massS)
             let rhoMix = (vPocket > 1e-12) ? (mPocket / vPocket) : input.baseMudDensity_kgpm3
+
+            // Blend colors from annulus and string (volume-weighted)
+            let mixedColor: ColorRGBA? = {
+                var totalR = 0.0, totalG = 0.0, totalB = 0.0, totalA = 0.0
+                var totalVol = 0.0
+
+                if let cA = colorA, volA > 1e-12 {
+                    totalR += cA.r * volA
+                    totalG += cA.g * volA
+                    totalB += cA.b * volA
+                    totalA += cA.a * volA
+                    totalVol += volA
+                }
+                if !floatClosed, let cS = colorS, volS > 1e-12 {
+                    totalR += cS.r * volS
+                    totalG += cS.g * volS
+                    totalB += cS.b * volS
+                    totalA += cS.a * volS
+                    totalVol += volS
+                }
+                guard totalVol > 1e-12 else { return nil }
+                return ColorRGBA(
+                    r: totalR / totalVol,
+                    g: totalG / totalVol,
+                    b: totalB / totalVol,
+                    a: totalA / totalVol
+                )
+            }()
             
             // Re-anchor stacks to new bit
             bitMD = nextMD
@@ -448,8 +520,8 @@ final class NumericalTripModel {
                 stringStack.adjustBit(to: bitMD)
                 annulusStack.ensureInvariants(bitMD: bitMD)
             }
-            // Append pocket at new bit
-            addPocketBelowBit(rho: rhoMix, len: min(lenA, (floatClosed ? lenA : lenS)), bitMD: bitMD)
+            // Append pocket at new bit with blended color
+            addPocketBelowBit(rho: rhoMix, len: min(lenA, (floatClosed ? lenA : lenS)), bitMD: bitMD, color: mixedColor)
             
             // Surface backfill required
             let needBefore = floatClosed ? geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD) : geom.steelArea_m2(oldBitMD) * dL

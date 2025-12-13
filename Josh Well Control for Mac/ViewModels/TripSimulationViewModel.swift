@@ -45,9 +45,22 @@ extension TripSimulationView {
       backfillDensity_kgpm3 = baseActive
       backfillMudID = project.activeMud?.id
       targetESDAtTD_kgpm3 = baseActive
+
+      #if DEBUG
+      let layerCount = (project.finalLayers ?? []).count
+      print("[TripSim] Bootstrap: found \(layerCount) final layers, startBitMD=\(startBitMD_m)")
+      #endif
     }
 
     func runSimulation(project: ProjectState) {
+      #if DEBUG
+      let annLayers = project.finalAnnulusLayersSorted
+      let strLayers = project.finalStringLayersSorted
+      print("[TripSim] Running with \(annLayers.count) annulus layers, \(strLayers.count) string layers")
+      for l in annLayers { print("  [Ann] \(l.name): \(l.topMD_m)-\(l.bottomMD_m) m, ρ=\(l.density_kgm3) kg/m³") }
+      for l in strLayers { print("  [Str] \(l.name): \(l.topMD_m)-\(l.bottomMD_m) m, ρ=\(l.density_kgm3) kg/m³") }
+      #endif
+
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,

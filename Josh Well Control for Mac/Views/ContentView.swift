@@ -44,11 +44,12 @@ struct ContentView: View {
     @State private var editingTransfer: MaterialTransfer?
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
+        case wellsDashboard, dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .dashboard: return "Dashboard"
+            case .wellsDashboard: return "Wells Dashboard"
+            case .dashboard: return "Project Dashboard"
             case .drillString: return "Drill String"
             case .annulus: return "Annulus"
             case .volumes: return "Volume Summary"
@@ -124,6 +125,8 @@ struct ContentView: View {
                 if let project = (vm.selectedProject ?? firstProject ?? nil) {
                     Group {
                         switch selectedSection {
+                        case .wellsDashboard:
+                            WellsDashboardView()
                         case .dashboard:
                             #if os(iOS)
                             ProjectDashboardView(
@@ -629,6 +632,7 @@ private extension ContentView {
 
     private func icon(for pane: Pane) -> String {
         switch pane {
+        case .wellsDashboard: return "list.clipboard"
         case .dashboard: return "speedometer"
         case .drillString: return "wrench.and.screwdriver"
         case .annulus: return "seal"

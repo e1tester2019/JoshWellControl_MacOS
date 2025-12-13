@@ -26,6 +26,8 @@ final class Well {
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
+    @Relationship var pad: Pad?
+
     @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?
     @Relationship(deleteRule: .nullify, inverse: \MaterialTransfer.well) var transfers: [MaterialTransfer]?
     @Relationship(deleteRule: .nullify, inverse: \RentalItem.well) var rentals: [RentalItem]?
@@ -33,6 +35,8 @@ final class Well {
     @Relationship(deleteRule: .nullify, inverse: \InvoiceLineItem.well) var invoiceLineItems: [InvoiceLineItem]?
     @Relationship(deleteRule: .nullify, inverse: \Expense.well) var expenses: [Expense]?
     @Relationship(deleteRule: .nullify, inverse: \MileageLog.well) var mileageLogs: [MileageLog]?
+    @Relationship(deleteRule: .cascade, inverse: \WellTask.well) var tasks: [WellTask]?
+    @Relationship(deleteRule: .cascade, inverse: \HandoverNote.well) var notes: [HandoverNote]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name
@@ -43,6 +47,50 @@ final class Well {
 }
 
 extension Well {
+    // MARK: - Task helpers
+
+    var pendingTasks: [WellTask] {
+        (tasks ?? []).filter { $0.isPending }.sorted { $0.priority.sortOrder < $1.priority.sortOrder }
+    }
+
+    var overdueTasks: [WellTask] {
+        (tasks ?? []).filter { $0.isOverdue }.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+    }
+
+    var completedTasks: [WellTask] {
+        (tasks ?? []).filter { $0.status == .completed }.sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+    }
+
+    func createTask(title: String, description: String = "", priority: TaskPriority = .medium, dueDate: Date? = nil, author: String = "", context: ModelContext) -> WellTask {
+        let task = WellTask(title: title, description: description, priority: priority, dueDate: dueDate, author: author)
+        task.well = self
+        if tasks == nil { tasks = [] }
+        tasks?.append(task)
+        context.insert(task)
+        return task
+    }
+
+    // MARK: - Note helpers
+
+    var pinnedNotes: [HandoverNote] {
+        (notes ?? []).filter { $0.isPinned }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    var recentNotes: [HandoverNote] {
+        (notes ?? []).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func createNote(title: String, content: String = "", category: NoteCategory = .general, author: String = "", isPinned: Bool = false, context: ModelContext) -> HandoverNote {
+        let note = HandoverNote(title: title, content: content, category: category, author: author, isPinned: isPinned)
+        note.well = self
+        if notes == nil { notes = [] }
+        notes?.append(note)
+        context.insert(note)
+        return note
+    }
+
+    // MARK: - Transfer helpers
+
     func createTransfer(number: Int? = nil, context: ModelContext) -> MaterialTransfer {
         let transferNumber = number ?? (((transfers ?? []).map { $0.number }.max() ?? 0) + 1)
         let transfer = MaterialTransfer(number: transferNumber)

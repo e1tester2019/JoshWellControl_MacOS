@@ -32,6 +32,8 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
     @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
     @Relationship(deleteRule: .nullify, inverse: \CementJob.project) var cementJobs: [CementJob]?
+    @Relationship(deleteRule: .nullify, inverse: \WellTask.project) var tasks: [WellTask]?
+    @Relationship(deleteRule: .nullify, inverse: \HandoverNote.project) var notes: [HandoverNote]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .nullify) var _window: PressureWindow?

@@ -18,7 +18,7 @@ struct iPadOptimizedContentView: View {
 
     @State private var selectedWell: Well?
     @State private var selectedProject: ProjectState?
-    @State private var selectedView: ViewSelection = .dashboard
+    @State private var selectedView: ViewSelection = .wellsDashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showWellPicker = false
     @State private var showProjectPicker = false

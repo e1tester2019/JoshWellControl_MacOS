@@ -17,7 +17,7 @@ struct MacOSOptimizedContentView: View {
 
     @State private var selectedWell: Well?
     @State private var selectedProject: ProjectState?
-    @State private var selectedView: ViewSelection = .dashboard
+    @State private var selectedView: ViewSelection = .wellsDashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showRenameWell = false
     @State private var showRenameProject = false
@@ -49,6 +49,7 @@ struct MacOSOptimizedContentView: View {
                 selectedWell: selectedWell,
                 selectedWellBinding: $selectedWell,
                 selectedProjectBinding: $selectedProject,
+                selectedViewBinding: $selectedView,
                 showRenameWell: $showRenameWell,
                 showRenameProject: $showRenameProject
             )
@@ -245,8 +246,11 @@ struct MacOSSidebarView: View {
 
     var body: some View {
         List(selection: $selectedView) {
-            // Dashboard
+            // Dashboards
             Section {
+                NavigationLink(value: ViewSelection.wellsDashboard) {
+                    Label(ViewSelection.wellsDashboard.title, systemImage: ViewSelection.wellsDashboard.icon)
+                }
                 NavigationLink(value: ViewSelection.dashboard) {
                     Label(ViewSelection.dashboard.title, systemImage: ViewSelection.dashboard.icon)
                 }
@@ -337,6 +341,7 @@ struct MacOSDetailView: View {
     let selectedWell: Well?
     @Binding var selectedWellBinding: Well?
     @Binding var selectedProjectBinding: ProjectState?
+    @Binding var selectedViewBinding: ViewSelection
     @Binding var showRenameWell: Bool
     @Binding var showRenameProject: Bool
 
@@ -344,6 +349,11 @@ struct MacOSDetailView: View {
         Group {
             if let project = selectedProject {
                 switch selectedView {
+                case .wellsDashboard:
+                    WellsDashboardView(onSelectProject: { project in
+                        selectedProjectBinding = project
+                        selectedViewBinding = .dashboard
+                    })
                 case .dashboard:
                     ProjectDashboardView(project: project)
                 case .drillString:

@@ -552,19 +552,21 @@ struct MudPlacementView: View {
             let t = min(s.top_m, s.bottom_m)
             let b = max(s.top_m, s.bottom_m)
             let chosenMud = s.mud
+            // Use the mud's density if available, otherwise fall back to the step's stored density
+            let density = chosenMud?.density_kgm3 ?? s.density_kgm3
 
             let layA = FinalLayer(domain: .annulus,
                                    top: t, bottom: b,
                                    name: s.name,
                                    color: chosenMud?.color ?? s.color,
-                                   density: s.density_kgm3,
+                                   density: density,
                                    mud: chosenMud)
 
             let layS = FinalLayer(domain: .string,
                                    top: t, bottom: b,
                                    name: s.name,
                                    color: chosenMud?.color ?? s.color,
-                                   density: s.density_kgm3,
+                                   density: density,
                                    mud: chosenMud)
 
             if s.placement == .annulus || s.placement == .both { overlay(&ann, with: layA) }

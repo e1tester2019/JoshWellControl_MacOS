@@ -49,7 +49,10 @@ enum AppContainer {
             PayRun.self,
             PayStub.self,
             Shareholder.self,
-            Dividend.self
+            Dividend.self,
+            WellTask.self,
+            HandoverNote.self,
+            Pad.self
         ]
         let fullSchema = Schema(models)
 
