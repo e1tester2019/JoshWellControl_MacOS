@@ -70,7 +70,7 @@ extension PumpProgramStage {
         set {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             #if canImport(UIKit)
-            UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+            UIColor(newValue).getRed(&r, green: &g, blue: &b, alpha: &a)
             #elseif canImport(AppKit)
             let ns = NSColor(newValue)
             let inSRGB = ns.usingColorSpace(.sRGB) ?? ns.usingColorSpace(.deviceRGB)

@@ -104,7 +104,7 @@ struct DrillStringDetailView: View {
                                 TextField(showTotals ? "m³" : "m³/m", value: $capField, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .monospacedDigit()
-                                    .onChange(of: capField) { _ in updateGeometryFromFields() }
+                                    .onChange(of: capField) { _, _ in updateGeometryFromFields() }
                                 Text(showTotals ? "m³" : "m³/m").foregroundStyle(.secondary)
                             }
                         }
@@ -116,7 +116,7 @@ struct DrillStringDetailView: View {
                                 TextField(showTotals ? "m³" : "m³/m", value: $wetField, format: .number)
                                     .textFieldStyle(.roundedBorder)
                                     .monospacedDigit()
-                                    .onChange(of: wetField) { _ in updateGeometryFromFields() }
+                                    .onChange(of: wetField) { _, _ in updateGeometryFromFields() }
                                 Text(showTotals ? "m³" : "m³/m").foregroundStyle(.secondary)
                             }
                         }
@@ -215,7 +215,7 @@ struct DrillStringDetailView: View {
         let capPerMInput = max(0, capField / f)
         let wetPerMInput = max(0, wetField / f)
         // Back‑solve diameters
-        var newID = diameterFromArea(capPerMInput)
+        let newID = diameterFromArea(capPerMInput)
         var newOD = diameterFromArea(wetPerMInput)
         if newOD < newID { newOD = newID }
         // Apply

@@ -1166,9 +1166,6 @@ struct CementJobSimulationView: View {
                     .foregroundColor(.secondary)
                 let resolvedText = context.resolve(text)
 
-                let textX = showTVD ? size.width - 10 - resolvedText.measure(in: size).width : 10
-                let textY = y - resolvedText.measure(in: size).height / 2
-
                 context.draw(resolvedText, at: CGPoint(x: showTVD ? size.width - 10 : 10, y: y), anchor: showTVD ? .trailing : .leading)
             }
         }

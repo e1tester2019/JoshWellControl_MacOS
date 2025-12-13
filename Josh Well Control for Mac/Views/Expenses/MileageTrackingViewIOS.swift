@@ -321,17 +321,17 @@ struct ActiveTripTrackingViewIOS: View {
     @State private var purpose = ""
     @State private var hasInitializedLocation = false
     // Default to a valid region (will be updated with actual location)
-    @State private var mapRegion = MKCoordinateRegion(
+    @State private var mapPosition: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 53.5, longitude: -113.5),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-    )
+    ))
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Map
-                Map(coordinateRegion: $mapRegion, showsUserLocation: true, annotationItems: [TripAnnotation]()) { _ in
-                    MapMarker(coordinate: CLLocationCoordinate2D())
+                Map(position: $mapPosition) {
+                    UserAnnotation()
                 }
                 .frame(height: 300)
                 .overlay(alignment: .topTrailing) {
@@ -460,13 +460,19 @@ struct ActiveTripTrackingViewIOS: View {
             }
             .onChange(of: locationService.currentLocation) { _, newLocation in
                 if let location = newLocation {
-                    mapRegion.center = location.coordinate
+                    mapPosition = .region(MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                    ))
                 }
             }
             .onAppear {
                 // If we already have a location from the service, use it
                 if let currentLoc = locationService.currentLocation, !hasInitializedLocation {
-                    mapRegion.center = currentLoc.coordinate
+                    mapPosition = .region(MKCoordinateRegion(
+                        center: currentLoc.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                    ))
                     hasInitializedLocation = true
                 }
             }
@@ -476,7 +482,10 @@ struct ActiveTripTrackingViewIOS: View {
                 do {
                     let location = try await locationService.captureCurrentLocation()
                     if !hasInitializedLocation {
-                        mapRegion.center = location.coordinate
+                        mapPosition = .region(MKCoordinateRegion(
+                            center: location.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                        ))
                         hasInitializedLocation = true
                     }
                 } catch {
@@ -535,7 +544,10 @@ struct ActiveTripTrackingViewIOS: View {
 
     private func centerOnUser() {
         if let location = locationService.currentLocation {
-            mapRegion.center = location.coordinate
+            mapPosition = .region(MKCoordinateRegion(
+                center: location.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            ))
         }
     }
 
@@ -1031,15 +1043,17 @@ struct TripMapView: View {
     }
 
     var body: some View {
-        Map(coordinateRegion: .constant(region), annotationItems: annotations) { annotation in
-            MapAnnotation(coordinate: annotation.coordinate) {
-                Circle()
-                    .fill(annotation.isStart ? .green : .red)
-                    .frame(width: 16, height: 16)
-                    .overlay {
-                        Circle()
-                            .stroke(.white, lineWidth: 2)
-                    }
+        Map(initialPosition: .region(region)) {
+            ForEach(annotations) { annotation in
+                Annotation("", coordinate: annotation.coordinate) {
+                    Circle()
+                        .fill(annotation.isStart ? .green : .red)
+                        .frame(width: 16, height: 16)
+                        .overlay {
+                            Circle()
+                                .stroke(.white, lineWidth: 2)
+                        }
+                }
             }
         }
     }

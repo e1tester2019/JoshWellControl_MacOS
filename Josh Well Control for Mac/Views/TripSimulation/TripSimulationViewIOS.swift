@@ -632,9 +632,6 @@ struct TripSimulationViewIOS: View {
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
 
-        let annMax = (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0
-        let dsMax = (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
-
         if controlTVD <= bitTVD + 1e-9 {
             var remaining = controlTVD
             for r in s.layersAnnulus where r.bottomTVD > r.topTVD {

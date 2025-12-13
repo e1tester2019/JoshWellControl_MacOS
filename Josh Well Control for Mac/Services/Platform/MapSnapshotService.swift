@@ -11,14 +11,14 @@ import MapKit
 import UIKit
 
 /// Service for generating static map snapshots for PDF export
-class MapSnapshotService {
+final class MapSnapshotService: Sendable {
     static let shared = MapSnapshotService()
 
     private init() {}
 
     // MARK: - Snapshot Options
 
-    struct SnapshotOptions: Sendable {
+    struct SnapshotOptions: @unchecked Sendable {
         var size: CGSize = CGSize(width: 400, height: 300)
         var showRoute: Bool = true
         var routeColor: UIColor = .systemBlue
@@ -28,22 +28,40 @@ class MapSnapshotService {
         var markerSize: CGFloat = 12
         var padding: Double = 0.3 // Percentage padding around route
 
-        nonisolated static var standard: SnapshotOptions { SnapshotOptions() }
+        nonisolated init() {}
 
-        nonisolated static var thumbnail: SnapshotOptions {
-            var opts = SnapshotOptions()
-            opts.size = CGSize(width: 150, height: 100)
-            opts.routeLineWidth = 2
-            opts.markerSize = 8
-            return opts
-        }
+        static let standard = SnapshotOptions()
 
-        nonisolated static var large: SnapshotOptions {
-            var opts = SnapshotOptions()
-            opts.size = CGSize(width: 600, height: 400)
-            opts.routeLineWidth = 4
-            opts.markerSize = 16
-            return opts
+        static let thumbnail = SnapshotOptions(
+            size: CGSize(width: 150, height: 100),
+            routeLineWidth: 2,
+            markerSize: 8
+        )
+
+        static let large = SnapshotOptions(
+            size: CGSize(width: 600, height: 400),
+            routeLineWidth: 4,
+            markerSize: 16
+        )
+
+        nonisolated init(
+            size: CGSize = CGSize(width: 400, height: 300),
+            showRoute: Bool = true,
+            routeColor: UIColor = .systemBlue,
+            routeLineWidth: CGFloat = 3,
+            startMarkerColor: UIColor = .systemGreen,
+            endMarkerColor: UIColor = .systemRed,
+            markerSize: CGFloat = 12,
+            padding: Double = 0.3
+        ) {
+            self.size = size
+            self.showRoute = showRoute
+            self.routeColor = routeColor
+            self.routeLineWidth = routeLineWidth
+            self.startMarkerColor = startMarkerColor
+            self.endMarkerColor = endMarkerColor
+            self.markerSize = markerSize
+            self.padding = padding
         }
     }
 
@@ -69,8 +87,9 @@ class MapSnapshotService {
     /// Generate a map snapshot for a mileage log
     func generateSnapshot(
         for mileageLog: MileageLog,
-        options: SnapshotOptions = .standard
+        options: SnapshotOptions? = nil
     ) async throws -> UIImage {
+        let options = options ?? SnapshotOptions()
         // Ensure we have coordinates
         guard let startLat = mileageLog.startLatitude,
               let startLon = mileageLog.startLongitude,
@@ -125,8 +144,9 @@ class MapSnapshotService {
         startCoordinate: CLLocationCoordinate2D,
         endCoordinate: CLLocationCoordinate2D,
         routePoints: [CLLocationCoordinate2D] = [],
-        options: SnapshotOptions = .standard
+        options: SnapshotOptions? = nil
     ) async throws -> UIImage {
+        let options = options ?? SnapshotOptions()
         let allPoints = routePoints.isEmpty ? [startCoordinate, endCoordinate] : routePoints
         let region = calculateRegion(for: allPoints, padding: options.padding)
 
@@ -294,8 +314,9 @@ class MapSnapshotService {
     /// Generate and save a snapshot to the mileage log's mapSnapshotData
     func saveSnapshot(
         to mileageLog: MileageLog,
-        options: SnapshotOptions = .standard
+        options: SnapshotOptions? = nil
     ) async throws {
+        let options = options ?? SnapshotOptions()
         let image = try await generateSnapshot(for: mileageLog, options: options)
 
         // Convert to JPEG data for storage

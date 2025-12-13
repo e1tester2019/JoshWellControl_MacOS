@@ -915,13 +915,18 @@ extension View {
     }
 }
 
-struct RectCorner: OptionSet {
+struct RectCorner: OptionSet, Sendable {
     let rawValue: Int
+
     static let topLeft = RectCorner(rawValue: 1 << 0)
     static let topRight = RectCorner(rawValue: 1 << 1)
     static let bottomLeft = RectCorner(rawValue: 1 << 2)
     static let bottomRight = RectCorner(rawValue: 1 << 3)
     static let allCorners: RectCorner = [.topLeft, .topRight, .bottomLeft, .bottomRight]
+
+    nonisolated func has(_ corner: RectCorner) -> Bool {
+        self.rawValue & corner.rawValue != 0
+    }
 }
 
 struct RoundedCorner: Shape {
@@ -931,10 +936,10 @@ struct RoundedCorner: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
 
-        let tl = corners.contains(.topLeft) ? radius : 0
-        let tr = corners.contains(.topRight) ? radius : 0
-        let bl = corners.contains(.bottomLeft) ? radius : 0
-        let br = corners.contains(.bottomRight) ? radius : 0
+        let tl = corners.has(.topLeft) ? radius : 0
+        let tr = corners.has(.topRight) ? radius : 0
+        let bl = corners.has(.bottomLeft) ? radius : 0
+        let br = corners.has(.bottomRight) ? radius : 0
 
         path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))

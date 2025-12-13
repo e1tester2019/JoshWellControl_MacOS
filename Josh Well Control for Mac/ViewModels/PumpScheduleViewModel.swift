@@ -942,7 +942,8 @@ class PumpScheduleViewModel {
 
         let annulusAtControl_Pa = annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0
         let stringAtControl_Pa  = stringHydrostatic_Pa + stringFriction_Pa
-        let _deltaStringMinusAnnulus_kPa = (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0 // Computed but unused
+        // Delta between string and annulus available for future use:
+        // (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0
 
         let bhp_kPa = (annulusHydrostatic_Pa / 1000) + sbp_kPa
 
