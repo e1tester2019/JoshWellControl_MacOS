@@ -305,18 +305,19 @@ struct iPadDetailView: View {
     private var quickNoteManager: QuickNoteManager { QuickNoteManager.shared }
 
     var body: some View {
-        Group {
-            if let project = selectedProject {
-                detailContent(for: project)
-            } else {
-                ContentUnavailableView(
-                    "No Project Selected",
-                    systemImage: "folder.badge.questionmark",
-                    description: Text("Select or create a project to get started")
-                )
+        NavigationStack {
+            Group {
+                if let project = selectedProject {
+                    detailContent(for: project)
+                } else {
+                    ContentUnavailableView(
+                        "No Project Selected",
+                        systemImage: "folder.badge.questionmark",
+                        description: Text("Select or create a project to get started")
+                    )
+                }
             }
-        }
-        .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // Pad picker
             ToolbarItem(placement: .topBarLeading) {
@@ -382,6 +383,7 @@ struct iPadDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 QuickAddButton(manager: quickNoteManager)
             }
+        }
         }
     }
 
