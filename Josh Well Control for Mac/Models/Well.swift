@@ -26,6 +26,12 @@ final class Well {
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
 
+    // Filtering & organization
+    var isFavorite: Bool = false
+    var isArchived: Bool = false
+    var isLocked: Bool = false
+    var lastAccessedAt: Date?
+
     @Relationship var pad: Pad?
 
     @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?

@@ -18,6 +18,7 @@ final class ProjectState {
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
     var basedOnProjectID: UUID? = nil
+    var isDashboardLocked: Bool = false
 
     @Relationship var well: Well?
 

@@ -14,15 +14,18 @@ import AppKit
 struct MacOSOptimizedContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Well.updatedAt, order: .reverse) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
 
     @State private var selectedWell: Well?
     @State private var selectedProject: ProjectState?
-    @State private var selectedView: ViewSelection = .wellsDashboard
+    @State private var selectedPad: Pad?
+    @State private var selectedView: ViewSelection = .wellDashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showRenameWell = false
     @State private var showRenameProject = false
     @State private var searchText = ""
     @State private var showCommandPalette = false
+    @State private var quickNoteManager = QuickNoteManager.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -33,20 +36,13 @@ struct MacOSOptimizedContentView: View {
                 searchText: $searchText
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
-            .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button(action: toggleSidebar) {
-                        Label("Toggle Sidebar", systemImage: "sidebar.left")
-                    }
-                    .help("Toggle Sidebar (⌘⌥S)")
-                }
-            }
         } detail: {
             // Main Content Area
             MacOSDetailView(
                 selectedView: selectedView,
                 selectedProject: selectedProject,
                 selectedWell: selectedWell,
+                selectedPad: selectedPad,
                 selectedWellBinding: $selectedWell,
                 selectedProjectBinding: $selectedProject,
                 selectedViewBinding: $selectedView,
@@ -55,50 +51,44 @@ struct MacOSOptimizedContentView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(id: "main-toolbar") {
-            // Well Selector
-            ToolbarItem(id: "well-selector", placement: .navigation) {
-                MacOSWellPicker(
+        .toolbar {
+            // All selectors in a group
+            ToolbarItemGroup(placement: .navigation) {
+                MacOSPadPicker(
+                    pads: pads,
+                    selectedPad: $selectedPad,
+                    modelContext: modelContext
+                )
+
+                EnhancedWellPicker(
                     wells: wells,
                     selectedWell: $selectedWell,
                     selectedProject: $selectedProject,
-                    showRenameWell: $showRenameWell,
                     modelContext: modelContext
                 )
-                .frame(minWidth: 200)
-            }
 
-            // Project Selector
-            ToolbarItem(id: "project-selector", placement: .navigation) {
                 MacOSProjectPicker(
                     selectedWell: selectedWell,
                     selectedProject: $selectedProject,
                     showRenameProject: $showRenameProject,
                     modelContext: modelContext
                 )
-                .frame(minWidth: 200)
             }
 
             // Spacer
-            ToolbarItem(id: "spacer", placement: .principal) {
+            ToolbarItem(placement: .principal) {
                 Spacer()
             }
 
             // Quick Actions
-            ToolbarItem(id: "command-palette", placement: .automatic) {
+            ToolbarItemGroup(placement: .automatic) {
+                QuickAddButton(manager: quickNoteManager)
+
                 Button(action: { showCommandPalette.toggle() }) {
-                    Label("Command Palette", systemImage: "command")
+                    Label("Commands", systemImage: "command")
                 }
                 .help("Command Palette (⌘K)")
                 .keyboardShortcut("k", modifiers: .command)
-            }
-
-            ToolbarItem(id: "search", placement: .automatic) {
-                Button(action: {}) {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .help("Search (⌘F)")
-                .keyboardShortcut("f", modifiers: .command)
             }
         }
         .sheet(isPresented: $showCommandPalette) {
@@ -111,16 +101,63 @@ struct MacOSOptimizedContentView: View {
                 modelContext: modelContext
             )
         }
+        .quickAddSheet(manager: quickNoteManager)
         .onAppear {
             setupInitialSelection()
             setupKeyboardShortcuts()
+            // Initialize quick note context
+            quickNoteManager.updateContext(well: selectedWell, project: selectedProject)
+            quickNoteManager.updateTaskCounts(from: wells)
+        }
+        .onChange(of: selectedWell) { _, newWell in
+            // Mark well as accessed and save state
+            if let well = newWell {
+                AppStateService.shared.markAccessed(well, context: modelContext)
+                // Sync pad selection to the well's pad
+                if well.pad != selectedPad {
+                    selectedPad = well.pad
+                }
+            }
+            AppStateService.shared.save(well: newWell, project: selectedProject, viewRaw: selectedView.rawValue)
+            // Update quick note context
+            quickNoteManager.updateContext(well: newWell, project: selectedProject)
+        }
+        .onChange(of: selectedPad) { _, newPad in
+            // Update quick note context with pad
+            quickNoteManager.currentPad = newPad
+        }
+        .onChange(of: selectedProject) { _, newProject in
+            AppStateService.shared.save(well: selectedWell, project: newProject, viewRaw: selectedView.rawValue)
+            // Update quick note context
+            quickNoteManager.updateContext(well: selectedWell, project: newProject)
+        }
+        .onChange(of: selectedView) { _, newView in
+            AppStateService.shared.save(well: selectedWell, project: selectedProject, viewRaw: newView.rawValue)
+        }
+        .onChange(of: wells) { _, newWells in
+            // Update task counts when wells change
+            quickNoteManager.updateTaskCounts(from: newWells)
         }
     }
 
     private func setupInitialSelection() {
-        if selectedWell == nil, let first = wells.first {
+        // Restore from saved state, or fall back to first well
+        let restored = AppStateService.shared.restore(from: wells)
+        if let well = restored.well {
+            selectedWell = well
+            selectedProject = restored.project
+            selectedPad = well.pad ?? pads.first
+            // Restore last selected view
+            if let view = ViewSelection(rawValue: AppStateService.shared.lastSelectedViewRaw) {
+                selectedView = view
+            }
+        } else if let first = wells.first {
             selectedWell = first
             selectedProject = first.projects?.first
+            selectedPad = first.pad ?? pads.first
+        } else {
+            // No wells, try to select first pad
+            selectedPad = pads.first
         }
     }
 
@@ -247,9 +284,15 @@ struct MacOSSidebarView: View {
     var body: some View {
         List(selection: $selectedView) {
             // Dashboards
-            Section {
-                NavigationLink(value: ViewSelection.wellsDashboard) {
-                    Label(ViewSelection.wellsDashboard.title, systemImage: ViewSelection.wellsDashboard.icon)
+            Section("Dashboards") {
+                NavigationLink(value: ViewSelection.handover) {
+                    Label(ViewSelection.handover.title, systemImage: ViewSelection.handover.icon)
+                }
+                NavigationLink(value: ViewSelection.padDashboard) {
+                    Label(ViewSelection.padDashboard.title, systemImage: ViewSelection.padDashboard.icon)
+                }
+                NavigationLink(value: ViewSelection.wellDashboard) {
+                    Label(ViewSelection.wellDashboard.title, systemImage: ViewSelection.wellDashboard.icon)
                 }
                 NavigationLink(value: ViewSelection.dashboard) {
                     Label(ViewSelection.dashboard.title, systemImage: ViewSelection.dashboard.icon)
@@ -339,6 +382,7 @@ struct MacOSDetailView: View {
     let selectedView: ViewSelection
     let selectedProject: ProjectState?
     let selectedWell: Well?
+    let selectedPad: Pad?
     @Binding var selectedWellBinding: Well?
     @Binding var selectedProjectBinding: ProjectState?
     @Binding var selectedViewBinding: ViewSelection
@@ -349,11 +393,31 @@ struct MacOSDetailView: View {
         Group {
             if let project = selectedProject {
                 switch selectedView {
-                case .wellsDashboard:
-                    WellsDashboardView(onSelectProject: { project in
-                        selectedProjectBinding = project
-                        selectedViewBinding = .dashboard
-                    })
+                case .handover:
+                    WellsDashboardView()
+                case .padDashboard:
+                    if let pad = selectedPad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else if let pad = selectedWell?.pad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad from the toolbar or assign a pad to the current well"))
+                    }
+                case .wellDashboard:
+                    if let well = selectedWell {
+                        WellDashboardView(well: well, onSelectProject: { project in
+                            selectedProjectBinding = project
+                            selectedViewBinding = .dashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
+                    }
                 case .dashboard:
                     ProjectDashboardView(project: project)
                 case .drillString:
@@ -486,6 +550,103 @@ struct MacOSWellPicker: View {
     }
 }
 
+// MARK: - macOS Pad Picker
+
+struct MacOSPadPicker: View {
+    let pads: [Pad]
+    @Binding var selectedPad: Pad?
+    let modelContext: ModelContext
+
+    @State private var showPopover = false
+
+    var body: some View {
+        Button(action: { showPopover.toggle() }) {
+            HStack(spacing: 6) {
+                Image(systemName: "map")
+                    .foregroundStyle(.secondary)
+                Text(selectedPad?.name ?? "Select Pad")
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(.quaternary.opacity(0.5))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            VStack(spacing: 0) {
+                if pads.isEmpty {
+                    Text("No pads")
+                        .foregroundStyle(.secondary)
+                        .padding()
+                } else {
+                    List {
+                        ForEach(pads) { pad in
+                            Button(action: {
+                                selectedPad = pad
+                                showPopover = false
+                            }) {
+                                HStack {
+                                    Text(pad.name)
+                                    Spacer()
+                                    if selectedPad?.id == pad.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+
+                Divider()
+
+                HStack {
+                    Button(action: createNewPad) {
+                        Label("New Pad", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+
+                    Spacer()
+
+                    if selectedPad != nil {
+                        Button(role: .destructive, action: deleteCurrentPad) {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(10)
+            }
+            .frame(width: 220, height: 250)
+        }
+        .help("Select Pad")
+    }
+
+    private func createNewPad() {
+        let pad = Pad(name: "New Pad")
+        modelContext.insert(pad)
+        try? modelContext.save()
+        selectedPad = pad
+        showPopover = false
+    }
+
+    private func deleteCurrentPad() {
+        guard let pad = selectedPad else { return }
+        let newSelection = pads.first { $0.id != pad.id }
+        modelContext.delete(pad)
+        try? modelContext.save()
+        selectedPad = newSelection
+        showPopover = false
+    }
+}
+
 // MARK: - macOS Project Picker
 
 struct MacOSProjectPicker: View {
@@ -527,14 +688,14 @@ struct MacOSProjectPicker: View {
                     .foregroundStyle(.secondary)
             }
         } label: {
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "folder")
                     .foregroundStyle(.secondary)
                 Text(selectedProject?.name ?? "Select Project")
                     .fontWeight(.medium)
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 10)
@@ -543,7 +704,7 @@ struct MacOSProjectPicker: View {
             .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .help("Select Project (⌘⌥P)")
+        .help("Select Project")
         .disabled(selectedWell == nil)
     }
 
@@ -580,19 +741,31 @@ struct MacOSCommandPalette: View {
 
     @State private var searchText = ""
     @State private var selectedCommand: CommandPaletteItem?
+    @State private var showingAddExpense = false
+    @State private var showingAddMileage = false
+    @State private var showingExport = false
+    @State private var showingCompanyStatement = false
+
+    enum CommandCategory: String {
+        case navigation = "Navigation"
+        case create = "Create"
+        case export = "Export"
+        case well = "Wells"
+        case project = "Projects"
+    }
 
     enum CommandPaletteItem: Identifiable {
         case view(ViewSelection)
         case well(Well)
         case project(ProjectState)
-        case action(String, () -> Void)
+        case action(String, String, CommandCategory, () -> Void)
 
         var id: String {
             switch self {
             case .view(let view): return "view-\(view.rawValue)"
             case .well(let well): return "well-\(well.id)"
             case .project(let project): return "project-\(project.id)"
-            case .action(let name, _): return "action-\(name)"
+            case .action(let name, _, _, _): return "action-\(name)"
             }
         }
 
@@ -601,25 +774,29 @@ struct MacOSCommandPalette: View {
             case .view(let view): return view.title
             case .well(let well): return well.name
             case .project(let project): return project.name
-            case .action(let name, _): return name
+            case .action(let name, _, _, _): return name
             }
         }
 
         var subtitle: String {
             switch self {
             case .view: return "View"
-            case .well: return "Well"
+            case .well(let well):
+                if well.isFavorite { return "★ Favorite Well" }
+                return "Well"
             case .project: return "Project"
-            case .action: return "Action"
+            case .action(_, _, let category, _): return category.rawValue
             }
         }
 
         var icon: String {
             switch self {
             case .view(let view): return view.icon
-            case .well: return "building.2"
+            case .well(let well):
+                if well.isFavorite { return "star.fill" }
+                return "building.2"
             case .project: return "folder"
-            case .action: return "bolt"
+            case .action(_, let icon, _, _): return icon
             }
         }
     }
@@ -627,27 +804,64 @@ struct MacOSCommandPalette: View {
     private var filteredCommands: [CommandPaletteItem] {
         var commands: [CommandPaletteItem] = []
 
+        // Quick Actions (most useful at top)
+        commands.append(.action("Add New Expense", "creditcard.fill", .create, { showingAddExpense = true }))
+        commands.append(.action("Log Mileage Trip", "car.fill", .create, { showingAddMileage = true }))
+        commands.append(.action("Add Quick Note", "note.text", .create, { QuickNoteManager.shared.showAddNote() }))
+        commands.append(.action("Add Task", "checkmark.circle", .create, { QuickNoteManager.shared.showAddTask() }))
+
+        // Create Actions
+        commands.append(.action("New Well", "plus.circle", .create, createNewWell))
+        commands.append(.action("New Project", "folder.badge.plus", .create, createNewProject))
+
+        // Export Actions
+        commands.append(.action("Export for Accountant", "doc.richtext", .export, { showingExport = true }))
+        commands.append(.action("Company Statement", "chart.bar.doc.horizontal", .export, { showingCompanyStatement = true }))
+
         // Views
         commands.append(contentsOf: ViewSelection.allCases.map { .view($0) })
 
-        // Wells
-        commands.append(contentsOf: wells.map { .well($0) })
+        // Favorite Wells first
+        let favoriteWells = wells.filter { $0.isFavorite }
+        let regularWells = wells.filter { !$0.isFavorite }
+        commands.append(contentsOf: favoriteWells.map { .well($0) })
+        commands.append(contentsOf: regularWells.map { .well($0) })
 
         // Projects
         if let well = selectedWell {
             commands.append(contentsOf: (well.projects ?? []).map { .project($0) })
         }
 
-        // Actions
-        commands.append(.action("New Well", createNewWell))
-        commands.append(.action("New Project", createNewProject))
+        // Well Management
+        if let well = selectedWell {
+            let favAction = well.isFavorite ? "Remove from Favorites" : "Add to Favorites"
+            let favIcon = well.isFavorite ? "star.slash" : "star"
+            commands.append(.action(favAction, favIcon, .well, { toggleFavorite(well) }))
+
+            let archiveAction = well.isArchived ? "Unarchive Well" : "Archive Well"
+            let archiveIcon = well.isArchived ? "tray.and.arrow.up" : "archivebox"
+            commands.append(.action(archiveAction, archiveIcon, .well, { toggleArchive(well) }))
+        }
 
         // Filter by search
         if searchText.isEmpty {
             return commands
         } else {
-            return commands.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+            return commands.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                $0.subtitle.localizedCaseInsensitiveContains(searchText)
+            }
         }
+    }
+
+    private func toggleFavorite(_ well: Well) {
+        well.isFavorite.toggle()
+        try? modelContext.save()
+    }
+
+    private func toggleArchive(_ well: Well) {
+        well.isArchived.toggle()
+        try? modelContext.save()
     }
 
     var body: some View {
@@ -683,21 +897,36 @@ struct MacOSCommandPalette: View {
         }
         .frame(width: 600, height: 400)
         .background(.ultraThickMaterial)
+        .sheet(isPresented: $showingAddExpense) {
+            ExpenseEditorView(expense: nil)
+        }
+        .sheet(isPresented: $showingAddMileage) {
+            MileageLogEditorView(log: nil)
+        }
+        .sheet(isPresented: $showingCompanyStatement) {
+            CompanyStatementView()
+        }
     }
 
     private func executeCommand(_ command: CommandPaletteItem) {
         switch command {
         case .view(let view):
             selectedView = view
+            isPresented = false
         case .well(let well):
             selectedWell = well
             selectedProject = well.projects?.first
+            isPresented = false
         case .project(let project):
             selectedProject = project
-        case .action(_, let action):
-            action()
+            isPresented = false
+        case .action(_, _, _, let action):
+            isPresented = false
+            // Delay action to allow sheet to dismiss first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                action()
+            }
         }
-        isPresented = false
     }
 
     private func createNewWell() {

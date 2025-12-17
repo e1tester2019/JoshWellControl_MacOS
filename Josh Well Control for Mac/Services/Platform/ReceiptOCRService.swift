@@ -259,47 +259,161 @@ class ReceiptOCRService {
     // MARK: - Date Extraction
 
     private func extractDate(from text: String) -> Date? {
-        let dateFormatters: [(regex: String, format: String)] = [
-            // MM/DD/YYYY or MM-DD-YYYY
-            (#"(\d{1,2}[/-]\d{1,2}[/-]\d{4})"#, "MM/dd/yyyy"),
-            (#"(\d{1,2}[/-]\d{1,2}[/-]\d{2})"#, "MM/dd/yy"),
-            // YYYY-MM-DD (ISO)
+        // First, try unambiguous formats (month names, ISO, etc.)
+        if let date = extractUnambiguousDate(from: text) {
+            return date
+        }
+
+        // Then handle numeric dates with smart parsing
+        return extractNumericDate(from: text)
+    }
+
+    /// Extract dates with month names (unambiguous)
+    private func extractUnambiguousDate(from text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_CA")
+
+        let unambiguousPatterns: [(regex: String, format: String)] = [
+            // YYYY-MM-DD (ISO format - unambiguous)
             (#"(\d{4}-\d{2}-\d{2})"#, "yyyy-MM-dd"),
             // DD MMM YYYY (e.g., 15 Dec 2024)
-            (#"(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})"#, "dd MMM yyyy"),
+            (#"(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})"#, "dd MMM yyyy"),
             // MMM DD, YYYY (e.g., Dec 15, 2024)
-            (#"([A-Za-z]{3}\s+\d{1,2},?\s+\d{4})"#, "MMM dd, yyyy")
+            (#"([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})"#, "MMM dd, yyyy"),
+            // DD-MMM-YYYY (e.g., 15-Dec-2024)
+            (#"(\d{1,2}-[A-Za-z]{3,9}-\d{4})"#, "dd-MMM-yyyy"),
+            // YYYY/MM/DD
+            (#"(\d{4}/\d{2}/\d{2})"#, "yyyy/MM/dd")
         ]
 
-        for (pattern, format) in dateFormatters {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+        for (pattern, format) in unambiguousPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
                let match = regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)),
                let range = Range(match.range(at: 1), in: text) {
 
                 let dateStr = String(text[range])
-                    .replacingOccurrences(of: "-", with: "/")
                     .replacingOccurrences(of: ",", with: "")
 
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_CA")
-
-                // Try the expected format
                 formatter.dateFormat = format
-                if let date = formatter.date(from: dateStr) {
+                if let date = formatter.date(from: dateStr), isReasonableDate(date) {
                     return date
                 }
 
-                // Try alternate formats
-                for altFormat in ["MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd"] {
-                    formatter.dateFormat = altFormat
-                    if let date = formatter.date(from: dateStr) {
-                        return date
-                    }
+                // Try with full month name
+                formatter.dateFormat = format.replacingOccurrences(of: "MMM", with: "MMMM")
+                if let date = formatter.date(from: dateStr), isReasonableDate(date) {
+                    return date
                 }
             }
         }
 
         return nil
+    }
+
+    /// Extract numeric dates (DD/MM/YYYY or MM/DD/YYYY) with smart parsing
+    private func extractNumericDate(from text: String) -> Date? {
+        // Match numeric date patterns
+        let numericPattern = #"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})"#
+
+        guard let regex = try? NSRegularExpression(pattern: numericPattern, options: []) else {
+            return nil
+        }
+
+        let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+
+        for match in matches {
+            guard match.numberOfRanges >= 4,
+                  let range1 = Range(match.range(at: 1), in: text),
+                  let range2 = Range(match.range(at: 2), in: text),
+                  let range3 = Range(match.range(at: 3), in: text),
+                  let num1 = Int(text[range1]),
+                  let num2 = Int(text[range2]),
+                  var year = Int(text[range3]) else {
+                continue
+            }
+
+            // Normalize 2-digit year
+            if year < 100 {
+                year += year < 50 ? 2000 : 1900
+            }
+
+            // Skip if year doesn't make sense for a receipt
+            let currentYear = Calendar.current.component(.year, from: Date())
+            guard year >= currentYear - 2 && year <= currentYear + 1 else {
+                continue
+            }
+
+            // Determine which is day and which is month
+            let possibleDates = determineDayMonth(num1: num1, num2: num2, year: year)
+
+            // Return the most reasonable date
+            for date in possibleDates {
+                if isReasonableDate(date) {
+                    return date
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Determine day/month from two numbers, preferring DD/MM/YYYY (Canadian format)
+    private func determineDayMonth(num1: Int, num2: Int, year: Int) -> [Date] {
+        var candidates: [Date] = []
+
+        // If num1 > 12, it MUST be the day (DD/MM/YYYY)
+        if num1 > 12 && num1 <= 31 && num2 >= 1 && num2 <= 12 {
+            if let date = createDate(day: num1, month: num2, year: year) {
+                candidates.append(date)
+            }
+        }
+        // If num2 > 12, it MUST be the day (MM/DD/YYYY)
+        else if num2 > 12 && num2 <= 31 && num1 >= 1 && num1 <= 12 {
+            if let date = createDate(day: num2, month: num1, year: year) {
+                candidates.append(date)
+            }
+        }
+        // Ambiguous case (both could be day or month)
+        else if num1 >= 1 && num1 <= 12 && num2 >= 1 && num2 <= 12 {
+            // Prefer DD/MM/YYYY (Canadian format) - try this first
+            if let date = createDate(day: num1, month: num2, year: year) {
+                candidates.append(date)
+            }
+            // Also try MM/DD/YYYY as fallback
+            if let date = createDate(day: num2, month: num1, year: year) {
+                candidates.append(date)
+            }
+        }
+        // Edge case: num1 could be day > 12, num2 is month
+        else if num1 >= 1 && num1 <= 31 && num2 >= 1 && num2 <= 12 {
+            if let date = createDate(day: num1, month: num2, year: year) {
+                candidates.append(date)
+            }
+        }
+
+        return candidates
+    }
+
+    /// Create a date from components
+    private func createDate(day: Int, month: Int, year: Int) -> Date? {
+        var components = DateComponents()
+        components.day = day
+        components.month = month
+        components.year = year
+
+        return Calendar.current.date(from: components)
+    }
+
+    /// Check if a date is reasonable for a receipt (not too far in past/future)
+    private func isReasonableDate(_ date: Date) -> Bool {
+        let now = Date()
+        let calendar = Calendar.current
+
+        // Receipt date should be within last 2 years and not more than 1 day in future
+        let twoYearsAgo = calendar.date(byAdding: .year, value: -2, to: now) ?? now
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+
+        return date >= twoYearsAgo && date <= tomorrow
     }
 
     // MARK: - Vendor Extraction

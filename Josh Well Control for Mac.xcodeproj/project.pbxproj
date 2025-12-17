@@ -10,22 +10,9 @@
 		3C2EC4582EB6A34900CB0A94 /* Josh Well Control for Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Josh Well Control for Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		3CA979E92EED3EB900A3807B /* Exceptions for "Josh Well Control for Mac" folder in "Josh Well Control for Mac" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"Josh-Well-Control-for-Mac-Info.plist",
-			);
-			target = 3C2EC4572EB6A34900CB0A94 /* Josh Well Control for Mac */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3C2EC45A2EB6A34900CB0A94 /* Josh Well Control for Mac */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				3CA979E92EED3EB900A3807B /* Exceptions for "Josh Well Control for Mac" folder in "Josh Well Control for Mac" target */,
-			);
 			path = "Josh Well Control for Mac";
 			sourceTree = "<group>";
 		};

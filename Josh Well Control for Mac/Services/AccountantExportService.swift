@@ -40,11 +40,58 @@ class AccountantExportService {
         // Create subdirectories
         let receiptsDir = tempDir.appendingPathComponent("receipts")
         let invoicesDir = tempDir.appendingPathComponent("invoices")
+        let mileageDir = tempDir.appendingPathComponent("mileage")
         try fileManager.createDirectory(at: receiptsDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: invoicesDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: mileageDir, withIntermediateDirectories: true)
+
+        // Generate mileage detail pages and map images
+        var mileageLinks: [UUID: String] = [:] // Map log ID to detail page filename
+        let semaphore = DispatchSemaphore(value: 0)
+        var mapGenerationError: Error?
+
+        Task {
+            do {
+                for (index, log) in data.mileageLogs.enumerated() {
+                    let tripNumber = index + 1
+                    let detailFilename = "trip_\(tripNumber).html"
+                    mileageLinks[log.id] = detailFilename
+
+                    // Generate map image if GPS data available
+                    var mapFilename: String? = nil
+                    if log.hasGPSData {
+                        do {
+                            let mapData = try await MapSnapshotServiceMacOS.shared.generateJPEGData(
+                                for: log,
+                                options: .large
+                            )
+                            mapFilename = "trip_\(tripNumber)_map.jpg"
+                            let mapFile = mileageDir.appendingPathComponent(mapFilename!)
+                            try mapData.write(to: mapFile)
+                        } catch {
+                            // Continue without map if generation fails
+                            print("Map generation failed for trip \(tripNumber): \(error)")
+                        }
+                    }
+
+                    // Generate detail HTML page
+                    let detailHTML = self.generateMileageDetailHTML(log: log, tripNumber: tripNumber, mapFilename: mapFilename)
+                    let detailFile = mileageDir.appendingPathComponent(detailFilename)
+                    try detailHTML.write(to: detailFile, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                mapGenerationError = error
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        if let error = mapGenerationError {
+            throw error
+        }
 
         // Generate and save HTML report
-        let html = generateHTML(data: data)
+        let html = generateHTML(data: data, mileageLinks: mileageLinks)
         let htmlFile = tempDir.appendingPathComponent("financial_report.html")
         try html.write(to: htmlFile, atomically: true, encoding: .utf8)
 
@@ -93,7 +140,196 @@ class AccountantExportService {
         }
     }
 
-    private func generateHTML(data: ExportData) -> String {
+    // MARK: - Mileage Detail Page
+
+    private func generateMileageDetailHTML(log: MileageLog, tripNumber: Int, mapFilename: String?) -> String {
+        let businessInfo = BusinessInfo.shared
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "d MMM yyyy"
+
+        let currencyFormatter = NumberFormatter()
+        currencyFormatter.numberStyle = .currency
+        currencyFormatter.currencySymbol = "$"
+
+        func currency(_ value: Double) -> String {
+            currencyFormatter.string(from: NSNumber(value: value)) ?? "$0.00"
+        }
+
+        let deduction = MileageSummary.calculateDeduction(totalKm: log.effectiveDistance)
+
+        var html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Trip #\(tripNumber) - \(dateFormatter.string(from: log.date))</title>
+            <link rel="stylesheet" href="../styles.css">
+        </head>
+        <body>
+            <div class="container">
+                <header>
+                    <div class="company-info">
+                        <h1>\(businessInfo.companyName)</h1>
+                        <p>\(businessInfo.address)<br>
+                        \(businessInfo.city), \(businessInfo.province) \(businessInfo.postalCode)<br>
+                        GST #: \(businessInfo.gstNumber)</p>
+                    </div>
+                    <div class="report-info">
+                        <h2>Trip Details</h2>
+                        <p class="period">Trip #\(tripNumber)</p>
+                        <p class="generated">\(dateFormatter.string(from: log.date))</p>
+                    </div>
+                </header>
+
+                <section class="summary">
+                    <div style="margin-bottom: 20px;">
+                        <a href="../financial_report.html#mileage" style="display: inline-flex; align-items: center; gap: 8px; color: #52a5bf; text-decoration: none; font-weight: 600; font-size: 15px;">← Back to Financial Report</a>
+                    </div>
+
+                    <h2>Trip Summary</h2>
+
+                    <div class="summary-grid">
+                        <div class="summary-card revenue">
+                            <h3>Distance</h3>
+                            <table>
+                                <tr><td>One-way Distance</td><td class="amount">\(Int(log.distance)) km</td></tr>
+        """
+
+        if log.isRoundTrip {
+            html += """
+                                <tr class="indent"><td>Round Trip</td><td class="amount">× 2</td></tr>
+                                <tr class="total"><td>Effective Distance</td><td class="amount positive"><strong>\(Int(log.effectiveDistance)) km</strong></td></tr>
+            """
+        } else {
+            html += """
+                                <tr class="total"><td>Total Distance</td><td class="amount positive"><strong>\(Int(log.effectiveDistance)) km</strong></td></tr>
+            """
+        }
+
+        html += """
+                            </table>
+                        </div>
+
+                        <div class="summary-card expenses">
+                            <h3>CRA Deduction</h3>
+                            <table>
+                                <tr><td>Distance</td><td class="amount">\(Int(log.effectiveDistance)) km</td></tr>
+                                <tr class="indent"><td>Rate</td><td class="amount">@ $\(String(format: "%.2f", MileageLog.firstTierRate))/km</td></tr>
+                                <tr class="total"><td>Deduction Value</td><td class="amount positive"><strong>\(currency(deduction))</strong></td></tr>
+                            </table>
+                        </div>
+
+                        <div class="summary-card payroll">
+                            <h3>Route</h3>
+                            <table>
+                                <tr><td>From</td><td class="amount" style="color: #16a34a;">\(log.startLocation.isEmpty ? "—" : log.startLocation)</td></tr>
+                                <tr><td>To</td><td class="amount" style="color: #dc2626;">\(log.endLocation.isEmpty ? "—" : log.endLocation)</td></tr>
+        """
+
+        if let duration = log.formattedDuration {
+            html += """
+                                <tr class="indent"><td>Duration</td><td class="amount">\(duration)</td></tr>
+            """
+        }
+
+        html += """
+                            </table>
+                        </div>
+        """
+
+        // Purpose/Notes card
+        if !log.purpose.isEmpty || !log.notes.isEmpty || log.client != nil || log.well != nil {
+            html += """
+
+                        <div class="summary-card dividends">
+                            <h3>Details</h3>
+                            <table>
+            """
+
+            if !log.purpose.isEmpty {
+                html += """
+                                <tr><td>Purpose</td><td class="amount">\(log.purpose)</td></tr>
+                """
+            }
+
+            if let client = log.client {
+                html += """
+                                <tr><td>Client</td><td class="amount">\(client.companyName)</td></tr>
+                """
+            }
+
+            if let well = log.well {
+                html += """
+                                <tr><td>Well</td><td class="amount">\(well.name)</td></tr>
+                """
+            }
+
+            if !log.notes.isEmpty {
+                html += """
+                                <tr class="indent"><td colspan="2" style="font-style: italic; color: #64748b;">\(log.notes)</td></tr>
+                """
+            }
+
+            html += """
+                            </table>
+                        </div>
+            """
+        }
+
+        html += """
+                    </div>
+        """
+
+        // Map section
+        if let mapFilename = mapFilename {
+            html += """
+
+                    <div class="results" style="text-align: center; padding: 30px;">
+                        <h3 style="margin-bottom: 20px; color: #52a5bf;">Route Map</h3>
+                        <img src="\(mapFilename)" alt="Trip Route Map" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    </div>
+            """
+        }
+
+        // GPS Coordinates section
+        if log.hasGPSData {
+            html += """
+
+                    <div class="tax-info">
+                        <h3>GPS Data</h3>
+                        <div class="tax-grid">
+                            <div><strong>Start:</strong> \(String(format: "%.6f", log.startLatitude!)), \(String(format: "%.6f", log.startLongitude!))</div>
+                            <div><strong>End:</strong> \(String(format: "%.6f", log.endLatitude!)), \(String(format: "%.6f", log.endLongitude!))</div>
+            """
+
+            if let points = log.routePoints, !points.isEmpty {
+                html += """
+                            <div><strong>Route Points:</strong> \(points.count) GPS coordinates recorded</div>
+                """
+            }
+
+            html += """
+                        </div>
+                    </div>
+            """
+        }
+
+        html += """
+                </section>
+
+                <footer>
+                    <p>Trip details from \(businessInfo.companyName) mileage log</p>
+                </footer>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+    }
+
+    private func generateHTML(data: ExportData, mileageLinks: [UUID: String] = [:]) -> String {
         let businessInfo = BusinessInfo.shared
         let periodName = data.quarter != nil ? "Q\(data.quarter!) \(data.year)" : "Annual \(data.year)"
         let dateFormatter = DateFormatter()
@@ -449,7 +685,7 @@ class AccountantExportService {
 
             html += """
 
-                <section class="mileage">
+                <section class="mileage" id="mileage">
                     <h2>Mileage Log (\(data.mileageLogs.count) trips)</h2>
 
                     <div class="mileage-summary">
@@ -521,13 +757,97 @@ class AccountantExportService {
                 """
             }
 
+            // Get unique values for mileage filters
+            let uniqueDestinations = Set(data.mileageLogs.map { $0.endLocation.isEmpty ? "Unknown" : $0.endLocation }).sorted()
+            let uniquePurposes = Set(data.mileageLogs.compactMap { $0.purpose.isEmpty ? nil : $0.purpose }).sorted()
+            let uniqueMileageMonths = Set(data.mileageLogs.map {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMM yyyy"
+                return formatter.string(from: $0.date)
+            }).sorted()
+
             html += """
                             </table>
                         </div>
                     </div>
 
-                    <h3>Trip Details</h3>
-                    <table class="data-table">
+                    <h3>Trip Details (<span id="mileage-count">\(data.mileageLogs.count)</span> trips)</h3>
+
+                    <div class="filter-controls">
+                        <div class="filter-group">
+                            <label for="mileage-search">Search</label>
+                            <input type="text" id="mileage-search" placeholder="Search all fields..." onkeyup="filterMileage()">
+                        </div>
+                        <div class="filter-group">
+                            <label for="mileage-month">Month</label>
+                            <select id="mileage-month" onchange="filterMileage()">
+                                <option value="">All Months</option>
+            """
+
+            for month in uniqueMileageMonths {
+                html += """
+                                <option value="\(month)">\(month)</option>
+                """
+            }
+
+            html += """
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="mileage-destination">Destination</label>
+                            <select id="mileage-destination" onchange="filterMileage()">
+                                <option value="">All Destinations</option>
+            """
+
+            for destination in uniqueDestinations {
+                html += """
+                                <option value="\(destination)">\(destination)</option>
+                """
+            }
+
+            html += """
+                            </select>
+                        </div>
+            """
+
+            if !uniquePurposes.isEmpty {
+                html += """
+                        <div class="filter-group">
+                            <label for="mileage-purpose">Purpose</label>
+                            <select id="mileage-purpose" onchange="filterMileage()">
+                                <option value="">All Purposes</option>
+                """
+
+                for purpose in uniquePurposes {
+                    html += """
+                                <option value="\(purpose)">\(purpose)</option>
+                    """
+                }
+
+                html += """
+                            </select>
+                        </div>
+                """
+            }
+
+            html += """
+                        <div class="filter-group">
+                            <label for="mileage-gps">GPS Data</label>
+                            <select id="mileage-gps" onchange="filterMileage()">
+                                <option value="">All</option>
+                                <option value="yes">Has GPS</option>
+                                <option value="no">No GPS</option>
+                            </select>
+                        </div>
+                        <button class="clear-filters" onclick="clearMileageFilters()">Clear Filters</button>
+                    </div>
+
+                    <div class="filter-totals">
+                        <span>Showing: <strong id="filtered-km">\(Int(totalKm)) km</strong></span>
+                        <span>CRA Deduction: <strong id="filtered-deduction">\(currency(totalDeduction))</strong></span>
+                    </div>
+
+                    <table class="data-table" id="mileage-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -536,21 +856,35 @@ class AccountantExportService {
                                 <th>Purpose</th>
                                 <th>Distance</th>
                                 <th>Effective</th>
+                                <th>Details</th>
                             </tr>
                         </thead>
                         <tbody>
             """
 
-            for log in data.mileageLogs.sorted(by: { $0.date < $1.date }) {
+            let mileageMonthFormatter = DateFormatter()
+            mileageMonthFormatter.dateFormat = "MMM yyyy"
+
+            for (index, log) in data.mileageLogs.sorted(by: { $0.date < $1.date }).enumerated() {
                 let roundTripNote = log.isRoundTrip ? " (RT)" : ""
+                let detailLink: String
+                if let filename = mileageLinks[log.id] {
+                    let hasMap = log.hasGPSData
+                    let icon = hasMap ? "🗺️" : "📄"
+                    detailLink = "<a href=\"mileage/\(filename)\">\(icon) View</a>"
+                } else {
+                    detailLink = "—"
+                }
+                let destination = log.endLocation.isEmpty ? "Unknown" : log.endLocation
                 html += """
-                            <tr>
+                            <tr data-month="\(mileageMonthFormatter.string(from: log.date))" data-destination="\(destination)" data-purpose="\(log.purpose)" data-gps="\(log.hasGPSData ? "yes" : "no")" data-km="\(log.effectiveDistance)">
                                 <td>\(dateFormatter.string(from: log.date))</td>
                                 <td>\(log.startLocation)</td>
                                 <td>\(log.endLocation)</td>
                                 <td>\(log.purpose)</td>
                                 <td class="amount">\(Int(log.distance)) km\(roundTripNote)</td>
                                 <td class="amount">\(Int(log.effectiveDistance)) km</td>
+                                <td>\(detailLink)</td>
                             </tr>
                 """
             }
@@ -561,6 +895,7 @@ class AccountantExportService {
                             <tr>
                                 <td colspan="5"><strong>Total</strong></td>
                                 <td class="amount"><strong>\(Int(totalKm)) km</strong></td>
+                                <td></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -687,6 +1022,69 @@ class AccountantExportService {
 
             function formatCurrency(value) {
                 return '$' + value.toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,');
+            }
+
+            // Mileage filtering
+            function filterMileage() {
+                const search = document.getElementById('mileage-search').value.toLowerCase();
+                const month = document.getElementById('mileage-month').value;
+                const destination = document.getElementById('mileage-destination').value;
+                const purposeEl = document.getElementById('mileage-purpose');
+                const purpose = purposeEl ? purposeEl.value : '';
+                const gps = document.getElementById('mileage-gps').value;
+
+                const table = document.getElementById('mileage-table');
+                const rows = table.querySelectorAll('tbody tr');
+
+                let visibleCount = 0;
+                let totalKm = 0;
+
+                rows.forEach(row => {
+                    const rowMonth = row.dataset.month;
+                    const rowDestination = row.dataset.destination;
+                    const rowPurpose = row.dataset.purpose;
+                    const rowGps = row.dataset.gps;
+                    const rowKm = parseFloat(row.dataset.km) || 0;
+                    const rowText = row.textContent.toLowerCase();
+
+                    let show = true;
+
+                    if (search && !rowText.includes(search)) show = false;
+                    if (month && rowMonth !== month) show = false;
+                    if (destination && rowDestination !== destination) show = false;
+                    if (purpose && rowPurpose !== purpose) show = false;
+                    if (gps && rowGps !== gps) show = false;
+
+                    if (show) {
+                        row.style.display = '';
+                        visibleCount++;
+                        totalKm += rowKm;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+
+                // Calculate CRA deduction for filtered amount
+                const firstTierLimit = 5000;
+                const firstTierRate = 0.72;
+                const secondTierRate = 0.66;
+                const firstTierKm = Math.min(totalKm, firstTierLimit);
+                const secondTierKm = Math.max(0, totalKm - firstTierLimit);
+                const deduction = (firstTierKm * firstTierRate) + (secondTierKm * secondTierRate);
+
+                document.getElementById('mileage-count').textContent = visibleCount;
+                document.getElementById('filtered-km').textContent = Math.round(totalKm) + ' km';
+                document.getElementById('filtered-deduction').textContent = formatCurrency(deduction);
+            }
+
+            function clearMileageFilters() {
+                document.getElementById('mileage-search').value = '';
+                document.getElementById('mileage-month').value = '';
+                document.getElementById('mileage-destination').value = '';
+                const purposeEl = document.getElementById('mileage-purpose');
+                if (purposeEl) purposeEl.value = '';
+                document.getElementById('mileage-gps').value = '';
+                filterMileage();
             }
             </script>
         </body>

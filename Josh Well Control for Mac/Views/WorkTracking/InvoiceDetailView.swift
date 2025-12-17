@@ -21,6 +21,8 @@ struct InvoiceDetailView: View {
 
     @State private var showingExportOptions = false
     @State private var pdfData: Data?
+    @State private var showingEditNumber = false
+    @State private var editedInvoiceNumber: String = ""
 
     var body: some View {
         NavigationStack {
@@ -83,6 +85,26 @@ struct InvoiceDetailView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 700)
+        .alert("Edit Invoice Number", isPresented: $showingEditNumber) {
+            TextField("Invoice Number", text: $editedInvoiceNumber)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                if let newNumber = Int(editedInvoiceNumber), newNumber > 0 {
+                    invoice.invoiceNumber = newNumber
+                    invoice.updatedAt = Date.now
+                    try? modelContext.save()
+
+                    // Update next invoice number if needed
+                    var businessInfo = BusinessInfo.shared
+                    if newNumber >= businessInfo.nextInvoiceNumber {
+                        businessInfo.nextInvoiceNumber = newNumber + 1
+                        BusinessInfo.shared = businessInfo
+                    }
+                }
+            }
+        } message: {
+            Text("Enter a new invoice number")
+        }
     }
 
     private var headerSection: some View {
@@ -112,7 +134,18 @@ struct InvoiceDetailView: View {
                     return f
                 }()
 
-                Text("Invoice #\(invoice.invoiceNumber)")
+                Button {
+                    editedInvoiceNumber = String(invoice.invoiceNumber)
+                    showingEditNumber = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Invoice #\(invoice.invoiceNumber)")
+                        Image(systemName: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
                 Text("Date: \(dateFormatter.string(from: invoice.date))")
                 Text("Terms: \(invoice.terms)")
 

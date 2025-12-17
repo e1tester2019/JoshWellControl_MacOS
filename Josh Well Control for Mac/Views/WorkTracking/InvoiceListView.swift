@@ -177,6 +177,8 @@ struct InvoiceCreatorView: View {
     @State private var selectedClient: Client?
     @State private var selectedWorkDays: Set<UUID> = []
     @State private var invoiceDate = Date.now
+    @State private var customInvoiceNumber: String = ""
+    @State private var useCustomNumber = false
 
     private var workDaysForClient: [WorkDay] {
         guard let client = selectedClient else { return [] }
@@ -218,9 +220,31 @@ struct InvoiceCreatorView: View {
                     }
                 }
 
-                Section("Invoice Date") {
+                Section("Invoice Details") {
                     DatePicker("Date", selection: $invoiceDate, displayedComponents: .date)
                         .environment(\.locale, Locale(identifier: "en_GB"))
+
+                    Toggle("Custom Invoice Number", isOn: $useCustomNumber)
+
+                    if useCustomNumber {
+                        HStack {
+                            Text("Invoice #")
+                            TextField("Number", text: $customInvoiceNumber)
+                                .textFieldStyle(.roundedBorder)
+                                #if os(macOS)
+                                .frame(width: 100)
+                                #endif
+                        }
+                    } else {
+                        HStack {
+                            Text("Invoice #")
+                            Text("\(BusinessInfo.shared.nextInvoiceNumber)")
+                                .foregroundStyle(.secondary)
+                            Text("(auto)")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
 
                 if selectedClient != nil {
@@ -394,7 +418,18 @@ struct InvoiceCreatorView: View {
         guard let client = selectedClient, !selectedWorkDays.isEmpty else { return }
 
         var businessInfo = BusinessInfo.shared
-        let invoiceNumber = businessInfo.getNextInvoiceNumber()
+        let invoiceNumber: Int
+
+        if useCustomNumber, let customNum = Int(customInvoiceNumber), customNum > 0 {
+            invoiceNumber = customNum
+            // If custom number is >= next number, update the next number
+            if customNum >= businessInfo.nextInvoiceNumber {
+                businessInfo.nextInvoiceNumber = customNum + 1
+                BusinessInfo.shared = businessInfo
+            }
+        } else {
+            invoiceNumber = businessInfo.getNextInvoiceNumber()
+        }
 
         let invoice = Invoice(invoiceNumber: invoiceNumber, client: client)
         invoice.date = invoiceDate

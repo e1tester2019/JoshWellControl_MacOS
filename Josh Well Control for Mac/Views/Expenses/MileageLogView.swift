@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import MapKit
 
 struct MileageLogView: View {
     @Environment(\.modelContext) private var modelContext
@@ -119,6 +120,19 @@ struct MileageLogView: View {
                     .padding(.vertical, 4)
                 }
 
+                // Add Trip Section
+                Section {
+                    Button {
+                        showingAddSheet = true
+                    } label: {
+                        Label("Log New Trip", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+
                 // Filter section
                 Section {
                     DisclosureGroup(isExpanded: $showFilters) {
@@ -217,6 +231,22 @@ struct MileageLogView: View {
                                     .onTapGesture {
                                         selectedLog = log
                                     }
+                                    .contextMenu {
+                                        Button {
+                                            selectedLog = log
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+
+                                        Divider()
+
+                                        Button(role: .destructive) {
+                                            modelContext.delete(log)
+                                            try? modelContext.save()
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                             }
                             .onDelete { indexSet in
                                 deleteLogs(at: indexSet, in: monthKey)
@@ -234,6 +264,18 @@ struct MileageLogView: View {
                 }
             }
             .navigationTitle("Mileage Log")
+            #if os(macOS)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingAddSheet = true
+                    } label: {
+                        Label("Log Trip", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            #else
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -243,6 +285,7 @@ struct MileageLogView: View {
                     }
                 }
             }
+            #endif
             .sheet(isPresented: $showingAddSheet) {
                 MileageLogEditorView(log: nil)
             }
@@ -406,6 +449,15 @@ struct MileageLogEditorView: View {
                     TextEditor(text: $notes)
                         .frame(minHeight: 60)
                 }
+
+                // Map section - show if we have GPS coordinates
+                if let log = log, log.hasGPSData {
+                    Section("Route Map") {
+                        MileageMapView(mileageLog: log)
+                            .frame(height: 250)
+                            .cornerRadius(8)
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(log == nil ? "Log Trip" : "Edit Trip")
@@ -420,7 +472,7 @@ struct MileageLogEditorView: View {
             }
             .onAppear { loadLog() }
         }
-        .frame(minWidth: 450, minHeight: 500)
+        .frame(minWidth: 450, minHeight: 550)
     }
 
     private func loadLog() {
@@ -453,6 +505,114 @@ struct MileageLogEditorView: View {
         }
         try? modelContext.save()
         dismiss()
+    }
+}
+
+// MARK: - Mileage Map View
+
+struct MileageMapView: View {
+    let mileageLog: MileageLog
+
+    @State private var cameraPosition: MapCameraPosition = .automatic
+
+    private var startCoordinate: CLLocationCoordinate2D? {
+        guard let lat = mileageLog.startLatitude,
+              let lon = mileageLog.startLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    private var endCoordinate: CLLocationCoordinate2D? {
+        guard let lat = mileageLog.endLatitude,
+              let lon = mileageLog.endLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    private var routeCoordinates: [CLLocationCoordinate2D] {
+        guard let points = mileageLog.routePoints, !points.isEmpty else {
+            // Just use start and end
+            var coords: [CLLocationCoordinate2D] = []
+            if let start = startCoordinate { coords.append(start) }
+            if let end = endCoordinate { coords.append(end) }
+            return coords
+        }
+        return points
+            .sorted { $0.timestamp < $1.timestamp }
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+
+    var body: some View {
+        Map(position: $cameraPosition) {
+            // Start marker
+            if let start = startCoordinate {
+                Annotation("Start", coordinate: start) {
+                    ZStack {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 24, height: 24)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+            }
+
+            // End marker
+            if let end = endCoordinate {
+                Annotation("End", coordinate: end) {
+                    ZStack {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 24, height: 24)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+            }
+
+            // Route line
+            if routeCoordinates.count >= 2 {
+                MapPolyline(coordinates: routeCoordinates)
+                    .stroke(.blue, lineWidth: 4)
+            }
+        }
+        .mapStyle(.standard)
+        .onAppear {
+            calculateCameraPosition()
+        }
+    }
+
+    private func calculateCameraPosition() {
+        guard !routeCoordinates.isEmpty else { return }
+
+        var minLat = routeCoordinates[0].latitude
+        var maxLat = routeCoordinates[0].latitude
+        var minLon = routeCoordinates[0].longitude
+        var maxLon = routeCoordinates[0].longitude
+
+        for coord in routeCoordinates {
+            minLat = min(minLat, coord.latitude)
+            maxLat = max(maxLat, coord.latitude)
+            minLon = min(minLon, coord.longitude)
+            maxLon = max(maxLon, coord.longitude)
+        }
+
+        let centerLat = (minLat + maxLat) / 2
+        let centerLon = (minLon + maxLon) / 2
+        let padding = 0.3
+
+        var latDelta = (maxLat - minLat) * (1 + padding)
+        var lonDelta = (maxLon - minLon) * (1 + padding)
+
+        // Ensure minimum span
+        latDelta = max(latDelta, 0.01)
+        lonDelta = max(lonDelta, 0.01)
+
+        let center = CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon)
+        let span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+        let region = MKCoordinateRegion(center: center, span: span)
+
+        cameraPosition = .region(region)
     }
 }
 

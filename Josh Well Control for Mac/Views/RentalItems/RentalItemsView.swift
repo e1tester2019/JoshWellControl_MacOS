@@ -383,7 +383,7 @@ private struct RentalCard: View {
 }
 
 // MARK: - Detail Editor
-private struct RentalDetailEditor: View {
+struct RentalDetailEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var rental: RentalItem
 
@@ -520,7 +520,7 @@ private struct RentalDetailEditor: View {
     }
 
     private func addToday() { rental.toggleUsage(on: Date()); try? modelContext.save() }
-    private func clearUsage() { rental.usageDates.removeAll(); try? modelContext.save() }
+    private func clearUsage() { rental.usageDates = []; try? modelContext.save() }
     private func addAdditionalCost() {
         let amount = Double(newCostAmount.replacingOccurrences(of: ",", with: "")) ?? 0
         guard !newCostDesc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || amount != 0 else { return }

@@ -51,12 +51,30 @@ struct WorkTrackingContainerViewIOS: View {
                 }
                 .tag(1)
 
+            // Expenses
+            NavigationStack {
+                ExpenseListViewIOS()
+            }
+            .tabItem {
+                Label("Expenses", systemImage: "creditcard")
+            }
+            .tag(2)
+
+            // Mileage
+            NavigationStack {
+                MileageLogViewIOS()
+            }
+            .tabItem {
+                Label("Mileage", systemImage: "car")
+            }
+            .tag(3)
+
             // Clients
             clientsList
                 .tabItem {
                     Label("Clients", systemImage: "person.2")
                 }
-                .tag(2)
+                .tag(4)
         }
         .navigationTitle("Work Tracking")
     }

@@ -43,6 +43,7 @@ struct WellsDashboardView: View {
 
     // Export state
     @State private var showingExportSheet = false
+    @State private var showingArchiveView = false
     @State private var exportStartDate = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
     @State private var exportEndDate = Date()
     @State private var exportIncludeTasks = true
@@ -56,21 +57,7 @@ struct WellsDashboardView: View {
     @State private var wellToAssignPad: Well?
 
     var body: some View {
-        HSplitView {
-            // Left: Well selection grouped by pad
-            wellSelectionList
-                .frame(minWidth: 220, idealWidth: 280, maxWidth: 350)
-
-            // Right: Tasks and Notes
-            VStack(spacing: 0) {
-                filterBar
-                Divider()
-                HSplitView {
-                    tasksSection
-                    notesSection
-                }
-            }
-        }
+        mainContent
         .sheet(item: $newTaskTarget) { target in
             switch target {
             case .well(let well):
@@ -110,6 +97,9 @@ struct WellsDashboardView: View {
         .sheet(isPresented: $showingExportSheet) {
             exportSheet
         }
+        .sheet(isPresented: $showingArchiveView) {
+            HandoverArchiveView()
+        }
         .sheet(item: $editingPad) { pad in
             PadEditorView(pad: pad)
         }
@@ -127,6 +117,41 @@ struct WellsDashboardView: View {
         .onChange(of: selectedWellIDs) { _, newValue in
             saveSelectedWellIDs(newValue)
         }
+    }
+
+    // MARK: - Main Content
+
+    @ViewBuilder
+    private var mainContent: some View {
+        #if os(macOS)
+        HSplitView {
+            // Left: Well selection grouped by pad
+            wellSelectionList
+                .frame(minWidth: 220, idealWidth: 280, maxWidth: 350)
+
+            // Right: Tasks and Notes
+            VStack(spacing: 0) {
+                filterBar
+                Divider()
+                HSplitView {
+                    tasksSection
+                    notesSection
+                }
+            }
+        }
+        #else
+        // iOS fallback
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    tasksSection
+                    notesSection
+                }
+                .padding()
+            }
+            .navigationTitle("Handover")
+        }
+        #endif
     }
 
     // MARK: - Persistence
@@ -284,6 +309,13 @@ struct WellsDashboardView: View {
 
             Spacer()
 
+            // Archive button
+            Button {
+                showingArchiveView = true
+            } label: {
+                Label("Archives", systemImage: "archivebox")
+            }
+
             // Export button
             Button {
                 showingExportSheet = true
@@ -406,7 +438,7 @@ struct WellsDashboardView: View {
             includeNotes: exportIncludeNotes,
             includeCompleted: exportIncludeCompleted
         )
-        HandoverExportService.shared.exportPDF(options: options)
+        HandoverExportService.shared.exportPDF(options: options, modelContext: modelContext)
         showingExportSheet = false
         #endif
     }

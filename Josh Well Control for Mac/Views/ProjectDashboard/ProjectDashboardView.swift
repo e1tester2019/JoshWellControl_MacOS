@@ -17,9 +17,15 @@ import AppKit
 
 struct ProjectDashboardView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Well.name) private var allWells: [Well]
     @Bindable var project: ProjectState
     @State private var viewmodel: ViewModel
     @State private var newTransferToEdit: MaterialTransfer?
+    @State private var showingAddNote = false
+    @State private var showingAddTask = false
+    @State private var showingRenameProject = false
+    @State private var showingDeleteConfirmation = false
+    @State private var renameText = ""
 
 
     // Optional navigation controls for iOS
@@ -227,15 +233,54 @@ struct ProjectDashboardView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Project Dashboard")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Text("Curate project inputs, system defaults, and a snapshot of the work already captured.")
-                        .foregroundStyle(.secondary)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(project.name)
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                            Text("Curate project inputs, system defaults, and a snapshot of the work already captured.")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        #if os(macOS)
+                        // Action buttons
+                        HStack(spacing: 8) {
+                            Button(action: { renameText = project.name; showingRenameProject = true }) {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            .buttonStyle(.borderless)
+
+                            Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        #endif
+
+                        // Lock toggle button
+                        Button {
+                            project.isDashboardLocked.toggle()
+                            try? modelContext.save()
+                        } label: {
+                            Label(
+                                project.isDashboardLocked ? "Unlock" : "Lock",
+                                systemImage: project.isDashboardLocked ? "lock.fill" : "lock.open"
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(project.isDashboardLocked ? Color.orange.opacity(0.2) : Color.green.opacity(0.2))
+                            .foregroundStyle(project.isDashboardLocked ? .orange : .green)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .help(project.isDashboardLocked ? "Unlock dashboard for editing" : "Lock dashboard to prevent accidental edits")
+                    }
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-                    WellSection(title: "Project", icon: "target", subtitle: "Name and pressure window safety margins.") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .top)], spacing: 16) {
+                    WellSection(title: "Project", icon: "target", subtitle: "Name, well assignment, and pressure window safety margins.") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                             GridRow {
                                 Text("Name")
@@ -244,6 +289,36 @@ struct ProjectDashboardView: View {
                                 TextField("Project name", text: $project.name)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: .infinity)
+                            }
+                            GridRow {
+                                Text("Well")
+                                    .gridColumnAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                                Picker("Well", selection: Binding(
+                                    get: { project.well },
+                                    set: { newWell in
+                                        // Remove from old well
+                                        if let oldWell = project.well {
+                                            oldWell.projects?.removeAll { $0.id == project.id }
+                                        }
+                                        // Assign to new well
+                                        project.well = newWell
+                                        if let newWell = newWell {
+                                            if newWell.projects == nil { newWell.projects = [] }
+                                            if !newWell.projects!.contains(where: { $0.id == project.id }) {
+                                                newWell.projects?.append(project)
+                                            }
+                                        }
+                                        try? modelContext.save()
+                                    }
+                                )) {
+                                    Text("No Well").tag(nil as Well?)
+                                    ForEach(allWells) { well in
+                                        Text(well.name).tag(well as Well?)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             GridRow {
                                 Text("Pore safety (kPa)")
@@ -262,92 +337,6 @@ struct ProjectDashboardView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(maxWidth: .infinity)
                                     .monospacedDigit()
-                            }
-                        }
-                    }
-
-                    WellSection(title: "Well", icon: "oilcan", subtitle: "Identity and accounting") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                                GridRow {
-                                    Text("Well Name")
-                                        .gridColumnAlignment(.trailing)
-                                        .foregroundStyle(.secondary)
-                                    TextField(
-                                        "Well Name",
-                                        text: Binding(
-                                            get: { project.well?.name ?? "" },
-                                            set: { newValue in
-                                                if let well = project.well {
-                                                    well.name = newValue
-                                                }
-                                            }
-                                        )
-                                    )
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("UWI")
-                                        .gridColumnAlignment(.trailing)
-                                        .foregroundStyle(.secondary)
-                                    TextField(
-                                        "UWI",
-                                        text: Binding(
-                                            get: { project.well?.uwi ?? "" },
-                                            set: { newValue in
-                                                if let well = project.well {
-                                                    well.uwi = newValue
-                                                }
-                                            }
-                                        )
-                                    )
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("AFE #")
-                                        .gridColumnAlignment(.trailing)
-                                        .foregroundStyle(.secondary)
-                                    TextField(
-                                        "AFE #",
-                                        text: Binding(
-                                            get: { project.well?.afeNumber ?? "" },
-                                            set: { newValue in
-                                                if let well = project.well {
-                                                    well.afeNumber = newValue
-                                                }
-                                            }
-                                        )
-                                    )
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Text("Requisitioner")
-                                        .gridColumnAlignment(.trailing)
-                                        .foregroundStyle(.secondary)
-                                    TextField(
-                                        "Requisitioner",
-                                        text: Binding(
-                                            get: { project.well?.requisitioner ?? "" },
-                                            set: { newValue in
-                                                if let well = project.well {
-                                                    well.requisitioner = newValue
-                                                }
-                                            }
-                                        )
-                                    )
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: .infinity)
-                                }
-                                GridRow {
-                                    Button {
-                                        copyProjectInfoToClipboard()
-                                    } label: {
-                                        Label("Copy Info", systemImage: "doc.on.doc")
-                                    }
-                                }
                             }
                         }
                     }
@@ -416,6 +405,181 @@ struct ProjectDashboardView: View {
                         }
                     }
                 }
+                .allowsHitTesting(!project.isDashboardLocked)
+
+                // Well section - full width
+                WellSection(title: "Well", icon: "oilcan", subtitle: "Identity and accounting") {
+                    #if os(macOS)
+                    HStack(alignment: .top, spacing: 24) {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                            GridRow {
+                                Text("Well Name")
+                                    .gridColumnAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    "Well Name",
+                                    text: Binding(
+                                        get: { project.well?.name ?? "" },
+                                        set: { newValue in
+                                            if let well = project.well {
+                                                well.name = newValue
+                                            }
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: .infinity)
+                            }
+                            GridRow {
+                                Text("UWI")
+                                    .gridColumnAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    "UWI",
+                                    text: Binding(
+                                        get: { project.well?.uwi ?? "" },
+                                        set: { newValue in
+                                            if let well = project.well {
+                                                well.uwi = newValue
+                                            }
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                            GridRow {
+                                Text("AFE #")
+                                    .gridColumnAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    "AFE #",
+                                    text: Binding(
+                                        get: { project.well?.afeNumber ?? "" },
+                                        set: { newValue in
+                                            if let well = project.well {
+                                                well.afeNumber = newValue
+                                            }
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: .infinity)
+                            }
+                            GridRow {
+                                Text("Requisitioner")
+                                    .gridColumnAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    "Requisitioner",
+                                    text: Binding(
+                                        get: { project.well?.requisitioner ?? "" },
+                                        set: { newValue in
+                                            if let well = project.well {
+                                                well.requisitioner = newValue
+                                            }
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+
+                        Button {
+                            copyProjectInfoToClipboard()
+                        } label: {
+                            Label("Copy Info", systemImage: "doc.on.doc")
+                        }
+                    }
+                    #else
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                        GridRow {
+                            Text("Well Name")
+                                .gridColumnAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                            TextField(
+                                "Well Name",
+                                text: Binding(
+                                    get: { project.well?.name ?? "" },
+                                    set: { newValue in
+                                        if let well = project.well {
+                                            well.name = newValue
+                                        }
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        GridRow {
+                            Text("UWI")
+                                .gridColumnAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                            TextField(
+                                "UWI",
+                                text: Binding(
+                                    get: { project.well?.uwi ?? "" },
+                                    set: { newValue in
+                                        if let well = project.well {
+                                            well.uwi = newValue
+                                        }
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        GridRow {
+                            Text("AFE #")
+                                .gridColumnAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                            TextField(
+                                "AFE #",
+                                text: Binding(
+                                    get: { project.well?.afeNumber ?? "" },
+                                    set: { newValue in
+                                        if let well = project.well {
+                                            well.afeNumber = newValue
+                                        }
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        GridRow {
+                            Text("Requisitioner")
+                                .gridColumnAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                            TextField(
+                                "Requisitioner",
+                                text: Binding(
+                                    get: { project.well?.requisitioner ?? "" },
+                                    set: { newValue in
+                                        if let well = project.well {
+                                            well.requisitioner = newValue
+                                        }
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        GridRow {
+                            Button {
+                                copyProjectInfoToClipboard()
+                            } label: {
+                                Label("Copy Info", systemImage: "doc.on.doc")
+                            }
+                        }
+                    }
+                    #endif
+                }
+                .allowsHitTesting(!project.isDashboardLocked)
 
                 WellSection(title: "Overview", icon: "rectangle.grid.2x2", subtitle: "At-a-glance counters across each workspace.") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
@@ -426,6 +590,17 @@ struct ProjectDashboardView: View {
                         MetricCard(title: "Mud checks", value: "\(viewmodel.mudChecksCount)", caption: "Lab results", icon: "testtube.2")
                     }
                 }
+
+                // Notes and Tasks sections
+                #if os(macOS)
+                HStack(alignment: .top, spacing: 16) {
+                    projectNotesSection
+                    projectTasksSection
+                }
+                #else
+                projectNotesSection
+                projectTasksSection
+                #endif
             }
             .padding(24)
         }
@@ -438,8 +613,278 @@ struct ProjectDashboardView: View {
                     .padding()
             }
         })
+        .sheet(isPresented: $showingAddNote) {
+            ProjectAddNoteSheet(project: project)
+        }
+        .sheet(isPresented: $showingAddTask) {
+            ProjectAddTaskSheet(project: project)
+        }
+        .sheet(isPresented: $showingRenameProject) {
+            RenameProjectSheet(project: project, renameText: $renameText)
+        }
+        .alert("Delete Project?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                modelContext.delete(project)
+                try? modelContext.save()
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(project.name)\"? This will delete all drill string sections, annulus sections, surveys, muds, and other data associated with this project.")
+        }
         .background(pageBackgroundColor)
         .navigationTitle("Project Dashboard")
+    }
+
+    // MARK: - Project Notes Section
+
+    private var projectNotes: [HandoverNote] {
+        (project.notes ?? []).sorted(by: { $0.updatedAt > $1.updatedAt })
+    }
+
+    private var projectNotesSection: some View {
+        WellSection(title: "Project Notes", icon: "note.text", subtitle: "\(projectNotes.count) note(s)") {
+            VStack(alignment: .leading, spacing: 8) {
+                if !projectNotes.isEmpty {
+                    ForEach(projectNotes.prefix(5)) { note in
+                        HStack(alignment: .top, spacing: 8) {
+                            if note.isPinned {
+                                Image(systemName: "pin.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.caption)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(note.title)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                                if !note.content.isEmpty {
+                                    Text(note.content)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer()
+                            Text(note.category.rawValue)
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    if projectNotes.count > 5 {
+                        Text("+ \(projectNotes.count - 5) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No notes for this project")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+
+                Button(action: { showingAddNote = true }) {
+                    Label("Add Note", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - Project Tasks Section
+
+    private var projectPendingTasks: [WellTask] {
+        (project.tasks ?? []).filter { $0.isPending }.sorted { $0.priority.sortOrder < $1.priority.sortOrder }
+    }
+
+    private var projectTasksSection: some View {
+        WellSection(title: "Project Tasks", icon: "checkmark.circle", subtitle: "\(projectPendingTasks.count) pending") {
+            VStack(alignment: .leading, spacing: 8) {
+                if !projectPendingTasks.isEmpty {
+                    ForEach(projectPendingTasks.prefix(5)) { task in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(task.status == .completed ? .green : taskPriorityColor(task.priority))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(task.title)
+                                    .fontWeight(.medium)
+                                    .strikethrough(task.status == .completed)
+                                    .lineLimit(1)
+                                if let dueDate = task.dueDate {
+                                    Text("Due: \(dueDate.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption)
+                                        .foregroundStyle(task.isOverdue ? .red : .secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(task.priority.rawValue)
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(taskPriorityColor(task.priority).opacity(0.1))
+                                .foregroundStyle(taskPriorityColor(task.priority))
+                                .cornerRadius(4)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    if projectPendingTasks.count > 5 {
+                        Text("+ \(projectPendingTasks.count - 5) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No pending tasks")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+
+                Button(action: { showingAddTask = true }) {
+                    Label("Add Task", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    private func taskPriorityColor(_ priority: TaskPriority) -> Color {
+        switch priority {
+        case .low: return .green
+        case .medium: return .blue
+        case .high: return .orange
+        case .critical: return .red
+        }
+    }
+}
+
+// MARK: - Project Add Note Sheet
+
+private struct ProjectAddNoteSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let project: ProjectState
+
+    @State private var title = ""
+    @State private var content = ""
+    @State private var category: NoteCategory = .general
+    @State private var isPinned = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $title)
+                TextEditor(text: $content)
+                    .frame(minHeight: 100)
+                Picker("Category", selection: $category) {
+                    ForEach(NoteCategory.allCases, id: \.self) { cat in
+                        Text(cat.rawValue).tag(cat)
+                    }
+                }
+                Toggle("Pin to top", isOn: $isPinned)
+            }
+            .navigationTitle("Add Project Note")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let note = HandoverNote(
+                            title: title,
+                            content: content,
+                            category: category,
+                            isPinned: isPinned
+                        )
+                        note.project = project
+                        note.well = project.well
+                        note.pad = project.well?.pad
+                        if project.notes == nil { project.notes = [] }
+                        project.notes?.append(note)
+                        modelContext.insert(note)
+                        try? modelContext.save()
+                        dismiss()
+                    }
+                    .disabled(title.isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 400, minHeight: 300)
+        #endif
+    }
+}
+
+// MARK: - Project Add Task Sheet
+
+private struct ProjectAddTaskSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let project: ProjectState
+
+    @State private var title = ""
+    @State private var description = ""
+    @State private var priority: TaskPriority = .medium
+    @State private var hasDueDate = false
+    @State private var dueDate = Date()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $title)
+                TextEditor(text: $description)
+                    .frame(minHeight: 80)
+                Picker("Priority", selection: $priority) {
+                    ForEach(TaskPriority.allCases, id: \.self) { p in
+                        Text(p.rawValue).tag(p)
+                    }
+                }
+                Toggle("Has due date", isOn: $hasDueDate)
+                if hasDueDate {
+                    DatePicker("Due date", selection: $dueDate)
+                }
+            }
+            .navigationTitle("Add Project Task")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let task = WellTask(
+                            title: title,
+                            description: description,
+                            priority: priority,
+                            dueDate: hasDueDate ? dueDate : nil
+                        )
+                        task.project = project
+                        task.well = project.well
+                        task.pad = project.well?.pad
+                        if project.tasks == nil { project.tasks = [] }
+                        project.tasks?.append(task)
+                        modelContext.insert(task)
+                        try? modelContext.save()
+                        dismiss()
+                    }
+                    .disabled(title.isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 400, minHeight: 300)
+        #endif
     }
 }
 
@@ -557,6 +1002,44 @@ extension ProjectDashboardView {
         var pressurePointCount: Int { (project.window.points ?? []).count }
         var surveysCount: Int { (project.surveys ?? []).count }
         var mudChecksCount: Int { (project.muds ?? []).count }
+    }
+}
+
+// MARK: - Rename Project Sheet
+
+private struct RenameProjectSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let project: ProjectState
+    @Binding var renameText: String
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Project Name", text: $renameText)
+            }
+            .navigationTitle("Rename Project")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        project.name = renameText
+                        try? modelContext.save()
+                        dismiss()
+                    }
+                    .disabled(renameText.isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 300, minHeight: 120)
+        #endif
     }
 }
 

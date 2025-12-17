@@ -15,15 +15,18 @@ struct iPadOptimizedContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query(sort: \Well.updatedAt, order: .reverse) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
 
     @State private var selectedWell: Well?
     @State private var selectedProject: ProjectState?
-    @State private var selectedView: ViewSelection = .wellsDashboard
+    @State private var selectedPad: Pad?
+    @State private var selectedView: ViewSelection = .wellDashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showWellPicker = false
     @State private var showProjectPicker = false
     @State private var showRenameWell = false
     @State private var showRenameProject = false
+    @State private var quickNoteManager = QuickNoteManager.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -36,18 +39,42 @@ struct iPadOptimizedContentView: View {
                 selectedView: selectedView,
                 selectedProject: selectedProject,
                 selectedWell: selectedWell,
+                selectedPad: selectedPad,
+                pads: pads,
                 selectedWellBinding: $selectedWell,
                 selectedProjectBinding: $selectedProject,
+                selectedPadBinding: $selectedPad,
+                selectedViewBinding: $selectedView,
                 showRenameWell: $showRenameWell,
                 showRenameProject: $showRenameProject
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .quickAddSheet(manager: quickNoteManager)
         .onAppear {
             if selectedWell == nil, let first = wells.first {
                 selectedWell = first
                 selectedProject = first.projects?.first
+                selectedPad = first.pad ?? pads.first
+            } else {
+                selectedPad = selectedWell?.pad ?? pads.first
             }
+            // Initialize quick note context
+            quickNoteManager.updateContext(well: selectedWell, project: selectedProject)
+            quickNoteManager.updateTaskCounts(from: wells)
+        }
+        .onChange(of: selectedWell) { _, newWell in
+            quickNoteManager.updateContext(well: newWell, project: selectedProject)
+            // Sync pad selection
+            if let well = newWell, well.pad != selectedPad {
+                selectedPad = well.pad
+            }
+        }
+        .onChange(of: selectedProject) { _, newProject in
+            quickNoteManager.updateContext(well: selectedWell, project: newProject)
+        }
+        .onChange(of: wells) { _, newWells in
+            quickNoteManager.updateTaskCounts(from: newWells)
         }
     }
 
@@ -181,15 +208,46 @@ struct iPadDetailView: View {
     let selectedView: ViewSelection
     let selectedProject: ProjectState?
     let selectedWell: Well?
+    let selectedPad: Pad?
+    let pads: [Pad]
     @Binding var selectedWellBinding: Well?
     @Binding var selectedProjectBinding: ProjectState?
+    @Binding var selectedPadBinding: Pad?
+    @Binding var selectedViewBinding: ViewSelection
     @Binding var showRenameWell: Bool
     @Binding var showRenameProject: Bool
+
+    private var quickNoteManager: QuickNoteManager { QuickNoteManager.shared }
 
     var body: some View {
         Group {
             if let project = selectedProject {
                 switch selectedView {
+                case .handover:
+                    ContentUnavailableView("Handover", systemImage: "list.clipboard", description: Text("Handover view is optimized for macOS. Use Pad/Well dashboards on iPad."))
+                case .padDashboard:
+                    if let pad = selectedPad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else if let pad = selectedWell?.pad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad or assign a pad to the current well"))
+                    }
+                case .wellDashboard:
+                    if let well = selectedWell {
+                        WellDashboardView(well: well, onSelectProject: { project in
+                            selectedProjectBinding = project
+                            selectedViewBinding = .dashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
+                    }
                 case .dashboard:
                     ProjectDashboardView(project: project)
                 case .drillString:
@@ -237,6 +295,23 @@ struct iPadDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Pad picker
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    padMenuContent
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "map")
+                        Text(selectedPad?.name ?? "Select Pad")
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(8)
+                }
+            }
+
             // Well picker
             ToolbarItem(placement: .topBarLeading) {
                 if wells.isEmpty {
@@ -250,8 +325,9 @@ struct iPadDetailView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "building.2")
                             Text(selectedWell?.name ?? "Select Well")
+                                .lineLimit(1)
                         }
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(.ultraThinMaterial)
                         .cornerRadius(8)
@@ -268,8 +344,9 @@ struct iPadDetailView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "folder")
                             Text(selectedProject?.name ?? "Select Project")
+                                .lineLimit(1)
                         }
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(.ultraThinMaterial)
                         .cornerRadius(8)
@@ -277,6 +354,26 @@ struct iPadDetailView: View {
                     .disabled(selectedWell == nil)
                 }
             }
+
+            // Quick add button
+            ToolbarItem(placement: .topBarTrailing) {
+                QuickAddButton(manager: quickNoteManager)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var padMenuContent: some View {
+        ForEach(pads) { pad in
+            Button(action: {
+                selectedPadBinding = pad
+            }) {
+                Label(pad.name, systemImage: selectedPad?.id == pad.id ? "checkmark" : "map")
+            }
+        }
+        Divider()
+        Button(action: { createNewPad() }) {
+            Label("New Pad", systemImage: "plus")
         }
     }
 
@@ -327,6 +424,13 @@ struct iPadDetailView: View {
             }
             .disabled(selectedProject == nil)
         }
+    }
+
+    private func createNewPad() {
+        let pad = Pad(name: "New Pad")
+        modelContext.insert(pad)
+        try? modelContext.save()
+        selectedPadBinding = pad
     }
 
     private func createNewWell() {

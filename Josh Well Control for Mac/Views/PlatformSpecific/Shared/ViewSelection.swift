@@ -8,7 +8,9 @@
 import SwiftUI
 
 enum ViewSelection: String, CaseIterable, Identifiable {
-    case wellsDashboard
+    case handover
+    case padDashboard
+    case wellDashboard
     case dashboard
     case drillString
     case annulus
@@ -50,7 +52,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var category: Category {
         switch self {
-        case .dashboard, .drillString, .annulus, .volumeSummary, .surveys:
+        case .handover, .padDashboard, .wellDashboard, .dashboard, .drillString, .annulus, .volumeSummary, .surveys:
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing:
             return .operations
@@ -69,7 +71,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .wellsDashboard: return "Wells Dashboard"
+        case .handover: return "Handover"
+        case .padDashboard: return "Pad Dashboard"
+        case .wellDashboard: return "Well Dashboard"
         case .dashboard: return "Project Dashboard"
         case .drillString: return "Drill String"
         case .annulus: return "Annulus"
@@ -91,7 +95,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .wellsDashboard: return "list.clipboard"
+        case .handover: return "list.clipboard"
+        case .padDashboard: return "map"
+        case .wellDashboard: return "building.2"
         case .dashboard: return "gauge.with.dots.needle.67percent"
         case .drillString: return "cylinder.split.1x2"
         case .annulus: return "circle.hexagonpath"
@@ -114,7 +120,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     #if os(macOS)
     var keyboardShortcut: KeyEquivalent? {
         switch self {
-        case .wellsDashboard: return "0"
+        case .handover: return nil
+        case .padDashboard: return nil
+        case .wellDashboard: return "0"
         case .dashboard: return "1"
         case .drillString: return "2"
         case .annulus: return "3"
@@ -137,8 +145,12 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var description: String {
         switch self {
-        case .wellsDashboard:
-            return "Tasks and handover notes across all wells"
+        case .handover:
+            return "Notes, tasks, and pad management across all wells"
+        case .padDashboard:
+            return "Pad overview, wells list, and handover items"
+        case .wellDashboard:
+            return "Well overview, projects, rentals, transfers, and handover items"
         case .dashboard:
             return "Project overview and configuration"
         case .drillString:

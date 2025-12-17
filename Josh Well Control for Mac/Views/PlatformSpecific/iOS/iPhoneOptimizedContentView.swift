@@ -14,15 +14,18 @@ import UIKit
 struct iPhoneOptimizedContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Well.updatedAt, order: .reverse) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
 
     @State private var selectedWell: Well?
     @State private var selectedProject: ProjectState?
+    @State private var selectedPad: Pad?
     @State private var selectedTab: TabCategory = .technical
     @State private var showWellPicker = false
     @State private var showProjectPicker = false
     @State private var showRenameWell = false
     @State private var showRenameProject = false
     @State private var renameText = ""
+    @State private var quickNoteManager = QuickNoteManager.shared
 
     enum TabCategory: String, CaseIterable {
         case technical = "Technical"
@@ -93,8 +96,28 @@ struct iPhoneOptimizedContentView: View {
             if selectedWell == nil, let first = wells.first {
                 selectedWell = first
                 selectedProject = first.projects?.first
+                selectedPad = first.pad ?? pads.first
+            } else {
+                selectedPad = selectedWell?.pad ?? pads.first
+            }
+            // Initialize quick note context
+            quickNoteManager.updateContext(well: selectedWell, project: selectedProject)
+            quickNoteManager.updateTaskCounts(from: wells)
+        }
+        .onChange(of: selectedWell) { _, newWell in
+            quickNoteManager.updateContext(well: newWell, project: selectedProject)
+            // Sync pad selection
+            if let well = newWell, well.pad != selectedPad {
+                selectedPad = well.pad
             }
         }
+        .onChange(of: selectedProject) { _, newProject in
+            quickNoteManager.updateContext(well: selectedWell, project: newProject)
+        }
+        .onChange(of: wells) { _, newWells in
+            quickNoteManager.updateTaskCounts(from: newWells)
+        }
+        .quickAddSheet(manager: quickNoteManager)
         .sheet(isPresented: $showRenameWell) {
             renameSheet(title: "Rename Well", currentName: selectedWell?.name ?? "", onSave: { newName in
                 selectedWell?.name = newName
@@ -149,7 +172,26 @@ struct iPhoneOptimizedContentView: View {
                 }
             }
 
-            Section("Dashboard") {
+            Section("Dashboards") {
+                // Pad Dashboard - use selectedPad or well's pad
+                if let pad = selectedPad ?? selectedWell?.pad {
+                    NavigationLink {
+                        PadDashboardView(pad: pad)
+                    } label: {
+                        Label(ViewSelection.padDashboard.title, systemImage: ViewSelection.padDashboard.icon)
+                    }
+                }
+
+                // Well Dashboard
+                if let well = selectedWell {
+                    NavigationLink {
+                        WellDashboardView(well: well)
+                    } label: {
+                        Label(ViewSelection.wellDashboard.title, systemImage: ViewSelection.wellDashboard.icon)
+                    }
+                }
+
+                // Project Dashboard
                 if let project = selectedProject {
                     NavigationLink {
                         ProjectDashboardView(project: project)
@@ -312,7 +354,23 @@ struct iPhoneOptimizedContentView: View {
                 wellProjectSelector
             }
 
+            Section("Quick Add") {
+                Button(action: { quickNoteManager.showAddNote() }) {
+                    Label("Add Note", systemImage: "note.text.badge.plus")
+                }
+                .disabled(selectedWell == nil)
+
+                Button(action: { quickNoteManager.showAddTask() }) {
+                    Label("Add Task", systemImage: "checkmark.circle.badge.plus")
+                }
+                .disabled(selectedWell == nil)
+            }
+
             Section("Actions") {
+                Button(action: createNewPad) {
+                    Label("New Pad", systemImage: "map.fill")
+                }
+
                 Button(action: createNewWell) {
                     Label("New Well", systemImage: "plus.circle")
                 }
@@ -360,6 +418,18 @@ struct iPhoneOptimizedContentView: View {
 
     private var wellProjectSelector: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Pad picker
+            HStack {
+                Image(systemName: "map")
+                    .foregroundStyle(.secondary)
+                Picker("Pad", selection: $selectedPad) {
+                    Text("Select Pad").tag(nil as Pad?)
+                    ForEach(pads) { pad in
+                        Text(pad.name).tag(pad as Pad?)
+                    }
+                }
+            }
+
             // Well picker
             HStack {
                 Image(systemName: "building.2")
@@ -430,6 +500,13 @@ struct iPhoneOptimizedContentView: View {
     }
 
     // MARK: - CRUD Operations
+
+    private func createNewPad() {
+        let pad = Pad(name: "New Pad")
+        modelContext.insert(pad)
+        try? modelContext.save()
+        selectedPad = pad
+    }
 
     private func createNewWell() {
         let well = Well(name: "New Well")

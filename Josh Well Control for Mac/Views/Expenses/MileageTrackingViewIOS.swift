@@ -37,6 +37,42 @@ struct MileageLogViewIOS: View {
                     }
                 }
 
+                // Add Trip Section
+                Section {
+                    Button {
+                        showingActiveTracking = true
+                    } label: {
+                        Label("Start GPS Tracking", systemImage: "location.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(locationService.isTracking)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+
+                    HStack {
+                        Button {
+                            showingPointToPoint = true
+                        } label: {
+                            Label("Point-to-Point", systemImage: "mappin.and.ellipse")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(locationService.isTracking)
+
+                        Button {
+                            showingAddSheet = true
+                        } label: {
+                            Label("Manual Entry", systemImage: "square.and.pencil")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                }
+
                 // Summary Section
                 Section {
                     MileageSummaryRowView(logs: logs)
@@ -47,17 +83,33 @@ struct MileageLogViewIOS: View {
                 // Trip Log Section
                 Section {
                     if logs.isEmpty {
-                        ContentUnavailableView(
-                            "No Trips Logged",
-                            systemImage: "car.fill",
-                            description: Text("Start tracking your business trips")
-                        )
+                        ContentUnavailableView {
+                            Label("No Trips Logged", systemImage: "car.fill")
+                        } description: {
+                            Text("Use the buttons above to log your first trip")
+                        }
                     } else {
                         ForEach(logs) { log in
                             MileageLogRowView(log: log)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     selectedLog = log
+                                }
+                                .contextMenu {
+                                    Button {
+                                        selectedLog = log
+                                    } label: {
+                                        Label("View Details", systemImage: "eye")
+                                    }
+
+                                    Divider()
+
+                                    Button(role: .destructive) {
+                                        modelContext.delete(log)
+                                        try? modelContext.save()
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
                         }
                         .onDelete(perform: deleteLogs)
@@ -92,7 +144,7 @@ struct MileageLogViewIOS: View {
                             Label("Manual Entry", systemImage: "square.and.pencil")
                         }
                     } label: {
-                        Image(systemName: "plus")
+                        Label("Log Trip", systemImage: "plus.circle.fill")
                     }
                 }
             }

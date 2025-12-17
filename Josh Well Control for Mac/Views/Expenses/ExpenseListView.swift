@@ -83,6 +83,19 @@ struct ExpenseListView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Add Expense Section
+                Section {
+                    Button {
+                        showingAddSheet = true
+                    } label: {
+                        Label("Add New Expense", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+
                 // Filter section
                 Section {
                     DisclosureGroup(isExpanded: $showFilters) {
@@ -205,6 +218,32 @@ struct ExpenseListView: View {
                                     .onTapGesture {
                                         selectedExpense = expense
                                     }
+                                    .contextMenu {
+                                        Button {
+                                            selectedExpense = expense
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+
+                                        if expense.isReimbursable && !expense.isReimbursed {
+                                            Button {
+                                                expense.isReimbursed = true
+                                                expense.reimbursedDate = Date.now
+                                                try? modelContext.save()
+                                            } label: {
+                                                Label("Mark Reimbursed", systemImage: "checkmark.circle")
+                                            }
+                                        }
+
+                                        Divider()
+
+                                        Button(role: .destructive) {
+                                            modelContext.delete(expense)
+                                            try? modelContext.save()
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                             }
                             .onDelete { indexSet in
                                 deleteExpenses(at: indexSet, in: monthKey)
@@ -223,12 +262,13 @@ struct ExpenseListView: View {
             }
             .navigationTitle("Expenses")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         showingAddSheet = true
                     } label: {
-                        Label("Add", systemImage: "plus")
+                        Label("Add Expense", systemImage: "plus")
                     }
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .sheet(isPresented: $showingAddSheet) {

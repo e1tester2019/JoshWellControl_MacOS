@@ -32,8 +32,8 @@ final class RentalItem {
     var startDate: Date?
     var endDate: Date?
 
-    /// Canonical record of actual usage. Use this when the tool is not used on every day in the interval.
-    var usageDates: [Date] = []
+    /// Canonical record of actual usage stored as JSON-encoded Data (CloudKit doesn't support [Date] arrays).
+    var usageDatesData: Data?
 
     var onLocation: Bool = false
     var invoiced: Bool = false
@@ -44,6 +44,19 @@ final class RentalItem {
 
     /// Parent relationship — the Well owns its rentals.
     @Relationship var well: Well?
+
+    // MARK: - Computed Accessor for usageDates
+
+    /// Access usage dates as [Date] array (stored as JSON-encoded Data for CloudKit compatibility)
+    var usageDates: [Date] {
+        get {
+            guard let data = usageDatesData else { return [] }
+            return (try? JSONDecoder().decode([Date].self, from: data)) ?? []
+        }
+        set {
+            usageDatesData = try? JSONEncoder().encode(newValue)
+        }
+    }
 
     init(
         name: String = "Rental",
@@ -93,12 +106,13 @@ final class RentalItem {
     /// Toggle a date in `usageDates` (normalized to start-of-day).
     func toggleUsage(on date: Date) {
         let d = Calendar.current.startOfDay(for: date)
-        if let idx = usageDates.firstIndex(of: d) {
-            usageDates.remove(at: idx)
+        var dates = usageDates
+        if let idx = dates.firstIndex(of: d) {
+            dates.remove(at: idx)
         } else {
-            usageDates.append(d)
-            usageDates = Array(Set(usageDates)).sorted()
+            dates.append(d)
         }
+        usageDates = Array(Set(dates)).sorted()
     }
 }
 

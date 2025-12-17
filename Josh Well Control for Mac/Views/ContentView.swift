@@ -44,11 +44,13 @@ struct ContentView: View {
     @State private var editingTransfer: MaterialTransfer?
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case wellsDashboard, dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
+        case handover, padDashboard, wellDashboard, dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .wellsDashboard: return "Wells Dashboard"
+            case .handover: return "Handover"
+            case .padDashboard: return "Pad Dashboard"
+            case .wellDashboard: return "Well Dashboard"
             case .dashboard: return "Project Dashboard"
             case .drillString: return "Drill String"
             case .annulus: return "Annulus"
@@ -125,8 +127,20 @@ struct ContentView: View {
                 if let project = (vm.selectedProject ?? firstProject ?? nil) {
                     Group {
                         switch selectedSection {
-                        case .wellsDashboard:
+                        case .handover:
                             WellsDashboardView()
+                        case .padDashboard:
+                            if let pad = project.well?.pad {
+                                PadDashboardView(pad: pad)
+                            } else {
+                                ContentUnavailableView("No Pad", systemImage: "map", description: Text("This well is not assigned to a pad"))
+                            }
+                        case .wellDashboard:
+                            if let well = project.well {
+                                WellDashboardView(well: well)
+                            } else {
+                                ContentUnavailableView("No Well", systemImage: "building.2", description: Text("No well available"))
+                            }
                         case .dashboard:
                             #if os(iOS)
                             ProjectDashboardView(
@@ -632,7 +646,9 @@ private extension ContentView {
 
     private func icon(for pane: Pane) -> String {
         switch pane {
-        case .wellsDashboard: return "list.clipboard"
+        case .handover: return "list.clipboard"
+        case .padDashboard: return "map"
+        case .wellDashboard: return "building.2"
         case .dashboard: return "speedometer"
         case .drillString: return "wrench.and.screwdriver"
         case .annulus: return "seal"

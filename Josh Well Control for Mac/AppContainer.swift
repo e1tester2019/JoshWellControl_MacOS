@@ -9,6 +9,21 @@ import Foundation
 import SwiftData
 
 enum AppContainer {
+    // Increment this when schema changes require a local store wipe
+    // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
+    private static let schemaVersion = 2
+    private static let schemaVersionKey = "AppContainerSchemaVersion"
+
+    private static func shouldWipeForSchemaMigration() -> Bool {
+        let currentVersion = UserDefaults.standard.integer(forKey: schemaVersionKey)
+        if currentVersion < schemaVersion {
+            UserDefaults.standard.set(schemaVersion, forKey: schemaVersionKey)
+            print("🔄 Schema version changed from \(currentVersion) to \(schemaVersion) - will wipe local store")
+            return true
+        }
+        return false
+    }
+
     static func make(cloudKitContainerID: String? = nil) -> ModelContainer {
         let models: [any PersistentModel.Type] = [
             Well.self,
@@ -52,7 +67,8 @@ enum AppContainer {
             Dividend.self,
             WellTask.self,
             HandoverNote.self,
-            Pad.self
+            Pad.self,
+            HandoverReportArchive.self
         ]
         let fullSchema = Schema(models)
 
@@ -76,6 +92,26 @@ enum AppContainer {
             }
             let cfg = ModelConfiguration(schema: schema)
             return try ModelContainer(for: schema, configurations: [cfg])
+        }
+
+        // Check if we need to wipe local store due to schema migration
+        let needsSchemaMigration = shouldWipeForSchemaMigration()
+        if needsSchemaMigration {
+            // Wipe local store files before creating CloudKit container
+            let fm = FileManager.default
+            if let base = try? fm.url(for: .applicationSupportDirectory,
+                                      in: .userDomainMask,
+                                      appropriateFor: nil,
+                                      create: false) {
+                let file = base.appendingPathComponent("default.store", isDirectory: false)
+                let dir = base.appendingPathComponent("default.store", isDirectory: true)
+                try? fm.removeItem(at: file)
+                try? fm.removeItem(at: dir)
+                // Also remove CloudKit metadata to force full resync
+                let ckMeta = base.appendingPathComponent("default.store-ck", isDirectory: true)
+                try? fm.removeItem(at: ckMeta)
+                print("🗑️ Wiped local store for schema migration")
+            }
         }
 
         // 1) CloudKit (only if a non-empty ID is provided)

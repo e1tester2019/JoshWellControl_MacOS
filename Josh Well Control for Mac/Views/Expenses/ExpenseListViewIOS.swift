@@ -70,8 +70,30 @@ struct ExpenseListViewIOS: View {
                 Toggle("Show Unreimbursed Only", isOn: $showReimbursableOnly)
             }
 
+            // Add Button Section
+            Section {
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Label("Add New Expense", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
             // Expenses Section
             Section("Expenses") {
+                if filteredExpenses.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Expenses", systemImage: "creditcard")
+                    } description: {
+                        Text("Track your business expenses and receipts")
+                    }
+                }
+
                 ForEach(filteredExpenses) { expense in
                     NavigationLink {
                         ExpenseDetailViewIOS(expense: expense)
@@ -98,6 +120,32 @@ struct ExpenseListViewIOS: View {
                             .tint(.green)
                         }
                     }
+                    .contextMenu {
+                        Button {
+                            // Navigation handled by NavigationLink
+                        } label: {
+                            Label("View/Edit", systemImage: "pencil")
+                        }
+
+                        if expense.isReimbursable && !expense.isReimbursed {
+                            Button {
+                                expense.isReimbursed = true
+                                expense.reimbursedDate = Date.now
+                                try? modelContext.save()
+                            } label: {
+                                Label("Mark Reimbursed", systemImage: "checkmark.circle")
+                            }
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            modelContext.delete(expense)
+                            try? modelContext.save()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }
@@ -108,7 +156,7 @@ struct ExpenseListViewIOS: View {
                 Button {
                     showingAddSheet = true
                 } label: {
-                    Image(systemName: "plus")
+                    Label("Add Expense", systemImage: "plus.circle.fill")
                 }
             }
         }

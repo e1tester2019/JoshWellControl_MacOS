@@ -26,6 +26,7 @@ struct CompanyStatementView: View {
     @State private var isExporting = false
     @State private var exportError: String?
     @State private var showingExportError = false
+    @State private var showingMileageDetail = false
 
     typealias StatementType = CompanyStatementPDFGenerator.StatementType
 
@@ -102,6 +103,9 @@ struct CompanyStatementView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(exportError ?? "An unknown error occurred")
+        }
+        .sheet(isPresented: $showingMileageDetail) {
+            MileageDetailSheet(mileageLogs: mileageLogsForYear, year: selectedYear)
         }
     }
 
@@ -343,13 +347,32 @@ struct CompanyStatementView: View {
                     Text("Total Mileage")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("\(Int(summary.totalMileage)) km")
-                        .fontWeight(.medium)
+                    Button {
+                        showingMileageDetail = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("\(Int(summary.totalMileage)) km")
+                                .fontWeight(.medium)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
                 }
             }
             .padding()
             .background(Color.gray.opacity(0.05))
             .cornerRadius(8)
+        }
+    }
+
+    // MARK: - Mileage for Year
+
+    private var mileageLogsForYear: [MileageLog] {
+        let calendar = Calendar.current
+        return mileageLogs.filter {
+            calendar.component(.year, from: $0.date) == selectedYear
         }
     }
 
@@ -688,6 +711,197 @@ struct StatementDivider: View {
             .fill(Color.gray.opacity(0.3))
             .frame(height: 1)
             .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Mileage Detail Sheet
+
+struct MileageDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let mileageLogs: [MileageLog]
+    let year: Int
+
+    private var totalKm: Double {
+        mileageLogs.reduce(0) { $0 + $1.effectiveDistance }
+    }
+
+    private var monthlyBreakdown: [(month: String, km: Double)] {
+        let calendar = Calendar.current
+        var monthlyKm: [Int: Double] = [:]
+
+        for log in mileageLogs {
+            let month = calendar.component(.month, from: log.date)
+            monthlyKm[month, default: 0] += log.effectiveDistance
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+
+        return (1...12).compactMap { month -> (String, Double)? in
+            guard let km = monthlyKm[month], km > 0 else { return nil }
+            var components = DateComponents()
+            components.month = month
+            let date = calendar.date(from: components) ?? Date()
+            return (formatter.string(from: date), km)
+        }
+    }
+
+    private var destinationBreakdown: [(destination: String, km: Double)] {
+        var destinationKm: [String: Double] = [:]
+        for log in mileageLogs {
+            let destination = log.endLocation.isEmpty ? "Unknown" : log.endLocation
+            destinationKm[destination, default: 0] += log.effectiveDistance
+        }
+        return destinationKm.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // CRA Deduction Summary
+                    GroupBox("CRA Deduction Calculation") {
+                        let firstTierKm = min(totalKm, MileageLog.firstTierLimit)
+                        let secondTierKm = max(0, totalKm - MileageLog.firstTierLimit)
+                        let firstTierDeduction = firstTierKm * MileageLog.firstTierRate
+                        let secondTierDeduction = secondTierKm * MileageLog.secondTierRate
+                        let totalDeduction = firstTierDeduction + secondTierDeduction
+
+                        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Total Distance")
+                                Text("\(Int(totalKm)) km")
+                                    .fontWeight(.bold)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+
+                            GridRow {
+                                Text("First \(Int(MileageLog.firstTierLimit)) km @ $\(String(format: "%.2f", MileageLog.firstTierRate))/km")
+                                    .foregroundStyle(.secondary)
+                                Text("\(Int(firstTierKm)) km = \(firstTierDeduction, format: .currency(code: "CAD"))")
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+
+                            if secondTierKm > 0 {
+                                GridRow {
+                                    Text("Remaining km @ $\(String(format: "%.2f", MileageLog.secondTierRate))/km")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(secondTierKm)) km = \(secondTierDeduction, format: .currency(code: "CAD"))")
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                            }
+
+                            Divider()
+
+                            GridRow {
+                                Text("Total CRA Deduction")
+                                    .fontWeight(.bold)
+                                Text(totalDeduction, format: .currency(code: "CAD"))
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.green)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    // Monthly Breakdown
+                    if !monthlyBreakdown.isEmpty {
+                        GroupBox("Monthly Breakdown") {
+                            VStack(spacing: 8) {
+                                ForEach(monthlyBreakdown, id: \.month) { item in
+                                    HStack {
+                                        Text(item.month)
+                                        Spacer()
+                                        Text("\(Int(item.km)) km")
+                                            .fontWeight(.medium)
+                                            .monospacedDigit()
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+
+                    // By Destination
+                    if !destinationBreakdown.isEmpty {
+                        GroupBox("By Destination (Top 10)") {
+                            VStack(spacing: 8) {
+                                ForEach(destinationBreakdown.prefix(10), id: \.destination) { item in
+                                    HStack {
+                                        Text(item.destination)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text("\(Int(item.km)) km")
+                                            .fontWeight(.medium)
+                                            .monospacedDigit()
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+
+                    // Trip List
+                    GroupBox("All Trips (\(mileageLogs.count))") {
+                        LazyVStack(spacing: 0) {
+                            ForEach(mileageLogs.sorted(by: { $0.date < $1.date })) { log in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(log.date, format: .dateTime.month(.abbreviated).day())
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                        Text("\(Int(log.effectiveDistance)) km")
+                                            .fontWeight(.semibold)
+                                            .monospacedDigit()
+                                        if log.isRoundTrip {
+                                            Text("RT")
+                                                .font(.caption)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.blue.opacity(0.1))
+                                                .foregroundStyle(.blue)
+                                                .cornerRadius(4)
+                                        }
+                                    }
+                                    if !log.startLocation.isEmpty || !log.endLocation.isEmpty {
+                                        Text("\(log.startLocation) → \(log.endLocation)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if !log.purpose.isEmpty {
+                                        Text(log.purpose)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                                Divider()
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Mileage Details - \(year)")
+            #if os(macOS)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            #else
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            #endif
+        }
+        #if os(macOS)
+        .frame(minWidth: 500, minHeight: 600)
+        #endif
     }
 }
 

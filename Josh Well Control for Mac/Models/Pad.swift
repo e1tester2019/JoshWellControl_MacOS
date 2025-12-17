@@ -13,10 +13,12 @@ final class Pad {
     var id: UUID = UUID()
     var name: String = "New Pad"
     var surfaceLocation: String = ""
+    var directions: String = ""
     var latitude: Double? = nil
     var longitude: Double? = nil
     var createdAt: Date = Date.now
     var updatedAt: Date = Date.now
+    var isLocked: Bool = false
 
     @Relationship(deleteRule: .nullify, inverse: \Well.pad) var wells: [Well]?
     @Relationship(deleteRule: .cascade, inverse: \WellTask.pad) var tasks: [WellTask]?

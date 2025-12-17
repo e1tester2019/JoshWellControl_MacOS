@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import SwiftData
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -413,19 +414,114 @@ class HandoverExportService {
     }
 
     #if os(macOS)
-    func exportPDF(options: ExportOptions) {
+    func exportPDF(options: ExportOptions, modelContext: ModelContext? = nil) {
         guard let pdfData = generatePDF(options: options) else { return }
 
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.pdf]
         savePanel.nameFieldStringValue = "Handover Report \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
 
-        savePanel.begin { response in
+        savePanel.begin { [weak self] response in
             if response == .OK, let url = savePanel.url {
                 try? pdfData.write(to: url)
                 NSWorkspace.shared.open(url)
+
+                // Save archive if we have a model context
+                if let context = modelContext {
+                    self?.createArchive(options: options, pdfData: pdfData, modelContext: context)
+                }
             }
         }
     }
     #endif
+
+    // MARK: - Archive Creation
+
+    /// Creates an archive of the handover report for future reference
+    func createArchive(options: ExportOptions, pdfData: Data? = nil, modelContext: ModelContext) {
+        let calendar = Calendar.current
+        let startOfStartDate = calendar.startOfDay(for: options.startDate)
+        let endOfEndDate = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: options.endDate) ?? options.endDate
+
+        // Build the archive
+        let wellNames = options.wells.map { $0.name }
+        let padNames = Array(Set(options.wells.compactMap { $0.pad?.name }))
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "d MMM yyyy"
+        let reportTitle = "Handover \(dateFormatter.string(from: options.startDate)) - \(dateFormatter.string(from: options.endDate))"
+
+        let archive = HandoverReportArchive(
+            reportTitle: reportTitle,
+            startDate: options.startDate,
+            endDate: options.endDate,
+            wellNames: wellNames,
+            padNames: padNames
+        )
+
+        // Store PDF data (optional - can be large)
+        archive.pdfData = pdfData
+
+        // Collect and archive tasks
+        var archivedTasks: [ArchivedTask] = []
+        var archivedNotes: [ArchivedNote] = []
+
+        // Get pads from wells
+        let pads = Set(options.wells.compactMap { $0.pad })
+
+        // Archive pad-level tasks and notes
+        for pad in pads {
+            if options.includeTasks {
+                var padTasks = pad.padTasks.filter { task in
+                    task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate
+                }
+                if !options.includeCompleted {
+                    padTasks = padTasks.filter { $0.status != .completed && $0.status != .cancelled }
+                }
+                for task in padTasks {
+                    archivedTasks.append(HandoverReportArchive.archiveTask(task))
+                }
+            }
+
+            if options.includeNotes {
+                let padNotes = pad.padNotes.filter { note in
+                    note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate
+                }
+                for note in padNotes {
+                    archivedNotes.append(HandoverReportArchive.archiveNote(note))
+                }
+            }
+        }
+
+        // Archive well-level tasks and notes
+        for well in options.wells {
+            if options.includeTasks {
+                var tasks = (well.tasks ?? []).filter { task in
+                    task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate
+                }
+                if !options.includeCompleted {
+                    tasks = tasks.filter { $0.status != .completed && $0.status != .cancelled }
+                }
+                for task in tasks {
+                    archivedTasks.append(HandoverReportArchive.archiveTask(task))
+                }
+            }
+
+            if options.includeNotes {
+                let notes = (well.notes ?? []).filter { note in
+                    note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate
+                }
+                for note in notes {
+                    archivedNotes.append(HandoverReportArchive.archiveNote(note))
+                }
+            }
+        }
+
+        archive.archivedTasks = archivedTasks
+        archive.archivedNotes = archivedNotes
+
+        modelContext.insert(archive)
+        try? modelContext.save()
+    }
 }
+
