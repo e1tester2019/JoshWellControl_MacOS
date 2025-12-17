@@ -127,6 +127,9 @@ enum AppContainer {
                     let cementJobCount = (try? ctx.fetchCount(FetchDescriptor<CementJob>())) ?? -1
                     let projectCount = (try? ctx.fetchCount(FetchDescriptor<ProjectState>())) ?? -1
                     print("📊 [Sync Debug] Launch state: \(projectCount) projects, \(cementJobCount) cement jobs")
+
+                    // One-time migration: update hasReceiptAttached flag for existing expenses
+                    migrateExpenseReceiptFlags(context: ctx)
                 }
 
                 return container
@@ -197,3 +200,39 @@ private func diagnoseSchema(models: [any PersistentModel.Type]) {
     }
 }
 #endif
+
+// MARK: - Migrations
+
+private let expenseReceiptMigrationKey = "hasRunExpenseReceiptMigration_v1"
+
+@MainActor
+private func migrateExpenseReceiptFlags(context: ModelContext) {
+    // Only run this migration once
+    guard !UserDefaults.standard.bool(forKey: expenseReceiptMigrationKey) else {
+        return
+    }
+
+    do {
+        let descriptor = FetchDescriptor<Expense>()
+        let expenses = try context.fetch(descriptor)
+
+        var updatedCount = 0
+        for expense in expenses {
+            // Check if receipt data exists and flag isn't set correctly
+            let hasData = expense.receiptImageData != nil
+            if expense.hasReceiptAttached != hasData {
+                expense.hasReceiptAttached = hasData
+                updatedCount += 1
+            }
+        }
+
+        if updatedCount > 0 {
+            try context.save()
+            print("📝 Migrated \(updatedCount) expenses with receipt flags")
+        }
+
+        UserDefaults.standard.set(true, forKey: expenseReceiptMigrationKey)
+    } catch {
+        print("⚠️ Failed to migrate expense receipt flags: \(error)")
+    }
+}

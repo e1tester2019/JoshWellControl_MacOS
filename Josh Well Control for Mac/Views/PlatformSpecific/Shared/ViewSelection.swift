@@ -8,27 +8,68 @@
 import SwiftUI
 
 enum ViewSelection: String, CaseIterable, Identifiable {
+    // Dashboards
     case handover
     case padDashboard
     case wellDashboard
     case dashboard
+
+    // Well Geometry
     case drillString
     case annulus
     case volumeSummary
     case surveys
+
+    // Fluids & Mud
     case mudCheck
     case mixingCalc
-    case pressureWindow
     case mudPlacement
+
+    // Analysis & Simulation
+    case pressureWindow
     case pumpSchedule
     case cementJob
     case swabbing
     case tripSimulation
+
+    // Operations
     case rentals
     case transfers
-    case workTracking
+
+    // Business - Income
+    case workDays
+    case invoices
+    case clients
+
+    // Business - Expenses
+    case expenses
+    case mileage
+
+    // Business - Payroll
+    case payroll
+    case employees
+
+    // Business - Dividends
+    case dividends
+
+    // Business - Reports
+    case companyStatement
+    case expenseReport
+    case payrollReport
 
     var id: String { rawValue }
+
+    /// Whether this view requires PIN unlock to access
+    var requiresBusinessUnlock: Bool {
+        switch self {
+        case .workDays, .invoices, .clients, .expenses, .mileage,
+             .payroll, .employees, .dividends, .companyStatement,
+             .expenseReport, .payrollReport:
+            return true
+        default:
+            return false
+        }
+    }
 
     // MARK: - Categories for Tab Organization
 
@@ -36,7 +77,11 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case technical = "Technical"
         case operations = "Operations"
         case simulation = "Simulation"
-        case business = "Business"
+        case income = "Income"
+        case expensesCat = "Expenses"
+        case payrollCat = "Payroll"
+        case dividendsCat = "Dividends"
+        case reports = "Reports"
         case more = "More"
 
         var icon: String {
@@ -44,7 +89,11 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             case .technical: return "gauge.with.dots.needle.67percent"
             case .operations: return "drop.fill"
             case .simulation: return "play.circle.fill"
-            case .business: return "dollarsign.circle.fill"
+            case .income: return "dollarsign.circle.fill"
+            case .expensesCat: return "creditcard.fill"
+            case .payrollCat: return "banknote.fill"
+            case .dividendsCat: return "chart.line.uptrend.xyaxis"
+            case .reports: return "chart.bar.doc.horizontal"
             case .more: return "ellipsis.circle.fill"
             }
         }
@@ -58,8 +107,16 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .operations
         case .pumpSchedule, .cementJob, .tripSimulation:
             return .simulation
-        case .workTracking:
-            return .business
+        case .workDays, .invoices, .clients:
+            return .income
+        case .expenses, .mileage:
+            return .expensesCat
+        case .payroll, .employees:
+            return .payrollCat
+        case .dividends:
+            return .dividendsCat
+        case .companyStatement, .expenseReport, .payrollReport:
+            return .reports
         case .rentals, .transfers:
             return .more
         }
@@ -89,7 +146,17 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "Trip Simulation"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
-        case .workTracking: return "Work Tracking"
+        case .workDays: return "Work Days"
+        case .invoices: return "Invoices"
+        case .clients: return "Clients"
+        case .expenses: return "Expenses"
+        case .mileage: return "Mileage"
+        case .payroll: return "Payroll"
+        case .employees: return "Employees"
+        case .dividends: return "Dividends"
+        case .companyStatement: return "Company Statement"
+        case .expenseReport: return "Expense Report"
+        case .payrollReport: return "Payroll Report"
         }
     }
 
@@ -113,7 +180,17 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "play.circle.fill"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
-        case .workTracking: return "dollarsign.circle.fill"
+        case .workDays: return "calendar"
+        case .invoices: return "doc.text"
+        case .clients: return "person.2"
+        case .expenses: return "dollarsign.circle"
+        case .mileage: return "car.fill"
+        case .payroll: return "banknote"
+        case .employees: return "person.3"
+        case .dividends: return "chart.line.uptrend.xyaxis"
+        case .companyStatement: return "building.columns"
+        case .expenseReport: return "chart.bar"
+        case .payrollReport: return "chart.pie"
         }
     }
 
@@ -132,13 +209,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .mixingCalc: return "7"
         case .pressureWindow: return "8"
         case .mudPlacement: return "9"
-        case .pumpSchedule: return nil
-        case .cementJob: return nil
-        case .swabbing: return nil
-        case .tripSimulation: return nil
-        case .rentals: return nil
-        case .transfers: return nil
-        case .workTracking: return nil
+        default: return nil
         }
     }
     #endif
@@ -181,8 +252,28 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Equipment rental tracking"
         case .transfers:
             return "Material transfer management"
-        case .workTracking:
-            return "Track work days and generate invoices"
+        case .workDays:
+            return "Track work days for clients"
+        case .invoices:
+            return "Generate and manage invoices"
+        case .clients:
+            return "Manage client information"
+        case .expenses:
+            return "Track business expenses"
+        case .mileage:
+            return "Log mileage for CRA deductions"
+        case .payroll:
+            return "Manage pay runs and stubs"
+        case .employees:
+            return "Employee information"
+        case .dividends:
+            return "Dividend declarations and payments"
+        case .companyStatement:
+            return "Annual and quarterly financial statements"
+        case .expenseReport:
+            return "Expense summaries and analysis"
+        case .payrollReport:
+            return "Payroll summaries and T4 prep"
         }
     }
 }

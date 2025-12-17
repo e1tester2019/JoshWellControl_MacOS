@@ -13,9 +13,9 @@ final class NumericalTripModel {
     static let g: Double = 9.81
     static let eps: Double = 1e-9
     static let rhoAir: Double = 1.2
-    
+
     enum Side { case string, annulus }
-    
+
     struct ColorRGBA: Equatable, Codable {
         var r: Double
         var g: Double
@@ -23,14 +23,14 @@ final class NumericalTripModel {
         var a: Double
         static let clear = ColorRGBA(r: 0, g: 0, b: 0, a: 0)
     }
-    
+
     struct Layer {
         var rho: Double
         var topMD: Double
         var bottomMD: Double
         var color: ColorRGBA? = nil
     }
-    
+
     // MARK: - StackOps (Swift port)
     enum StackOps {
         /// Split a layer at an MD boundary if it falls strictly inside a layer span.
@@ -47,12 +47,12 @@ final class NumericalTripModel {
                 }
             }
         }
-        
+
         /// Paint (set density) for all sublayers fully contained within [fromMD, toMD].
         static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double) {
             paintInterval(stack, fromMD, toMD, rho, color: nil)
         }
-        
+
         /// Color-aware variant; when `color` is provided, painted sublayers also carry a composition color.
         static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double, color: NumericalTripModel.ColorRGBA?) {
             let a = fromMD, b = toMD
@@ -68,23 +68,23 @@ final class NumericalTripModel {
             stack.ensureInvariants(bitMD: stack.layers.last?.bottomMD ?? b)
         }
     }
-    
+
     final class Stack {
         let side: Side
         let geom: GeometryService
         let tvdOfMd: (Double) -> Double
         var layers: [Layer] = [] // ordered top -> bottom
-        
+
         init(side: Side, geom: GeometryService, tvdOfMd: @escaping (Double)->Double) {
             self.side = side
             self.geom = geom
             self.tvdOfMd = tvdOfMd
         }
-        
+
         func seedUniform(rho: Double, topMD: Double, bottomMD: Double) {
             layers = [Layer(rho: rho, topMD: min(topMD, bottomMD), bottomMD: max(topMD, bottomMD), color: nil)]
         }
-        
+
         func adjustBit(to newBitMD: Double) {
             guard !layers.isEmpty else { return }
             let totalLen = layers.reduce(0.0) { $0 + ($1.bottomMD - $1.topMD) }
@@ -97,7 +97,7 @@ final class NumericalTripModel {
                 layers[i].bottomMD = cursor
             }
         }
-        
+
         func translateAllLayers(by deltaMD: Double, bitMD: Double) {
             guard !layers.isEmpty, abs(deltaMD) > 1e-12 else { return }
             for i in layers.indices {
@@ -106,12 +106,12 @@ final class NumericalTripModel {
             }
             ensureInvariants(bitMD: bitMD)
         }
-        
+
         func addBackfillFromSurface(rho: Double, volume_m3: Double, bitMD: Double) {
             guard volume_m3 > 1e-12 else { return }
             let len = geom.lengthForAnnulusVolume_m(0.0, volume_m3)
             guard len > 1e-12 else { return }
-            
+
             if layers.isEmpty || abs(layers[0].topMD) > 1e-9 || abs(layers[0].rho - rho) > 1e-6 {
                 layers.insert(Layer(rho: rho, topMD: 0, bottomMD: 0, color: nil), at: 0)
             }
@@ -122,7 +122,7 @@ final class NumericalTripModel {
             }
             ensureInvariants(bitMD: bitMD)
         }
-        
+
         func pressureAtBit_kPa(sabp_kPa: Double, bitMD: Double) -> Double {
             var P = (side == .annulus) ? sabp_kPa : 0.0
             for L in layers {
@@ -134,7 +134,7 @@ final class NumericalTripModel {
             }
             return P
         }
-        
+
         func ensureInvariants(bitMD: Double) {
             guard !layers.isEmpty else { return }
             for i in layers.indices {
@@ -162,7 +162,7 @@ final class NumericalTripModel {
                 }
             }
         }
-        
+
         // STRING only
         func addAirFromSurface(volume_m3: Double, bitMD: Double) {
             precondition(side == .string, "Air fill is for STRING only")
@@ -179,7 +179,7 @@ final class NumericalTripModel {
             }
             ensureInvariants(bitMD: bitMD)
         }
-        
+
         // ANNULUS only
         @discardableResult
         func injectParcelAtBit_PushUphole(rho: Double, volume_m3: Double, bitMD: Double) -> Double {
@@ -206,7 +206,7 @@ final class NumericalTripModel {
             return min(volume_m3, pitGain)
         }
     }
-    
+
     struct LayerRow: Identifiable {
         let id = UUID()
         var side: String
@@ -219,13 +219,13 @@ final class NumericalTripModel {
         var volume_m3: Double
         var color: ColorRGBA? = nil
     }
-    
+
     struct Totals {
         var count: Int
         var tvd_m: Double
         var deltaP_kPa: Double
     }
-    
+
     struct TripStep: Identifiable {
         let id = UUID()
         var bitMD_m: Double
@@ -245,7 +245,7 @@ final class NumericalTripModel {
         var totalsAnnulus: Totals
         var totalsString: Totals
     }
-    
+
     struct TripInput {
         var tvdOfMd: (Double)->Double
         var shoeTVD_m: Double
@@ -260,13 +260,17 @@ final class NumericalTripModel {
         var targetESDAtTD_kgpm3: Double
         var initialSABP_kPa: Double = 0
         var holdSABPOpen: Bool = false
-        // Swab placeholder
-        var swabTheta600: Double? = nil
-        var swabTheta300: Double? = nil
+        // Swab parameters
+        var tripSpeed_m_per_s: Double = 0.5        // Hoist speed (m/s), default 0.5 m/s = 30 m/min
+        var eccentricityFactor: Double = 1.0       // Pipe eccentricity factor (1.0 = concentric)
+        var swabSafetyFactor: Double = 1.15        // Safety multiplier for recommended SABP
+        // Fallback rheology if layers don't have mud references
+        var fallbackTheta600: Double? = nil
+        var fallbackTheta300: Double? = nil
     }
-    
+
     // MARK: - Public run
-    
+
     func run(_ input: TripInput, geom: GeometryService, project: ProjectState) -> [TripStep] {
         var sabp_kPa = input.initialSABP_kPa
         var bitMD = input.startBitMD_m
@@ -279,7 +283,7 @@ final class NumericalTripModel {
         // Stacks
         let stringStack = Stack(side: .string, geom: geom, tvdOfMd: tvdOfMd)
         let annulusStack = Stack(side: .annulus, geom: geom, tvdOfMd: tvdOfMd)
-        
+
         let ann = project.finalAnnulusLayersSorted
         let str = project.finalStringLayersSorted
 
@@ -332,9 +336,9 @@ final class NumericalTripModel {
                 totalsString: initTotStr
             )
         ]
-        
+
         var backfillRemaining = input.fixedBackfillVolume_m3
-        
+
         // Helper closures
         func snapshotPocket(_ pocket: [Layer], bitMD: Double) -> [LayerRow] {
             var rows: [LayerRow] = []
@@ -395,7 +399,7 @@ final class NumericalTripModel {
                 pocket.append(Layer(rho: rho, topMD: top, bottomMD: bot, color: color))
             }
         }
-        
+
         // Loop
         // var _wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
 
@@ -403,16 +407,16 @@ final class NumericalTripModel {
             let nextMD = max(input.endMD_m, bitMD - step)
             let dL = bitMD - nextMD
             let oldBitMD = bitMD
-            
+
             // Float state before carving
             var Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: oldBitMD)
             var Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
             var floatClosed = (Pstr_bit <= Pann_bit)
-            
+
             // Carve @ bottom for this step
             var lenA = 0.0, volA = 0.0, massA = 0.0
             var lenS = 0.0, volS = 0.0, massS = 0.0
-            
+
             func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?) {
                 var remaining = lenReq
                 var totLen = 0.0, totVol = 0.0, totMass = 0.0
@@ -455,7 +459,7 @@ final class NumericalTripModel {
 
                 return (totLen, totMass, totVol, blendedColor)
             }
-            
+
             var colorA: ColorRGBA? = nil
             var colorS: ColorRGBA? = nil
 
@@ -509,7 +513,7 @@ final class NumericalTripModel {
                     a: totalA / totalVol
                 )
             }()
-            
+
             // Re-anchor stacks to new bit
             bitMD = nextMD
             if floatClosed {
@@ -522,7 +526,7 @@ final class NumericalTripModel {
             }
             // Append pocket at new bit with blended color
             addPocketBelowBit(rho: rhoMix, len: min(lenA, (floatClosed ? lenA : lenS)), bitMD: bitMD, color: mixedColor)
-            
+
             // Surface backfill required
             let needBefore = floatClosed ? geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD) : geom.steelArea_m2(oldBitMD) * dL
             var need = needBefore
@@ -544,12 +548,12 @@ final class NumericalTripModel {
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)
             }
-            
+
             // Recompute pressures after fill
             Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
             Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD)
             floatClosed = (Pstr_bit <= Pann_bit)
-            
+
             // Snapshots & totals
             let pocketRows = snapshotPocket(pocket, bitMD: bitMD)
             let annRows = snapshotStack(annulusStack, bitMD: bitMD)
@@ -557,21 +561,34 @@ final class NumericalTripModel {
             let totPocket = sum(pocketRows)
             let totAnn = sum(annRows)
             let totString = sum(strRows)
-            
+
             // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
-            let swab_kPa = 0.0 // placeholder hook for future SwabEstimatorService
+            // Calculate swab pressure based on annulus layers above bit
+            let swab_kPa = calculateSwab(
+                annulusLayers: project.finalAnnulusLayersSorted,
+                bitMD: bitMD,
+                tripSpeed_m_per_s: input.tripSpeed_m_per_s,
+                eccentricityFactor: input.eccentricityFactor,
+                geom: geom,
+                tvdOfMd: tvdOfMd,
+                fallbackTheta600: input.fallbackTheta600,
+                fallbackTheta300: input.fallbackTheta300,
+                floatIsOpen: !floatClosed
+            )
+
             let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
             if input.holdSABPOpen {
                 sabp_kPa = 0.0
             } else {
                 sabp_kPa = max(0.0, sabpRaw)
             }
+            // Dynamic SABP includes swab compensation
             let sabpDyn = max(0.0, sabp_kPa + swab_kPa)
-            
+
             let bitTVD = tvdOfMd(bitMD)
             let esdTD = (totPocket.deltaP_kPa + totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
             let esdBit = max(0.0, (totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(bitTVD, 1e-9))
-            
+
             results.append(TripStep(bitMD_m: bitMD,
                                     bitTVD_m: bitTVD,
                                     SABP_kPa: sabp_kPa,
@@ -592,6 +609,125 @@ final class NumericalTripModel {
 
         return results
     }
+
+    // MARK: - Swab Calculation Helper
+
+    /// Calculates swab pressure for the annulus layers above the bit
+    /// - Parameters:
+    ///   - annulusLayers: The final fluid layers in the annulus (from project)
+    ///   - bitMD: Current bit measured depth
+    ///   - tripSpeed_m_per_s: Hoist speed in m/s
+    ///   - eccentricityFactor: Pipe eccentricity factor (1.0 = concentric)
+    ///   - geom: Geometry service for wellbore dimensions
+    ///   - tvdOfMd: Function to convert MD to TVD
+    ///   - fallbackTheta600: Fallback dial600 if layer has no mud reference
+    ///   - fallbackTheta300: Fallback dial300 if layer has no mud reference
+    ///   - floatIsOpen: Whether the float valve is open
+    /// - Returns: Swab pressure drop in kPa, or 0 if calculation fails
+    private func calculateSwab(
+        annulusLayers: [FinalFluidLayer],
+        bitMD: Double,
+        tripSpeed_m_per_s: Double,
+        eccentricityFactor: Double,
+        geom: GeometryService,
+        tvdOfMd: @escaping (Double) -> Double,
+        fallbackTheta600: Double?,
+        fallbackTheta300: Double?,
+        floatIsOpen: Bool
+    ) -> Double {
+        // Only calculate if we have positive trip speed (pulling out)
+        guard tripSpeed_m_per_s > 0 else { return 0 }
+
+        // Filter to layers above the bit
+        let layersAboveBit = annulusLayers.filter { $0.topMD_m < bitMD }
+        guard !layersAboveBit.isEmpty else { return 0 }
+
+        // Build LayerDTO array with rheology from mud references
+        var layerDTOs: [SwabCalculator.LayerDTO] = []
+
+        for layer in layersAboveBit {
+            let topMD = layer.topMD_m
+            let bottomMD = min(layer.bottomMD_m, bitMD) // Clamp to bit depth
+
+            guard bottomMD > topMD else { continue }
+
+            // Get rheology from the linked mud, or use fallback
+            var theta600: Double? = fallbackTheta600
+            var theta300: Double? = fallbackTheta300
+            var K: Double? = nil
+            var n: Double? = nil
+
+            if let mud = layer.mud {
+                // Prefer annulus-specific K/n if available
+                if let K_ann = mud.K_annulus, let n_ann = mud.n_annulus, K_ann > 0, n_ann > 0 {
+                    K = K_ann
+                    n = n_ann
+                }
+                // Otherwise use general K/n
+                else if let K_gen = mud.k_powerLaw_Pa_s_n, let n_gen = mud.n_powerLaw, K_gen > 0, n_gen > 0 {
+                    K = K_gen
+                    n = n_gen
+                }
+                // Otherwise use dial readings
+                else if let d600 = mud.dial600, let d300 = mud.dial300, d600 > 0, d300 > 0 {
+                    theta600 = d600
+                    theta300 = d300
+                }
+            }
+
+            layerDTOs.append(SwabCalculator.LayerDTO(
+                rho_kgpm3: layer.density_kgm3,
+                topMD_m: topMD,
+                bottomMD_m: bottomMD,
+                K_Pa_s_n: K,
+                n_powerLaw: n,
+                theta600: theta600,
+                theta300: theta300
+            ))
+        }
+
+        guard !layerDTOs.isEmpty else { return 0 }
+
+        // Check if we have any rheology data
+        let hasRheology = layerDTOs.contains { dto in
+            (dto.K_Pa_s_n != nil && dto.n_powerLaw != nil) ||
+            (dto.theta600 != nil && dto.theta300 != nil)
+        } || (fallbackTheta600 != nil && fallbackTheta300 != nil)
+
+        guard hasRheology else {
+            #if DEBUG
+            print("[Swab] No rheology data available for swab calculation")
+            #endif
+            return 0
+        }
+
+        // Create trajectory sampler wrapper for TVD lookup
+        let trajSampler = ClosureTrajectorySampler(tvdOfMd: tvdOfMd)
+
+        // Calculate swab
+        let calculator = SwabCalculator()
+        do {
+            let result = try calculator.estimateFromLayersPowerLaw(
+                layers: layerDTOs,
+                theta600: fallbackTheta600,
+                theta300: fallbackTheta300,
+                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0, // Convert m/s to m/min
+                eccentricityFactor: eccentricityFactor,
+                step_m: 10.0, // Fine step for accuracy
+                geom: geom,
+                traj: trajSampler,
+                sabpSafety: 1.0, // We'll apply safety factor separately
+                floatIsOpen: floatIsOpen
+            )
+            return result.totalSwab_kPa
+        } catch {
+            #if DEBUG
+            print("[Swab] Calculation error: \(error.localizedDescription)")
+            #endif
+            return 0
+        }
+    }
+
     // MARK: - Optional color mappers (use in View layer or when seeding composition colors)
     static func rgbaFromHex(_ hex: String) -> ColorRGBA? {
         var s = hex
@@ -610,5 +746,15 @@ final class NumericalTripModel {
             a = Double(val & 0xFF) / 255.0
         }
         return ColorRGBA(r: r, g: g, b: b, a: a)
+    }
+}
+
+// MARK: - TrajectorySampler wrapper for closure-based TVD lookup
+
+private struct ClosureTrajectorySampler: TrajectorySampler {
+    let tvdOfMd: (Double) -> Double
+
+    func TVDofMD(_ md: Double) -> Double {
+        tvdOfMd(md)
     }
 }

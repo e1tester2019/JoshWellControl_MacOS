@@ -26,6 +26,9 @@ extension TripSimulationView {
     // New property for backfill mud selection
     var backfillMudID: UUID? = nil
 
+    // Swab calculation parameters
+    var eccentricityFactor: Double = 1.0  // 1.0 = concentric, higher = more eccentric
+
     // View options
     var colorByComposition: Bool = false
     var showDetails: Bool = false
@@ -66,6 +69,12 @@ extension TripSimulationView {
         currentStringBottomMD: startBitMD_m,
         tvdMapper: { md in project.tvd(of: md) }
       )
+
+      // Get fallback rheology from active mud
+      let activeMud = project.activeMud
+      let fallbackTheta600 = activeMud?.dial600
+      let fallbackTheta300 = activeMud?.dial300
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in project.tvd(of: md) },
         shoeTVD_m: project.tvd(of: shoeMD_m),
@@ -73,15 +82,19 @@ extension TripSimulationView {
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
         step_m: step_m,
-        baseMudDensity_kgpm3: (project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
+        baseMudDensity_kgpm3: (activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
         backfillDensity_kgpm3: (
             (backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id })?.density_kgm3 })
-            ?? project.activeMud?.density_kgm3
+            ?? activeMud?.density_kgm3
             ?? backfillDensity_kgpm3
         ),
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
-        holdSABPOpen: holdSABPOpen
+        holdSABPOpen: holdSABPOpen,
+        tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),  // Use absolute value for speed
+        eccentricityFactor: eccentricityFactor,
+        fallbackTheta600: fallbackTheta600,
+        fallbackTheta300: fallbackTheta300
       )
       let model = NumericalTripModel()
       self.steps = model.run(input, geom: geom, project: project)
@@ -163,6 +176,9 @@ extension TripSimulationViewIOS {
     // New property for backfill mud selection
     var backfillMudID: UUID? = nil
 
+    // Swab calculation parameters
+    var eccentricityFactor: Double = 1.0  // 1.0 = concentric, higher = more eccentric
+
     // View options
     var colorByComposition: Bool = false
     var showDetails: Bool = false
@@ -190,6 +206,12 @@ extension TripSimulationViewIOS {
         currentStringBottomMD: startBitMD_m,
         tvdMapper: { md in project.tvd(of: md) }
       )
+
+      // Get fallback rheology from active mud
+      let activeMud = project.activeMud
+      let fallbackTheta600 = activeMud?.dial600
+      let fallbackTheta300 = activeMud?.dial300
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in project.tvd(of: md) },
         shoeTVD_m: project.tvd(of: shoeMD_m),
@@ -197,15 +219,19 @@ extension TripSimulationViewIOS {
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
         step_m: step_m,
-        baseMudDensity_kgpm3: (project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
+        baseMudDensity_kgpm3: (activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
         backfillDensity_kgpm3: (
             (backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id })?.density_kgm3 })
-            ?? project.activeMud?.density_kgm3
+            ?? activeMud?.density_kgm3
             ?? backfillDensity_kgpm3
         ),
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
-        holdSABPOpen: holdSABPOpen
+        holdSABPOpen: holdSABPOpen,
+        tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),
+        eccentricityFactor: eccentricityFactor,
+        fallbackTheta600: fallbackTheta600,
+        fallbackTheta300: fallbackTheta300
       )
       let model = NumericalTripModel()
       self.steps = model.run(input, geom: geom, project: project)

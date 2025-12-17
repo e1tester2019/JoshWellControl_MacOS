@@ -16,7 +16,8 @@ struct ExpenseListView: View {
     @State private var showingAddSheet = false
     @State private var selectedExpense: Expense?
 
-    // Filters
+    // Search and Filters
+    @State private var searchText = ""
     @State private var filterCategory: ExpenseCategory?
     @State private var filterProvince: Province?
     @State private var filterStartDate: Date?
@@ -33,7 +34,17 @@ struct ExpenseListView: View {
     }
 
     private var filteredExpenses: [Expense] {
-        expenses.filter { expense in
+        let searchLower = searchText.lowercased()
+
+        return expenses.filter { expense in
+            // Text search filter
+            if !searchText.isEmpty {
+                let vendorMatch = expense.vendor.lowercased().contains(searchLower)
+                let descMatch = expense.expenseDescription.lowercased().contains(searchLower)
+                if !vendorMatch && !descMatch {
+                    return false
+                }
+            }
             // Category filter
             if let cat = filterCategory, expense.category != cat {
                 return false
@@ -67,7 +78,7 @@ struct ExpenseListView: View {
     }
 
     private var hasActiveFilters: Bool {
-        filterCategory != nil || filterProvince != nil || filterReimbursable != .all || filterStartDate != nil || filterEndDate != nil
+        !searchText.isEmpty || filterCategory != nil || filterProvince != nil || filterReimbursable != .all || filterStartDate != nil || filterEndDate != nil
     }
 
     private var groupedExpenses: [String: [Expense]] {
@@ -96,8 +107,24 @@ struct ExpenseListView: View {
                     .controlSize(.large)
                 }
 
-                // Filter section
+                // Search and Filter section
                 Section {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search vendor or description", text: $searchText)
+                            .textFieldStyle(.plain)
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
                     DisclosureGroup(isExpanded: $showFilters) {
                         Picker("Category", selection: $filterCategory) {
                             Text("All Categories").tag(nil as ExpenseCategory?)
@@ -200,6 +227,7 @@ struct ExpenseListView: View {
                         Text("No expenses match your filters")
                     } actions: {
                         Button("Clear Filters") {
+                            searchText = ""
                             filterCategory = nil
                             filterProvince = nil
                             filterReimbursable = .all

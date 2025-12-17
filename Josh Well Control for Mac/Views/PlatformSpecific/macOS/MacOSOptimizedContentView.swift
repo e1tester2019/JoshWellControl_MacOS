@@ -26,6 +26,7 @@ struct MacOSOptimizedContentView: View {
     @State private var searchText = ""
     @State private var showCommandPalette = false
     @State private var quickNoteManager = QuickNoteManager.shared
+    @State private var isBusinessUnlocked = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -33,7 +34,8 @@ struct MacOSOptimizedContentView: View {
             MacOSSidebarView(
                 selectedView: $selectedView,
                 selectedProject: selectedProject,
-                searchText: $searchText
+                searchText: $searchText,
+                isBusinessUnlocked: isBusinessUnlocked
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
@@ -47,7 +49,8 @@ struct MacOSOptimizedContentView: View {
                 selectedProjectBinding: $selectedProject,
                 selectedViewBinding: $selectedView,
                 showRenameWell: $showRenameWell,
-                showRenameProject: $showRenameProject
+                showRenameProject: $showRenameProject,
+                isBusinessUnlocked: $isBusinessUnlocked
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -274,12 +277,19 @@ struct MacOSSidebarView: View {
     @Binding var selectedView: ViewSelection
     let selectedProject: ProjectState?
     @Binding var searchText: String
+    let isBusinessUnlocked: Bool
 
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers]
-    private let businessViews: [ViewSelection] = [.workTracking]
+
+    // Business sections
+    private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
+    private let expenseViews: [ViewSelection] = [.expenses, .mileage]
+    private let payrollViews: [ViewSelection] = [.payroll, .employees]
+    private let dividendViews: [ViewSelection] = [.dividends]
+    private let reportViews: [ViewSelection] = [.companyStatement, .expenseReport, .payrollReport]
 
     var body: some View {
         List(selection: $selectedView) {
@@ -335,12 +345,38 @@ struct MacOSSidebarView: View {
                 }
             }
 
-            // Business / Work Tracking
-            Section("Business") {
-                ForEach(businessViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
+            // Business - Income
+            Section("Income") {
+                ForEach(incomeViews, id: \.self) { view in
+                    businessNavLink(for: view)
+                }
+            }
+
+            // Business - Expenses
+            Section("Expenses") {
+                ForEach(expenseViews, id: \.self) { view in
+                    businessNavLink(for: view)
+                }
+            }
+
+            // Business - Payroll
+            Section("Payroll") {
+                ForEach(payrollViews, id: \.self) { view in
+                    businessNavLink(for: view)
+                }
+            }
+
+            // Business - Dividends
+            Section("Dividends") {
+                ForEach(dividendViews, id: \.self) { view in
+                    businessNavLink(for: view)
+                }
+            }
+
+            // Business - Reports
+            Section("Reports") {
+                ForEach(reportViews, id: \.self) { view in
+                    businessNavLink(for: view)
                 }
             }
 
@@ -358,6 +394,21 @@ struct MacOSSidebarView: View {
         .listStyle(.sidebar)
         .searchable(text: $searchText, prompt: "Search features...")
         .navigationTitle("Features")
+    }
+
+    @ViewBuilder
+    private func businessNavLink(for view: ViewSelection) -> some View {
+        NavigationLink(value: view) {
+            HStack {
+                Label(view.title, systemImage: view.icon)
+                if !isBusinessUnlocked {
+                    Spacer()
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }
 
@@ -388,36 +439,101 @@ struct MacOSDetailView: View {
     @Binding var selectedViewBinding: ViewSelection
     @Binding var showRenameWell: Bool
     @Binding var showRenameProject: Bool
+    @Binding var isBusinessUnlocked: Bool
+
+    @State private var pinEntry = ""
+    @State private var showPinError = false
+    @State private var isSettingPin = false
+    @State private var newPin = ""
+    @State private var confirmPin = ""
+    @State private var showingBusinessSettings = false
 
     var body: some View {
         Group {
+            // Check if this is a business view that needs unlock
+            if selectedView.requiresBusinessUnlock && !isBusinessUnlocked {
+                businessPinView
+            } else {
+                mainContentView
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showingBusinessSettings) {
+            BusinessInfoSettingsView()
+        }
+    }
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        switch selectedView {
+        // Views that don't require a project
+        case .handover:
+            WellsDashboardView()
+
+        case .padDashboard:
+            if let pad = selectedPad {
+                PadDashboardView(pad: pad, onSelectWell: { well in
+                    selectedWellBinding = well
+                    selectedViewBinding = .wellDashboard
+                })
+            } else if let pad = selectedWell?.pad {
+                PadDashboardView(pad: pad, onSelectWell: { well in
+                    selectedWellBinding = well
+                    selectedViewBinding = .wellDashboard
+                })
+            } else {
+                ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad from the toolbar or assign a pad to the current well"))
+            }
+
+        case .wellDashboard:
+            if let well = selectedWell {
+                WellDashboardView(well: well, onSelectProject: { project in
+                    selectedProjectBinding = project
+                    selectedViewBinding = .dashboard
+                })
+            } else {
+                ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
+            }
+
+        // Business views (no project required)
+        case .workDays:
+            WorkDayListView()
+                .toolbar { businessSettingsToolbar }
+        case .invoices:
+            InvoiceListView()
+                .toolbar { businessSettingsToolbar }
+        case .clients:
+            ClientListView()
+                .toolbar { businessSettingsToolbar }
+        case .expenses:
+            ExpenseListView()
+                .toolbar { businessSettingsToolbar }
+        case .mileage:
+            MileageLogView()
+                .toolbar { businessSettingsToolbar }
+        case .payroll:
+            PayrollListView()
+                .toolbar { businessSettingsToolbar }
+        case .employees:
+            EmployeeListView()
+                .toolbar { businessSettingsToolbar }
+        case .dividends:
+            DividendListView()
+                .toolbar { businessSettingsToolbar }
+        case .companyStatement:
+            CompanyStatementView()
+                .toolbar { businessSettingsToolbar }
+        case .expenseReport:
+            ExpenseReportView()
+                .toolbar { businessSettingsToolbar }
+        case .payrollReport:
+            PayrollReportView()
+                .toolbar { businessSettingsToolbar }
+
+        // Project-dependent views
+        default:
             if let project = selectedProject {
                 switch selectedView {
-                case .handover:
-                    WellsDashboardView()
-                case .padDashboard:
-                    if let pad = selectedPad {
-                        PadDashboardView(pad: pad, onSelectWell: { well in
-                            selectedWellBinding = well
-                            selectedViewBinding = .wellDashboard
-                        })
-                    } else if let pad = selectedWell?.pad {
-                        PadDashboardView(pad: pad, onSelectWell: { well in
-                            selectedWellBinding = well
-                            selectedViewBinding = .wellDashboard
-                        })
-                    } else {
-                        ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad from the toolbar or assign a pad to the current well"))
-                    }
-                case .wellDashboard:
-                    if let well = selectedWell {
-                        WellDashboardView(well: well, onSelectProject: { project in
-                            selectedProjectBinding = project
-                            selectedViewBinding = .dashboard
-                        })
-                    } else {
-                        ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
-                    }
                 case .dashboard:
                     ProjectDashboardView(project: project)
                 case .drillString:
@@ -447,28 +563,197 @@ struct MacOSDetailView: View {
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)
+                    } else {
+                        noWellSelectedView
                     }
                 case .transfers:
                     if let well = selectedWell {
                         MaterialTransferListView(well: well)
+                    } else {
+                        noWellSelectedView
                     }
-                case .workTracking:
-                    WorkTrackingContainerView()
+                default:
+                    EmptyView()
                 }
             } else {
-                ContentUnavailableView {
-                    Label("No Project Selected", systemImage: "folder.badge.questionmark")
-                } description: {
-                    Text("Select or create a project to get started")
-                } actions: {
-                    Button("Create New Well") {
-                        // Create well action
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                noProjectSelectedView
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var businessSettingsToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingBusinessSettings = true
+            } label: {
+                Label("Settings", systemImage: "gear")
+            }
+        }
+    }
+
+    // MARK: - PIN Entry View
+
+    private var businessPinView: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+
+            if isSettingPin || !WorkTrackingAuth.hasPin {
+                setPinView
+            } else {
+                enterPinView
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            // Auto-prompt to set PIN if none exists
+            if !WorkTrackingAuth.hasPin {
+                isSettingPin = true
+            }
+        }
+    }
+
+    private var enterPinView: some View {
+        VStack(spacing: 16) {
+            Text("Enter PIN")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Access to business features is protected")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+
+            SecureField("PIN", text: $pinEntry)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .onSubmit { verifyPin() }
+
+            if showPinError {
+                Text("Incorrect PIN")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+
+            HStack(spacing: 12) {
+                Button("Unlock") { verifyPin() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(pinEntry.isEmpty)
+
+                Button("Reset PIN") {
+                    isSettingPin = true
+                    pinEntry = ""
+                    showPinError = false
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var setPinView: some View {
+        VStack(spacing: 16) {
+            Text(WorkTrackingAuth.hasPin ? "Reset PIN" : "Set Up PIN")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Protect your business data with a PIN")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+
+            if WorkTrackingAuth.hasPin {
+                SecureField("Current PIN", text: $pinEntry)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+            }
+
+            SecureField("New PIN", text: $newPin)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+
+            SecureField("Confirm PIN", text: $confirmPin)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .onSubmit { setNewPin() }
+
+            if showPinError {
+                Text("PINs don't match or current PIN is incorrect")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+
+            HStack(spacing: 12) {
+                Button("Save PIN") { setNewPin() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newPin.isEmpty || confirmPin.isEmpty)
+
+                if WorkTrackingAuth.hasPin {
+                    Button("Cancel") {
+                        isSettingPin = false
+                        newPin = ""
+                        confirmPin = ""
+                        pinEntry = ""
+                        showPinError = false
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    private func verifyPin() {
+        if WorkTrackingAuth.verifyPin(pinEntry) {
+            isBusinessUnlocked = true
+            showPinError = false
+            pinEntry = ""
+        } else {
+            showPinError = true
+            pinEntry = ""
+        }
+    }
+
+    private func setNewPin() {
+        // Verify current PIN if one exists
+        if WorkTrackingAuth.hasPin && !WorkTrackingAuth.verifyPin(pinEntry) {
+            showPinError = true
+            return
+        }
+
+        // Verify new PINs match
+        if newPin != confirmPin {
+            showPinError = true
+            return
+        }
+
+        WorkTrackingAuth.setPin(newPin)
+        isBusinessUnlocked = true
+        isSettingPin = false
+        showPinError = false
+        newPin = ""
+        confirmPin = ""
+        pinEntry = ""
+    }
+
+    private var noProjectSelectedView: some View {
+        ContentUnavailableView {
+            Label("No Project Selected", systemImage: "folder.badge.questionmark")
+        } description: {
+            Text("Select or create a project to get started")
+        } actions: {
+            Button("Create New Well") {
+                // Create well action
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var noWellSelectedView: some View {
+        ContentUnavailableView {
+            Label("No Well Selected", systemImage: "building.2.crop.circle.badge.exclamationmark")
+        } description: {
+            Text("Select a well to view this feature")
+        }
     }
 }
 

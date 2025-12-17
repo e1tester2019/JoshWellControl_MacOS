@@ -133,6 +133,7 @@ final class Expense {
     @Attribute(.externalStorage) var receiptThumbnailData: Data?
     var receiptFileName: String?
     var receiptIsPDF: Bool = false
+    var hasReceiptAttached: Bool = false  // Lightweight flag to avoid loading image data
 
     // OCR-extracted fields (iOS receipt scanning)
     var ocrVendor: String?
@@ -204,7 +205,7 @@ final class Expense {
     }
 
     var hasReceipt: Bool {
-        receiptImageData != nil
+        hasReceiptAttached
     }
 
     var displayDate: String {
@@ -226,12 +227,39 @@ final class MileageLog {
     var purpose: String = ""
     var isRoundTrip: Bool = false
 
-    // CRA mileage rates for 2024/2025
-    // First 5,000 km: $0.70/km, after: $0.64/km
-    // These can be updated as rates change
-    static let firstTierRate: Double = 0.70
-    static let secondTierRate: Double = 0.64
-    static let firstTierLimit: Double = 5000
+    // CRA mileage rates by tax year
+    // Format: year -> (firstTierRate, secondTierRate, firstTierLimit)
+    // Add new years as CRA announces rates
+    static let ratesByYear: [Int: (firstTier: Double, secondTier: Double, limit: Double)] = [
+        2024: (0.70, 0.64, 5000),
+        2025: (0.72, 0.66, 5000),
+    ]
+
+    /// Get rates for a specific year, falling back to most recent known year
+    static func rates(for year: Int) -> (firstTier: Double, secondTier: Double, limit: Double) {
+        if let rates = ratesByYear[year] {
+            return rates
+        }
+        // Fall back to most recent known year
+        let sortedYears = ratesByYear.keys.sorted()
+        if let mostRecent = sortedYears.last(where: { $0 <= year }) ?? sortedYears.last {
+            return ratesByYear[mostRecent]!
+        }
+        return (0.72, 0.66, 5000) // Ultimate fallback
+    }
+
+    /// Convenience for current year rates
+    static var firstTierRate: Double {
+        rates(for: Calendar.current.component(.year, from: Date())).firstTier
+    }
+
+    static var secondTierRate: Double {
+        rates(for: Calendar.current.component(.year, from: Date())).secondTier
+    }
+
+    static var firstTierLimit: Double {
+        rates(for: Calendar.current.component(.year, from: Date())).limit
+    }
 
     // GPS Coordinates (iOS tracking)
     var startLatitude: Double?
@@ -350,12 +378,19 @@ struct MileageSummary {
     let totalTrips: Int
     let estimatedDeduction: Double
 
-    /// Calculate CRA deduction based on tiered rates
-    static func calculateDeduction(totalKm: Double, yearToDateKm: Double = 0) -> Double {
-        let remainingFirstTier = max(0, MileageLog.firstTierLimit - yearToDateKm)
+    /// Calculate CRA deduction based on tiered rates for a specific tax year
+    /// - Parameters:
+    ///   - totalKm: Total kilometers to calculate deduction for
+    ///   - yearToDateKm: Kilometers already driven this year (for tier calculation)
+    ///   - year: Tax year to use for rates (defaults to current year)
+    static func calculateDeduction(totalKm: Double, yearToDateKm: Double = 0, year: Int? = nil) -> Double {
+        let taxYear = year ?? Calendar.current.component(.year, from: Date())
+        let rates = MileageLog.rates(for: taxYear)
+
+        let remainingFirstTier = max(0, rates.limit - yearToDateKm)
         let kmAtFirstRate = min(totalKm, remainingFirstTier)
         let kmAtSecondRate = max(0, totalKm - kmAtFirstRate)
 
-        return (kmAtFirstRate * MileageLog.firstTierRate) + (kmAtSecondRate * MileageLog.secondTierRate)
+        return (kmAtFirstRate * rates.firstTier) + (kmAtSecondRate * rates.secondTier)
     }
 }

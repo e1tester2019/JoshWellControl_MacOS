@@ -200,7 +200,12 @@ struct ExpenseEditorView: View {
             .navigationTitle(expense == nil ? "Add Expense" : "Edit Expense")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        // Release large data before dismissing
+                        receiptImageData = nil
+                        receiptThumbnailData = nil
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
@@ -484,12 +489,18 @@ struct ExpenseEditorView: View {
         exp.receiptThumbnailData = receiptThumbnailData
         exp.receiptFileName = receiptFileName
         exp.receiptIsPDF = receiptIsPDF
+        exp.hasReceiptAttached = receiptImageData != nil
         exp.updatedAt = Date.now
 
         if expense == nil {
             modelContext.insert(exp)
         }
         try? modelContext.save()
+
+        // Explicitly release large data from memory before dismissing
+        receiptImageData = nil
+        receiptThumbnailData = nil
+
         dismiss()
     }
 }

@@ -15,6 +15,21 @@ class AccountantExportService {
 
     private init() {}
 
+    /// Sanitize a string for use in filenames - removes/replaces problematic characters
+    private func sanitizeFilename(_ input: any StringProtocol) -> String {
+        String(input)
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "?", with: "")
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "<", with: "")
+            .replacingOccurrences(of: ">", with: "")
+            .replacingOccurrences(of: "|", with: "-")
+    }
+
     struct ExportData {
         let year: Int
         let quarter: Int? // nil for full year
@@ -100,15 +115,15 @@ class AccountantExportService {
         let cssFile = tempDir.appendingPathComponent("styles.css")
         try css.write(to: cssFile, atomically: true, encoding: .utf8)
 
-        // Export receipts
+        // Export receipts - MUST be sorted by date to match HTML generation
         var receiptIndex = 1
-        for expense in data.expenses {
+        for expense in data.expenses.sorted(by: { $0.date < $1.date }) {
             if let receiptData = expense.receiptImageData {
                 let ext = expense.receiptIsPDF ? "pdf" : "jpg"
                 let filename = String(format: "%03d_%@_%@.%@",
                     receiptIndex,
                     expense.displayDate.replacingOccurrences(of: " ", with: "_"),
-                    expense.vendor.prefix(20).replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "-"),
+                    sanitizeFilename(expense.vendor.prefix(20)),
                     ext
                 )
                 let receiptFile = receiptsDir.appendingPathComponent(filename)
@@ -620,7 +635,7 @@ class AccountantExportService {
                     let filename = String(format: "%03d_%@_%@.%@",
                         receiptIndex,
                         expense.displayDate.replacingOccurrences(of: " ", with: "_"),
-                        expense.vendor.prefix(20).replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "-"),
+                        sanitizeFilename(expense.vendor.prefix(20)),
                         ext
                     )
                     receiptLink = "<a href=\"receipts/\(filename)\" target=\"_blank\">View</a>"
