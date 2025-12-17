@@ -51,6 +51,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     // Business - Dividends
     case dividends
+    case shareholders
 
     // Business - Reports
     case companyStatement
@@ -63,7 +64,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     var requiresBusinessUnlock: Bool {
         switch self {
         case .workDays, .invoices, .clients, .expenses, .mileage,
-             .payroll, .employees, .dividends, .companyStatement,
+             .payroll, .employees, .dividends, .shareholders, .companyStatement,
              .expenseReport, .payrollReport:
             return true
         default:
@@ -113,7 +114,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .expensesCat
         case .payroll, .employees:
             return .payrollCat
-        case .dividends:
+        case .dividends, .shareholders:
             return .dividendsCat
         case .companyStatement, .expenseReport, .payrollReport:
             return .reports
@@ -154,6 +155,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .payroll: return "Payroll"
         case .employees: return "Employees"
         case .dividends: return "Dividends"
+        case .shareholders: return "Shareholders"
         case .companyStatement: return "Company Statement"
         case .expenseReport: return "Expense Report"
         case .payrollReport: return "Payroll Report"
@@ -188,6 +190,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .payroll: return "banknote"
         case .employees: return "person.3"
         case .dividends: return "chart.line.uptrend.xyaxis"
+        case .shareholders: return "person.2.circle"
         case .companyStatement: return "building.columns"
         case .expenseReport: return "chart.bar"
         case .payrollReport: return "chart.pie"
@@ -268,6 +271,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Employee information"
         case .dividends:
             return "Dividend declarations and payments"
+        case .shareholders:
+            return "Manage shareholder information"
         case .companyStatement:
             return "Annual and quarterly financial statements"
         case .expenseReport:

@@ -99,20 +99,52 @@ struct DividendListViewIOS: View {
 
     // MARK: - Shareholders List
 
+    @State private var showActiveShareholdersOnly = true
+
+    private var filteredShareholders: [Shareholder] {
+        if showActiveShareholdersOnly {
+            return shareholders.filter { $0.isActive }
+        }
+        return shareholders
+    }
+
     private var shareholdersList: some View {
         List {
-            ForEach(shareholders) { shareholder in
-                NavigationLink {
-                    ShareholderDetailViewIOS(shareholder: shareholder)
-                } label: {
-                    ShareholderRowIOS(shareholder: shareholder)
+            Section {
+                Toggle("Show active only", isOn: $showActiveShareholdersOnly)
+            }
+
+            if shareholders.isEmpty {
+                // Will be handled by overlay
+            } else if filteredShareholders.isEmpty {
+                Section {
+                    ContentUnavailableView {
+                        Label("No Active Shareholders", systemImage: "person.2")
+                    } description: {
+                        Text("All shareholders are inactive")
+                    } actions: {
+                        Button("Show All") {
+                            showActiveShareholdersOnly = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        modelContext.delete(shareholder)
-                        try? modelContext.save()
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+            } else {
+                Section("Shareholders") {
+                    ForEach(filteredShareholders) { shareholder in
+                        NavigationLink {
+                            ShareholderDetailViewIOS(shareholder: shareholder)
+                        } label: {
+                            ShareholderRowIOS(shareholder: shareholder)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                modelContext.delete(shareholder)
+                                try? modelContext.save()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -236,18 +268,39 @@ struct DividendDetailViewIOS: View {
 private struct ShareholderRowIOS: View {
     let shareholder: Shareholder
 
+    private var currentYear: Int {
+        Calendar.current.component(.year, from: Date.now)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(shareholder.fullName)
                 .font(.headline)
 
             HStack {
-                Text("\(shareholder.ownershipPercent, specifier: "%.1f")%")
-                    .foregroundStyle(.blue)
-                Text("ownership")
+                if shareholder.isActive {
+                    Text("Active")
+                        .foregroundStyle(.green)
+                } else {
+                    Text("Inactive")
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("•")
+
+                Text("\(shareholder.ownershipPercent, specifier: "%.1f")% ownership")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            HStack(spacing: 0) {
+                Text(shareholder.totalDividends(for: currentYear), format: .currency(code: "CAD"))
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+                Text(" YTD")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 4)
     }

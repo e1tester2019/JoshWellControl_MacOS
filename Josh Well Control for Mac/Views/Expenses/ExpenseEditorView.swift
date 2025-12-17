@@ -47,6 +47,11 @@ struct ExpenseEditorView: View {
     @State private var showingReceiptPreview = false
     @State private var isDraggingOver = false
 
+    // OCR
+    @State private var isProcessingOCR = false
+    @State private var wasOCRProcessed = false
+    @State private var ocrConfidence: Double?
+
     private var preTaxAmount: Double {
         if taxIncludedInAmount {
             return amount / (1 + province.totalTaxRate)
@@ -247,6 +252,37 @@ struct ExpenseEditorView: View {
                             }
                         }
 
+                        // OCR status
+                        if isProcessingOCR {
+                            HStack(spacing: 4) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text("Extracting data...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if wasOCRProcessed {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("Data extracted")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let confidence = ocrConfidence {
+                                    Text("(\(Int(confidence * 100))%)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } else if !receiptIsPDF {
+                            Button("Extract Data") {
+                                Task {
+                                    await processReceiptOCR()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
                         Button("View Full Size") {
                             showingReceiptPreview = true
                         }
@@ -258,6 +294,8 @@ struct ExpenseEditorView: View {
                             receiptFileName = nil
                             receiptIsPDF = false
                             receiptDisplayImage = nil
+                            wasOCRProcessed = false
+                            ocrConfidence = nil
                         }
                         .buttonStyle(.bordered)
                         .foregroundStyle(.red)
@@ -333,6 +371,13 @@ struct ExpenseEditorView: View {
                         self.receiptThumbnailData = generateThumbnail(from: image)
                         self.receiptFileName = "Dropped Image"
                         self.receiptIsPDF = false
+                        self.wasOCRProcessed = false
+                        self.ocrConfidence = nil
+
+                        // Auto-process OCR
+                        Task {
+                            await self.processReceiptOCR()
+                        }
                     }
                 }
             }
@@ -365,6 +410,8 @@ struct ExpenseEditorView: View {
             receiptImageData = data
             receiptFileName = url.lastPathComponent
             receiptIsPDF = isPDF
+            wasOCRProcessed = false
+            ocrConfidence = nil
 
             if isPDF {
                 // Render PDF first page as image for display
@@ -377,11 +424,58 @@ struct ExpenseEditorView: View {
                 if let image = NSImage(data: data) {
                     receiptDisplayImage = image
                     receiptThumbnailData = generateThumbnail(from: image)
+
+                    // Auto-process OCR for images
+                    Task {
+                        await processReceiptOCR()
+                    }
                 }
             }
         } catch {
             print("Failed to load receipt: \(error)")
         }
+    }
+
+    @MainActor
+    private func processReceiptOCR() async {
+        guard let data = receiptImageData, !receiptIsPDF else { return }
+
+        isProcessingOCR = true
+
+        do {
+            let result = try await ReceiptOCRService.shared.processReceipt(data: data)
+            applyOCRResult(result)
+        } catch {
+            print("OCR failed: \(error)")
+        }
+
+        isProcessingOCR = false
+    }
+
+    private func applyOCRResult(_ result: ReceiptOCRService.OCRResult) {
+        // Only apply OCR values if the form fields are empty/default
+        if let extractedVendor = result.vendor, vendor.isEmpty {
+            vendor = extractedVendor
+        }
+        if let extractedDate = result.date {
+            date = extractedDate
+        }
+        if let extractedTotal = result.totalAmount, amount == 0 {
+            amount = extractedTotal
+            taxIncludedInAmount = true
+        }
+        if let extractedGST = result.gstAmount {
+            gstAmount = extractedGST
+        }
+        if let extractedPST = result.pstAmount {
+            pstAmount = extractedPST
+        }
+        if let extractedCategory = result.suggestedCategory, category == .other {
+            category = extractedCategory
+        }
+
+        wasOCRProcessed = true
+        ocrConfidence = result.confidence
     }
 
     private func renderPDFToImage(data: Data, scale: CGFloat = 2.0) -> NSImage? {
@@ -456,6 +550,8 @@ struct ExpenseEditorView: View {
         receiptThumbnailData = exp.receiptThumbnailData
         receiptFileName = exp.receiptFileName
         receiptIsPDF = exp.receiptIsPDF
+        wasOCRProcessed = exp.wasOCRProcessed
+        ocrConfidence = exp.ocrConfidence
 
         // Regenerate display image from stored data
         if let data = receiptImageData {
@@ -490,6 +586,8 @@ struct ExpenseEditorView: View {
         exp.receiptFileName = receiptFileName
         exp.receiptIsPDF = receiptIsPDF
         exp.hasReceiptAttached = receiptImageData != nil
+        exp.wasOCRProcessed = wasOCRProcessed
+        exp.ocrConfidence = ocrConfidence
         exp.updatedAt = Date.now
 
         if expense == nil {

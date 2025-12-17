@@ -2,13 +2,17 @@
 //  ReceiptOCRService.swift
 //  Josh Well Control for Mac
 //
-//  Vision framework OCR service for extracting receipt data (iOS only)
+//  Vision framework OCR service for extracting receipt data
 //
 
-#if os(iOS)
 import Foundation
 import Vision
+
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Service for extracting receipt data using Vision framework OCR
 class ReceiptOCRService {
@@ -53,12 +57,8 @@ class ReceiptOCRService {
 
     // MARK: - Main OCR Function
 
-    /// Process a receipt image and extract structured data
-    func processReceipt(image: UIImage) async throws -> OCRResult {
-        guard let cgImage = image.cgImage else {
-            throw OCRError.invalidImage
-        }
-
+    /// Process a receipt image and extract structured data (CGImage - cross-platform)
+    func processReceipt(cgImage: CGImage) async throws -> OCRResult {
         // Perform text recognition
         let rawText = try await performOCR(on: cgImage)
 
@@ -71,6 +71,35 @@ class ReceiptOCRService {
 
         return result
     }
+
+    #if os(iOS)
+    /// Process a receipt image and extract structured data (iOS UIImage convenience)
+    func processReceipt(image: UIImage) async throws -> OCRResult {
+        guard let cgImage = image.cgImage else {
+            throw OCRError.invalidImage
+        }
+        return try await processReceipt(cgImage: cgImage)
+    }
+    #endif
+
+    #if os(macOS)
+    /// Process a receipt image and extract structured data (macOS NSImage convenience)
+    func processReceipt(image: NSImage) async throws -> OCRResult {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw OCRError.invalidImage
+        }
+        return try await processReceipt(cgImage: cgImage)
+    }
+
+    /// Process receipt from Data (macOS convenience for dropped files)
+    func processReceipt(data: Data) async throws -> OCRResult {
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw OCRError.invalidImage
+        }
+        return try await processReceipt(cgImage: cgImage)
+    }
+    #endif
 
     // MARK: - Vision OCR
 
@@ -654,4 +683,3 @@ class ReceiptOCRService {
         return min(score, 1.0)
     }
 }
-#endif

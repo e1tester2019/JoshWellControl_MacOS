@@ -95,11 +95,11 @@ struct ClientRow: View {
 
             Spacer()
 
-            let workDayCount = client.workDays?.count ?? 0
+            let totalDays = (client.workDays ?? []).reduce(0) { $0 + $1.dayCount }
             let invoiceCount = client.invoices?.count ?? 0
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text("\(workDayCount) days")
+                Text("\(totalDays) days")
                 Text("\(invoiceCount) invoices")
             }
             .font(.caption)

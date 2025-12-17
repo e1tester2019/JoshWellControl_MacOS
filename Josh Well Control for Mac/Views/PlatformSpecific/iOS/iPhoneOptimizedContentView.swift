@@ -305,7 +305,7 @@ struct iPhoneOptimizedContentView: View {
                 NavigationLink {
                     WorkTrackingContainerViewIOS()
                 } label: {
-                    Label(ViewSelection.workTracking.title, systemImage: ViewSelection.workTracking.icon)
+                    Label("Work Tracking", systemImage: "calendar.badge.clock")
                 }
             }
 
@@ -320,6 +320,22 @@ struct iPhoneOptimizedContentView: View {
                     MileageLogViewIOS()
                 } label: {
                     Label("Mileage Log", systemImage: "car.fill")
+                }
+            }
+
+            Section("Payroll") {
+                NavigationLink {
+                    PayrollListViewIOS()
+                } label: {
+                    Label("Payroll & Employees", systemImage: "banknote")
+                }
+            }
+
+            Section("Dividends") {
+                NavigationLink {
+                    DividendListViewIOS()
+                } label: {
+                    Label("Dividends & Shareholders", systemImage: "chart.line.uptrend.xyaxis")
                 }
             }
 

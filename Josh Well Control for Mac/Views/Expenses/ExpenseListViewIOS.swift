@@ -242,67 +242,129 @@ private struct ExpenseRowIOS: View {
 
 struct ExpenseDetailViewIOS: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Client.companyName) private var clients: [Client]
+    @Query(sort: \Well.name) private var wells: [Well]
     @Bindable var expense: Expense
     @State private var showingImagePicker = false
     @State private var selectedItem: PhotosPickerItem?
 
     var body: some View {
         Form {
-            Section("Details") {
+            Section("Basic Info") {
+                DatePicker("Date", selection: $expense.date, displayedComponents: .date)
+
+                TextField("Vendor/Merchant", text: $expense.vendor)
+
                 Picker("Category", selection: $expense.category) {
                     ForEach(ExpenseCategory.allCases, id: \.self) { category in
-                        Text(category.rawValue).tag(category)
+                        Label(category.rawValue, systemImage: category.icon).tag(category)
                     }
                 }
 
-                TextField("Vendor", text: $expense.vendor)
-
-                DatePicker("Date", selection: $expense.date, displayedComponents: .date)
-
-                HStack {
-                    Text("Amount")
-                    Spacer()
-                    TextField("Amount", value: $expense.amount, format: .number)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
-                }
+                TextField("Description", text: $expense.expenseDescription)
             }
 
-            Section("Description") {
-                TextEditor(text: $expense.expenseDescription)
-                    .frame(minHeight: 80)
-            }
-
-            Section("Tax") {
+            Section("Amount & Tax") {
                 Picker("Province", selection: $expense.province) {
                     ForEach(Province.allCases, id: \.self) { province in
                         Text(province.rawValue).tag(province)
                     }
                 }
 
-                Toggle("Tax Included", isOn: $expense.taxIncludedInAmount)
+                Toggle("Amount includes tax", isOn: $expense.taxIncludedInAmount)
 
                 HStack {
-                    Text("GST")
+                    Text(expense.taxIncludedInAmount ? "Total Amount" : "Pre-tax Amount")
                     Spacer()
-                    Text(expense.calculatedGST, format: .currency(code: "CAD"))
-                        .foregroundStyle(.secondary)
+                    TextField("Amount", value: $expense.amount, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
                 }
 
                 HStack {
-                    Text("PST")
+                    Text("GST (5%)")
                     Spacer()
-                    Text(expense.calculatedPST, format: .currency(code: "CAD"))
-                        .foregroundStyle(.secondary)
+                    if expense.taxIncludedInAmount {
+                        Text(expense.calculatedGST, format: .currency(code: "CAD"))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("GST", value: $expense.gstAmount, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                    }
+                }
+
+                if expense.province == .bc {
+                    HStack {
+                        Text("PST (7%)")
+                        Spacer()
+                        if expense.taxIncludedInAmount {
+                            Text(expense.calculatedPST, format: .currency(code: "CAD"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            TextField("PST", value: $expense.pstAmount, format: .number)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                        }
+                    }
+                }
+
+                HStack {
+                    Text(expense.taxIncludedInAmount ? "Pre-tax Amount" : "Total")
+                        .fontWeight(.medium)
+                    Spacer()
+                    Text(expense.taxIncludedInAmount ? expense.preTaxAmount : expense.totalAmount, format: .currency(code: "CAD"))
+                        .fontWeight(.semibold)
+                }
+            }
+
+            Section("Payment") {
+                Picker("Payment Method", selection: $expense.paymentMethod) {
+                    ForEach(PaymentMethod.allCases, id: \.self) { method in
+                        Text(method.rawValue).tag(method)
+                    }
                 }
             }
 
             Section("Reimbursement") {
-                Toggle("Reimbursable", isOn: $expense.isReimbursable)
+                Toggle("Reimbursable expense", isOn: $expense.isReimbursable)
 
                 if expense.isReimbursable {
-                    Toggle("Reimbursed", isOn: $expense.isReimbursed)
+                    Toggle("Has been reimbursed", isOn: $expense.isReimbursed)
+
+                    if expense.isReimbursed, let reimbursedDate = expense.reimbursedDate {
+                        HStack {
+                            Text("Reimbursed on")
+                            Spacer()
+                            Text(reimbursedDate, style: .date)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Link to Job") {
+                Picker("Client", selection: Binding(
+                    get: { expense.client },
+                    set: { expense.client = $0 }
+                )) {
+                    Text("None").tag(nil as Client?)
+                    ForEach(clients) { client in
+                        Text(client.companyName).tag(client as Client?)
+                    }
+                }
+
+                Picker("Well", selection: Binding(
+                    get: { expense.well },
+                    set: { expense.well = $0 }
+                )) {
+                    Text("None").tag(nil as Well?)
+                    ForEach(wells) { well in
+                        Text(well.name).tag(well as Well?)
+                    }
                 }
             }
 
@@ -326,6 +388,7 @@ struct ExpenseDetailViewIOS: View {
                     Button(role: .destructive) {
                         expense.receiptImageData = nil
                         expense.receiptThumbnailData = nil
+                        expense.hasReceiptAttached = false
                     } label: {
                         Label("Remove Receipt", systemImage: "trash")
                     }
@@ -340,9 +403,15 @@ struct ExpenseDetailViewIOS: View {
                     Task {
                         if let data = try? await item?.loadTransferable(type: Data.self) {
                             expense.receiptImageData = data
+                            expense.hasReceiptAttached = true
                         }
                     }
                 }
+            }
+
+            Section("Notes") {
+                TextEditor(text: $expense.notes)
+                    .frame(minHeight: 80)
             }
         }
         .navigationTitle("Expense")
@@ -355,20 +424,63 @@ struct ExpenseDetailViewIOS: View {
 private struct AddExpenseSheetIOS: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Client.companyName) private var clients: [Client]
+    @Query(sort: \Well.name) private var wells: [Well]
     @Binding var isPresented: Bool
 
+    // Basic info
     @State private var category: ExpenseCategory = .other
     @State private var vendor = ""
+    @State private var expenseDescription = ""
     @State private var amount: Double = 0
     @State private var date = Date()
-    @State private var isReimbursable = false
+
+    // Tax settings
+    @State private var province: Province = .alberta
+    @State private var taxIncludedInAmount = true
     @State private var gstAmount: Double = 0
     @State private var pstAmount: Double = 0
+
+    // Payment & reimbursement
+    @State private var paymentMethod: PaymentMethod = .creditCard
+    @State private var isReimbursable = false
+
+    // Link to job
+    @State private var selectedClient: Client?
+    @State private var selectedWell: Well?
+
+    // Notes
+    @State private var notes = ""
+
+    // Receipt
     @State private var receiptImageData: Data?
     @State private var receiptThumbnailData: Data?
     @State private var showingScanner = false
     @State private var wasOCRProcessed = false
     @State private var ocrConfidence: Double?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+
+    private var preTaxAmount: Double {
+        if taxIncludedInAmount {
+            return amount / (1 + province.totalTaxRate)
+        }
+        return amount
+    }
+
+    private var calculatedGST: Double {
+        preTaxAmount * province.gstRate
+    }
+
+    private var calculatedPST: Double {
+        preTaxAmount * province.pstRate
+    }
+
+    private var totalAmount: Double {
+        if taxIncludedInAmount {
+            return amount
+        }
+        return amount + gstAmount + pstAmount
+    }
 
     var body: some View {
         NavigationStack {
@@ -393,6 +505,21 @@ private struct AddExpenseSheetIOS: View {
                         }
                     }
 
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        Label("Choose from Library", systemImage: "photo.on.rectangle")
+                    }
+                    .onChange(of: selectedPhotoItem) { _, item in
+                        Task {
+                            if let data = try? await item?.loadTransferable(type: Data.self) {
+                                receiptImageData = data
+                                if let image = UIImage(data: data),
+                                   let thumbnail = createThumbnail(from: image, maxSize: 150) {
+                                    receiptThumbnailData = thumbnail.jpegData(compressionQuality: 0.7)
+                                }
+                            }
+                        }
+                    }
+
                     if let imageData = receiptImageData,
                        let image = UIImage(data: imageData) {
                         HStack {
@@ -404,47 +531,128 @@ private struct AddExpenseSheetIOS: View {
                                 .cornerRadius(8)
                             Spacer()
                         }
+
+                        Button(role: .destructive) {
+                            receiptImageData = nil
+                            receiptThumbnailData = nil
+                            wasOCRProcessed = false
+                        } label: {
+                            Label("Remove Receipt", systemImage: "trash")
+                        }
                     }
                 }
 
-                Section("Details") {
+                Section("Basic Info") {
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+
+                    TextField("Vendor/Merchant", text: $vendor)
+
                     Picker("Category", selection: $category) {
                         ForEach(ExpenseCategory.allCases, id: \.self) { cat in
-                            Text(cat.rawValue).tag(cat)
+                            Label(cat.rawValue, systemImage: cat.icon).tag(cat)
                         }
                     }
 
-                    TextField("Vendor", text: $vendor)
+                    TextField("Description", text: $expenseDescription)
+                }
+
+                Section("Amount & Tax") {
+                    Picker("Province", selection: $province) {
+                        ForEach(Province.allCases, id: \.self) { prov in
+                            Text(prov.rawValue).tag(prov)
+                        }
+                    }
+                    .onChange(of: province) { _, _ in
+                        recalculateTaxes()
+                    }
+
+                    Toggle("Amount includes tax", isOn: $taxIncludedInAmount)
+                        .onChange(of: taxIncludedInAmount) { _, _ in
+                            recalculateTaxes()
+                        }
 
                     HStack {
-                        Text("Amount")
+                        Text(taxIncludedInAmount ? "Total Amount" : "Pre-tax Amount")
                         Spacer()
                         TextField("Amount", value: $amount, format: .number)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 100)
                     }
+                    .onChange(of: amount) { _, _ in
+                        recalculateTaxes()
+                    }
 
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    HStack {
+                        Text("GST (5%)")
+                        Spacer()
+                        if taxIncludedInAmount {
+                            Text(calculatedGST, format: .currency(code: "CAD"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            TextField("GST", value: $gstAmount, format: .number)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                        }
+                    }
+
+                    if province == .bc {
+                        HStack {
+                            Text("PST (7%)")
+                            Spacer()
+                            if taxIncludedInAmount {
+                                Text(calculatedPST, format: .currency(code: "CAD"))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                TextField("PST", value: $pstAmount, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text(taxIncludedInAmount ? "Pre-tax Amount" : "Total")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(taxIncludedInAmount ? preTaxAmount : totalAmount, format: .currency(code: "CAD"))
+                            .fontWeight(.semibold)
+                    }
                 }
 
-                Section("Tax (if extracted)") {
-                    HStack {
-                        Text("GST")
-                        Spacer()
-                        Text(gstAmount, format: .currency(code: "CAD"))
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("PST")
-                        Spacer()
-                        Text(pstAmount, format: .currency(code: "CAD"))
-                            .foregroundStyle(.secondary)
+                Section("Payment") {
+                    Picker("Payment Method", selection: $paymentMethod) {
+                        ForEach(PaymentMethod.allCases, id: \.self) { method in
+                            Text(method.rawValue).tag(method)
+                        }
                     }
                 }
 
-                Section {
-                    Toggle("Reimbursable", isOn: $isReimbursable)
+                Section("Reimbursement") {
+                    Toggle("Reimbursable expense", isOn: $isReimbursable)
+                }
+
+                Section("Link to Job (Optional)") {
+                    Picker("Client", selection: $selectedClient) {
+                        Text("None").tag(nil as Client?)
+                        ForEach(clients) { client in
+                            Text(client.companyName).tag(client as Client?)
+                        }
+                    }
+
+                    Picker("Well", selection: $selectedWell) {
+                        Text("None").tag(nil as Well?)
+                        ForEach(wells) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+                }
+
+                Section("Notes") {
+                    TextEditor(text: $notes)
+                        .frame(minHeight: 60)
                 }
             }
             .navigationTitle("Add Expense")
@@ -466,6 +674,16 @@ private struct AddExpenseSheetIOS: View {
                     applyOCRResult(result, image: image)
                 }
             }
+        }
+    }
+
+    private func recalculateTaxes() {
+        if taxIncludedInAmount {
+            gstAmount = calculatedGST
+            pstAmount = calculatedPST
+        } else {
+            gstAmount = preTaxAmount * province.gstRate
+            pstAmount = preTaxAmount * province.pstRate
         }
     }
 
@@ -519,20 +737,28 @@ private struct AddExpenseSheetIOS: View {
     private func addExpense() {
         let expense = Expense(date: date, amount: amount, category: category)
         expense.vendor = vendor
+        expense.expenseDescription = expenseDescription
+        expense.province = province
+        expense.paymentMethod = paymentMethod
+        expense.taxIncludedInAmount = taxIncludedInAmount
         expense.isReimbursable = isReimbursable
-        expense.taxIncludedInAmount = true
+        expense.client = selectedClient
+        expense.well = selectedWell
+        expense.notes = notes
 
-        // Set tax amounts from OCR or calculate
-        if gstAmount > 0 || pstAmount > 0 {
+        // Set tax amounts
+        if taxIncludedInAmount {
+            expense.gstAmount = calculatedGST
+            expense.pstAmount = calculatedPST
+        } else {
             expense.gstAmount = gstAmount
             expense.pstAmount = pstAmount
-        } else {
-            expense.calculateTaxes()
         }
 
-        // Attach receipt if scanned
+        // Attach receipt if present
         expense.receiptImageData = receiptImageData
         expense.receiptThumbnailData = receiptThumbnailData
+        expense.hasReceiptAttached = receiptImageData != nil
         expense.wasOCRProcessed = wasOCRProcessed
         expense.ocrConfidence = ocrConfidence
 

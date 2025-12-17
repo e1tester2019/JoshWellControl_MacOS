@@ -288,7 +288,7 @@ struct MacOSSidebarView: View {
     private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
     private let expenseViews: [ViewSelection] = [.expenses, .mileage]
     private let payrollViews: [ViewSelection] = [.payroll, .employees]
-    private let dividendViews: [ViewSelection] = [.dividends]
+    private let dividendViews: [ViewSelection] = [.dividends, .shareholders]
     private let reportViews: [ViewSelection] = [.companyStatement, .expenseReport, .payrollReport]
 
     var body: some View {
@@ -519,6 +519,9 @@ struct MacOSDetailView: View {
                 .toolbar { businessSettingsToolbar }
         case .dividends:
             DividendListView()
+                .toolbar { businessSettingsToolbar }
+        case .shareholders:
+            ShareholderListView()
                 .toolbar { businessSettingsToolbar }
         case .companyStatement:
             CompanyStatementView()

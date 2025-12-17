@@ -11,15 +11,26 @@ import SwiftData
 
 struct ShareholderListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @Query(sort: \Shareholder.lastName) private var shareholders: [Shareholder]
 
     @State private var selectedShareholder: Shareholder?
     @State private var showingAddShareholder = false
+    @State private var showActiveOnly = true
+
+    private var filteredShareholders: [Shareholder] {
+        if showActiveOnly {
+            return shareholders.filter { $0.isActive }
+        }
+        return shareholders
+    }
 
     var body: some View {
         NavigationStack {
-            Group {
+            List {
+                Section {
+                    Toggle("Show active only", isOn: $showActiveOnly)
+                }
+
                 if shareholders.isEmpty {
                     ContentUnavailableView {
                         Label("No Shareholders", systemImage: "person.2")
@@ -31,30 +42,30 @@ struct ShareholderListView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
-                } else {
-                    List(selection: $selectedShareholder) {
-                        ForEach(shareholders) { shareholder in
-                            ShareholderRow(shareholder: shareholder)
-                                .tag(shareholder)
-                                .contextMenu {
-                                    Button("Edit") {
-                                        selectedShareholder = shareholder
-                                    }
-                                    Divider()
-                                    Button("Delete", role: .destructive) {
-                                        modelContext.delete(shareholder)
-                                    }
-                                }
+                } else if filteredShareholders.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Active Shareholders", systemImage: "person.2")
+                    } description: {
+                        Text("All shareholders are inactive")
+                    } actions: {
+                        Button("Show All") {
+                            showActiveOnly = false
                         }
+                        .buttonStyle(.bordered)
                     }
-                    .listStyle(.inset(alternatesRowBackgrounds: true))
+                } else {
+                    ForEach(filteredShareholders) { shareholder in
+                        ShareholderRow(shareholder: shareholder)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedShareholder = shareholder
+                            }
+                    }
+                    .onDelete(perform: deleteShareholders)
                 }
             }
             .navigationTitle("Shareholders")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingAddShareholder = true
@@ -63,14 +74,21 @@ struct ShareholderListView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingAddShareholder) {
+                ShareholderEditorView(shareholder: nil)
+            }
+            .sheet(item: $selectedShareholder) { shareholder in
+                ShareholderEditorView(shareholder: shareholder)
+            }
         }
-        .frame(minWidth: 500, minHeight: 400)
-        .sheet(isPresented: $showingAddShareholder) {
-            ShareholderEditorView(shareholder: nil)
+    }
+
+    private func deleteShareholders(at offsets: IndexSet) {
+        for index in offsets {
+            let shareholder = filteredShareholders[index]
+            modelContext.delete(shareholder)
         }
-        .sheet(item: $selectedShareholder) { shareholder in
-            ShareholderEditorView(shareholder: shareholder)
-        }
+        try? modelContext.save()
     }
 }
 
@@ -85,31 +103,30 @@ struct ShareholderRow: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(shareholder.fullName)
-                        .fontWeight(.medium)
+            // Status indicator
+            Circle()
+                .fill(shareholder.isActive ? Color.green : Color.gray)
+                .frame(width: 10, height: 10)
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text(shareholder.fullName)
+                    .fontWeight(.medium)
+
+                HStack(spacing: 8) {
+                    Text("\(shareholder.ownershipPercent, specifier: "%.1f")% ownership")
                     if !shareholder.isActive {
                         Text("Inactive")
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(4)
                     }
                 }
-
-                Text("\(shareholder.ownershipPercent, specifier: "%.1f")% ownership")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(shareholder.totalDividends(for: currentYear), format: .currency(code: "CAD"))
-                    .fontWeight(.medium)
+                    .fontWeight(.semibold)
 
                 Text("\(currentYear) YTD")
                     .font(.caption)
