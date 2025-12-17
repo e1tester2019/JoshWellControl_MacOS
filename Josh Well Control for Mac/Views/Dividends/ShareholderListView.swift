@@ -5,7 +5,6 @@
 //  Created by Josh Sallows on 2025-12-08.
 //
 
-#if os(macOS)
 import SwiftUI
 import SwiftData
 
@@ -201,7 +200,9 @@ struct ShareholderEditorView: View {
                         .frame(minHeight: 60)
                 }
             }
+            #if os(macOS)
             .formStyle(.grouped)
+            #endif
             .navigationTitle(shareholder == nil ? "Add Shareholder" : "Edit Shareholder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -214,7 +215,9 @@ struct ShareholderEditorView: View {
             }
             .onAppear { loadShareholder() }
         }
+        #if os(macOS)
         .frame(minWidth: 450, minHeight: 500)
+        #endif
     }
 
     private func loadShareholder() {
@@ -256,4 +259,3 @@ struct ShareholderEditorView: View {
 #Preview {
     ShareholderListView()
 }
-#endif

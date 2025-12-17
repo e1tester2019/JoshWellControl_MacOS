@@ -372,30 +372,76 @@ struct ActiveTripTrackingViewIOS: View {
     @State private var showingStopConfirmation = false
     @State private var purpose = ""
     @State private var hasInitializedLocation = false
+    @State private var followsUserLocation = true
     // Default to a valid region (will be updated with actual location)
     @State private var mapPosition: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 53.5, longitude: -113.5),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     ))
 
+    // Get route coordinates from service for live display
+    private var routeCoordinates: [CLLocationCoordinate2D] {
+        locationService.currentRoutePoints.map { $0.coordinate }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Map
-                Map(position: $mapPosition) {
+                // Map with route line
+                Map(position: $mapPosition, interactionModes: .all) {
+                    // User's current location
                     UserAnnotation()
+
+                    // Route polyline (the path traveled)
+                    if routeCoordinates.count >= 2 {
+                        MapPolyline(coordinates: routeCoordinates)
+                            .stroke(.blue, lineWidth: 4)
+                    }
+
+                    // Start marker
+                    if let firstPoint = routeCoordinates.first {
+                        Annotation("Start", coordinate: firstPoint) {
+                            ZStack {
+                                Circle()
+                                    .fill(.green)
+                                    .frame(width: 20, height: 20)
+                                Circle()
+                                    .fill(.white)
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                    }
                 }
                 .frame(height: 300)
                 .overlay(alignment: .topTrailing) {
-                    Button {
-                        centerOnUser()
-                    } label: {
-                        Image(systemName: "location.fill")
-                            .padding(10)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
+                    VStack(spacing: 8) {
+                        Button {
+                            followsUserLocation = true
+                            centerOnUser()
+                        } label: {
+                            Image(systemName: followsUserLocation ? "location.fill" : "location")
+                                .padding(10)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+
+                        if routeCoordinates.count >= 2 {
+                            Button {
+                                followsUserLocation = false
+                                fitRouteOnMap()
+                            } label: {
+                                Image(systemName: "map")
+                                    .padding(10)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+                        }
                     }
                     .padding()
+                }
+                .onMapCameraChange { _ in
+                    // User manually moved the map
+                    followsUserLocation = false
                 }
 
                 // Trip Stats
@@ -497,7 +543,8 @@ struct ActiveTripTrackingViewIOS: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
+                    // Close button just dismisses - tracking continues in background
+                    Button(locationService.isTracking ? "Minimize" : "Close") {
                         dismiss()
                     }
                 }
@@ -511,11 +558,13 @@ struct ActiveTripTrackingViewIOS: View {
                 Text("This will end the current trip and save it to your mileage log.")
             }
             .onChange(of: locationService.currentLocation) { _, newLocation in
-                if let location = newLocation {
-                    mapPosition = .region(MKCoordinateRegion(
-                        center: location.coordinate,
-                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-                    ))
+                if let location = newLocation, followsUserLocation {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        mapPosition = .region(MKCoordinateRegion(
+                            center: location.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                        ))
+                    }
                 }
             }
             .onAppear {
@@ -523,7 +572,7 @@ struct ActiveTripTrackingViewIOS: View {
                 if let currentLoc = locationService.currentLocation, !hasInitializedLocation {
                     mapPosition = .region(MKCoordinateRegion(
                         center: currentLoc.coordinate,
-                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
                     ))
                     hasInitializedLocation = true
                 }
@@ -536,7 +585,7 @@ struct ActiveTripTrackingViewIOS: View {
                     if !hasInitializedLocation {
                         mapPosition = .region(MKCoordinateRegion(
                             center: location.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
                         ))
                         hasInitializedLocation = true
                     }
@@ -549,6 +598,7 @@ struct ActiveTripTrackingViewIOS: View {
 
     private func startTracking() {
         locationService.startActiveTracking()
+        followsUserLocation = true
         centerOnUser()
     }
 
@@ -596,9 +646,42 @@ struct ActiveTripTrackingViewIOS: View {
 
     private func centerOnUser() {
         if let location = locationService.currentLocation {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                mapPosition = .region(MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                ))
+            }
+        }
+    }
+
+    private func fitRouteOnMap() {
+        guard routeCoordinates.count >= 2 else { return }
+
+        var minLat = routeCoordinates[0].latitude
+        var maxLat = routeCoordinates[0].latitude
+        var minLon = routeCoordinates[0].longitude
+        var maxLon = routeCoordinates[0].longitude
+
+        for coord in routeCoordinates {
+            minLat = min(minLat, coord.latitude)
+            maxLat = max(maxLat, coord.latitude)
+            minLon = min(minLon, coord.longitude)
+            maxLon = max(maxLon, coord.longitude)
+        }
+
+        let centerLat = (minLat + maxLat) / 2
+        let centerLon = (minLon + maxLon) / 2
+        var latDelta = (maxLat - minLat) * 1.3
+        var lonDelta = (maxLon - minLon) * 1.3
+
+        latDelta = max(latDelta, 0.01)
+        lonDelta = max(lonDelta, 0.01)
+
+        withAnimation(.easeInOut(duration: 0.5)) {
             mapPosition = .region(MKCoordinateRegion(
-                center: location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon),
+                span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
             ))
         }
     }
@@ -1054,6 +1137,8 @@ struct MileageDetailViewIOS: View {
 struct TripMapView: View {
     let log: MileageLog
 
+    @State private var cameraPosition: MapCameraPosition = .automatic
+
     var startCoordinate: CLLocationCoordinate2D? {
         guard let lat = log.startLatitude, let lon = log.startLongitude else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
@@ -1064,50 +1149,93 @@ struct TripMapView: View {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    var region: MKCoordinateRegion {
-        guard let start = startCoordinate, let end = endCoordinate else {
-            return MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: 53.5461, longitude: -113.4938),
-                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-            )
+    /// Get route coordinates from stored route points, or fall back to start/end
+    var routeCoordinates: [CLLocationCoordinate2D] {
+        guard let points = log.routePoints, !points.isEmpty else {
+            // Just use start and end
+            var coords: [CLLocationCoordinate2D] = []
+            if let start = startCoordinate { coords.append(start) }
+            if let end = endCoordinate { coords.append(end) }
+            return coords
         }
-
-        let centerLat = (start.latitude + end.latitude) / 2
-        let centerLon = (start.longitude + end.longitude) / 2
-        let latDelta = abs(start.latitude - end.latitude) * 1.5 + 0.01
-        let lonDelta = abs(start.longitude - end.longitude) * 1.5 + 0.01
-
-        return MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon),
-            span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        )
-    }
-
-    var annotations: [TripAnnotation] {
-        var result: [TripAnnotation] = []
-        if let start = startCoordinate {
-            result.append(TripAnnotation(coordinate: start, isStart: true))
-        }
-        if let end = endCoordinate {
-            result.append(TripAnnotation(coordinate: end, isStart: false))
-        }
-        return result
+        return points
+            .sorted { $0.timestamp < $1.timestamp }
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
     }
 
     var body: some View {
-        Map(initialPosition: .region(region)) {
-            ForEach(annotations) { annotation in
-                Annotation("", coordinate: annotation.coordinate) {
-                    Circle()
-                        .fill(annotation.isStart ? .green : .red)
-                        .frame(width: 16, height: 16)
-                        .overlay {
-                            Circle()
-                                .stroke(.white, lineWidth: 2)
-                        }
+        Map(position: $cameraPosition) {
+            // Route polyline
+            if routeCoordinates.count >= 2 {
+                MapPolyline(coordinates: routeCoordinates)
+                    .stroke(.blue, lineWidth: 4)
+            }
+
+            // Start marker
+            if let start = startCoordinate {
+                Annotation("Start", coordinate: start) {
+                    ZStack {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 20, height: 20)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+            }
+
+            // End marker
+            if let end = endCoordinate {
+                Annotation("End", coordinate: end) {
+                    ZStack {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 20, height: 20)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 8, height: 8)
+                    }
                 }
             }
         }
+        .mapStyle(.standard)
+        .onAppear {
+            calculateCameraPosition()
+        }
+    }
+
+    private func calculateCameraPosition() {
+        guard !routeCoordinates.isEmpty else { return }
+
+        var minLat = routeCoordinates[0].latitude
+        var maxLat = routeCoordinates[0].latitude
+        var minLon = routeCoordinates[0].longitude
+        var maxLon = routeCoordinates[0].longitude
+
+        for coord in routeCoordinates {
+            minLat = min(minLat, coord.latitude)
+            maxLat = max(maxLat, coord.latitude)
+            minLon = min(minLon, coord.longitude)
+            maxLon = max(maxLon, coord.longitude)
+        }
+
+        let centerLat = (minLat + maxLat) / 2
+        let centerLon = (minLon + maxLon) / 2
+        let padding = 0.3
+
+        var latDelta = (maxLat - minLat) * (1 + padding)
+        var lonDelta = (maxLon - minLon) * (1 + padding)
+
+        // Ensure minimum span
+        latDelta = max(latDelta, 0.01)
+        lonDelta = max(lonDelta, 0.01)
+
+        let center = CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon)
+        let span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+        let region = MKCoordinateRegion(center: center, span: span)
+
+        cameraPosition = .region(region)
     }
 }
 

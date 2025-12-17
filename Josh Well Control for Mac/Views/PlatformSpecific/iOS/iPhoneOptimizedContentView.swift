@@ -202,6 +202,22 @@ struct iPhoneOptimizedContentView: View {
                     noProjectSelectedRow
                 }
             }
+
+            Section("Equipment") {
+                NavigationLink {
+                    AllMaterialTransfersViewIOS()
+                } label: {
+                    Label("Material Transfers", systemImage: "shippingbox")
+                }
+
+                if let well = selectedWell {
+                    NavigationLink {
+                        RentalItemsViewIOS(well: well)
+                    } label: {
+                        Label(ViewSelection.rentals.title, systemImage: ViewSelection.rentals.icon)
+                    }
+                }
+            }
         }
         .navigationTitle("Technical")
         .listStyle(.insetGrouped)
@@ -339,22 +355,11 @@ struct iPhoneOptimizedContentView: View {
                 }
             }
 
-            Section("Equipment") {
-                if let well = selectedWell {
-                    NavigationLink {
-                        RentalItemsViewIOS(well: well)
-                    } label: {
-                        Label(ViewSelection.rentals.title, systemImage: ViewSelection.rentals.icon)
-                    }
-
-                    NavigationLink {
-                        MaterialTransferListViewIOS(well: well)
-                    } label: {
-                        Label(ViewSelection.transfers.title, systemImage: ViewSelection.transfers.icon)
-                    }
-                } else {
-                    Text("Select a well first")
-                        .foregroundStyle(.secondary)
+            Section("Reports") {
+                NavigationLink {
+                    CompanyStatementView()
+                } label: {
+                    Label("Company Statement", systemImage: "chart.bar.doc.horizontal")
                 }
             }
         }
@@ -380,6 +385,14 @@ struct iPhoneOptimizedContentView: View {
                     Label("Add Task", systemImage: "checkmark.circle.badge.plus")
                 }
                 .disabled(selectedWell == nil)
+            }
+
+            Section("Handover Notes") {
+                NavigationLink {
+                    WellsDashboardView()
+                } label: {
+                    Label("Wells Dashboard & Export", systemImage: "doc.text.magnifyingglass")
+                }
             }
 
             Section("Actions") {

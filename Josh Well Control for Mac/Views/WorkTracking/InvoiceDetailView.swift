@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 
 struct InvoiceDetailView: View {
@@ -303,6 +305,27 @@ struct InvoiceDetailView: View {
                 try? data.write(to: url)
                 NSWorkspace.shared.open(url)
             }
+        }
+        #elseif os(iOS)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Invoice_\(invoice.invoiceNumber).pdf")
+        do {
+            try data.write(to: tempURL)
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first?.rootViewController {
+                var presenter = rootVC
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = presenter.view
+                    popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+                presenter.present(activityVC, animated: true)
+            }
+        } catch {
+            print("Failed to write PDF: \(error)")
         }
         #endif
     }

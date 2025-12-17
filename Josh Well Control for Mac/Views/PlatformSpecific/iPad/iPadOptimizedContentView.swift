@@ -174,28 +174,113 @@ struct iPadSidebarView: View {
     @Binding var selectedView: ViewSelection
     let selectedProject: ProjectState?
 
+    // Technical sections (same as macOS)
+    private let dashboardViews: [ViewSelection] = [.padDashboard, .wellDashboard, .dashboard]
+    private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
+    private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
+    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation]
+    private let operationsViews: [ViewSelection] = [.rentals, .transfers]
+
+    // Business sections
+    private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
+    private let expenseViews: [ViewSelection] = [.expenses, .mileage]
+    private let payrollViews: [ViewSelection] = [.payroll, .employees]
+    private let dividendViews: [ViewSelection] = [.dividends, .shareholders]
+    private let reportViews: [ViewSelection] = [.companyStatement, .expenseReport, .payrollReport]
+
     var body: some View {
         List {
-            ForEach(ViewSelection.allCases) { view in
-                Button(action: {
-                    selectedView = view
-                }) {
-                    HStack {
-                        Label(view.title, systemImage: view.icon)
-                            .font(.body)
-                        Spacer()
-                        if selectedView == view {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.tint)
-                        }
-                    }
+            // Dashboards
+            Section("Dashboards") {
+                ForEach(dashboardViews, id: \.self) { view in
+                    sidebarRow(for: view)
                 }
-                .listRowBackground(selectedView == view ? Color.accentColor.opacity(0.1) : Color.clear)
+            }
+
+            // Well Geometry
+            Section("Well Geometry") {
+                ForEach(geometryViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Fluids
+            Section("Fluids") {
+                ForEach(fluidViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Analysis & Simulation
+            Section("Analysis") {
+                ForEach(analysisViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Operations
+            Section("Operations") {
+                ForEach(operationsViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Business - Income
+            Section("Income") {
+                ForEach(incomeViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Business - Expenses
+            Section("Expenses") {
+                ForEach(expenseViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Business - Payroll
+            Section("Payroll") {
+                ForEach(payrollViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Business - Dividends
+            Section("Dividends") {
+                ForEach(dividendViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Business - Reports
+            Section("Reports") {
+                ForEach(reportViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
             }
         }
         .navigationTitle("Features")
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func sidebarRow(for view: ViewSelection) -> some View {
+        Button {
+            selectedView = view
+        } label: {
+            HStack {
+                Label(view.title, systemImage: view.icon)
+                Spacer()
+                if selectedView == view {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.tint)
+                        .font(.caption)
+                }
+            }
+        }
+        .listRowBackground(selectedView == view ? Color.accentColor.opacity(0.15) : Color.clear)
     }
 }
 
@@ -222,69 +307,7 @@ struct iPadDetailView: View {
     var body: some View {
         Group {
             if let project = selectedProject {
-                switch selectedView {
-                case .handover:
-                    ContentUnavailableView("Handover", systemImage: "list.clipboard", description: Text("Handover view is optimized for macOS. Use Pad/Well dashboards on iPad."))
-                case .padDashboard:
-                    if let pad = selectedPad {
-                        PadDashboardView(pad: pad, onSelectWell: { well in
-                            selectedWellBinding = well
-                            selectedViewBinding = .wellDashboard
-                        })
-                    } else if let pad = selectedWell?.pad {
-                        PadDashboardView(pad: pad, onSelectWell: { well in
-                            selectedWellBinding = well
-                            selectedViewBinding = .wellDashboard
-                        })
-                    } else {
-                        ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad or assign a pad to the current well"))
-                    }
-                case .wellDashboard:
-                    if let well = selectedWell {
-                        WellDashboardView(well: well, onSelectProject: { project in
-                            selectedProjectBinding = project
-                            selectedViewBinding = .dashboard
-                        })
-                    } else {
-                        ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
-                    }
-                case .dashboard:
-                    ProjectDashboardView(project: project)
-                case .drillString:
-                    DrillStringListView(project: project)
-                case .annulus:
-                    AnnulusListView(project: project)
-                case .volumeSummary:
-                    VolumeSummaryViewIOS(project: project)
-                case .surveys:
-                    SurveysPadView(project: project)
-                case .mudCheck:
-                    MudCheckView(project: project)
-                case .mixingCalc:
-                    MixingCalculatorView(project: project)
-                case .pressureWindow:
-                    PressureWindowView(project: project)
-                case .mudPlacement:
-                    iPadMudPlacementView(project: project)
-                case .pumpSchedule:
-                    PumpScheduleViewIOS(project: project)
-                case .cementJob:
-                    CementJobView(project: project)
-                case .swabbing:
-                    SwabbingView(project: project)
-                case .tripSimulation:
-                    TripSimulationViewIOS(project: project)
-                case .rentals:
-                    if let well = selectedWell {
-                        RentalItemsView(well: well)
-                    }
-                case .transfers:
-                    if let well = selectedWell {
-                        MaterialTransferListView(well: well)
-                    }
-                case .workTracking:
-                    WorkTrackingContainerViewIOS()
-                }
+                detailContent(for: project)
             } else {
                 ContentUnavailableView(
                     "No Project Selected",
@@ -359,6 +382,105 @@ struct iPadDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 QuickAddButton(manager: quickNoteManager)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func detailContent(for project: ProjectState) -> some View {
+        switch selectedView {
+        case .handover:
+            ContentUnavailableView("Handover", systemImage: "list.clipboard", description: Text("Handover view is optimized for macOS. Use Pad/Well dashboards on iPad."))
+                case .padDashboard:
+                    if let pad = selectedPad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else if let pad = selectedWell?.pad {
+                        PadDashboardView(pad: pad, onSelectWell: { well in
+                            selectedWellBinding = well
+                            selectedViewBinding = .wellDashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Pad Selected", systemImage: "map", description: Text("Select a pad or assign a pad to the current well"))
+                    }
+                case .wellDashboard:
+                    if let well = selectedWell {
+                        WellDashboardView(well: well, onSelectProject: { project in
+                            selectedProjectBinding = project
+                            selectedViewBinding = .dashboard
+                        })
+                    } else {
+                        ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
+                    }
+                case .dashboard:
+                    ProjectDashboardView(project: project)
+                case .drillString:
+                    DrillStringListView(project: project)
+                case .annulus:
+                    AnnulusListView(project: project)
+                case .volumeSummary:
+                    VolumeSummaryViewIOS(project: project)
+                case .surveys:
+                    SurveysPadView(project: project)
+                case .mudCheck:
+                    MudCheckView(project: project)
+                case .mixingCalc:
+                    MixingCalculatorView(project: project)
+                case .pressureWindow:
+                    PressureWindowView(project: project)
+                case .mudPlacement:
+                    iPadMudPlacementView(project: project)
+                case .pumpSchedule:
+                    PumpScheduleViewIOS(project: project)
+                case .cementJob:
+                    CementJobView(project: project)
+                case .swabbing:
+                    SwabbingView(project: project)
+                case .tripSimulation:
+                    TripSimulationViewIOS(project: project)
+                case .rentals:
+                    if let well = selectedWell {
+                        RentalItemsView(well: well)
+                    } else {
+                        ContentUnavailableView("No Well Selected", systemImage: "bag.fill", description: Text("Select a well to view rentals"))
+                    }
+                case .transfers:
+                    AllMaterialTransfersViewIOS()
+                case .workDays:
+                    WorkTrackingContainerViewIOS()
+
+                // Business - Income
+                case .invoices:
+                    InvoiceListView()
+                case .clients:
+                    ClientListView()
+
+                // Business - Expenses
+                case .expenses:
+                    ExpenseListViewIOS()
+                case .mileage:
+                    MileageLogViewIOS()
+
+                // Business - Payroll
+                case .payroll:
+                    PayrollListViewIOS()
+                case .employees:
+                    EmployeeListView()
+
+                // Business - Dividends
+                case .dividends:
+                    DividendListViewIOS()
+                case .shareholders:
+                    ShareholderListView()
+
+                // Business - Reports
+                case .companyStatement:
+                    CompanyStatementView()
+                case .expenseReport:
+                    ExpenseReportView()
+                case .payrollReport:
+                    PayrollReportView()
         }
     }
 

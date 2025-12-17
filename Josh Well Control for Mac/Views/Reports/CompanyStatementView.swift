@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 
 struct CompanyStatementView: View {
@@ -485,7 +487,6 @@ struct CompanyStatementView: View {
     }
 
     private func exportPDF() {
-        #if os(macOS)
         let summaries: [(String, FinancialSummary)]
         if statementType == .yearly {
             summaries = [("Annual", generateYearlySummary(year: selectedYear))]
@@ -505,10 +506,11 @@ struct CompanyStatementView: View {
             statementType: statementType
         ) else { return }
 
+        let typeName = statementType == .yearly ? "Annual" : "Quarterly"
+
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
-
-        let typeName = statementType == .yearly ? "Annual" : "Quarterly"
         panel.nameFieldStringValue = "Company_Statement_\(typeName)_\(selectedYear).pdf"
 
         panel.begin { response in
@@ -517,11 +519,31 @@ struct CompanyStatementView: View {
                 NSWorkspace.shared.open(url)
             }
         }
+        #elseif os(iOS)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Company_Statement_\(typeName)_\(selectedYear).pdf")
+        do {
+            try data.write(to: tempURL)
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first?.rootViewController {
+                var presenter = rootVC
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = presenter.view
+                    popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+                presenter.present(activityVC, animated: true)
+            }
+        } catch {
+            print("Failed to write PDF: \(error)")
+        }
         #endif
     }
 
     private func exportForAccountant() {
-        #if os(macOS)
         isExporting = true
 
         // Filter data for selected year
@@ -553,6 +575,7 @@ struct CompanyStatementView: View {
             summary: summary
         )
 
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.zip]
         panel.nameFieldStringValue = "Accountant_Package_\(selectedYear).zip"
@@ -576,6 +599,21 @@ struct CompanyStatementView: View {
                 }
             } else {
                 isExporting = false
+            }
+        }
+        #elseif os(iOS)
+        Task {
+            do {
+                try await AccountantExportService.shared.exportPackage(data: exportData)
+                await MainActor.run {
+                    isExporting = false
+                }
+            } catch {
+                await MainActor.run {
+                    isExporting = false
+                    exportError = error.localizedDescription
+                    showingExportError = true
+                }
             }
         }
         #endif

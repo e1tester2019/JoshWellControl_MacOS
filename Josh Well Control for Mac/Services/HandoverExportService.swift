@@ -435,6 +435,47 @@ class HandoverExportService {
     }
     #endif
 
+    #if os(iOS)
+    @MainActor
+    func exportPDF(options: ExportOptions, modelContext: ModelContext? = nil) {
+        guard let pdfData = generatePDF(options: options) else { return }
+
+        // Save to temp file
+        let filename = "Handover Report \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+
+        do {
+            try pdfData.write(to: tempURL)
+
+            // Present share sheet
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first,
+               let rootViewController = window.rootViewController {
+
+                let activityVC = UIActivityViewController(
+                    activityItems: [tempURL],
+                    applicationActivities: nil
+                )
+
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = window
+                    popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+
+                rootViewController.present(activityVC, animated: true)
+
+                // Save archive if we have a model context
+                if let context = modelContext {
+                    self.createArchive(options: options, pdfData: pdfData, modelContext: context)
+                }
+            }
+        } catch {
+            print("Error exporting PDF: \(error)")
+        }
+    }
+    #endif
+
     // MARK: - Archive Creation
 
     /// Creates an archive of the handover report for future reference

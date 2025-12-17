@@ -257,11 +257,19 @@ class FolderAccessService: ObservableObject {
     // MARK: - Private Methods
 
     private func saveBookmark(for url: URL, identifier: String) throws {
+        #if os(macOS)
         let bookmarkData = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        #else
+        let bookmarkData = try url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        #endif
 
         var bookmarks = UserDefaults.standard.dictionary(forKey: bookmarksKey) ?? [:]
         bookmarks[identifier] = bookmarkData
@@ -270,12 +278,20 @@ class FolderAccessService: ObservableObject {
 
     private func restoreBookmark(from data: Data) throws -> URL {
         var isStale = false
+        #if os(macOS)
         let url = try URL(
             resolvingBookmarkData: data,
             options: .withSecurityScope,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
+        #else
+        let url = try URL(
+            resolvingBookmarkData: data,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        #endif
 
         if isStale {
             // Bookmark is stale, try to recreate it
@@ -283,8 +299,10 @@ class FolderAccessService: ObservableObject {
             // Note: We can only refresh if we still have access
         }
 
+        #if os(macOS)
         // Start accessing the security-scoped resource
         _ = url.startAccessingSecurityScopedResource()
+        #endif
 
         return url
     }

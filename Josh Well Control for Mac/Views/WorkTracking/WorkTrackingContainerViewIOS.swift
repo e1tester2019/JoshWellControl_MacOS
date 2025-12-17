@@ -534,9 +534,44 @@ struct InvoiceDetailViewIOS: View {
                         .fontWeight(.bold)
                 }
             }
+
+            Section {
+                Button {
+                    exportPDF()
+                } label: {
+                    Label("Export PDF", systemImage: "square.and.arrow.up")
+                }
+            }
         }
         .navigationTitle("Invoice #\(invoice.invoiceNumber)")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func exportPDF() {
+        guard let data = InvoicePDFGenerator.shared.generatePDF(for: invoice) else {
+            return
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Invoice_\(invoice.invoiceNumber).pdf")
+        do {
+            try data.write(to: tempURL)
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first?.rootViewController {
+                var presenter = rootVC
+                while let presented = presenter.presentedViewController {
+                    presenter = presented
+                }
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = presenter.view
+                    popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+                presenter.present(activityVC, animated: true)
+            }
+        } catch {
+            print("Failed to write PDF: \(error)")
+        }
     }
 }
 

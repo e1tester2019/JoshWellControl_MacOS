@@ -9,6 +9,9 @@ import Foundation
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 class AccountantExportService {
     static let shared = AccountantExportService()
@@ -16,7 +19,7 @@ class AccountantExportService {
     private init() {}
 
     /// Sanitize a string for use in filenames - removes/replaces problematic characters
-    private func sanitizeFilename(_ input: any StringProtocol) -> String {
+    func sanitizeFilename(_ input: any StringProtocol) -> String {
         String(input)
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
@@ -41,6 +44,7 @@ class AccountantExportService {
         let summary: FinancialSummary
     }
 
+    #if os(macOS)
     func exportPackage(data: ExportData, to url: URL) throws {
         let fileManager = FileManager.default
 
@@ -154,10 +158,123 @@ class AccountantExportService {
             throw NSError(domain: "AccountantExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create ZIP archive"])
         }
     }
+    #endif
+
+    #if os(iOS)
+    /// Export financial data package for iOS (uses share sheet)
+    @MainActor
+    func exportPackage(data: ExportData) async throws {
+        let fileManager = FileManager.default
+        let periodName = data.quarter != nil ? "Q\(data.quarter!)_\(data.year)" : "\(data.year)"
+
+        // Create temp directory for export
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent("AccountantExport_\(periodName)")
+        try? fileManager.removeItem(at: tempDir) // Clean up any previous export
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        // Create subdirectories
+        let receiptsDir = tempDir.appendingPathComponent("receipts")
+        let invoicesDir = tempDir.appendingPathComponent("invoices")
+        let mileageDir = tempDir.appendingPathComponent("mileage")
+        try fileManager.createDirectory(at: receiptsDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: invoicesDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: mileageDir, withIntermediateDirectories: true)
+
+        // Generate mileage detail pages and map images
+        var mileageLinks: [UUID: String] = [:]
+
+        for (index, log) in data.mileageLogs.enumerated() {
+            let tripNumber = index + 1
+            let detailFilename = "trip_\(tripNumber).html"
+            mileageLinks[log.id] = detailFilename
+
+            // Generate map image if GPS data available
+            var mapFilename: String? = nil
+            if log.hasGPSData {
+                do {
+                    let mapImage = try await MapSnapshotService.shared.generateSnapshot(
+                        for: log,
+                        options: .large
+                    )
+                    if let mapData = mapImage.jpegData(compressionQuality: 0.8) {
+                        mapFilename = "trip_\(tripNumber)_map.jpg"
+                        let mapFile = mileageDir.appendingPathComponent(mapFilename!)
+                        try mapData.write(to: mapFile)
+                    }
+                } catch {
+                    print("Map generation failed for trip \(tripNumber): \(error)")
+                }
+            }
+
+            // Generate detail HTML page
+            let detailHTML = self.generateMileageDetailHTML(log: log, tripNumber: tripNumber, mapFilename: mapFilename)
+            let detailFile = mileageDir.appendingPathComponent(detailFilename)
+            try detailHTML.write(to: detailFile, atomically: true, encoding: .utf8)
+        }
+
+        // Generate and save HTML report
+        let html = generateHTML(data: data, mileageLinks: mileageLinks)
+        let htmlFile = tempDir.appendingPathComponent("financial_report.html")
+        try html.write(to: htmlFile, atomically: true, encoding: .utf8)
+
+        // Generate CSS file
+        let css = generateCSS()
+        let cssFile = tempDir.appendingPathComponent("styles.css")
+        try css.write(to: cssFile, atomically: true, encoding: .utf8)
+
+        // Export receipts
+        var receiptIndex = 1
+        for expense in data.expenses.sorted(by: { $0.date < $1.date }) {
+            if let receiptData = expense.receiptImageData {
+                let ext = expense.receiptIsPDF ? "pdf" : "jpg"
+                let filename = String(format: "%03d_%@_%@.%@",
+                    receiptIndex,
+                    expense.displayDate.replacingOccurrences(of: " ", with: "_"),
+                    sanitizeFilename(expense.vendor.prefix(20)),
+                    ext
+                )
+                let receiptFile = receiptsDir.appendingPathComponent(filename)
+                try receiptData.write(to: receiptFile)
+                receiptIndex += 1
+            }
+        }
+
+        // Export invoice PDFs
+        for invoice in data.invoices {
+            if let pdfData = InvoicePDFGenerator.shared.generatePDF(for: invoice) {
+                let filename = "Invoice_\(invoice.invoiceNumber).pdf"
+                let invoiceFile = invoicesDir.appendingPathComponent(filename)
+                try pdfData.write(to: invoiceFile)
+            }
+        }
+
+        // Collect all files to share
+        var itemsToShare: [Any] = [tempDir]
+
+        // Present share sheet
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first,
+           let rootViewController = window.rootViewController {
+
+            let activityVC = UIActivityViewController(
+                activityItems: itemsToShare,
+                applicationActivities: nil
+            )
+
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = window
+                popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+
+            rootViewController.present(activityVC, animated: true)
+        }
+    }
+    #endif
 
     // MARK: - Mileage Detail Page
 
-    private func generateMileageDetailHTML(log: MileageLog, tripNumber: Int, mapFilename: String?) -> String {
+    func generateMileageDetailHTML(log: MileageLog, tripNumber: Int, mapFilename: String?) -> String {
         let businessInfo = BusinessInfo.shared
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "d MMM yyyy"
@@ -1471,4 +1588,3 @@ class AccountantExportService {
         """
     }
 }
-#endif

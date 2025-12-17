@@ -13,6 +13,7 @@ import AppKit
 import UIKit
 #endif
 
+/// Cross-platform PDF generator for invoices
 class InvoicePDFGenerator {
     static let shared = InvoicePDFGenerator()
 

@@ -8,6 +8,10 @@
 import SwiftUI
 import SwiftData
 
+#if os(iOS)
+import UIKit
+#endif
+
 // Wrapper for new task/note target to use with sheet(item:)
 enum NewItemTarget: Identifiable {
     case well(Well)
@@ -429,7 +433,6 @@ struct WellsDashboardView: View {
     }
 
     private func performExport() {
-        #if os(macOS)
         let options = HandoverExportService.ExportOptions(
             wells: selectedWells,
             startDate: exportStartDate,
@@ -440,7 +443,6 @@ struct WellsDashboardView: View {
         )
         HandoverExportService.shared.exportPDF(options: options, modelContext: modelContext)
         showingExportSheet = false
-        #endif
     }
 
     // MARK: - Tasks Section

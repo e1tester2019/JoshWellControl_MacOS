@@ -249,7 +249,7 @@ class MudPlacementViewModel {
 // MARK: - Supporting Types
 struct FinalLayer: Identifiable, Equatable {
     let id = UUID()
-    enum Domain { case annulus, string }
+    enum Domain: Equatable { case annulus, string }
     let domain: Domain
     var top: Double
     var bottom: Double

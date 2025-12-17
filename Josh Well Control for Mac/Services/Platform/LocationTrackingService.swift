@@ -86,6 +86,11 @@ class LocationTrackingService: NSObject, ObservableObject {
     private var routePoints: [CLLocation] = []
     private var tripStartTime: Date?
 
+    /// Access current route points for live map display
+    var currentRoutePoints: [CLLocation] {
+        routePoints
+    }
+
     // Battery optimization settings
     private var desiredAccuracy: CLLocationAccuracy = kCLLocationAccuracyBest
     private var distanceFilter: CLLocationDistance = 10 // meters
