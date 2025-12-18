@@ -107,13 +107,19 @@ final class NumericalTripModel {
             ensureInvariants(bitMD: bitMD)
         }
 
-        func addBackfillFromSurface(rho: Double, volume_m3: Double, bitMD: Double) {
+        func addBackfillFromSurface(rho: Double, volume_m3: Double, bitMD: Double, color: ColorRGBA? = nil) {
             guard volume_m3 > 1e-12 else { return }
             let len = geom.lengthForAnnulusVolume_m(0.0, volume_m3)
             guard len > 1e-12 else { return }
 
-            if layers.isEmpty || abs(layers[0].topMD) > 1e-9 || abs(layers[0].rho - rho) > 1e-6 {
-                layers.insert(Layer(rho: rho, topMD: 0, bottomMD: 0, color: nil), at: 0)
+            // Check if we can merge with existing top layer (same density and color)
+            let canMerge = !layers.isEmpty
+                && abs(layers[0].topMD) < 1e-9
+                && abs(layers[0].rho - rho) < 1e-6
+                && layers[0].color == color
+
+            if !canMerge {
+                layers.insert(Layer(rho: rho, topMD: 0, bottomMD: 0, color: color), at: 0)
             }
             layers[0].bottomMD += len
             for i in 1..<layers.count {
@@ -951,18 +957,18 @@ final class NumericalTripModel {
                     var useKill = min(need, backfillRemaining)
                     if !input.switchToBaseAfterFixed { useKill = need }
                     if useKill > 1e-12 {
-                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD)
+                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD, color: input.backfillColor)
                         backfillRemaining -= useKill
                         need -= useKill
                     }
                     if need > 1e-12, input.switchToBaseAfterFixed {
-                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD)
+                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.baseMudColor)
                         need = 0.0
                     }
                 } else {
                     // No fixed volume specified: use backfillDensity for ALL backfill
                     // This is the common case where user selects a backfill mud in the UI
-                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD)
+                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.backfillColor)
                     need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)

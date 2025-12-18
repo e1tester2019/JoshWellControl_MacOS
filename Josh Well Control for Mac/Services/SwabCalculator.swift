@@ -205,10 +205,12 @@ struct SwabCalculator {
                 // Annular velocity with clinging effect
                 // Va = Vpipe × (1 + Kc) × (dispA / Aann) × eccentricityFactor
                 let Va = max(Vpipe_mps * (1.0 + clingingConstant) * (dispA / Aann) * max(eccentricityFactor, 1.0), 1e-12)
+                
+                let run = false;
 
                 #if DEBUG
                 // Log first segment only to avoid spam
-                if prof.isEmpty {
+                if prof.isEmpty && run {
                     print("[Swab] floatIsOpen=\(floatIsOpen), Do=\(String(format:"%.4f",Do)), Di=\(String(format:"%.4f",geom.pipeID_m(mdMid))), Dhole=\(String(format:"%.4f",Dhole))")
                     print("[Swab] ApipeOD=\(String(format:"%.6f",ApipeOD)), dispA=\(String(format:"%.6f",dispA)), Aann=\(String(format:"%.6f",Aann))")
                     print("[Swab] clingingConstant=\(String(format:"%.3f",clingingConstant)), eccFactor=\(eccentricityFactor)")

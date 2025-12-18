@@ -874,10 +874,17 @@ struct TripSimulationView: View {
     }
 
     private func fillColor(rho: Double, explicit: NumericalTripModel.ColorRGBA?, mdMid: Double, isAnnulus: Bool) -> Color {
+        // Air (rho ~1.2) gets a distinct light blue color
+        if rho < 10 {
+            return Color(red: 0.7, green: 0.85, blue: 1.0, opacity: 0.8)
+        }
+        // Always use explicit color if provided (from mud definition)
+        if let c = explicit { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
+        // If colorByComposition enabled, try to get from initial layer definitions
         if viewmodel.colorByComposition {
-            if let c = explicit { return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a) }
             if let c = compositionColor(at: mdMid, isAnnulus: isAnnulus) { return c }
         }
+        // Fallback to density-based greyscale
         let t = min(max((rho - 800) / 1200, 0), 1)
         return Color(white: 0.3 + 0.6 * t)
     }

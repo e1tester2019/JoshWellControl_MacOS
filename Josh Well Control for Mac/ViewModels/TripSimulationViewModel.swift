@@ -102,6 +102,17 @@ extension TripSimulationView {
       let fallbackTheta600 = activeMud?.dial600
       let fallbackTheta300 = activeMud?.dial300
 
+      // Get backfill mud and its color
+      let backfillMud = backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+      let backfillColor: NumericalTripModel.ColorRGBA? = backfillMud.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      } ?? activeMud.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      }
+      let baseMudColor: NumericalTripModel.ColorRGBA? = activeMud.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      }
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in project.tvd(of: md) },
         shoeTVD_m: project.tvd(of: shoeMD_m),
@@ -110,11 +121,9 @@ extension TripSimulationView {
         crackFloat_kPa: crackFloat_kPa,
         step_m: step_m,
         baseMudDensity_kgpm3: (activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
-        backfillDensity_kgpm3: (
-            (backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id })?.density_kgm3 })
-            ?? activeMud?.density_kgm3
-            ?? backfillDensity_kgpm3
-        ),
+        backfillDensity_kgpm3: (backfillMud?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
+        backfillColor: backfillColor,
+        baseMudColor: baseMudColor,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,
@@ -424,6 +433,17 @@ extension TripSimulationViewIOS {
       let fallbackTheta600 = activeMud?.dial600
       let fallbackTheta300 = activeMud?.dial300
 
+      // Get backfill mud and its color
+      let backfillMud2 = backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+      let backfillColor2: NumericalTripModel.ColorRGBA? = backfillMud2.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      } ?? activeMud.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      }
+      let baseMudColor2: NumericalTripModel.ColorRGBA? = activeMud.map {
+        NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
+      }
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in project.tvd(of: md) },
         shoeTVD_m: project.tvd(of: shoeMD_m),
@@ -432,11 +452,9 @@ extension TripSimulationViewIOS {
         crackFloat_kPa: crackFloat_kPa,
         step_m: step_m,
         baseMudDensity_kgpm3: (activeMud?.density_kgm3 ?? baseMudDensity_kgpm3),
-        backfillDensity_kgpm3: (
-            (backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id })?.density_kgm3 })
-            ?? activeMud?.density_kgm3
-            ?? backfillDensity_kgpm3
-        ),
+        backfillDensity_kgpm3: (backfillMud2?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
+        backfillColor: backfillColor2,
+        baseMudColor: baseMudColor2,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,

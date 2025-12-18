@@ -837,7 +837,7 @@ class TripSimulationHTMLGenerator {
             drawWellboreColumn('string-canvas', step.layersString, step.bitMD, 'string');
             drawWellboreColumn('annulus-right', step.layersAnnulus, step.bitMD, 'annulus');
 
-            // Draw pocket on full-width overlay
+            // Draw pocket overlay
             drawPocketOverlay(step.layersPocket, step.bitMD);
 
             // Draw depth scale markers (TVD on left, MD on right)
@@ -981,6 +981,10 @@ class TripSimulationHTMLGenerator {
         }
 
         function densityToColor(rho) {
+            // Air (rho ~1.2) gets a distinct light blue color
+            if (rho < 10) {
+                return 'rgba(180, 215, 255, 0.8)';
+            }
             // Map density to grayscale (lighter = lighter mud)
             const t = Math.min(Math.max((rho - 800) / 1200, 0), 1);
             const v = Math.round(80 + 150 * (1 - t));
