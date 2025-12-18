@@ -304,6 +304,12 @@ struct iPhoneOptimizedContentView: View {
                     } label: {
                         Label(ViewSelection.tripSimulation.title, systemImage: ViewSelection.tripSimulation.icon)
                     }
+
+                    NavigationLink {
+                        TripTrackerViewIOS(project: project)
+                    } label: {
+                        Label(ViewSelection.tripTracker.title, systemImage: ViewSelection.tripTracker.icon)
+                    }
                 } else {
                     noProjectSelectedRow
                 }

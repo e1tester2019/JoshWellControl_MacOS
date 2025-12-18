@@ -938,19 +938,27 @@ class TripSimulationHTMLGenerator {
 
         function drawPocketOverlay(layers, bitMD) {
             const overlay = document.getElementById('pocket-overlay');
-            const container = document.querySelector('.well-columns-container');
+            const wellboreDisplay = document.querySelector('.wellbore-display');
             const leftCanvas = document.getElementById('annulus-left');
-            if (!overlay || !container || !leftCanvas) return;
+            const rightCanvas = document.getElementById('annulus-right');
+            if (!overlay || !wellboreDisplay || !leftCanvas || !rightCanvas) return;
 
-            // Position overlay to match the columns area (below headers)
-            const containerRect = container.getBoundingClientRect();
+            // Get positions relative to the wellbore-display (which has position:relative)
+            const displayRect = wellboreDisplay.getBoundingClientRect();
             const leftRect = leftCanvas.getBoundingClientRect();
-            const headerHeight = leftRect.top - containerRect.top;
+            const rightRect = rightCanvas.getBoundingClientRect();
 
-            overlay.style.left = (leftRect.left - containerRect.left + container.offsetLeft) + 'px';
-            overlay.style.top = (headerHeight + 20) + 'px'; // 20px is padding
-            overlay.width = containerRect.width;
+            // Position overlay to span exactly from annulus-left to annulus-right
+            const overlayLeft = leftRect.left - displayRect.left;
+            const overlayTop = leftRect.top - displayRect.top;
+            const overlayWidth = rightRect.right - leftRect.left;
+
+            overlay.style.left = overlayLeft + 'px';
+            overlay.style.top = overlayTop + 'px';
+            overlay.width = overlayWidth;
             overlay.height = leftCanvas.height;
+            overlay.style.width = overlayWidth + 'px';
+            overlay.style.height = leftCanvas.height + 'px';
 
             const ctx = overlay.getContext('2d');
             if (!ctx) return;

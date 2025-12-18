@@ -24,6 +24,7 @@ final class MudProperties {
     @Relationship(inverse: \PumpProgramStage.mud) var pumpStages: [PumpProgramStage]?
     @Relationship(deleteRule: .nullify, inverse: \CementJobStage.mud) var cementStages: [CementJobStage]?
     @Relationship(deleteRule: .nullify, inverse: \TripSimulation.backfillMud) var tripSimulationsAsBackfill: [TripSimulation]?
+    @Relationship(deleteRule: .nullify, inverse: \TripTrack.backfillMud) var tripTracksAsBackfill: [TripTrack]?
 
     var name: String = ""
     var density_kgm3: Double = 0.0

@@ -12,7 +12,8 @@ enum AppContainer {
     // Increment this when schema changes require a local store wipe
     // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
     // v3: Added TripSimulation and TripSimulationStep models
-    private static let schemaVersion = 3
+    // v4: Added TripTrack and TripTrackStep models for process-based trip tracking
+    private static let schemaVersion = 4
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     private static func shouldWipeForSchemaMigration() -> Bool {
@@ -71,7 +72,9 @@ enum AppContainer {
             Pad.self,
             HandoverReportArchive.self,
             TripSimulation.self,
-            TripSimulationStep.self
+            TripSimulationStep.self,
+            TripTrack.self,
+            TripTrackStep.self
         ]
         let fullSchema = Schema(models)
 

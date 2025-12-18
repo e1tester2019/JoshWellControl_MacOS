@@ -269,6 +269,8 @@ final class NumericalTripModel {
         var step_m: Double = 10.0
         var baseMudDensity_kgpm3: Double
         var backfillDensity_kgpm3: Double
+        var backfillColor: ColorRGBA? = nil
+        var baseMudColor: ColorRGBA? = nil
         var fixedBackfillVolume_m3: Double = 0
         var switchToBaseAfterFixed: Bool = true
         var targetESDAtTD_kgpm3: Double
@@ -621,15 +623,18 @@ final class NumericalTripModel {
             }
         }
 
-        // Main Trip Loop
-        // Use 1m internal steps for precise float state checking
-        // Record results every step_m (user-defined step interval)
-        let internalStep: Double = 1.0  // 1m internal step for float checking
+        // Main Trip Loop - Adaptive Stepping
+        // Use coarse steps (5m) when float is solidly closed
+        // Fall back to fine steps (1m) near float transitions or when float is open
+        let fineStep: Double = 1.0           // 1m for precision near transitions
+        let coarseStep: Double = 5.0         // 5m when float is solidly closed
+        let marginForCoarse_kPa: Double = 50.0  // Pressure margin needed for coarse stepping
+
         var lastRecordedMD = bitMD  // Track when we last recorded a result
         var lastProgressReportMD = bitMD  // Track when we last reported progress
-        let progressReportInterval: Double = 10.0  // Report progress every 10m
+        let progressReportInterval: Double = 100.0  // Report progress every 100m (was 10m)
 
-        // Step-level volume tracking (accumulated across internal 1m steps until recorded)
+        // Step-level volume tracking (accumulated across internal steps until recorded)
         var stepBackfill_m3: Double = 0.0
         var stepSlugContribution_m3: Double = 0.0
         var stepPitGain_m3: Double = 0.0
@@ -646,12 +651,28 @@ final class NumericalTripModel {
         let floatTolerance_kPa: Double = 5.0
 
         while bitMD > input.endMD_m + 1e-9 {
-            // Calculate next position: move by 1m internally
-            let nextMD = max(input.endMD_m, bitMD - internalStep)
+            // Check float state and pressure margin to determine step size
+            var Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
+            var Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD)
+            var floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
+            let pressureMargin = Pann_bit + floatTolerance_kPa - Pstr_bit
+
+            // Adaptive step size: use coarse steps when float is solidly closed
+            let adaptiveStep: Double
+            if floatClosed && pressureMargin > marginForCoarse_kPa {
+                // Float solidly closed - safe to use coarse steps
+                adaptiveStep = coarseStep
+            } else {
+                // Float open or near transition - use fine steps
+                adaptiveStep = fineStep
+            }
+
+            // Calculate next position
+            let nextMD = max(input.endMD_m, bitMD - adaptiveStep)
             let dL = bitMD - nextMD
             let oldBitMD = bitMD
 
-            // Calculate expected fill volumes for this 1m step (before knowing float state)
+            // Calculate expected fill volumes for this step
             // DP Wet = Pipe OD volume (capacity + displacement)
             // DP Dry = Steel displacement only (metal ring area)
             let expectedIfClosed = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)  // DP Wet
@@ -659,13 +680,7 @@ final class NumericalTripModel {
             stepExpectedIfClosed_m3 += expectedIfClosed
             stepExpectedIfOpen_m3 += expectedIfOpen
 
-            // Float state before carving
-            // Float opens when string pressure exceeds annulus pressure by more than tolerance
-            var Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: oldBitMD)
-            var Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
-            var floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
-
-            // Report progress periodically
+            // Report progress periodically (less frequently now)
             if lastProgressReportMD - bitMD >= progressReportInterval {
                 lastProgressReportMD = bitMD
                 onProgress?(TripProgress(
@@ -675,7 +690,7 @@ final class NumericalTripModel {
                     endMD_m: input.endMD_m,
                     floatState: floatClosed ? "CLOSED" : "OPEN",
                     equalizationIterations: 0,
-                    message: "Tripping at \(String(format: "%.0f", bitMD))m MD - Float \(floatClosed ? "CLOSED" : "OPEN")"
+                    message: "Tripping at \(String(format: "%.0f", bitMD))m MD"
                 ))
             }
 
@@ -689,8 +704,8 @@ final class NumericalTripModel {
                 while eqIterations < maxEqIterations {
                     eqIterations += 1
 
-                    // Report progress every 50 iterations during mid-trip equalization
-                    if eqIterations % 50 == 0 {
+                    // Report progress every 200 iterations during equalization (was 50)
+                    if eqIterations % 200 == 0 {
                         onProgress?(TripProgress(
                             phase: .stepEqualization,
                             currentMD_m: bitMD,
@@ -698,7 +713,7 @@ final class NumericalTripModel {
                             endMD_m: input.endMD_m,
                             floatState: "OPEN",
                             equalizationIterations: eqIterations,
-                            message: "Float cracked at \(String(format: "%.0f", bitMD))m - equalizing (\(eqIterations) iterations)"
+                            message: "Equalizing at \(String(format: "%.0f", bitMD))m"
                         ))
                     }
 
@@ -924,20 +939,30 @@ final class NumericalTripModel {
                 needBefore = geom.steelDisplacement_m2(oldBitMD) * dL  // DP Dry
             }
             var need = needBefore
-            // Tracking placeholders commented out to silence warnings
-            // var _usedKill = 0.0, _usedBase = 0.0
             if need > 1e-12 {
-                var useKill = min(need, backfillRemaining)
-                if !input.switchToBaseAfterFixed { useKill = need }
-                if useKill > 1e-12 {
-                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD)
-                    backfillRemaining -= useKill
-                    need -= useKill
-                    // _usedKill = useKill
-                }
-                if need > 1e-12, input.switchToBaseAfterFixed {
-                    annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD)
-                    // _usedBase = need
+                // Determine which density to use for backfill:
+                // - If fixedBackfillVolume was set and we still have some, use backfillDensity
+                // - If fixedBackfillVolume was set but depleted and switchToBaseAfterFixed, use baseMudDensity
+                // - If no fixedBackfillVolume was set (0), always use backfillDensity (user's selected mud)
+                let hasFixedVolume = input.fixedBackfillVolume_m3 > 1e-12
+
+                if hasFixedVolume {
+                    // Original behavior: pump fixed volume of backfill, then switch to base
+                    var useKill = min(need, backfillRemaining)
+                    if !input.switchToBaseAfterFixed { useKill = need }
+                    if useKill > 1e-12 {
+                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD)
+                        backfillRemaining -= useKill
+                        need -= useKill
+                    }
+                    if need > 1e-12, input.switchToBaseAfterFixed {
+                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD)
+                        need = 0.0
+                    }
+                } else {
+                    // No fixed volume specified: use backfillDensity for ALL backfill
+                    // This is the common case where user selects a backfill mud in the UI
+                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD)
                     need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)

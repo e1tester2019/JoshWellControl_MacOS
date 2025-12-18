@@ -31,6 +31,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case cementJob
     case swabbing
     case tripSimulation
+    case tripTracker
 
     // Operations
     case rentals
@@ -106,7 +107,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing:
             return .operations
-        case .pumpSchedule, .cementJob, .tripSimulation:
+        case .pumpSchedule, .cementJob, .tripSimulation, .tripTracker:
             return .simulation
         case .workDays, .invoices, .clients:
             return .income
@@ -145,6 +146,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .cementJob: return "Cement Job"
         case .swabbing: return "Swabbing"
         case .tripSimulation: return "Trip Simulation"
+        case .tripTracker: return "Trip Tracker"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
         case .workDays: return "Work Days"
@@ -180,6 +182,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .cementJob: return "cylinder.split.1x2.fill"
         case .swabbing: return "arrow.up.circle.fill"
         case .tripSimulation: return "play.circle.fill"
+        case .tripTracker: return "figure.walk.circle.fill"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
         case .workDays: return "calendar"
@@ -251,6 +254,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Swabbing analysis and charts"
         case .tripSimulation:
             return "Trip simulation and modeling"
+        case .tripTracker:
+            return "Process-based step-by-step trip tracking"
         case .rentals:
             return "Equipment rental tracking"
         case .transfers:

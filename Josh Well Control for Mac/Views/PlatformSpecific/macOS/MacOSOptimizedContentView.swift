@@ -281,7 +281,7 @@ struct MacOSSidebarView: View {
 
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
-    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation]
+    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation, .tripTracker]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers]
 
     // Business sections
@@ -563,6 +563,8 @@ struct MacOSDetailView: View {
                     SwabbingView(project: project)
                 case .tripSimulation:
                     TripSimulationView(project: project)
+                case .tripTracker:
+                    TripTrackerView(project: project)
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)
