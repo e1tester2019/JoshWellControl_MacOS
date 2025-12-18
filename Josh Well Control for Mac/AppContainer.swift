@@ -11,7 +11,8 @@ import SwiftData
 enum AppContainer {
     // Increment this when schema changes require a local store wipe
     // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
-    private static let schemaVersion = 2
+    // v3: Added TripSimulation and TripSimulationStep models
+    private static let schemaVersion = 3
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     private static func shouldWipeForSchemaMigration() -> Bool {
@@ -68,7 +69,9 @@ enum AppContainer {
             WellTask.self,
             HandoverNote.self,
             Pad.self,
-            HandoverReportArchive.self
+            HandoverReportArchive.self,
+            TripSimulation.self,
+            TripSimulationStep.self
         ]
         let fullSchema = Schema(models)
 

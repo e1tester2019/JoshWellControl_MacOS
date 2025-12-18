@@ -638,6 +638,7 @@ final class NumericalTripModel {
         var stepFloatState: String = "CLOSED"
         var stepInternalCount: Int = 0      // Total internal steps in this output step
         var stepOpenCount: Int = 0          // Number of internal steps where float was OPEN
+        var stepSwabAccum_kPa: Double = 0   // Accumulated swab pressure for averaging
 
         // Float valve tolerance: allows float to open when string pressure exceeds
         // annulus pressure by more than this threshold. Accounts for numerical
@@ -952,6 +953,21 @@ final class NumericalTripModel {
                 stepOpenCount += 1
             }
 
+            // Calculate swab at this 1m internal step using current float state
+            // Accumulate for averaging over the recording interval
+            let internalSwab_kPa = calculateSwab(
+                annulusLayers: project.finalAnnulusLayersSorted,
+                bitMD: bitMD,
+                tripSpeed_m_per_s: input.tripSpeed_m_per_s,
+                eccentricityFactor: input.eccentricityFactor,
+                geom: geom,
+                tvdOfMd: tvdOfMd,
+                fallbackTheta600: input.fallbackTheta600,
+                fallbackTheta300: input.fallbackTheta300,
+                floatIsOpen: !floatClosed  // Use actual float state at this position
+            )
+            stepSwabAccum_kPa += internalSwab_kPa
+
             // Recompute pressures after fill
             Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
             Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD)
@@ -973,19 +989,8 @@ final class NumericalTripModel {
                 let totString = sum(strRows)
 
                 // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
-                // Calculate swab pressure based on annulus layers above bit
-                // Use dynamic float state for swab calculation
-                let swab_kPa = calculateSwab(
-                    annulusLayers: project.finalAnnulusLayersSorted,
-                    bitMD: bitMD,
-                    tripSpeed_m_per_s: input.tripSpeed_m_per_s,
-                    eccentricityFactor: input.eccentricityFactor,
-                    geom: geom,
-                    tvdOfMd: tvdOfMd,
-                    fallbackTheta600: input.fallbackTheta600,
-                    fallbackTheta300: input.fallbackTheta300,
-                    floatIsOpen: !floatClosed
-                )
+                // Average swab from all 1m internal steps (uses actual float state at each position)
+                let swab_kPa = stepInternalCount > 0 ? stepSwabAccum_kPa / Double(stepInternalCount) : 0.0
 
                 let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
                 if input.holdSABPOpen {
@@ -1056,6 +1061,7 @@ final class NumericalTripModel {
                 stepFloatState = "CLOSED"
                 stepInternalCount = 0
                 stepOpenCount = 0
+                stepSwabAccum_kPa = 0
             }
         }
 

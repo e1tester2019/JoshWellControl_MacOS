@@ -20,10 +20,20 @@ struct TripSimulationViewIOS: View {
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
 
+    // Query saved simulations for this project
+    @Query private var allSimulations: [TripSimulation]
+    private var savedSimulations: [TripSimulation] {
+        allSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
+    }
+
     @State private var viewmodel = ViewModel()
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
 
+    // Save dialog state
+    @State private var showingSaveDialog = false
+    @State private var saveSimulationName = ""
+    @State private var showingSavedSimulations = false
 
     // MARK: - Body
     var body: some View {
@@ -377,6 +387,26 @@ struct TripSimulationViewIOS: View {
                     .buttonStyle(.borderedProminent)
                 }
 
+                // Save button
+                Button {
+                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
+                    showingSaveDialog = true
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewmodel.steps.isEmpty)
+
+                // Load saved simulations
+                if !savedSimulations.isEmpty {
+                    Button {
+                        showingSavedSimulations = true
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 Menu {
                     Button("Export PDF Report") {
                         exportPDFReport()
@@ -392,6 +422,86 @@ struct TripSimulationViewIOS: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .buttonStyle(.bordered)
+            }
+        }
+        .sheet(isPresented: $showingSaveDialog) {
+            saveSimulationSheet
+        }
+        .sheet(isPresented: $showingSavedSimulations) {
+            savedSimulationsSheet
+        }
+    }
+
+    // MARK: - Save Simulation Sheet
+    private var saveSimulationSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Simulation Name") {
+                    TextField("Name", text: $saveSimulationName)
+                }
+
+                Section {
+                    Button("Save Simulation") {
+                        if let _ = viewmodel.saveSimulation(name: saveSimulationName, project: project, context: modelContext) {
+                            showingSaveDialog = false
+                        }
+                    }
+                    .disabled(saveSimulationName.isEmpty)
+                }
+            }
+            .navigationTitle("Save Simulation")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingSaveDialog = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - Saved Simulations Sheet
+    private var savedSimulationsSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(savedSimulations) { sim in
+                    Button {
+                        viewmodel.loadSimulation(sim, project: project)
+                        showingSavedSimulations = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(sim.name)
+                                .font(.headline)
+                            HStack {
+                                Text(sim.createdAt, style: .date)
+                                Text(sim.createdAt, style: .time)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            Text("\(sim.stepCount) steps • Max SABP: \(String(format: "%.0f", sim.maxSABP_kPa)) kPa")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            viewmodel.deleteSimulation(sim, context: modelContext)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Saved Simulations")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        showingSavedSimulations = false
+                    }
+                }
             }
         }
     }
@@ -561,6 +671,26 @@ struct TripSimulationViewIOS: View {
                     .buttonStyle(.borderedProminent)
                 }
 
+                // Save button
+                Button {
+                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
+                    showingSaveDialog = true
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewmodel.steps.isEmpty)
+
+                // Load saved simulations
+                if !savedSimulations.isEmpty {
+                    Button {
+                        showingSavedSimulations = true
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 Menu {
                     Button("Export PDF Report") {
                         exportPDFReport()
@@ -658,29 +788,32 @@ struct TripSimulationViewIOS: View {
             steps: viewmodel.steps
         )
 
-        guard let pdfData = TripSimulationPDFGenerator.shared.generatePDF(for: reportData) else {
-            exportErrorMessage = "Failed to generate PDF report."
-            showingExportErrorAlert = true
-            return
-        }
-
         let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd"
         let dateStr = dateFormatter.string(from: Date())
         let defaultName = "TripSimulation_\(wellName)_\(dateStr).pdf"
 
-        Task {
-            let success = await FileService.shared.saveFile(
-                data: pdfData,
-                defaultName: defaultName,
-                allowedFileTypes: ["pdf"]
-            )
+        // Generate PDF asynchronously using WebKit
+        TripSimulationPDFGenerator.shared.generatePDFAsync(for: reportData) { pdfData in
+            guard let pdfData = pdfData else {
+                self.exportErrorMessage = "Failed to generate PDF report."
+                self.showingExportErrorAlert = true
+                return
+            }
 
-            if !success {
-                await MainActor.run {
-                    exportErrorMessage = "Failed to save PDF report."
-                    showingExportErrorAlert = true
+            Task {
+                let success = await FileService.shared.saveFile(
+                    data: pdfData,
+                    defaultName: defaultName,
+                    allowedFileTypes: ["pdf"]
+                )
+
+                if !success {
+                    await MainActor.run {
+                        self.exportErrorMessage = "Failed to save PDF report."
+                        self.showingExportErrorAlert = true
+                    }
                 }
             }
         }

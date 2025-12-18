@@ -6,17 +6,18 @@
 //
 
 import Foundation
+import SwiftData
 
 
 extension TripSimulationView {
   @Observable
   class ViewModel {
     // Inputs
-    var startBitMD_m: Double = 5983.28
+    var startBitMD_m: Double = 0
     var endMD_m: Double = 0
-    var shoeMD_m: Double = 2910
+    var shoeMD_m: Double = 0
     var step_m: Double = 100
-    var baseMudDensity_kgpm3: Double = 1260
+    var baseMudDensity_kgpm3: Double = 1080
     var backfillDensity_kgpm3: Double = 1200
     var targetESDAtTD_kgpm3: Double = 1320
     var crackFloat_kPa: Double = 2100
@@ -58,6 +59,11 @@ extension TripSimulationView {
         startBitMD_m = maxMD
         endMD_m = 0
       }
+      // Initialize shoe depth from deepest casing section (if any)
+      let annulusSections = project.annulus ?? []
+      if let deepestCasing = annulusSections.filter({ $0.isCased }).max(by: { $0.bottomDepth_m < $1.bottomDepth_m }) {
+        shoeMD_m = deepestCasing.bottomDepth_m
+      }
       let baseActive = project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
       baseMudDensity_kgpm3 = baseActive
       backfillDensity_kgpm3 = baseActive
@@ -66,7 +72,7 @@ extension TripSimulationView {
 
       #if DEBUG
       let layerCount = (project.finalLayers ?? []).count
-      print("[TripSim] Bootstrap: found \(layerCount) final layers, startBitMD=\(startBitMD_m)")
+      print("[TripSim] Bootstrap: found \(layerCount) final layers, startBitMD=\(startBitMD_m), shoeMD=\(shoeMD_m)")
       #endif
     }
 
@@ -197,6 +203,147 @@ extension TripSimulationView {
       let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
       return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
     }
+
+    // MARK: - Persistence
+
+    /// Save the current simulation results to SwiftData
+    func saveSimulation(name: String, project: ProjectState, context: ModelContext) -> TripSimulation? {
+      guard !steps.isEmpty else { return nil }
+
+      // Look up the backfill mud if selected
+      let backfillMud: MudProperties? = backfillMudID.flatMap { id in
+        (project.muds ?? []).first(where: { $0.id == id })
+      }
+
+      let simulation = TripSimulation(
+        name: name,
+        startBitMD_m: startBitMD_m,
+        endMD_m: endMD_m,
+        shoeMD_m: shoeMD_m,
+        step_m: step_m,
+        baseMudDensity_kgpm3: baseMudDensity_kgpm3,
+        backfillDensity_kgpm3: backfillDensity_kgpm3,
+        targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
+        crackFloat_kPa: crackFloat_kPa,
+        initialSABP_kPa: initialSABP_kPa,
+        holdSABPOpen: holdSABPOpen,
+        tripSpeed_m_per_s: project.settings.tripSpeed_m_per_s,
+        eccentricityFactor: eccentricityFactor,
+        fallbackTheta600: project.activeMud?.dial600,
+        fallbackTheta300: project.activeMud?.dial300,
+        useObservedPitGain: useObservedPitGain,
+        observedInitialPitGain_m3: observedInitialPitGain_m3,
+        project: project,
+        backfillMud: backfillMud
+      )
+
+      simulation.calculatedInitialPitGain_m3 = calculatedInitialPitGain_m3
+
+      // Insert into context
+      context.insert(simulation)
+
+      // Convert runtime steps to persisted steps
+      for (index, step) in steps.enumerated() {
+        let persistedStep = TripSimulationStep(from: step, index: index)
+        simulation.addStep(persistedStep)
+      }
+
+      // Update summary results
+      simulation.updateSummaryResults()
+
+      // Link to project
+      if project.tripSimulations == nil { project.tripSimulations = [] }
+      project.tripSimulations?.append(simulation)
+      project.touchUpdated()
+
+      try? context.save()
+      return simulation
+    }
+
+    /// Load a saved simulation into the ViewModel for display
+    func loadSimulation(_ simulation: TripSimulation, project: ProjectState) {
+      // Load inputs
+      startBitMD_m = simulation.startBitMD_m
+      endMD_m = simulation.endMD_m
+      shoeMD_m = simulation.shoeMD_m
+      step_m = simulation.step_m
+      baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
+      backfillDensity_kgpm3 = simulation.backfillDensity_kgpm3
+      targetESDAtTD_kgpm3 = simulation.targetESDAtTD_kgpm3
+      crackFloat_kPa = simulation.crackFloat_kPa
+      initialSABP_kPa = simulation.initialSABP_kPa
+      holdSABPOpen = simulation.holdSABPOpen
+      eccentricityFactor = simulation.eccentricityFactor
+      useObservedPitGain = simulation.useObservedPitGain
+      observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
+      calculatedInitialPitGain_m3 = simulation.calculatedInitialPitGain_m3
+      backfillMudID = simulation.backfillMud?.id
+
+      // Convert persisted steps back to runtime TripStep objects
+      let sortedSteps = simulation.sortedSteps
+      steps = sortedSteps.map { persistedStep in
+        // Convert layer snapshots back to LayerRows
+        let pocket = persistedStep.layersPocket.map { $0.toLayerRow() }
+        let annulus = persistedStep.layersAnnulus.map { $0.toLayerRow() }
+        let string = persistedStep.layersString.map { $0.toLayerRow() }
+
+        // Compute totals from layers
+        let totalsPocket = NumericalTripModel.Totals(
+          count: pocket.count,
+          tvd_m: pocket.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: pocket.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+        let totalsAnnulus = NumericalTripModel.Totals(
+          count: annulus.count,
+          tvd_m: annulus.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: annulus.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+        let totalsString = NumericalTripModel.Totals(
+          count: string.count,
+          tvd_m: string.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: string.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+
+        return TripStep(
+          bitMD_m: persistedStep.bitMD_m,
+          bitTVD_m: persistedStep.bitTVD_m,
+          SABP_kPa: persistedStep.SABP_kPa,
+          SABP_kPa_Raw: persistedStep.SABP_kPa_Raw,
+          ESDatTD_kgpm3: persistedStep.ESDatTD_kgpm3,
+          ESDatBit_kgpm3: persistedStep.ESDatBit_kgpm3,
+          backfillRemaining_m3: persistedStep.backfillRemaining_m3,
+          swabDropToBit_kPa: persistedStep.swabDropToBit_kPa,
+          SABP_Dynamic_kPa: persistedStep.SABP_Dynamic_kPa,
+          floatState: persistedStep.floatState,
+          stepBackfill_m3: persistedStep.stepBackfill_m3,
+          cumulativeBackfill_m3: persistedStep.cumulativeBackfill_m3,
+          expectedFillIfClosed_m3: persistedStep.expectedFillIfClosed_m3,
+          expectedFillIfOpen_m3: persistedStep.expectedFillIfOpen_m3,
+          slugContribution_m3: persistedStep.slugContribution_m3,
+          cumulativeSlugContribution_m3: persistedStep.cumulativeSlugContribution_m3,
+          pitGain_m3: persistedStep.pitGain_m3,
+          cumulativePitGain_m3: persistedStep.cumulativePitGain_m3,
+          surfaceTankDelta_m3: persistedStep.surfaceTankDelta_m3,
+          cumulativeSurfaceTankDelta_m3: persistedStep.cumulativeSurfaceTankDelta_m3,
+          layersPocket: pocket,
+          layersAnnulus: annulus,
+          layersString: string,
+          totalsPocket: totalsPocket,
+          totalsAnnulus: totalsAnnulus,
+          totalsString: totalsString
+        )
+      }
+
+      // Reset selection
+      selectedIndex = steps.isEmpty ? nil : 0
+      stepSlider = 0
+    }
+
+    /// Delete a saved simulation
+    func deleteSimulation(_ simulation: TripSimulation, context: ModelContext) {
+      context.delete(simulation)
+      try? context.save()
+    }
   }
 }
 
@@ -205,11 +352,11 @@ extension TripSimulationViewIOS {
   @Observable
   class ViewModel {
     // Inputs
-    var startBitMD_m: Double = 5983.28
+    var startBitMD_m: Double = 0
     var endMD_m: Double = 0
-    var shoeMD_m: Double = 2910
+    var shoeMD_m: Double = 0
     var step_m: Double = 100
-    var baseMudDensity_kgpm3: Double = 1260
+    var baseMudDensity_kgpm3: Double = 1080
     var backfillDensity_kgpm3: Double = 1200
     var targetESDAtTD_kgpm3: Double = 1320
     var crackFloat_kPa: Double = 2100
@@ -246,6 +393,11 @@ extension TripSimulationViewIOS {
       if let maxMD = (project.finalLayers ?? []).map({ $0.bottomMD_m }).max() {
         startBitMD_m = maxMD
         endMD_m = 0
+      }
+      // Initialize shoe depth from deepest casing section (if any)
+      let annulusSections = project.annulus ?? []
+      if let deepestCasing = annulusSections.filter({ $0.isCased }).max(by: { $0.bottomDepth_m < $1.bottomDepth_m }) {
+        shoeMD_m = deepestCasing.bottomDepth_m
       }
       let baseActive = project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
       baseMudDensity_kgpm3 = baseActive
@@ -372,6 +524,147 @@ extension TripSimulationViewIOS {
 
       let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
       return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
+    }
+
+    // MARK: - Persistence
+
+    /// Save the current simulation results to SwiftData
+    func saveSimulation(name: String, project: ProjectState, context: ModelContext) -> TripSimulation? {
+      guard !steps.isEmpty else { return nil }
+
+      // Look up the backfill mud if selected
+      let backfillMud: MudProperties? = backfillMudID.flatMap { id in
+        (project.muds ?? []).first(where: { $0.id == id })
+      }
+
+      let simulation = TripSimulation(
+        name: name,
+        startBitMD_m: startBitMD_m,
+        endMD_m: endMD_m,
+        shoeMD_m: shoeMD_m,
+        step_m: step_m,
+        baseMudDensity_kgpm3: baseMudDensity_kgpm3,
+        backfillDensity_kgpm3: backfillDensity_kgpm3,
+        targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
+        crackFloat_kPa: crackFloat_kPa,
+        initialSABP_kPa: initialSABP_kPa,
+        holdSABPOpen: holdSABPOpen,
+        tripSpeed_m_per_s: project.settings.tripSpeed_m_per_s,
+        eccentricityFactor: eccentricityFactor,
+        fallbackTheta600: project.activeMud?.dial600,
+        fallbackTheta300: project.activeMud?.dial300,
+        useObservedPitGain: useObservedPitGain,
+        observedInitialPitGain_m3: observedInitialPitGain_m3,
+        project: project,
+        backfillMud: backfillMud
+      )
+
+      simulation.calculatedInitialPitGain_m3 = calculatedInitialPitGain_m3
+
+      // Insert into context
+      context.insert(simulation)
+
+      // Convert runtime steps to persisted steps
+      for (index, step) in steps.enumerated() {
+        let persistedStep = TripSimulationStep(from: step, index: index)
+        simulation.addStep(persistedStep)
+      }
+
+      // Update summary results
+      simulation.updateSummaryResults()
+
+      // Link to project
+      if project.tripSimulations == nil { project.tripSimulations = [] }
+      project.tripSimulations?.append(simulation)
+      project.touchUpdated()
+
+      try? context.save()
+      return simulation
+    }
+
+    /// Load a saved simulation into the ViewModel for display
+    func loadSimulation(_ simulation: TripSimulation, project: ProjectState) {
+      // Load inputs
+      startBitMD_m = simulation.startBitMD_m
+      endMD_m = simulation.endMD_m
+      shoeMD_m = simulation.shoeMD_m
+      step_m = simulation.step_m
+      baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
+      backfillDensity_kgpm3 = simulation.backfillDensity_kgpm3
+      targetESDAtTD_kgpm3 = simulation.targetESDAtTD_kgpm3
+      crackFloat_kPa = simulation.crackFloat_kPa
+      initialSABP_kPa = simulation.initialSABP_kPa
+      holdSABPOpen = simulation.holdSABPOpen
+      eccentricityFactor = simulation.eccentricityFactor
+      useObservedPitGain = simulation.useObservedPitGain
+      observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
+      calculatedInitialPitGain_m3 = simulation.calculatedInitialPitGain_m3
+      backfillMudID = simulation.backfillMud?.id
+
+      // Convert persisted steps back to runtime TripStep objects
+      let sortedSteps = simulation.sortedSteps
+      steps = sortedSteps.map { persistedStep in
+        // Convert layer snapshots back to LayerRows
+        let pocket = persistedStep.layersPocket.map { $0.toLayerRow() }
+        let annulus = persistedStep.layersAnnulus.map { $0.toLayerRow() }
+        let string = persistedStep.layersString.map { $0.toLayerRow() }
+
+        // Compute totals from layers
+        let totalsPocket = NumericalTripModel.Totals(
+          count: pocket.count,
+          tvd_m: pocket.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: pocket.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+        let totalsAnnulus = NumericalTripModel.Totals(
+          count: annulus.count,
+          tvd_m: annulus.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: annulus.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+        let totalsString = NumericalTripModel.Totals(
+          count: string.count,
+          tvd_m: string.reduce(0) { $0 + max(0, $1.bottomTVD - $1.topTVD) },
+          deltaP_kPa: string.reduce(0) { $0 + $1.deltaHydroStatic_kPa }
+        )
+
+        return TripStep(
+          bitMD_m: persistedStep.bitMD_m,
+          bitTVD_m: persistedStep.bitTVD_m,
+          SABP_kPa: persistedStep.SABP_kPa,
+          SABP_kPa_Raw: persistedStep.SABP_kPa_Raw,
+          ESDatTD_kgpm3: persistedStep.ESDatTD_kgpm3,
+          ESDatBit_kgpm3: persistedStep.ESDatBit_kgpm3,
+          backfillRemaining_m3: persistedStep.backfillRemaining_m3,
+          swabDropToBit_kPa: persistedStep.swabDropToBit_kPa,
+          SABP_Dynamic_kPa: persistedStep.SABP_Dynamic_kPa,
+          floatState: persistedStep.floatState,
+          stepBackfill_m3: persistedStep.stepBackfill_m3,
+          cumulativeBackfill_m3: persistedStep.cumulativeBackfill_m3,
+          expectedFillIfClosed_m3: persistedStep.expectedFillIfClosed_m3,
+          expectedFillIfOpen_m3: persistedStep.expectedFillIfOpen_m3,
+          slugContribution_m3: persistedStep.slugContribution_m3,
+          cumulativeSlugContribution_m3: persistedStep.cumulativeSlugContribution_m3,
+          pitGain_m3: persistedStep.pitGain_m3,
+          cumulativePitGain_m3: persistedStep.cumulativePitGain_m3,
+          surfaceTankDelta_m3: persistedStep.surfaceTankDelta_m3,
+          cumulativeSurfaceTankDelta_m3: persistedStep.cumulativeSurfaceTankDelta_m3,
+          layersPocket: pocket,
+          layersAnnulus: annulus,
+          layersString: string,
+          totalsPocket: totalsPocket,
+          totalsAnnulus: totalsAnnulus,
+          totalsString: totalsString
+        )
+      }
+
+      // Reset selection
+      selectedIndex = steps.isEmpty ? nil : 0
+      stepSlider = 0
+    }
+
+    /// Delete a saved simulation
+    func deleteSimulation(_ simulation: TripSimulation, context: ModelContext) {
+      context.delete(simulation)
+      try? context.save()
     }
   }
 }

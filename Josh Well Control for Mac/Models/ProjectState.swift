@@ -33,6 +33,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \SwabRun.project) var swabRuns: [SwabRun]?
     @Relationship(deleteRule: .nullify, inverse: \TripRun.project) var tripRuns: [TripRun]?
     @Relationship(deleteRule: .nullify, inverse: \CementJob.project) var cementJobs: [CementJob]?
+    @Relationship(deleteRule: .nullify, inverse: \TripSimulation.project) var tripSimulations: [TripSimulation]?
     @Relationship(deleteRule: .nullify, inverse: \WellTask.project) var tasks: [WellTask]?
     @Relationship(deleteRule: .nullify, inverse: \HandoverNote.project) var notes: [HandoverNote]?
 
@@ -371,6 +372,78 @@ extension ProjectState {
             }
 
             p.cementJobs?.append(cj)
+        }
+
+        // --- Trip Simulations (with steps) ---
+        if p.tripSimulations == nil { p.tripSimulations = [] }
+        for ts0 in (self.tripSimulations ?? []) {
+            let linkedMud: MudProperties? = ts0.backfillMud.flatMap { old in mudMap[old.id] }
+            let ts = TripSimulation(
+                name: ts0.name,
+                startBitMD_m: ts0.startBitMD_m,
+                endMD_m: ts0.endMD_m,
+                shoeMD_m: ts0.shoeMD_m,
+                step_m: ts0.step_m,
+                baseMudDensity_kgpm3: ts0.baseMudDensity_kgpm3,
+                backfillDensity_kgpm3: ts0.backfillDensity_kgpm3,
+                targetESDAtTD_kgpm3: ts0.targetESDAtTD_kgpm3,
+                crackFloat_kPa: ts0.crackFloat_kPa,
+                initialSABP_kPa: ts0.initialSABP_kPa,
+                holdSABPOpen: ts0.holdSABPOpen,
+                tripSpeed_m_per_s: ts0.tripSpeed_m_per_s,
+                eccentricityFactor: ts0.eccentricityFactor,
+                fallbackTheta600: ts0.fallbackTheta600,
+                fallbackTheta300: ts0.fallbackTheta300,
+                useObservedPitGain: ts0.useObservedPitGain,
+                observedInitialPitGain_m3: ts0.observedInitialPitGain_m3,
+                project: p,
+                backfillMud: linkedMud
+            )
+            ts.calculatedInitialPitGain_m3 = ts0.calculatedInitialPitGain_m3
+            ts.maxSABP_kPa = ts0.maxSABP_kPa
+            ts.maxESD_kgpm3 = ts0.maxESD_kgpm3
+            ts.minESD_kgpm3 = ts0.minESD_kgpm3
+            ts.totalBackfill_m3 = ts0.totalBackfill_m3
+            ts.totalPitGain_m3 = ts0.totalPitGain_m3
+            ts.finalTankDelta_m3 = ts0.finalTankDelta_m3
+            ts.createdAt = ts0.createdAt
+            ts.updatedAt = ts0.updatedAt
+
+            // Clone steps
+            if ts.steps == nil { ts.steps = [] }
+            for step0 in (ts0.steps ?? []).sorted(by: { $0.stepIndex < $1.stepIndex }) {
+                let step = TripSimulationStep(
+                    stepIndex: step0.stepIndex,
+                    bitMD_m: step0.bitMD_m,
+                    bitTVD_m: step0.bitTVD_m,
+                    SABP_kPa: step0.SABP_kPa,
+                    SABP_kPa_Raw: step0.SABP_kPa_Raw,
+                    SABP_Dynamic_kPa: step0.SABP_Dynamic_kPa,
+                    ESDatTD_kgpm3: step0.ESDatTD_kgpm3,
+                    ESDatBit_kgpm3: step0.ESDatBit_kgpm3,
+                    swabDropToBit_kPa: step0.swabDropToBit_kPa,
+                    floatState: step0.floatState,
+                    stepBackfill_m3: step0.stepBackfill_m3,
+                    cumulativeBackfill_m3: step0.cumulativeBackfill_m3,
+                    expectedFillIfClosed_m3: step0.expectedFillIfClosed_m3,
+                    expectedFillIfOpen_m3: step0.expectedFillIfOpen_m3,
+                    slugContribution_m3: step0.slugContribution_m3,
+                    cumulativeSlugContribution_m3: step0.cumulativeSlugContribution_m3,
+                    pitGain_m3: step0.pitGain_m3,
+                    cumulativePitGain_m3: step0.cumulativePitGain_m3,
+                    surfaceTankDelta_m3: step0.surfaceTankDelta_m3,
+                    cumulativeSurfaceTankDelta_m3: step0.cumulativeSurfaceTankDelta_m3,
+                    backfillRemaining_m3: step0.backfillRemaining_m3,
+                    simulation: ts
+                )
+                // Copy layer data directly (already JSON encoded)
+                step.layersAnnulusData = step0.layersAnnulusData
+                step.layersStringData = step0.layersStringData
+                step.layersPocketData = step0.layersPocketData
+                ts.steps?.append(step)
+            }
+
+            p.tripSimulations?.append(ts)
         }
 
         // --- Singletons (force unwrap safe because init() creates them) ---

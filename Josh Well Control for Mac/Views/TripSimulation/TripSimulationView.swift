@@ -31,9 +31,21 @@ struct TripSimulationView: View {
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
 
+    // Query saved simulations for this project
+    @Query private var allSimulations: [TripSimulation]
+    private var savedSimulations: [TripSimulation] {
+        allSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
+    }
+
     @State private var viewmodel = ViewModel()
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
+
+    // Save dialog state
+    @State private var showingSaveDialog = false
+    @State private var saveSimulationName = ""
+    @State private var selectedSavedSimulation: TripSimulation?
+
 
     // MARK: - Body
     var body: some View {
@@ -223,6 +235,17 @@ struct TripSimulationView: View {
                         .controlSize(.small)
                 }
 
+                // Save button
+                Button {
+                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
+                    showingSaveDialog = true
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(viewmodel.steps.isEmpty)
+
                 Menu {
                     Button("Export PDF Report") { exportPDFReport() }
                     Button("Export HTML Report") { exportHTMLReport() }
@@ -235,6 +258,37 @@ struct TripSimulationView: View {
                 .controlSize(.small)
             }
         }
+        .sheet(isPresented: $showingSaveDialog) {
+            saveSimulationSheet
+        }
+    }
+
+    // MARK: - Save Simulation Sheet
+    private var saveSimulationSheet: some View {
+        VStack(spacing: 16) {
+            Text("Save Simulation")
+                .font(.headline)
+
+            TextField("Simulation Name", text: $saveSimulationName)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 300)
+
+            HStack {
+                Button("Cancel") {
+                    showingSaveDialog = false
+                }
+                .buttonStyle(.bordered)
+
+                Button("Save") {
+                    if let _ = viewmodel.saveSimulation(name: saveSimulationName, project: project, context: modelContext) {
+                        showingSaveDialog = false
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(saveSimulationName.isEmpty)
+            }
+        }
+        .padding(24)
     }
 
     private var backfillMudBinding: Binding<UUID?> {
@@ -331,29 +385,32 @@ struct TripSimulationView: View {
             steps: viewmodel.steps
         )
 
-        guard let pdfData = TripSimulationPDFGenerator.shared.generatePDF(for: reportData) else {
-            exportErrorMessage = "Failed to generate PDF report."
-            showingExportErrorAlert = true
-            return
-        }
-
         let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd"
         let dateStr = dateFormatter.string(from: Date())
         let defaultName = "TripSimulation_\(wellName)_\(dateStr).pdf"
 
-        Task {
-            let success = await FileService.shared.saveFile(
-                data: pdfData,
-                defaultName: defaultName,
-                allowedFileTypes: ["pdf"]
-            )
+        // Generate PDF asynchronously using WebKit
+        TripSimulationPDFGenerator.shared.generatePDFAsync(for: reportData) { pdfData in
+            guard let pdfData = pdfData else {
+                self.exportErrorMessage = "Failed to generate PDF report."
+                self.showingExportErrorAlert = true
+                return
+            }
 
-            if !success {
-                await MainActor.run {
-                    exportErrorMessage = "Failed to save PDF report."
-                    showingExportErrorAlert = true
+            Task {
+                let success = await FileService.shared.saveFile(
+                    data: pdfData,
+                    defaultName: defaultName,
+                    allowedFileTypes: ["pdf"]
+                )
+
+                if !success {
+                    await MainActor.run {
+                        self.exportErrorMessage = "Failed to save PDF report."
+                        self.showingExportErrorAlert = true
+                    }
                 }
             }
         }
@@ -367,7 +424,33 @@ struct TripSimulationView: View {
             return
         }
 
-        // Build geometry data (same as PDF)
+        let reportData = buildReportData()
+        let htmlContent = TripSimulationHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let defaultName = "TripSimulation_\(wellName)_\(dateStr).html"
+
+        Task {
+            let success = await FileService.shared.saveTextFile(
+                text: htmlContent,
+                defaultName: defaultName,
+                allowedFileTypes: ["html"]
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to save HTML report."
+                    showingExportErrorAlert = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Build Report Data Helper
+    private func buildReportData() -> TripSimulationReportData {
         let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
             let id = ds.innerDiameter_m
             let od = ds.outerDiameter_m
@@ -386,7 +469,6 @@ struct TripSimulationView: View {
             )
         }
 
-        // Helper to find pipe OD from drill string at a given depth
         let drillStringSorted = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
         func pipeODAtDepth(_ md: Double) -> Double {
             for ds in drillStringSorted {
@@ -415,7 +497,7 @@ struct TripSimulationView: View {
             )
         }
 
-        let reportData = TripSimulationReportData(
+        return TripSimulationReportData(
             wellName: project.well?.name ?? "Unknown Well",
             projectName: project.name,
             generatedDate: Date(),
@@ -436,29 +518,6 @@ struct TripSimulationView: View {
             annulusSections: annulusSections,
             steps: viewmodel.steps
         )
-
-        let htmlContent = TripSimulationHTMLGenerator.shared.generateHTML(for: reportData)
-
-        let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd"
-        let dateStr = dateFormatter.string(from: Date())
-        let defaultName = "TripSimulation_\(wellName)_\(dateStr).html"
-
-        Task {
-            let success = await FileService.shared.saveTextFile(
-                text: htmlContent,
-                defaultName: defaultName,
-                allowedFileTypes: ["html"]
-            )
-
-            if !success {
-                await MainActor.run {
-                    exportErrorMessage = "Failed to save HTML report."
-                    showingExportErrorAlert = true
-                }
-            }
-        }
     }
 
     // MARK: - Export Project JSON Feature
@@ -489,6 +548,13 @@ struct TripSimulationView: View {
     private var content: some View {
         GeometryReader { geo in
             HStack(spacing: 12) {
+                // SAVED SIMULATIONS SIDEBAR
+                if !savedSimulations.isEmpty {
+                    savedSimulationsList
+                        .frame(width: 160)
+                    Divider()
+                }
+
                 // LEFT COLUMN: Steps (top) + Details (bottom when shown)
                 GeometryReader { g in
                     VStack(spacing: 8) {
@@ -523,6 +589,46 @@ struct TripSimulationView: View {
                 // Give the visualization about 1/3 of the available width, but don't let it get too narrow
                 .frame(width: max(220, geo.size.width / 3.8))
                 .frame(maxHeight: .infinity)
+            }
+        }
+    }
+
+    // MARK: - Saved Simulations List
+    private var savedSimulationsList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Saved Simulations")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+
+            List(selection: $selectedSavedSimulation) {
+                ForEach(savedSimulations) { sim in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sim.name)
+                            .font(.callout)
+                            .lineLimit(1)
+                        Text(sim.createdAt, style: .date)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(sim)
+                    .contextMenu {
+                        Button("Load") {
+                            viewmodel.loadSimulation(sim, project: project)
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            viewmodel.deleteSimulation(sim, context: modelContext)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .onChange(of: selectedSavedSimulation) { _, newSim in
+                if let sim = newSim {
+                    viewmodel.loadSimulation(sim, project: project)
+                }
             }
         }
     }

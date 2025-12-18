@@ -2,11 +2,12 @@
 //  TripSimulationPDFGenerator.swift
 //  Josh Well Control for Mac
 //
-//  PDF generator for Trip Simulation reports with charts
+//  PDF generator for Trip Simulation reports - renders HTML to PDF
 //
 
 import Foundation
 import SwiftUI
+import WebKit
 
 #if os(macOS)
 import AppKit
@@ -72,1014 +73,730 @@ struct TripSimulationReportData {
     var totalAnnulusCapacity: Double { annulusSections.reduce(0) { $0 + $1.totalVolume } }
 }
 
-/// Cross-platform PDF generator for trip simulation reports
-class TripSimulationPDFGenerator {
+/// Cross-platform PDF generator that renders HTML to PDF using WebKit
+class TripSimulationPDFGenerator: NSObject, WKNavigationDelegate {
     static let shared = TripSimulationPDFGenerator()
 
-    #if os(macOS)
-    private typealias PColor = NSColor
-    private typealias PFont = NSFont
-    #elseif os(iOS)
-    private typealias PColor = UIColor
-    private typealias PFont = UIFont
-    #endif
+    private override init() {
+        super.init()
+    }
 
-    private init() {}
+    // Keep WebView alive during PDF generation
+    private var activeWebView: WKWebView?
+    private var pdfCompletion: ((Data?) -> Void)?
 
-    // Brand colors
-    private let brandColor = PColor(red: 82/255, green: 165/255, blue: 191/255, alpha: 1.0)
-    private let safeColor = PColor(red: 76/255, green: 175/255, blue: 80/255, alpha: 1.0)
-    private let warningColor = PColor(red: 255/255, green: 152/255, blue: 0/255, alpha: 1.0)
-    private let dangerColor = PColor(red: 244/255, green: 67/255, blue: 54/255, alpha: 1.0)
+    /// Generate PDF by rendering HTML through WebKit
+    /// - Parameters:
+    ///   - data: The report data
+    ///   - completion: Called with the PDF data or nil on failure
+    @MainActor
+    func generatePDFAsync(for data: TripSimulationReportData, completion: @escaping (Data?) -> Void) {
+        // Generate HTML with print-optimized styles
+        let htmlContent = generatePrintHTML(for: data)
 
-    // Chart colors
-    private let esdColor = PColor(red: 33/255, green: 150/255, blue: 243/255, alpha: 1.0)
-    private let staticSABPColor = PColor(red: 76/255, green: 175/255, blue: 80/255, alpha: 1.0)
-    private let dynamicSABPColor = PColor(red: 255/255, green: 152/255, blue: 0/255, alpha: 1.0)
-    private let tankColor = PColor(red: 156/255, green: 39/255, blue: 176/255, alpha: 1.0)
-    private let fillColor = PColor(red: 0/255, green: 150/255, blue: 136/255, alpha: 1.0)
+        // Create an offscreen WebView and keep strong reference
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 612, height: 792))
+        webView.navigationDelegate = self
+        self.activeWebView = webView
+        self.pdfCompletion = completion
 
-    func generatePDF(for data: TripSimulationReportData, pageSize: CGSize = CGSize(width: 612, height: 792)) -> Data? {
-        let pdfInfo = [
-            kCGPDFContextCreator: "Josh Well Control" as CFString,
-            kCGPDFContextTitle: "Trip Simulation Report - \(data.wellName)" as CFString
-        ] as CFDictionary
+        // Load HTML - delegate will handle completion
+        webView.loadHTMLString(htmlContent, baseURL: nil)
+    }
 
-        let pdfData = NSMutableData()
-        var mediaBox = CGRect(origin: .zero, size: pageSize)
+    // MARK: - WKNavigationDelegate
 
-        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData),
-              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, pdfInfo) else {
-            return nil
-        }
+    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor in
+            // Small delay to ensure rendering is complete
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
 
-        let margin: CGFloat = 36
-        let contentWidth = pageSize.width - 2 * margin
-        let pageBottom: CGFloat = 55
-        var currentPage = 1
-        var y: CGFloat = pageSize.height
+            let config = WKPDFConfiguration()
+            // Don't set rect - let it capture the full content
 
-        // MARK: - Helper Functions
+            webView.createPDF(configuration: config) { [weak self] result in
+                Task { @MainActor in
+                    self?.activeWebView = nil
 
-        func fillRect(_ rect: CGRect, color: PColor) {
-            ctx.setFillColor(color.cgColor)
-            ctx.fill(rect)
-        }
-
-        func fillRoundedRect(_ rect: CGRect, color: PColor, radius: CGFloat) {
-            ctx.setFillColor(color.cgColor)
-            let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
-            ctx.addPath(path)
-            ctx.fillPath()
-        }
-
-        func drawText(_ text: String, at point: CGPoint, attributes: [NSAttributedString.Key: Any]) {
-            let attrString = NSAttributedString(string: text, attributes: attributes)
-            let line = CTLineCreateWithAttributedString(attrString)
-            ctx.textPosition = point
-            CTLineDraw(line, ctx)
-        }
-
-        func drawText(_ text: String, in rect: CGRect, attributes: [NSAttributedString.Key: Any], alignment: NSTextAlignment = .left) {
-            let attrString = NSAttributedString(string: text, attributes: attributes)
-            let line = CTLineCreateWithAttributedString(attrString)
-            let lineWidth = CTLineGetTypographicBounds(line, nil, nil, nil)
-
-            var x = rect.minX
-            if alignment == .center {
-                x = rect.minX + (rect.width - CGFloat(lineWidth)) / 2
-            } else if alignment == .right {
-                x = rect.maxX - CGFloat(lineWidth)
-            }
-
-            ctx.textPosition = CGPoint(x: x, y: rect.minY)
-            CTLineDraw(line, ctx)
-        }
-
-        func strokeLine(from: CGPoint, to: CGPoint, color: PColor, width: CGFloat, dashed: Bool = false) {
-            ctx.setStrokeColor(color.cgColor)
-            ctx.setLineWidth(width)
-            if dashed {
-                ctx.setLineDash(phase: 0, lengths: [4, 4])
-            } else {
-                ctx.setLineDash(phase: 0, lengths: [])
-            }
-            ctx.move(to: from)
-            ctx.addLine(to: to)
-            ctx.strokePath()
-        }
-
-        func drawHeader() {
-            fillRect(CGRect(x: 0, y: pageSize.height - 40, width: pageSize.width, height: 40), color: brandColor)
-            let headerAttrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 18, weight: .bold),
-                .foregroundColor: PColor.white
-            ]
-            drawText("Trip Simulation Report", at: CGPoint(x: margin, y: pageSize.height - 28), attributes: headerAttrs)
-
-            let wellAttrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: PColor.white.withAlphaComponent(0.9)
-            ]
-            drawText(data.wellName, in: CGRect(x: pageSize.width/2, y: pageSize.height - 28, width: pageSize.width/2 - margin, height: 14), attributes: wellAttrs, alignment: .right)
-        }
-
-        func startPage() {
-            ctx.beginPDFPage(nil)
-            drawHeader()
-        }
-
-        func endPage() {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 8),
-                .foregroundColor: PColor.gray
-            ]
-            drawText("Page \(currentPage)", in: CGRect(x: 0, y: 20, width: pageSize.width, height: 12), attributes: attrs, alignment: .center)
-
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
-            drawText("Generated: \(dateFormatter.string(from: data.generatedDate)) | Josh Well Control",
-                    in: CGRect(x: margin, y: 32, width: contentWidth, height: 10),
-                    attributes: attrs, alignment: .center)
-
-            ctx.endPDFPage()
-        }
-
-        func checkPageBreak(neededHeight: CGFloat) {
-            if y - neededHeight < pageBottom {
-                endPage()
-                currentPage += 1
-                startPage()
-                y = pageSize.height - 55
-            }
-        }
-
-        // MARK: - Chart Drawing
-
-        func drawLineChart(
-            in rect: CGRect,
-            title: String,
-            xValues: [Double],
-            yDataSets: [(values: [Double], color: PColor, label: String)],
-            xLabel: String,
-            yLabel: String,
-            invertX: Bool = true // For depth charts where we want high depth at bottom
-        ) {
-            let chartMargin: CGFloat = 45
-            let chartRect = CGRect(
-                x: rect.minX + chartMargin,
-                y: rect.minY + 25,
-                width: rect.width - chartMargin - 10,
-                height: rect.height - 50
-            )
-
-            // Background
-            fillRoundedRect(rect, color: PColor(white: 0.98, alpha: 1.0), radius: 4)
-
-            // Title
-            let titleAttrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: PColor.darkGray
-            ]
-            drawText(title, in: CGRect(x: rect.minX, y: rect.maxY - 18, width: rect.width, height: 14), attributes: titleAttrs, alignment: .center)
-
-            // Get ranges
-            let xMin = xValues.min() ?? 0
-            let xMax = xValues.max() ?? 1
-            var yMin = Double.infinity
-            var yMax = -Double.infinity
-            for dataSet in yDataSets {
-                if let min = dataSet.values.min(), min < yMin { yMin = min }
-                if let max = dataSet.values.max(), max > yMax { yMax = max }
-            }
-            // Add some padding to y range
-            let yPadding = (yMax - yMin) * 0.1
-            yMin -= yPadding
-            yMax += yPadding
-            if yMin == yMax { yMax = yMin + 1 }
-
-            // Draw axes
-            let axisColor = PColor.gray
-            strokeLine(from: CGPoint(x: chartRect.minX, y: chartRect.minY),
-                      to: CGPoint(x: chartRect.minX, y: chartRect.maxY),
-                      color: axisColor, width: 1)
-            strokeLine(from: CGPoint(x: chartRect.minX, y: chartRect.minY),
-                      to: CGPoint(x: chartRect.maxX, y: chartRect.minY),
-                      color: axisColor, width: 1)
-
-            // Draw grid lines and labels
-            let labelAttrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 7),
-                .foregroundColor: PColor.gray
-            ]
-
-            // Y-axis labels (5 ticks)
-            for i in 0...4 {
-                let yVal = yMin + (yMax - yMin) * Double(i) / 4.0
-                let yPos = chartRect.minY + chartRect.height * CGFloat(i) / 4.0
-                strokeLine(from: CGPoint(x: chartRect.minX - 3, y: yPos),
-                          to: CGPoint(x: chartRect.minX, y: yPos),
-                          color: axisColor, width: 0.5)
-                // Grid line
-                strokeLine(from: CGPoint(x: chartRect.minX, y: yPos),
-                          to: CGPoint(x: chartRect.maxX, y: yPos),
-                          color: PColor.lightGray.withAlphaComponent(0.5), width: 0.5, dashed: true)
-                let labelStr = yVal >= 100 ? String(format: "%.0f", yVal) : String(format: "%.1f", yVal)
-                drawText(labelStr, in: CGRect(x: rect.minX + 2, y: yPos - 4, width: chartMargin - 8, height: 10), attributes: labelAttrs, alignment: .right)
-            }
-
-            // X-axis labels (5 ticks)
-            for i in 0...4 {
-                let xVal = invertX ? (xMax - (xMax - xMin) * Double(i) / 4.0) : (xMin + (xMax - xMin) * Double(i) / 4.0)
-                let xPos = chartRect.minX + chartRect.width * CGFloat(i) / 4.0
-                strokeLine(from: CGPoint(x: xPos, y: chartRect.minY),
-                          to: CGPoint(x: xPos, y: chartRect.minY - 3),
-                          color: axisColor, width: 0.5)
-                let labelStr = String(format: "%.0f", xVal)
-                drawText(labelStr, in: CGRect(x: xPos - 20, y: chartRect.minY - 14, width: 40, height: 10), attributes: labelAttrs, alignment: .center)
-            }
-
-            // Axis labels
-            let axisLabelAttrs: [NSAttributedString.Key: Any] = [
-                .font: PFont.systemFont(ofSize: 8, weight: .medium),
-                .foregroundColor: PColor.darkGray
-            ]
-            drawText(xLabel, in: CGRect(x: chartRect.minX, y: rect.minY + 2, width: chartRect.width, height: 12), attributes: axisLabelAttrs, alignment: .center)
-
-            // Draw data lines
-            for dataSet in yDataSets {
-                guard dataSet.values.count == xValues.count, dataSet.values.count > 1 else { continue }
-
-                ctx.setStrokeColor(dataSet.color.cgColor)
-                ctx.setLineWidth(1.5)
-                ctx.setLineDash(phase: 0, lengths: [])
-
-                var started = false
-                for i in 0..<xValues.count {
-                    let xNorm = invertX ? (xMax - xValues[i]) / (xMax - xMin) : (xValues[i] - xMin) / (xMax - xMin)
-                    let yNorm = (dataSet.values[i] - yMin) / (yMax - yMin)
-
-                    let px = chartRect.minX + chartRect.width * CGFloat(xNorm)
-                    let py = chartRect.minY + chartRect.height * CGFloat(yNorm)
-
-                    if !started {
-                        ctx.move(to: CGPoint(x: px, y: py))
-                        started = true
-                    } else {
-                        ctx.addLine(to: CGPoint(x: px, y: py))
+                    switch result {
+                    case .success(let pdfData):
+                        print("PDF generated successfully: \(pdfData.count) bytes")
+                        self?.pdfCompletion?(pdfData)
+                    case .failure(let error):
+                        print("PDF generation failed: \(error)")
+                        self?.pdfCompletion?(nil)
                     }
+                    self?.pdfCompletion = nil
                 }
-                ctx.strokePath()
-            }
-
-            // Legend
-            var legendX = chartRect.minX
-            let legendY = rect.maxY - 32
-            for dataSet in yDataSets {
-                ctx.setFillColor(dataSet.color.cgColor)
-                ctx.fill(CGRect(x: legendX, y: legendY, width: 12, height: 3))
-                legendX += 14
-                let legendAttrs: [NSAttributedString.Key: Any] = [
-                    .font: PFont.systemFont(ofSize: 7),
-                    .foregroundColor: PColor.darkGray
-                ]
-                drawText(dataSet.label, at: CGPoint(x: legendX, y: legendY - 2), attributes: legendAttrs)
-                legendX += CGFloat(dataSet.label.count * 5 + 15)
             }
         }
+    }
 
-        // MARK: - Fonts
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        Task { @MainActor in
+            print("WebView navigation failed: \(error)")
+            self.activeWebView = nil
+            self.pdfCompletion?(nil)
+            self.pdfCompletion = nil
+        }
+    }
 
-        let headerFont = PFont.systemFont(ofSize: 13, weight: .semibold)
-        let labelFont = PFont.systemFont(ofSize: 9, weight: .regular)
-        let valueFont = PFont.systemFont(ofSize: 9, weight: .medium)
-        let tableHeaderFont = PFont.systemFont(ofSize: 7, weight: .semibold)
-        let tableFont = PFont.systemFont(ofSize: 7, weight: .regular)
-
-        let darkGray = PColor.darkGray
-        let lightGray = PColor.lightGray
-
-        // ========================================
-        // MARK: - Page 1: Summary
-        // ========================================
-
-        startPage()
-        y = pageSize.height - 55
-
-        let sectionHeaderAttrs: [NSAttributedString.Key: Any] = [
-            .font: headerFont,
-            .foregroundColor: brandColor
-        ]
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: labelFont,
-            .foregroundColor: darkGray
-        ]
-        let valueAttrs: [NSAttributedString.Key: Any] = [
-            .font: valueFont,
-            .foregroundColor: PColor.black
-        ]
-
-        // Well Info Section
-        drawText("Well Information", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 16
-
+    /// Generate print-optimized HTML (hides interactive elements)
+    private func generatePrintHTML(for data: TripSimulationReportData) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "d MMM yyyy, HH:mm"
+        let dateStr = dateFormatter.string(from: data.generatedDate)
 
-        drawText("Well:", at: CGPoint(x: margin, y: y), attributes: labelAttrs)
-        drawText(data.wellName, at: CGPoint(x: margin + 50, y: y), attributes: valueAttrs)
-        drawText("Project:", at: CGPoint(x: pageSize.width / 2, y: y), attributes: labelAttrs)
-        drawText(data.projectName, at: CGPoint(x: pageSize.width / 2 + 50, y: y), attributes: valueAttrs)
-        y -= 12
-        drawText("Date:", at: CGPoint(x: margin, y: y), attributes: labelAttrs)
-        drawText(dateFormatter.string(from: data.generatedDate), at: CGPoint(x: margin + 50, y: y), attributes: valueAttrs)
         let direction = data.startMD > data.endMD ? "POOH (Pull Out Of Hole)" : "RIH (Run In Hole)"
-        drawText("Trip:", at: CGPoint(x: pageSize.width / 2, y: y), attributes: labelAttrs)
-        drawText(direction, at: CGPoint(x: pageSize.width / 2 + 50, y: y), attributes: valueAttrs)
 
-        y -= 8
-        strokeLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: pageSize.width - margin, y: y), color: lightGray, width: 0.5)
-        y -= 14
+        return """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Trip Simulation Report - \(escapeHTML(data.wellName))</title>
+            <style>
+                \(generatePrintCSS())
+            </style>
+        </head>
+        <body>
+            <header>
+                <div class="header-content">
+                    <h1>Trip Simulation Report</h1>
+                    <span class="well-name">\(escapeHTML(data.wellName))</span>
+                </div>
+            </header>
 
-        // Simulation Parameters - compact 2-column layout
-        drawText("Simulation Parameters", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 14
+            <main>
+                <!-- Well Information -->
+                <section class="card">
+                    <h2>Well Information</h2>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="label">Well:</span>
+                            <span class="value">\(escapeHTML(data.wellName))</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Project:</span>
+                            <span class="value">\(escapeHTML(data.projectName))</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Date:</span>
+                            <span class="value">\(dateStr)</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Trip:</span>
+                            <span class="value">\(direction)</span>
+                        </div>
+                    </div>
+                </section>
 
-        let col1 = margin
-        let col2 = margin + 100
-        let col3 = pageSize.width / 2 + 10
-        let col4 = pageSize.width / 2 + 110
+                <!-- Simulation Parameters -->
+                <section class="card">
+                    <h2>Simulation Parameters</h2>
+                    <div class="params-grid">
+                        <div class="param-item">
+                            <span class="label">Start MD:</span>
+                            <span class="value">\(String(format: "%.0f m", data.startMD))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">End MD:</span>
+                            <span class="value">\(String(format: "%.0f m", data.endMD))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Control MD:</span>
+                            <span class="value">\(String(format: "%.0f m", data.controlMD))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Step Size:</span>
+                            <span class="value">\(String(format: "%.0f m", data.stepSize))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Base Mud:</span>
+                            <span class="value">\(String(format: "%.0f kg/m³", data.baseMudDensity))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Backfill:</span>
+                            <span class="value">\(String(format: "%.0f kg/m³", data.backfillDensity))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Target ESD:</span>
+                            <span class="value">\(String(format: "%.0f kg/m³", data.targetESD))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Crack Float:</span>
+                            <span class="value">\(String(format: "%.0f kPa", data.crackFloat))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Initial SABP:</span>
+                            <span class="value">\(String(format: "%.0f kPa", data.initialSABP))</span>
+                        </div>
+                        <div class="param-item">
+                            <span class="label">Trip Speed:</span>
+                            <span class="value">\(String(format: "%.1f m/min", data.tripSpeed))</span>
+                        </div>
+                    </div>
+                </section>
 
-        let params: [(String, String, String, String)] = [
-            ("Start MD:", String(format: "%.0f m", data.startMD), "End MD:", String(format: "%.0f m", data.endMD)),
-            ("Control MD:", String(format: "%.0f m", data.controlMD), "Step Size:", String(format: "%.0f m", data.stepSize)),
-            ("Base Mud:", String(format: "%.0f kg/m³", data.baseMudDensity), "Backfill:", String(format: "%.0f kg/m³", data.backfillDensity)),
-            ("Target ESD:", String(format: "%.0f kg/m³", data.targetESD), "Crack Float:", String(format: "%.0f kPa", data.crackFloat)),
-            ("Initial SABP:", String(format: "%.0f kPa", data.initialSABP), "Trip Speed:", String(format: "%.1f m/min", data.tripSpeed)),
-        ]
+                <!-- Safety Summary -->
+                <section class="card">
+                    <h2>Safety Summary</h2>
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <div class="metric-title">ESD Range</div>
+                            <div class="metric-value">\(String(format: "%.0f - %.0f", data.minESD, data.maxESD))</div>
+                            <div class="metric-unit">kg/m³</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-title">Max Static SABP</div>
+                            <div class="metric-value">\(String(format: "%.0f", data.maxStaticSABP))</div>
+                            <div class="metric-unit">kPa</div>
+                        </div>
+                        <div class="metric-box \(data.maxDynamicSABP > 50 ? "warning" : "")">
+                            <div class="metric-title">Max Dynamic SABP</div>
+                            <div class="metric-value">\(String(format: "%.0f", data.maxDynamicSABP))</div>
+                            <div class="metric-unit">kPa</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-title">Total Backfill</div>
+                            <div class="metric-value">\(String(format: "%.1f", data.totalBackfill))</div>
+                            <div class="metric-unit">m³</div>
+                        </div>
+                    </div>
+                    <div class="metrics-grid secondary">
+                        <div class="metric-box small">
+                            <div class="metric-title">Initial Pit Gain</div>
+                            <div class="metric-value">\(String(format: "%.2f m³", data.totalPitGain))</div>
+                        </div>
+                        <div class="metric-box small \(data.netTankChange < 0 ? "danger" : "")">
+                            <div class="metric-title">Net Tank Change</div>
+                            <div class="metric-value">\(String(format: "%+.1f m³", data.netTankChange))</div>
+                        </div>
+                        <div class="metric-box small">
+                            <div class="metric-title">Number of Steps</div>
+                            <div class="metric-value">\(data.steps.count)</div>
+                        </div>
+                    </div>
+                </section>
 
-        for (l1, v1, l2, v2) in params {
-            drawText(l1, at: CGPoint(x: col1, y: y), attributes: labelAttrs)
-            drawText(v1, at: CGPoint(x: col2, y: y), attributes: valueAttrs)
-            drawText(l2, at: CGPoint(x: col3, y: y), attributes: labelAttrs)
-            drawText(v2, at: CGPoint(x: col4, y: y), attributes: valueAttrs)
-            y -= 11
+                <!-- Charts -->
+                <section class="card">
+                    <h2>Trip Profile Charts</h2>
+                    <div class="charts-grid">
+                        \(generateSVGChart(title: "ESD vs Depth", xValues: data.steps.map { $0.bitMD_m }, datasets: [(data.steps.map { $0.ESDatTD_kgpm3 }, "#2196f3", "ESD")]))
+                        \(generateSVGChart(title: "SABP vs Depth", xValues: data.steps.map { $0.bitMD_m }, datasets: [(data.steps.map { $0.SABP_kPa }, "#4caf50", "Static"), (data.steps.map { $0.SABP_Dynamic_kPa }, "#ff9800", "Dynamic")]))
+                        \(generateSVGChart(title: "Tank Change vs Depth", xValues: data.steps.map { $0.bitMD_m }, datasets: [(data.steps.map { $0.cumulativeSurfaceTankDelta_m3 }, "#9c27b0", "Tank Δ")]))
+                        \(generateSVGChart(title: "Cumulative Backfill", xValues: data.steps.map { $0.bitMD_m }, datasets: [(data.steps.map { $0.cumulativeBackfill_m3 }, "#009688", "Backfill")]))
+                    </div>
+                </section>
+
+                <!-- Geometry Tables -->
+                <section class="card">
+                    <h2>Well Geometry</h2>
+                    <h3>Drill String</h3>
+                    \(generateDrillStringTable(data.drillStringSections, totalCapacity: data.totalStringCapacity))
+
+                    <h3>Annulus</h3>
+                    \(generateAnnulusTable(data.annulusSections, totalCapacity: data.totalAnnulusCapacity))
+                </section>
+
+                <!-- Data Table -->
+                <section class="card page-break-before">
+                    <h2>Step-by-Step Data</h2>
+                    <div class="table-wrapper">
+                        <table id="data-table">
+                            <thead>
+                                <tr>
+                                    <th>MD</th>
+                                    <th>TVD</th>
+                                    <th>SABP</th>
+                                    <th>ESD</th>
+                                    <th>Backfill</th>
+                                    <th>Tank Δ</th>
+                                    <th>Float</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                \(generateTableRows(data.steps))
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-legend">
+                        MD/TVD (m), SABP (kPa), ESD (kg/m³), Backfill/Tank Δ (m³)
+                    </div>
+                </section>
+            </main>
+
+            <footer>
+                <p>Generated by Josh Well Control • \(dateStr)</p>
+            </footer>
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - Print-optimized CSS
+
+    private func generatePrintCSS() -> String {
+        return """
+        :root {
+            --brand-color: #52a5bf;
+            --safe-color: #4caf50;
+            --warning-color: #ff9800;
+            --danger-color: #f44336;
+            --bg-color: #ffffff;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --text-light: #666666;
+            --border-color: #e0e0e0;
         }
 
-        y -= 8
-        strokeLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: pageSize.width - margin, y: y), color: lightGray, width: 0.5)
-        y -= 14
-
-        // Safety Summary - Key metrics boxes
-        drawText("Safety Summary", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 10
-
-        let boxWidth: CGFloat = (contentWidth - 24) / 4
-        let boxHeight: CGFloat = 55
-        let boxY = y - boxHeight
-
-        let metricTitleAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: darkGray
-        ]
-        let metricValueAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 15, weight: .bold),
-            .foregroundColor: safeColor
-        ]
-        let metricUnitAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 7),
-            .foregroundColor: darkGray
-        ]
-
-        // Box 1: ESD Range
-        fillRoundedRect(CGRect(x: margin, y: boxY, width: boxWidth, height: boxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("ESD Range", in: CGRect(x: margin, y: boxY + boxHeight - 14, width: boxWidth, height: 12), attributes: metricTitleAttrs, alignment: .center)
-        drawText(String(format: "%.0f - %.0f", data.minESD, data.maxESD), in: CGRect(x: margin, y: boxY + 16, width: boxWidth, height: 18), attributes: metricValueAttrs, alignment: .center)
-        drawText("kg/m³", in: CGRect(x: margin, y: boxY + 4, width: boxWidth, height: 10), attributes: metricUnitAttrs, alignment: .center)
-
-        // Box 2: Max Static SABP
-        let box2X = margin + boxWidth + 8
-        fillRoundedRect(CGRect(x: box2X, y: boxY, width: boxWidth, height: boxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Max Static SABP", in: CGRect(x: box2X, y: boxY + boxHeight - 14, width: boxWidth, height: 12), attributes: metricTitleAttrs, alignment: .center)
-        drawText(String(format: "%.0f", data.maxStaticSABP), in: CGRect(x: box2X, y: boxY + 16, width: boxWidth, height: 18), attributes: metricValueAttrs, alignment: .center)
-        drawText("kPa", in: CGRect(x: box2X, y: boxY + 4, width: boxWidth, height: 10), attributes: metricUnitAttrs, alignment: .center)
-
-        // Box 3: Max Dynamic SABP
-        let box3X = margin + 2 * (boxWidth + 8)
-        fillRoundedRect(CGRect(x: box3X, y: boxY, width: boxWidth, height: boxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        let dynamicColor = data.maxDynamicSABP > 50 ? warningColor : safeColor
-        let dynamicValueAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 15, weight: .bold),
-            .foregroundColor: dynamicColor
-        ]
-        drawText("Max Dynamic SABP", in: CGRect(x: box3X, y: boxY + boxHeight - 14, width: boxWidth, height: 12), attributes: metricTitleAttrs, alignment: .center)
-        drawText(String(format: "%.0f", data.maxDynamicSABP), in: CGRect(x: box3X, y: boxY + 16, width: boxWidth, height: 18), attributes: dynamicValueAttrs, alignment: .center)
-        drawText("kPa", in: CGRect(x: box3X, y: boxY + 4, width: boxWidth, height: 10), attributes: metricUnitAttrs, alignment: .center)
-
-        // Box 4: Total Backfill
-        let box4X = margin + 3 * (boxWidth + 8)
-        fillRoundedRect(CGRect(x: box4X, y: boxY, width: boxWidth, height: boxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Total Backfill", in: CGRect(x: box4X, y: boxY + boxHeight - 14, width: boxWidth, height: 12), attributes: metricTitleAttrs, alignment: .center)
-        drawText(String(format: "%.1f", data.totalBackfill), in: CGRect(x: box4X, y: boxY + 16, width: boxWidth, height: 18), attributes: metricValueAttrs, alignment: .center)
-        drawText("m³", in: CGRect(x: box4X, y: boxY + 4, width: boxWidth, height: 10), attributes: metricUnitAttrs, alignment: .center)
-
-        y = boxY - 12
-
-        // Second row of metrics
-        let smallBoxWidth: CGFloat = (contentWidth - 16) / 3
-        let smallBoxHeight: CGFloat = 42
-        let smallBoxY = y - smallBoxHeight
-
-        fillRoundedRect(CGRect(x: margin, y: smallBoxY, width: smallBoxWidth, height: smallBoxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Initial Pit Gain", in: CGRect(x: margin, y: smallBoxY + smallBoxHeight - 13, width: smallBoxWidth, height: 11), attributes: metricTitleAttrs, alignment: .center)
-        let smallValueAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: safeColor
-        ]
-        drawText(String(format: "%.2f m³", data.totalPitGain), in: CGRect(x: margin, y: smallBoxY + 6, width: smallBoxWidth, height: 14), attributes: smallValueAttrs, alignment: .center)
-
-        let smallBox2X = margin + smallBoxWidth + 8
-        fillRoundedRect(CGRect(x: smallBox2X, y: smallBoxY, width: smallBoxWidth, height: smallBoxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Net Tank Change", in: CGRect(x: smallBox2X, y: smallBoxY + smallBoxHeight - 13, width: smallBoxWidth, height: 11), attributes: metricTitleAttrs, alignment: .center)
-        let tankValColor = data.netTankChange >= 0 ? safeColor : dangerColor
-        let tankValAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: tankValColor
-        ]
-        drawText(String(format: "%+.1f m³", data.netTankChange), in: CGRect(x: smallBox2X, y: smallBoxY + 6, width: smallBoxWidth, height: 14), attributes: tankValAttrs, alignment: .center)
-
-        let smallBox3X = margin + 2 * (smallBoxWidth + 8)
-        fillRoundedRect(CGRect(x: smallBox3X, y: smallBoxY, width: smallBoxWidth, height: smallBoxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Number of Steps", in: CGRect(x: smallBox3X, y: smallBoxY + smallBoxHeight - 13, width: smallBoxWidth, height: 11), attributes: metricTitleAttrs, alignment: .center)
-        drawText("\(data.steps.count)", in: CGRect(x: smallBox3X, y: smallBoxY + 6, width: smallBoxWidth, height: 14), attributes: smallValueAttrs, alignment: .center)
-
-        y = smallBoxY - 8
-        strokeLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: pageSize.width - margin, y: y), color: lightGray, width: 0.5)
-        y -= 14
-
-        // Recommendations
-        drawText("Recommendations", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 14
-
-        let bulletAttrs: [NSAttributedString.Key: Any] = [
-            .font: labelFont,
-            .foregroundColor: PColor.black
-        ]
-
-        var recommendations: [String] = []
-        if data.maxStaticSABP > 0 {
-            recommendations.append("Maintain minimum SABP of \(String(format: "%.0f", data.maxStaticSABP)) kPa throughout trip")
-        }
-        if data.maxDynamicSABP > data.maxStaticSABP + 5 {
-            recommendations.append("Account for dynamic swab pressure up to \(String(format: "%.0f", data.maxDynamicSABP)) kPa")
-        }
-        recommendations.append("Prepare \(String(format: "%.1f", data.totalBackfill)) m³ backfill at \(String(format: "%.0f", data.backfillDensity)) kg/m³")
-        if data.totalPitGain > 0.05 {
-            recommendations.append("Expect ~\(String(format: "%.2f", data.totalPitGain)) m³ pit gain during initial equalization")
-        }
-        recommendations.append("Monitor ESD within \(String(format: "%.0f", data.minESD))-\(String(format: "%.0f", data.maxESD)) kg/m³ window")
-
-        for rec in recommendations {
-            drawText("• \(rec)", at: CGPoint(x: margin + 8, y: y), attributes: bulletAttrs)
-            y -= 12
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
-        endPage()
-
-        // ========================================
-        // MARK: - Page 2: Charts
-        // ========================================
-
-        currentPage += 1
-        startPage()
-        y = pageSize.height - 55
-
-        drawText("Trip Profile Charts", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 10
-
-        let chartHeight: CGFloat = 160
-        let chartWidth = (contentWidth - 10) / 2
-
-        // Prepare data arrays
-        let depths = data.steps.map { $0.bitMD_m }
-        let esds = data.steps.map { $0.ESDatTD_kgpm3 }
-        let staticSABPs = data.steps.map { $0.SABP_kPa }
-        let dynamicSABPs = data.steps.map { $0.SABP_Dynamic_kPa }
-        let tankDeltas = data.steps.map { $0.cumulativeSurfaceTankDelta_m3 }
-        let cumBackfills = data.steps.map { $0.cumulativeBackfill_m3 }
-
-        // Chart 1: ESD vs Depth
-        let chart1Rect = CGRect(x: margin, y: y - chartHeight, width: chartWidth, height: chartHeight)
-        drawLineChart(
-            in: chart1Rect,
-            title: "ESD vs Depth",
-            xValues: depths,
-            yDataSets: [(esds, esdColor, "ESD (kg/m³)")],
-            xLabel: "Measured Depth (m)",
-            yLabel: "ESD"
-        )
-
-        // Chart 2: SABP vs Depth
-        let chart2Rect = CGRect(x: margin + chartWidth + 10, y: y - chartHeight, width: chartWidth, height: chartHeight)
-        drawLineChart(
-            in: chart2Rect,
-            title: "SABP vs Depth",
-            xValues: depths,
-            yDataSets: [
-                (staticSABPs, staticSABPColor, "Static"),
-                (dynamicSABPs, dynamicSABPColor, "Dynamic")
-            ],
-            xLabel: "Measured Depth (m)",
-            yLabel: "SABP"
-        )
-
-        y -= chartHeight + 20
-
-        // Chart 3: Tank Change vs Depth
-        let chart3Rect = CGRect(x: margin, y: y - chartHeight, width: chartWidth, height: chartHeight)
-        drawLineChart(
-            in: chart3Rect,
-            title: "Tank Volume Change vs Depth",
-            xValues: depths,
-            yDataSets: [(tankDeltas, tankColor, "Tank Δ (m³)")],
-            xLabel: "Measured Depth (m)",
-            yLabel: "Volume"
-        )
-
-        // Chart 4: Cumulative Backfill vs Depth
-        let chart4Rect = CGRect(x: margin + chartWidth + 10, y: y - chartHeight, width: chartWidth, height: chartHeight)
-        drawLineChart(
-            in: chart4Rect,
-            title: "Cumulative Backfill vs Depth",
-            xValues: depths,
-            yDataSets: [(cumBackfills, fillColor, "Backfill (m³)")],
-            xLabel: "Measured Depth (m)",
-            yLabel: "Volume"
-        )
-
-        y -= chartHeight + 20
-
-        // Chart interpretation notes
-        strokeLine(from: CGPoint(x: margin, y: y), to: CGPoint(x: pageSize.width - margin, y: y), color: lightGray, width: 0.5)
-        y -= 14
-        drawText("Chart Interpretation", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 14
-
-        let noteAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 8),
-            .foregroundColor: darkGray
-        ]
-        let notes = [
-            "• ESD increases as heavy slug drains into pocket below bit during POOH",
-            "• Dynamic SABP shows additional pressure from swab effects during pipe movement",
-            "• Tank volume decreases as backfill is pumped; positive values indicate pit gain",
-            "• Backfill accumulates as trip progresses; compare with theoretical fill requirements"
-        ]
-        for note in notes {
-            drawText(note, at: CGPoint(x: margin + 8, y: y), attributes: noteAttrs)
-            y -= 10
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.4;
+            font-size: 10pt;
         }
 
-        endPage()
+        header {
+            background: var(--brand-color);
+            color: white;
+            padding: 12px 20px;
+        }
 
-        // ========================================
-        // MARK: - Page 3: Geometry & Wellbore Schematic
-        // ========================================
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-        currentPage += 1
-        startPage()
-        y = pageSize.height - 55
+        header h1 {
+            font-size: 16pt;
+            font-weight: 600;
+        }
 
-        drawText("Well Geometry", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 18
+        .well-name {
+            opacity: 0.9;
+            font-size: 10pt;
+        }
 
-        // Drill String Table
-        drawText("Drill String", at: CGPoint(x: margin, y: y), attributes: [
-            .font: PFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: darkGray
-        ])
-        y -= 14
+        main {
+            padding: 16px;
+        }
 
-        if !data.drillStringSections.isEmpty {
-            let dsColumns: [(title: String, width: CGFloat)] = [
-                ("Section", 80),
-                ("Top (m)", 50),
-                ("Bot (m)", 50),
-                ("OD (mm)", 50),
-                ("ID (mm)", 50),
-                ("Cap (m³/m)", 60),
-                ("Disp (m³/m)", 60),
-                ("Vol (m³)", 50)
-            ]
-            let dsTableWidth = dsColumns.reduce(0) { $0 + $1.width }
-            let dsTableX = margin
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
 
-            // Header
-            fillRoundedRect(CGRect(x: dsTableX, y: y - 14, width: dsTableWidth, height: 14), color: brandColor, radius: 2)
-            var xPos = dsTableX + 2
-            for (title, width) in dsColumns {
-                let attrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7, weight: .semibold), .foregroundColor: PColor.white]
-                drawText(title, in: CGRect(x: xPos, y: y - 11, width: width - 4, height: 10), attributes: attrs, alignment: .center)
-                xPos += width
+        .card h2 {
+            color: var(--brand-color);
+            font-size: 12pt;
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card h3 {
+            color: var(--text-color);
+            font-size: 10pt;
+            margin: 12px 0 8px 0;
+        }
+
+        .info-grid, .params-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .info-item, .param-item {
+            display: flex;
+            gap: 6px;
+        }
+
+        .label {
+            color: var(--text-light);
+            font-size: 9pt;
+        }
+
+        .value {
+            font-weight: 500;
+            font-size: 9pt;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .metrics-grid.secondary {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        .metric-box {
+            background: #f5f5f5;
+            border-radius: 4px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .metric-box.small {
+            padding: 8px;
+        }
+
+        .metric-box.warning .metric-value {
+            color: var(--warning-color);
+        }
+
+        .metric-box.danger .metric-value {
+            color: var(--danger-color);
+        }
+
+        .metric-title {
+            font-size: 8pt;
+            color: var(--text-light);
+            margin-bottom: 3px;
+        }
+
+        .metric-value {
+            font-size: 14pt;
+            font-weight: 700;
+            color: var(--safe-color);
+        }
+
+        .metric-box.small .metric-value {
+            font-size: 11pt;
+        }
+
+        .metric-unit {
+            font-size: 7pt;
+            color: var(--text-light);
+        }
+
+        /* Charts */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .svg-chart {
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .chart-placeholder {
+            height: 160px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+            color: var(--text-light);
+        }
+
+        /* Tables */
+        .table-wrapper {
+            overflow: visible;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7pt;
+        }
+
+        th {
+            background: var(--brand-color);
+            color: white;
+            padding: 6px 4px;
+            text-align: right;
+            white-space: nowrap;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 4px;
+            text-align: right;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        .table-legend {
+            margin-top: 6px;
+            font-size: 7pt;
+            color: var(--text-light);
+        }
+
+        /* Geometry Tables */
+        .geometry-table {
+            font-size: 8pt;
+            margin-bottom: 10px;
+        }
+
+        .geometry-table th {
+            font-size: 7pt;
+            padding: 5px 4px;
+        }
+
+        .geometry-table td {
+            padding: 4px;
+        }
+
+        .geometry-table td:first-child {
+            text-align: left;
+        }
+
+        .total-row {
+            background: #e0e0e0 !important;
+            font-weight: 600;
+        }
+
+        footer {
+            text-align: center;
+            padding: 12px;
+            color: var(--text-light);
+            font-size: 8pt;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Print-specific */
+        .page-break-before {
+            page-break-before: always;
+        }
+
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
-            y -= 15
-
-            // Rows
-            for (i, section) in data.drillStringSections.enumerated() {
-                if i % 2 == 1 {
-                    fillRect(CGRect(x: dsTableX, y: y - 11, width: dsTableWidth, height: 11), color: PColor(white: 0.97, alpha: 1.0))
-                }
-                xPos = dsTableX + 2
-                let cellAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7), .foregroundColor: PColor.black]
-                let values: [String] = [
-                    section.name,
-                    String(format: "%.0f", section.topMD),
-                    String(format: "%.0f", section.bottomMD),
-                    String(format: "%.1f", section.outerDiameter * 1000),
-                    String(format: "%.1f", section.innerDiameter * 1000),
-                    String(format: "%.4f", section.capacity_m3_per_m),
-                    String(format: "%.4f", section.displacement_m3_per_m),
-                    String(format: "%.2f", section.totalVolume)
-                ]
-                for (j, val) in values.enumerated() {
-                    drawText(val, in: CGRect(x: xPos, y: y - 9, width: dsColumns[j].width - 4, height: 8), attributes: cellAttrs, alignment: j == 0 ? .left : .right)
-                    xPos += dsColumns[j].width
-                }
-                y -= 11
+            .card {
+                break-inside: avoid;
             }
+        }
+        """
+    }
 
-            // Totals row
-            fillRect(CGRect(x: dsTableX, y: y - 12, width: dsTableWidth, height: 12), color: PColor(white: 0.92, alpha: 1.0))
-            let totalAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7, weight: .semibold), .foregroundColor: PColor.black]
-            drawText("TOTAL", at: CGPoint(x: dsTableX + 4, y: y - 9), attributes: totalAttrs)
-            drawText(String(format: "%.2f", data.totalStringCapacity), in: CGRect(x: dsTableX + dsTableWidth - 54, y: y - 9, width: 50, height: 8), attributes: totalAttrs, alignment: .right)
-            y -= 18
-        } else {
-            drawText("No drill string sections defined", at: CGPoint(x: margin + 8, y: y), attributes: noteAttrs)
-            y -= 14
+    // MARK: - HTML Helpers
+
+    private func escapeHTML(_ str: String) -> String {
+        return str
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    private func generateTableRows(_ steps: [NumericalTripModel.TripStep]) -> String {
+        var html = ""
+        for step in steps {
+            html += """
+            <tr>
+                <td>\(String(format: "%.0f", step.bitMD_m))</td>
+                <td>\(String(format: "%.0f", step.bitTVD_m))</td>
+                <td>\(String(format: "%.0f", step.SABP_kPa))</td>
+                <td>\(String(format: "%.0f", step.ESDatTD_kgpm3))</td>
+                <td>\(String(format: "%.2f", step.cumulativeBackfill_m3))</td>
+                <td>\(String(format: "%+.2f", step.cumulativeSurfaceTankDelta_m3))</td>
+                <td>\(step.floatState)</td>
+            </tr>
+            """
+        }
+        return html
+    }
+
+    // MARK: - SVG Chart Generation
+
+    private func generateSVGChart(title: String, xValues: [Double], datasets: [(values: [Double], color: String, label: String)]) -> String {
+        guard xValues.count > 1, !datasets.isEmpty else {
+            return "<div class=\"chart-placeholder\">No data</div>"
         }
 
-        // Annulus Table
-        drawText("Annulus", at: CGPoint(x: margin, y: y), attributes: [
-            .font: PFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: darkGray
-        ])
-        y -= 14
+        let width = 260.0
+        let height = 160.0
+        let margin = (top: 25.0, right: 10.0, bottom: 25.0, left: 45.0)
+        let plotW = width - margin.left - margin.right
+        let plotH = height - margin.top - margin.bottom
 
-        if !data.annulusSections.isEmpty {
-            let annColumns: [(title: String, width: CGFloat)] = [
-                ("Section", 80),
-                ("Top (m)", 50),
-                ("Bot (m)", 50),
-                ("Hole ID (mm)", 60),
-                ("Pipe OD (mm)", 60),
-                ("Cap (m³/m)", 60),
-                ("Vol (m³)", 50)
-            ]
-            let annTableWidth = annColumns.reduce(0) { $0 + $1.width }
-            let annTableX = margin
+        let xMin = xValues.min() ?? 0
+        let xMax = xValues.max() ?? 1
+        let xRange = xMax - xMin > 0 ? xMax - xMin : 1
 
-            // Header
-            fillRoundedRect(CGRect(x: annTableX, y: y - 14, width: annTableWidth, height: 14), color: brandColor, radius: 2)
-            var xPos = annTableX + 2
-            for (title, width) in annColumns {
-                let attrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7, weight: .semibold), .foregroundColor: PColor.white]
-                drawText(title, in: CGRect(x: xPos, y: y - 11, width: width - 4, height: 10), attributes: attrs, alignment: .center)
-                xPos += width
+        // Find y range across all datasets
+        let allYValues = datasets.flatMap { $0.values }
+        let yMinVal = allYValues.min() ?? 0
+        let yMaxVal = allYValues.max() ?? 1
+        let yPad = (yMaxVal - yMinVal) * 0.1
+        let yMin = yMinVal - yPad
+        let yMax = yMaxVal + yPad
+        let yRange = yMax - yMin > 0 ? yMax - yMin : 1
+
+        // Generate paths for each dataset
+        var paths = ""
+        for dataset in datasets {
+            var pathD = ""
+            for (i, (x, y)) in zip(xValues, dataset.values).enumerated() {
+                let px = margin.left + ((xMax - x) / xRange) * plotW
+                let py = margin.top + ((yMax - y) / yRange) * plotH
+                pathD += i == 0 ? "M \(px) \(py)" : " L \(px) \(py)"
             }
-            y -= 15
-
-            // Rows
-            for (i, section) in data.annulusSections.enumerated() {
-                if i % 2 == 1 {
-                    fillRect(CGRect(x: annTableX, y: y - 11, width: annTableWidth, height: 11), color: PColor(white: 0.97, alpha: 1.0))
-                }
-                xPos = annTableX + 2
-                let cellAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7), .foregroundColor: PColor.black]
-                let values: [String] = [
-                    section.name,
-                    String(format: "%.0f", section.topMD),
-                    String(format: "%.0f", section.bottomMD),
-                    String(format: "%.1f", section.innerDiameter * 1000),
-                    String(format: "%.1f", section.outerDiameter * 1000),
-                    String(format: "%.4f", section.capacity_m3_per_m),
-                    String(format: "%.2f", section.totalVolume)
-                ]
-                for (j, val) in values.enumerated() {
-                    drawText(val, in: CGRect(x: xPos, y: y - 9, width: annColumns[j].width - 4, height: 8), attributes: cellAttrs, alignment: j == 0 ? .left : .right)
-                    xPos += annColumns[j].width
-                }
-                y -= 11
-            }
-
-            // Totals row
-            fillRect(CGRect(x: annTableX, y: y - 12, width: annTableWidth, height: 12), color: PColor(white: 0.92, alpha: 1.0))
-            let totalAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7, weight: .semibold), .foregroundColor: PColor.black]
-            drawText("TOTAL", at: CGPoint(x: annTableX + 4, y: y - 9), attributes: totalAttrs)
-            drawText(String(format: "%.2f", data.totalAnnulusCapacity), in: CGRect(x: annTableX + annTableWidth - 54, y: y - 9, width: 50, height: 8), attributes: totalAttrs, alignment: .right)
-            y -= 18
-        } else {
-            drawText("No annulus sections defined", at: CGPoint(x: margin + 8, y: y), attributes: noteAttrs)
-            y -= 14
+            paths += "<path d=\"\(pathD)\" fill=\"none\" stroke=\"\(dataset.color)\" stroke-width=\"1.5\"/>\n"
         }
 
-        // Volume Summary Box - positioned on left
-        y -= 10
-        let summaryBoxWidth: CGFloat = 200
-        let summaryBoxHeight: CGFloat = 70
-        let summaryBoxY = y - summaryBoxHeight
-        fillRoundedRect(CGRect(x: margin, y: summaryBoxY, width: summaryBoxWidth, height: summaryBoxHeight), color: PColor(white: 0.96, alpha: 1.0), radius: 4)
-        drawText("Volume Summary", in: CGRect(x: margin, y: y - 14, width: summaryBoxWidth, height: 12), attributes: [
-            .font: PFont.systemFont(ofSize: 9, weight: .semibold),
-            .foregroundColor: brandColor
-        ], alignment: .center)
-        let summaryAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 8), .foregroundColor: darkGray]
-        let summaryValAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 8, weight: .semibold), .foregroundColor: PColor.black]
-        drawText("String Capacity:", at: CGPoint(x: margin + 8, y: y - 28), attributes: summaryAttrs)
-        drawText(String(format: "%.2f m³", data.totalStringCapacity), at: CGPoint(x: margin + 100, y: y - 28), attributes: summaryValAttrs)
-        drawText("String Displacement:", at: CGPoint(x: margin + 8, y: y - 40), attributes: summaryAttrs)
-        drawText(String(format: "%.2f m³", data.totalStringDisplacement), at: CGPoint(x: margin + 100, y: y - 40), attributes: summaryValAttrs)
-        drawText("Annulus Capacity:", at: CGPoint(x: margin + 8, y: y - 52), attributes: summaryAttrs)
-        drawText(String(format: "%.2f m³", data.totalAnnulusCapacity), at: CGPoint(x: margin + 100, y: y - 52), attributes: summaryValAttrs)
-        drawText("Total System:", at: CGPoint(x: margin + 8, y: y - 64), attributes: summaryAttrs)
-        drawText(String(format: "%.2f m³", data.totalStringCapacity + data.totalAnnulusCapacity), at: CGPoint(x: margin + 100, y: y - 64), attributes: summaryValAttrs)
-
-        y = summaryBoxY - 20
-
-        // ========================================
-        // MARK: - Wellbore Schematic (Before & After) - Full Width Below Tables
-        // ========================================
-
-        strokeLine(from: CGPoint(x: margin, y: y + 8), to: CGPoint(x: pageSize.width - margin, y: y + 8), color: lightGray, width: 0.5)
-
-        drawText("Well Snapshot - Before & After Trip", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 16
-
-        // Get first and last steps for before/after visualization
-        guard let firstStep = data.steps.first, let lastStep = data.steps.last else {
-            drawText("No simulation data available", at: CGPoint(x: margin + 8, y: y), attributes: noteAttrs)
-            endPage()
-            currentPage += 1
-            startPage()
-            y = pageSize.height - 55
-            drawText("Step-by-Step Data", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-            y -= 18
-            // Continue with data table...
-            let tableHeaderAttrs2: [NSAttributedString.Key: Any] = [
-                .font: tableHeaderFont,
-                .foregroundColor: PColor.white
-            ]
-            let tableCellAttrs2: [NSAttributedString.Key: Any] = [
-                .font: tableFont,
-                .foregroundColor: PColor.black
-            ]
-            _ = tableHeaderAttrs2
-            _ = tableCellAttrs2
-            ctx.closePDF()
-            return pdfData as Data
+        // Y-axis labels
+        var yLabels = ""
+        for i in 0...4 {
+            let val = yMin + (yMax - yMin) * Double(4 - i) / 4.0
+            let y = margin.top + plotH * Double(i) / 4.0
+            yLabels += "<text x=\"\(margin.left - 5)\" y=\"\(y + 3)\" text-anchor=\"end\" font-size=\"8\" fill=\"#666\">\(String(format: "%.0f", val))</text>"
+            yLabels += "<line x1=\"\(margin.left)\" y1=\"\(y)\" x2=\"\(width - margin.right)\" y2=\"\(y)\" stroke=\"#ddd\" stroke-width=\"0.5\"/>"
         }
 
-        // Calculate max depth from all layers
-        let maxPocketMD = lastStep.layersPocket.map { $0.bottomMD }.max() ?? lastStep.bitMD_m
-        let maxDepth = max(firstStep.bitMD_m, maxPocketMD, data.startMD)
-        guard maxDepth > 0 else {
-            endPage()
-            currentPage += 1
-            startPage()
-            y = pageSize.height - 55
-            drawText("Step-by-Step Data", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-            y -= 18
-            ctx.closePDF()
-            return pdfData as Data
+        // X-axis labels (depth, inverted)
+        var xLabels = ""
+        for i in 0...4 {
+            let val = xMax - (xMax - xMin) * Double(i) / 4.0
+            let x = margin.left + plotW * Double(i) / 4.0
+            xLabels += "<text x=\"\(x)\" y=\"\(height - 5)\" text-anchor=\"middle\" font-size=\"8\" fill=\"#666\">\(String(format: "%.0f", val))</text>"
         }
 
-        // Layout: Two side-by-side well snapshots (Before | After)
-        let snapshotHeight: CGFloat = 220
-        let snapshotWidth = (contentWidth - 30) / 2
-        let beforeRect = CGRect(x: margin, y: y - snapshotHeight, width: snapshotWidth, height: snapshotHeight)
-        let afterRect = CGRect(x: margin + snapshotWidth + 30, y: y - snapshotHeight, width: snapshotWidth, height: snapshotHeight)
-
-        // Helper to convert layer color to PColor
-        func layerColor(_ layer: NumericalTripModel.LayerRow) -> PColor {
-            if let c = layer.color {
-                return PColor(red: c.r, green: c.g, blue: c.b, alpha: c.a)
-            }
-            // Fallback: grayscale based on density
-            let t = min(max((layer.rho_kgpm3 - 800) / 1200, 0), 1)
-            return PColor(white: 0.3 + 0.6 * t, alpha: 1.0)
-        }
-
-        // Helper to draw a well snapshot (3-column: Annulus | String | Annulus)
-        func drawWellSnapshot(in rect: CGRect, step: NumericalTripModel.TripStep, title: String) {
-            // Background
-            fillRoundedRect(rect, color: PColor(white: 0.15, alpha: 1.0), radius: 4)
-
-            // Title
-            let titleAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 9, weight: .semibold), .foregroundColor: PColor.white]
-            drawText(title, in: CGRect(x: rect.minX, y: rect.maxY - 14, width: rect.width, height: 12), attributes: titleAttrs, alignment: .center)
-
-            // Column layout
-            let headerHeight: CGFloat = 20
-            let gap: CGFloat = 2
-            let colW = (rect.width - 2 * gap - 8) / 3
-            let drawAreaTop = rect.maxY - headerHeight - 4
-            let drawAreaBottom = rect.minY + 20
-            let drawAreaHeight = drawAreaTop - drawAreaBottom
-
-            let annLeftRect = CGRect(x: rect.minX + 4, y: drawAreaBottom, width: colW, height: drawAreaHeight)
-            let strRect = CGRect(x: rect.minX + 4 + colW + gap, y: drawAreaBottom, width: colW, height: drawAreaHeight)
-            let annRightRect = CGRect(x: rect.minX + 4 + 2 * (colW + gap), y: drawAreaBottom, width: colW, height: drawAreaHeight)
-
-            // Column headers
-            let colHeaderAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 6), .foregroundColor: PColor.white.withAlphaComponent(0.8)]
-            drawText("Annulus", in: CGRect(x: annLeftRect.minX, y: drawAreaTop + 2, width: colW, height: 10), attributes: colHeaderAttrs, alignment: .center)
-            drawText("String", in: CGRect(x: strRect.minX, y: drawAreaTop + 2, width: colW, height: 10), attributes: colHeaderAttrs, alignment: .center)
-            drawText("Annulus", in: CGRect(x: annRightRect.minX, y: drawAreaTop + 2, width: colW, height: 10), attributes: colHeaderAttrs, alignment: .center)
-
-            // MD to Y conversion (surface at top, deeper = lower Y in PDF coords)
-            func mdToY(_ md: Double) -> CGFloat {
-                guard maxDepth > 0 else { return drawAreaTop }
-                return drawAreaTop - CGFloat(md / maxDepth) * drawAreaHeight
-            }
-
-            // Draw column backgrounds (dark gray)
-            ctx.setFillColor(PColor(white: 0.25, alpha: 1.0).cgColor)
-            ctx.fill(annLeftRect)
-            ctx.fill(strRect)
-            ctx.fill(annRightRect)
-
-            // Draw annulus layers (left and right columns)
-            for layer in step.layersAnnulus where layer.bottomMD <= step.bitMD_m {
-                let yTop = mdToY(layer.topMD)
-                let yBot = mdToY(layer.bottomMD)
-                let h = max(1, yTop - yBot)
-                let layerRect = CGRect(x: annLeftRect.minX, y: yBot, width: colW, height: h)
-                ctx.setFillColor(layerColor(layer).cgColor)
-                ctx.fill(layerRect)
-                // Right annulus
-                let rightRect = CGRect(x: annRightRect.minX, y: yBot, width: colW, height: h)
-                ctx.fill(rightRect)
-            }
-
-            // Draw string layers (center column)
-            for layer in step.layersString where layer.bottomMD <= step.bitMD_m {
-                let yTop = mdToY(layer.topMD)
-                let yBot = mdToY(layer.bottomMD)
-                let h = max(1, yTop - yBot)
-                let layerRect = CGRect(x: strRect.minX, y: yBot, width: colW, height: h)
-                ctx.setFillColor(layerColor(layer).cgColor)
-                ctx.fill(layerRect)
-            }
-
-            // Draw pocket layers (full width below bit)
-            for layer in step.layersPocket {
-                let yTop = mdToY(layer.topMD)
-                let yBot = mdToY(layer.bottomMD)
-                let h = max(1, yTop - yBot)
-                let pocketRect = CGRect(x: rect.minX + 4, y: yBot, width: rect.width - 8, height: h)
-                ctx.setFillColor(layerColor(layer).cgColor)
-                ctx.fill(pocketRect)
-            }
-
-            // Draw bit marker
-            let bitY = mdToY(step.bitMD_m)
-            ctx.setFillColor(PColor(red: 0.9, green: 0.3, blue: 0.2, alpha: 0.9).cgColor)
-            ctx.fill(CGRect(x: rect.minX + 4, y: bitY - 1, width: rect.width - 8, height: 2))
-
-            // Draw column borders
-            ctx.setStrokeColor(PColor.black.cgColor)
-            ctx.setLineWidth(0.5)
-            ctx.stroke(annLeftRect)
-            ctx.stroke(strRect)
-            ctx.stroke(annRightRect)
-
-            // Depth ticks
-            let tickAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 5), .foregroundColor: PColor.white.withAlphaComponent(0.7)]
-            let tickCount = 5
-            for i in 0...tickCount {
-                let md = Double(i) / Double(tickCount) * maxDepth
-                let yy = mdToY(md)
-                // Left tick
-                strokeLine(from: CGPoint(x: annLeftRect.minX, y: yy), to: CGPoint(x: annLeftRect.minX + 3, y: yy), color: PColor.white.withAlphaComponent(0.5), width: 0.5)
-                // Right tick
-                strokeLine(from: CGPoint(x: annRightRect.maxX - 3, y: yy), to: CGPoint(x: annRightRect.maxX, y: yy), color: PColor.white.withAlphaComponent(0.5), width: 0.5)
-                // Labels
-                if i > 0 {
-                    drawText(String(format: "%.0f", md), at: CGPoint(x: annLeftRect.minX + 4, y: yy - 3), attributes: tickAttrs)
-                    drawText(String(format: "%.0f", md), in: CGRect(x: annRightRect.maxX - 25, y: yy - 3, width: 22, height: 8), attributes: tickAttrs, alignment: .right)
-                }
-            }
-
-            // Bit depth label
-            let bitLabelAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 6), .foregroundColor: PColor.white]
-            drawText(String(format: "Bit: %.0f m", step.bitMD_m), in: CGRect(x: rect.minX, y: rect.minY + 4, width: rect.width, height: 10), attributes: bitLabelAttrs, alignment: .center)
-        }
-
-        // Draw Before snapshot
-        drawWellSnapshot(in: beforeRect, step: firstStep, title: "BEFORE (Start)")
-
-        // Draw After snapshot
-        drawWellSnapshot(in: afterRect, step: lastStep, title: "AFTER (End)")
-
-        // ESD labels below each snapshot
-        let esdLabelAttrs: [NSAttributedString.Key: Any] = [.font: PFont.systemFont(ofSize: 7), .foregroundColor: darkGray]
-        drawText(String(format: "ESD@TD: %.0f kg/m³", firstStep.ESDatTD_kgpm3), in: CGRect(x: beforeRect.minX, y: beforeRect.minY - 12, width: beforeRect.width, height: 10), attributes: esdLabelAttrs, alignment: .center)
-        drawText(String(format: "ESD@TD: %.0f kg/m³", lastStep.ESDatTD_kgpm3), in: CGRect(x: afterRect.minX, y: afterRect.minY - 12, width: afterRect.width, height: 10), attributes: esdLabelAttrs, alignment: .center)
-
-        endPage()
-
-        // ========================================
-        // MARK: - Page 4+: Data Table
-        // ========================================
-
-        currentPage += 1
-        startPage()
-        y = pageSize.height - 55
-
-        drawText("Step-by-Step Data", at: CGPoint(x: margin, y: y), attributes: sectionHeaderAttrs)
-        y -= 18
-
-        let tableHeaderAttrs: [NSAttributedString.Key: Any] = [
-            .font: tableHeaderFont,
-            .foregroundColor: PColor.white
-        ]
-        let tableCellAttrs: [NSAttributedString.Key: Any] = [
-            .font: tableFont,
-            .foregroundColor: PColor.black
-        ]
-
-        let rowHeight: CGFloat = 12
-        let headerHeight: CGFloat = 16
-
-        let columns: [(title: String, width: CGFloat)] = [
-            ("MD", 40),
-            ("TVD", 40),
-            ("Static", 42),
-            ("Dynamic", 48),
-            ("ESD", 40),
-            ("DP Wet", 48),
-            ("DP Dry", 48),
-            ("Actual", 42),
-            ("Tank Δ", 48)
-        ]
-
-        let tableWidth = columns.reduce(0) { $0 + $1.width }
-        let tableX = margin + (contentWidth - tableWidth) / 2
-
-        func drawTableHeader(at yPos: CGFloat) {
-            fillRoundedRect(CGRect(x: tableX, y: yPos - headerHeight, width: tableWidth, height: headerHeight), color: brandColor, radius: 2)
-            var xPos = tableX + 2
-            for (title, width) in columns {
-                drawText(title, in: CGRect(x: xPos, y: yPos - 12, width: width - 4, height: 10), attributes: tableHeaderAttrs, alignment: .center)
-                xPos += width
+        // Legend for multiple datasets
+        var legend = ""
+        if datasets.count > 1 {
+            for (i, dataset) in datasets.enumerated() {
+                let lx = margin.left + 5 + Double(i) * 60
+                legend += "<rect x=\"\(lx)\" y=\"18\" width=\"10\" height=\"3\" fill=\"\(dataset.color)\"/>"
+                legend += "<text x=\"\(lx + 12)\" y=\"21\" font-size=\"7\" fill=\"#666\">\(dataset.label)</text>"
             }
         }
 
-        func drawTableRow(step: NumericalTripModel.TripStep, at yPos: CGFloat, isAlternate: Bool) {
-            if isAlternate {
-                fillRect(CGRect(x: tableX, y: yPos - rowHeight, width: tableWidth, height: rowHeight), color: PColor(white: 0.97, alpha: 1.0))
-            }
-            var xPos = tableX + 2
-            let values: [String] = [
-                String(format: "%.0f", step.bitMD_m),
-                String(format: "%.0f", step.bitTVD_m),
-                String(format: "%.0f", step.SABP_kPa),
-                String(format: "%.0f", step.SABP_Dynamic_kPa),
-                String(format: "%.0f", step.ESDatTD_kgpm3),
-                String(format: "%.3f", step.expectedFillIfClosed_m3),
-                String(format: "%.3f", step.expectedFillIfOpen_m3),
-                String(format: "%.3f", step.stepBackfill_m3),
-                String(format: "%+.2f", step.cumulativeSurfaceTankDelta_m3)
-            ]
-            for (i, value) in values.enumerated() {
-                drawText(value, in: CGRect(x: xPos, y: yPos - 9, width: columns[i].width - 4, height: 8), attributes: tableCellAttrs, alignment: .right)
-                xPos += columns[i].width
-            }
+        return """
+        <div class="svg-chart">
+            <svg width="\(width)" height="\(height)" viewBox="0 0 \(width) \(height)">
+                <rect width="\(width)" height="\(height)" fill="#f9f9f9"/>
+                <text x="\(width/2)" y="12" text-anchor="middle" font-size="10" font-weight="600" fill="#333">\(title)</text>
+                \(legend)
+                \(yLabels)
+                \(xLabels)
+                <line x1="\(margin.left)" y1="\(margin.top)" x2="\(margin.left)" y2="\(height - margin.bottom)" stroke="#999"/>
+                <line x1="\(margin.left)" y1="\(height - margin.bottom)" x2="\(width - margin.right)" y2="\(height - margin.bottom)" stroke="#999"/>
+                \(paths)
+            </svg>
+        </div>
+        """
+    }
+
+    private func generateDrillStringTable(_ sections: [PDFSectionData], totalCapacity: Double) -> String {
+        guard !sections.isEmpty else {
+            return "<p>No drill string sections defined</p>"
         }
 
-        drawTableHeader(at: y)
-        y -= headerHeight + 1
+        var html = """
+        <table class="geometry-table">
+            <thead>
+                <tr>
+                    <th>Section</th>
+                    <th>Top (m)</th>
+                    <th>Bot (m)</th>
+                    <th>OD (mm)</th>
+                    <th>ID (mm)</th>
+                    <th>Cap (m³/m)</th>
+                    <th>Disp (m³/m)</th>
+                    <th>Vol (m³)</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
 
-        for (index, step) in data.steps.enumerated() {
-            checkPageBreak(neededHeight: rowHeight + headerHeight + 15)
-            if y > pageSize.height - 70 {
-                drawTableHeader(at: y)
-                y -= headerHeight + 1
-            }
-            drawTableRow(step: step, at: y, isAlternate: index % 2 == 1)
-            y -= rowHeight
+        for section in sections {
+            html += """
+            <tr>
+                <td>\(escapeHTML(section.name))</td>
+                <td>\(String(format: "%.0f", section.topMD))</td>
+                <td>\(String(format: "%.0f", section.bottomMD))</td>
+                <td>\(String(format: "%.1f", section.outerDiameter * 1000))</td>
+                <td>\(String(format: "%.1f", section.innerDiameter * 1000))</td>
+                <td>\(String(format: "%.4f", section.capacity_m3_per_m))</td>
+                <td>\(String(format: "%.4f", section.displacement_m3_per_m))</td>
+                <td>\(String(format: "%.2f", section.totalVolume))</td>
+            </tr>
+            """
         }
 
-        y -= 10
-        let legendAttrs: [NSAttributedString.Key: Any] = [
-            .font: PFont.systemFont(ofSize: 6),
-            .foregroundColor: darkGray
-        ]
-        drawText("Units: MD/TVD (m), Static/Dynamic SABP (kPa), ESD (kg/m³), Fill volumes (m³), Tank Δ (m³ cumulative)", at: CGPoint(x: tableX, y: y), attributes: legendAttrs)
+        html += """
+            <tr class="total-row">
+                <td>TOTAL</td>
+                <td colspan="6"></td>
+                <td>\(String(format: "%.2f", totalCapacity))</td>
+            </tr>
+            </tbody>
+        </table>
+        """
 
-        endPage()
-        ctx.closePDF()
+        return html
+    }
 
-        return pdfData as Data
+    private func generateAnnulusTable(_ sections: [PDFSectionData], totalCapacity: Double) -> String {
+        guard !sections.isEmpty else {
+            return "<p>No annulus sections defined</p>"
+        }
+
+        var html = """
+        <table class="geometry-table">
+            <thead>
+                <tr>
+                    <th>Section</th>
+                    <th>Top (m)</th>
+                    <th>Bot (m)</th>
+                    <th>Hole ID (mm)</th>
+                    <th>Pipe OD (mm)</th>
+                    <th>Cap (m³/m)</th>
+                    <th>Vol (m³)</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        for section in sections {
+            html += """
+            <tr>
+                <td>\(escapeHTML(section.name))</td>
+                <td>\(String(format: "%.0f", section.topMD))</td>
+                <td>\(String(format: "%.0f", section.bottomMD))</td>
+                <td>\(String(format: "%.1f", section.innerDiameter * 1000))</td>
+                <td>\(String(format: "%.1f", section.outerDiameter * 1000))</td>
+                <td>\(String(format: "%.4f", section.capacity_m3_per_m))</td>
+                <td>\(String(format: "%.2f", section.totalVolume))</td>
+            </tr>
+            """
+        }
+
+        html += """
+            <tr class="total-row">
+                <td>TOTAL</td>
+                <td colspan="5"></td>
+                <td>\(String(format: "%.2f", totalCapacity))</td>
+            </tr>
+            </tbody>
+        </table>
+        """
+
+        return html
     }
 }
