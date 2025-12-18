@@ -27,7 +27,16 @@ extension TripSimulationView {
     var backfillMudID: UUID? = nil
 
     // Swab calculation parameters
-    var eccentricityFactor: Double = 1.0  // 1.0 = concentric, higher = more eccentric
+    var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
+
+    // Observed pit gain calibration
+    // When useObservedPitGain is true, the simulation uses observedInitialPitGain_m3
+    // instead of calculating equalization from pressure balance
+    var useObservedPitGain: Bool = false
+    var observedInitialPitGain_m3: Double = 0.0
+
+    // Calculated pit gain from last simulation (for display/comparison)
+    var calculatedInitialPitGain_m3: Double = 0.0
 
     // View options
     var colorByComposition: Bool = false
@@ -37,6 +46,12 @@ extension TripSimulationView {
     var steps: [TripStep] = []
     var selectedIndex: Int? = nil
     var stepSlider: Double = 0
+
+    // Progress tracking
+    var isRunning: Bool = false
+    var progressValue: Double = 0.0  // 0.0 to 1.0
+    var progressMessage: String = ""
+    var progressPhase: NumericalTripModel.TripProgress.Phase = .initializing
 
     func bootstrap(from project: ProjectState) {
       if let maxMD = (project.finalLayers ?? []).map({ $0.bottomMD_m }).max() {
@@ -63,6 +78,12 @@ extension TripSimulationView {
       for l in annLayers { print("  [Ann] \(l.name): \(l.topMD_m)-\(l.bottomMD_m) m, ρ=\(l.density_kgm3) kg/m³") }
       for l in strLayers { print("  [Str] \(l.name): \(l.topMD_m)-\(l.bottomMD_m) m, ρ=\(l.density_kgm3) kg/m³") }
       #endif
+
+      // Reset progress state
+      isRunning = true
+      progressValue = 0.0
+      progressMessage = "Initializing..."
+      progressPhase = .initializing
 
       let geom = ProjectGeometryService(
         project: project,
@@ -94,12 +115,34 @@ extension TripSimulationView {
         tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),  // Use absolute value for speed
         eccentricityFactor: eccentricityFactor,
         fallbackTheta600: fallbackTheta600,
-        fallbackTheta300: fallbackTheta300
+        fallbackTheta300: fallbackTheta300,
+        observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
-      let model = NumericalTripModel()
-      self.steps = model.run(input, geom: geom, project: project)
-      self.selectedIndex = steps.isEmpty ? nil : 0
-      self.stepSlider = 0
+
+      // Run simulation on background thread with progress updates
+      Task.detached { [weak self] in
+        let model = NumericalTripModel()
+        let results = model.run(input, geom: geom, project: project) { progress in
+          Task { @MainActor in
+            self?.progressValue = progress.progress
+            self?.progressMessage = progress.message
+            self?.progressPhase = progress.phase
+          }
+        }
+
+        await MainActor.run {
+          self?.steps = results
+          self?.selectedIndex = results.isEmpty ? nil : 0
+          self?.stepSlider = 0
+          self?.isRunning = false
+          self?.progressMessage = "Complete"
+
+          // Store the calculated pit gain from the initial step (for display/comparison)
+          if let firstStep = results.first {
+            self?.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          }
+        }
+      }
     }
 
     func esdAtControlText(project: ProjectState) -> String {
@@ -177,7 +220,12 @@ extension TripSimulationViewIOS {
     var backfillMudID: UUID? = nil
 
     // Swab calculation parameters
-    var eccentricityFactor: Double = 1.0  // 1.0 = concentric, higher = more eccentric
+    var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
+
+    // Observed pit gain calibration
+    var useObservedPitGain: Bool = false
+    var observedInitialPitGain_m3: Double = 0.0
+    var calculatedInitialPitGain_m3: Double = 0.0
 
     // View options
     var colorByComposition: Bool = false
@@ -187,6 +235,12 @@ extension TripSimulationViewIOS {
     var steps: [TripStep] = []
     var selectedIndex: Int? = nil
     var stepSlider: Double = 0
+
+    // Progress tracking
+    var isRunning: Bool = false
+    var progressValue: Double = 0.0  // 0.0 to 1.0
+    var progressMessage: String = ""
+    var progressPhase: NumericalTripModel.TripProgress.Phase = .initializing
 
     func bootstrap(from project: ProjectState) {
       if let maxMD = (project.finalLayers ?? []).map({ $0.bottomMD_m }).max() {
@@ -201,6 +255,12 @@ extension TripSimulationViewIOS {
     }
 
     func runSimulation(project: ProjectState) {
+      // Reset progress state
+      isRunning = true
+      progressValue = 0.0
+      progressMessage = "Initializing..."
+      progressPhase = .initializing
+
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,
@@ -231,12 +291,34 @@ extension TripSimulationViewIOS {
         tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),
         eccentricityFactor: eccentricityFactor,
         fallbackTheta600: fallbackTheta600,
-        fallbackTheta300: fallbackTheta300
+        fallbackTheta300: fallbackTheta300,
+        observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
-      let model = NumericalTripModel()
-      self.steps = model.run(input, geom: geom, project: project)
-      self.selectedIndex = steps.isEmpty ? nil : 0
-      self.stepSlider = 0
+
+      // Run simulation on background thread with progress updates
+      Task.detached { [weak self] in
+        let model = NumericalTripModel()
+        let results = model.run(input, geom: geom, project: project) { progress in
+          Task { @MainActor in
+            self?.progressValue = progress.progress
+            self?.progressMessage = progress.message
+            self?.progressPhase = progress.phase
+          }
+        }
+
+        await MainActor.run {
+          self?.steps = results
+          self?.selectedIndex = results.isEmpty ? nil : 0
+          self?.stepSlider = 0
+          self?.isRunning = false
+          self?.progressMessage = "Complete"
+
+          // Store the calculated pit gain from the initial step
+          if let firstStep = results.first {
+            self?.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          }
+        }
+      }
     }
 
     func esdAtControlText(project: ProjectState) -> String {

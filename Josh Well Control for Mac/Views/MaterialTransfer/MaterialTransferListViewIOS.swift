@@ -273,6 +273,14 @@ struct MaterialTransferDetailViewIOS: View {
     @State private var showingAddItemSheet = false
     @State private var editingItem: MaterialTransferItem?
 
+    // Rental integration
+    @State private var showAddFromRentals = false
+    @State private var selectedRentalIDs: Set<UUID> = []
+    @State private var showCreateRentals = false
+    @State private var selectedTransferItemIDs: Set<UUID> = []
+    @State private var showAffectedRentals = false
+    @State private var alertMessage: String?
+
     var body: some View {
         List {
             // Transfer Info Section
@@ -383,6 +391,48 @@ struct MaterialTransferDetailViewIOS: View {
                 }
             }
 
+            // Rental Integration Section
+            if let well = transfer.well {
+                Section("Rental Integration") {
+                    // Add from rentals
+                    Button {
+                        showAddFromRentals = true
+                    } label: {
+                        Label("Add From Rentals", systemImage: "shippingbox.fill")
+                    }
+                    .disabled((well.rentals ?? []).isEmpty)
+
+                    // Create rentals from transfer lines
+                    Button {
+                        showCreateRentals = true
+                    } label: {
+                        Label("Create Rentals From Lines", systemImage: "plus.rectangle.on.folder")
+                    }
+                    .disabled((transfer.items ?? []).isEmpty)
+
+                    // Preview/Apply rental status changes
+                    let affectedCount = affectedRentalCount(well: well)
+                    Button {
+                        showAffectedRentals = true
+                    } label: {
+                        HStack {
+                            Label("Preview Rental Changes", systemImage: "eye")
+                            Spacer()
+                            if affectedCount > 0 {
+                                Text("\(affectedCount)")
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(Color.orange.opacity(0.2))
+                                    .foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .disabled(affectedCount == 0)
+                }
+            }
+
             // Export Section
             Section {
                 Button {
@@ -400,6 +450,61 @@ struct MaterialTransferDetailViewIOS: View {
         }
         .sheet(item: $editingItem) { item in
             TransferItemEditorSheet(transfer: transfer, item: item)
+        }
+        .sheet(isPresented: $showAddFromRentals) {
+            if let well = transfer.well {
+                AddFromRentalsSheetIOS(
+                    rentals: well.rentals ?? [],
+                    selected: $selectedRentalIDs,
+                    onCancel: {
+                        selectedRentalIDs.removeAll()
+                        showAddFromRentals = false
+                    },
+                    onAdd: {
+                        addItemsFromSelectedRentals()
+                        selectedRentalIDs.removeAll()
+                        showAddFromRentals = false
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showCreateRentals) {
+            if let well = transfer.well {
+                CreateRentalsSheetIOS(
+                    items: transfer.items ?? [],
+                    selected: $selectedTransferItemIDs,
+                    onCancel: {
+                        selectedTransferItemIDs.removeAll()
+                        showCreateRentals = false
+                    },
+                    onCreate: {
+                        createRentalsFromSelectedLines(well: well)
+                        selectedTransferItemIDs.removeAll()
+                        showCreateRentals = false
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showAffectedRentals) {
+            if let well = transfer.well {
+                AffectedRentalsSheetIOS(
+                    rentals: affectedRentals(well: well),
+                    isShippingOut: transfer.isShippingOut,
+                    onCancel: { showAffectedRentals = false },
+                    onApply: {
+                        let count = applyRentalChanges(well: well)
+                        alertMessage = count > 0
+                            ? (transfer.isShippingOut ? "Marked \(count) rental(s) off location." : "Restored \(count) rental(s) to on location.")
+                            : "No matching rentals to update."
+                        showAffectedRentals = false
+                    }
+                )
+            }
+        }
+        .alert("Update Complete", isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
         }
     }
 
@@ -440,6 +545,84 @@ struct MaterialTransferDetailViewIOS: View {
         } catch {
             print("Failed to write PDF: \(error)")
         }
+    }
+
+    // MARK: - Rental Integration Helpers
+
+    private func affectedRentalCount(well: Well) -> Int {
+        let serials = Set((transfer.items ?? []).compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
+        guard !serials.isEmpty else { return 0 }
+        return (well.rentals ?? []).filter { rental in
+            guard let sn = rental.serialNumber?.lowercased(), serials.contains(sn) else { return false }
+            return transfer.isShippingOut ? rental.onLocation : !rental.onLocation
+        }.count
+    }
+
+    private func affectedRentals(well: Well) -> [RentalItem] {
+        let serials = Set((transfer.items ?? []).compactMap { $0.serialNumber?.lowercased() }.filter { !$0.isEmpty })
+        guard !serials.isEmpty else { return [] }
+        return (well.rentals ?? []).filter { rental in
+            guard let sn = rental.serialNumber?.lowercased(), serials.contains(sn) else { return false }
+            return transfer.isShippingOut ? rental.onLocation : !rental.onLocation
+        }
+    }
+
+    @discardableResult
+    private func applyRentalChanges(well: Well) -> Int {
+        let matches = affectedRentals(well: well)
+        var updated = 0
+        for rental in matches {
+            if transfer.isShippingOut && rental.onLocation {
+                rental.onLocation = false
+                updated += 1
+            } else if !transfer.isShippingOut && !rental.onLocation {
+                rental.onLocation = true
+                updated += 1
+            }
+        }
+        if updated > 0 { try? modelContext.save() }
+        return updated
+    }
+
+    private func addItemsFromSelectedRentals() {
+        guard let well = transfer.well, !selectedRentalIDs.isEmpty else { return }
+        let selected = (well.rentals ?? []).filter { selectedRentalIDs.contains($0.id) }
+        for rental in selected {
+            let item = MaterialTransferItem(descriptionText: rental.name)
+            item.quantity = 1
+            item.detailText = rental.detail
+            item.conditionCode = rental.used ? "USED" : "NEW"
+            item.serialNumber = rental.serialNumber
+            item.transfer = transfer
+            if transfer.items == nil { transfer.items = [] }
+            transfer.items?.append(item)
+            modelContext.insert(item)
+        }
+        try? modelContext.save()
+    }
+
+    private func createRentalsFromSelectedLines(well: Well) {
+        guard !selectedTransferItemIDs.isEmpty else { return }
+        let chosen = (transfer.items ?? []).filter { selectedTransferItemIDs.contains($0.id) }
+        for item in chosen {
+            let rental = RentalItem(
+                name: item.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines),
+                detail: item.detailText,
+                serialNumber: item.serialNumber,
+                startDate: transfer.date,
+                endDate: nil,
+                usageDates: [],
+                onLocation: !transfer.isShippingOut, // If receiving, on location; if shipping out, off location
+                invoiced: false,
+                costPerDay: 0,
+                well: well
+            )
+            rental.used = (item.conditionCode?.lowercased() == "used")
+            if well.rentals == nil { well.rentals = [] }
+            well.rentals?.append(rental)
+            modelContext.insert(rental)
+        }
+        try? modelContext.save()
     }
 }
 
@@ -777,6 +960,202 @@ private struct TransferItemEditorSheet: View {
         targetItem.vendorOrTo = vendorOrTo.isEmpty ? nil : vendorOrTo
 
         try? modelContext.save()
+    }
+}
+
+// MARK: - Add From Rentals Sheet
+
+private struct AddFromRentalsSheetIOS: View {
+    let rentals: [RentalItem]
+    @Binding var selected: Set<UUID>
+    var onCancel: () -> Void
+    var onAdd: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if rentals.isEmpty {
+                    ContentUnavailableView("No Rentals", systemImage: "shippingbox", description: Text("This well has no rental items"))
+                } else {
+                    ForEach(rentals) { rental in
+                        Toggle(isOn: Binding(
+                            get: { selected.contains(rental.id) },
+                            set: { newVal in
+                                if newVal { selected.insert(rental.id) } else { selected.remove(rental.id) }
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(rental.name)
+                                    .font(.headline)
+
+                                if let detail = rental.detail, !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+
+                                HStack(spacing: 12) {
+                                    if let sn = rental.serialNumber, !sn.isEmpty {
+                                        Label(sn, systemImage: "barcode")
+                                            .font(.caption2)
+                                    }
+
+                                    Label(rental.onLocation ? "On Location" : "Off Location", systemImage: rental.onLocation ? "checkmark.circle" : "xmark.circle")
+                                        .font(.caption2)
+                                        .foregroundStyle(rental.onLocation ? .green : .orange)
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Add From Rentals")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add (\(selected.count))") { onAdd() }
+                        .disabled(selected.isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Create Rentals Sheet
+
+private struct CreateRentalsSheetIOS: View {
+    let items: [MaterialTransferItem]
+    @Binding var selected: Set<UUID>
+    var onCancel: () -> Void
+    var onCreate: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if items.isEmpty {
+                    ContentUnavailableView("No Items", systemImage: "doc.text", description: Text("Add items to the transfer first"))
+                } else {
+                    Section {
+                        ForEach(items) { item in
+                            Toggle(isOn: Binding(
+                                get: { selected.contains(item.id) },
+                                set: { newVal in
+                                    if newVal { selected.insert(item.id) } else { selected.remove(item.id) }
+                                }
+                            )) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.descriptionText)
+                                        .font(.headline)
+
+                                    HStack(spacing: 12) {
+                                        if let sn = item.serialNumber, !sn.isEmpty {
+                                            Label(sn, systemImage: "barcode")
+                                                .font(.caption)
+                                        }
+
+                                        if let condition = item.conditionCode, !condition.isEmpty {
+                                            ConditionBadge(condition: condition)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    } footer: {
+                        Text("Selected items will be added as rental items to the well")
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Create Rentals")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create (\(selected.count))") { onCreate() }
+                        .disabled(selected.isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Affected Rentals Sheet
+
+private struct AffectedRentalsSheetIOS: View {
+    let rentals: [RentalItem]
+    let isShippingOut: Bool
+    var onCancel: () -> Void
+    var onApply: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if rentals.isEmpty {
+                    ContentUnavailableView("No Matches", systemImage: "magnifyingglass", description: Text("No rentals match the serial numbers on this transfer"))
+                } else {
+                    Section {
+                        ForEach(rentals) { rental in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(rental.name)
+                                        .font(.headline)
+
+                                    if let sn = rental.serialNumber, !sn.isEmpty {
+                                        Label(sn, systemImage: "barcode")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(rental.onLocation ? "On Location" : "Off Location")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    Image(systemName: "arrow.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    Text(isShippingOut ? "Off Location" : "On Location")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(isShippingOut ? .orange : .green)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    } header: {
+                        Text(isShippingOut ? "Will mark off location:" : "Will restore to on location:")
+                    } footer: {
+                        Text("Matching is based on serial numbers")
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Preview Changes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isShippingOut ? "Mark Off Location" : "Restore") { onApply() }
+                        .disabled(rentals.isEmpty)
+                }
+            }
+        }
     }
 }
 

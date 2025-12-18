@@ -195,8 +195,27 @@ struct SwabCalculator {
                     dispA = max(ApipeOD - ApipeID, 0)
                 }
 
-                // annular velocity
-                let Va = max(Vpipe_mps * (dispA / Aann) * max(eccentricityFactor, 1.0), 1e-12)
+                // Burkhardt clinging constant: mud clings to pipe and moves with it
+                // Kc = 0.45 + [(Dp/Dhole)² × 0.45]
+                // The (1 + Kc) factor accounts for additional mud dragged by the pipe
+                // This typically increases effective annular velocity by 50-80%
+                let pipeToHoleRatio = Do / Dhole
+                let clingingConstant = 0.45 + (pipeToHoleRatio * pipeToHoleRatio * 0.45)
+
+                // Annular velocity with clinging effect
+                // Va = Vpipe × (1 + Kc) × (dispA / Aann) × eccentricityFactor
+                let Va = max(Vpipe_mps * (1.0 + clingingConstant) * (dispA / Aann) * max(eccentricityFactor, 1.0), 1e-12)
+
+                #if DEBUG
+                // Log first segment only to avoid spam
+                if prof.isEmpty {
+                    print("[Swab] floatIsOpen=\(floatIsOpen), Do=\(String(format:"%.4f",Do)), Di=\(String(format:"%.4f",geom.pipeID_m(mdMid))), Dhole=\(String(format:"%.4f",Dhole))")
+                    print("[Swab] ApipeOD=\(String(format:"%.6f",ApipeOD)), dispA=\(String(format:"%.6f",dispA)), Aann=\(String(format:"%.6f",Aann))")
+                    print("[Swab] clingingConstant=\(String(format:"%.3f",clingingConstant)), eccFactor=\(eccentricityFactor)")
+                    print("[Swab] Vpipe=\(String(format:"%.4f",Vpipe_mps)) m/s, Va=\(String(format:"%.6f",Va)) m/s")
+                    print("[Swab] K=\(L.K), n=\(L.n), rho=\(L.rho)")
+                }
+                #endif
 
                 let rPL = _plLaminarGradient(L.rho, L.K, L.n, Va, Dh)
                 let dP = rPL.dPperM * segLen // Pa
@@ -219,6 +238,9 @@ struct SwabCalculator {
         }
 
         let total_kPa = cumSwab_Pa / 1000.0
+        #if DEBUG
+        print("[Swab] Total swab = \(String(format:"%.2f", total_kPa)) kPa from \(prof.count) segments")
+        #endif
         return SwabEstimate(
             profile: prof,
             totalSwab_kPa: total_kPa,

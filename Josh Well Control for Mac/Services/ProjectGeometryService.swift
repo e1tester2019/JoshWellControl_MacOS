@@ -46,6 +46,13 @@ extension GeometryService {
 
     /// Default steel area equals pipe OD area when the string is present.
     func steelArea_m2(_ md: Double) -> Double { pipeArea_m2(md) }
+    /// Steel displacement area (metal ring): π × (OD² - ID²) / 4
+    /// This is the "DP Dry" or displacement volume per meter.
+    func steelDisplacement_m2(_ md: Double) -> Double {
+        let od = max(pipeOD_m(md), 0.0)
+        let id = max(pipeID_m(md), 0.0)
+        return max(0.0, .pi * (od * od - id * id) / 4.0)
+    }
     /// Identity TVD fallback unless overridden by an implementation with surveys.
     func tvd(of md: Double) -> Double { md }
 }

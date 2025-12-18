@@ -237,6 +237,20 @@ final class NumericalTripModel {
         var backfillRemaining_m3: Double
         var swabDropToBit_kPa: Double
         var SABP_Dynamic_kPa: Double
+
+        // Volume tracking
+        var floatState: String = "CLOSED"           // "OPEN" or "CLOSED"
+        var stepBackfill_m3: Double = 0             // Volume pumped from surface this step (tank decreases)
+        var cumulativeBackfill_m3: Double = 0       // Total volume pumped from surface so far
+        var expectedFillIfClosed_m3: Double = 0     // Expected fill if float closed (pipe OD)
+        var expectedFillIfOpen_m3: Double = 0       // Expected fill if float open (steel only)
+        var slugContribution_m3: Double = 0         // Volume from string that filled annulus (not from surface)
+        var cumulativeSlugContribution_m3: Double = 0  // Cumulative slug contribution
+        var pitGain_m3: Double = 0                  // Volume overflowed at surface this step (tank increases)
+        var cumulativePitGain_m3: Double = 0        // Total pit gain so far
+        var surfaceTankDelta_m3: Double = 0         // Net tank change this step (pitGain - backfill, + = gain)
+        var cumulativeSurfaceTankDelta_m3: Double = 0  // Cumulative net tank change
+
         // Snapshots for UI/debug
         var layersPocket: [LayerRow]
         var layersAnnulus: [LayerRow]
@@ -267,11 +281,50 @@ final class NumericalTripModel {
         // Fallback rheology if layers don't have mud references
         var fallbackTheta600: Double? = nil
         var fallbackTheta300: Double? = nil
+        // Observed pit gain calibration
+        // When set, uses this value instead of calculating equalization from pressure
+        var observedInitialPitGain_m3: Double? = nil
     }
+
+    /// Progress reporting for long-running simulations
+    struct TripProgress {
+        enum Phase {
+            case initializing
+            case initialEqualization
+            case tripping
+            case stepEqualization
+            case complete
+        }
+
+        var phase: Phase
+        var currentMD_m: Double
+        var startMD_m: Double
+        var endMD_m: Double
+        var floatState: String  // "OPEN" or "CLOSED"
+        var equalizationIterations: Int
+        var message: String
+
+        /// Progress as a value from 0.0 to 1.0
+        var progress: Double {
+            guard startMD_m > endMD_m else { return 1.0 }
+            let totalDistance = startMD_m - endMD_m
+            let traveled = startMD_m - currentMD_m
+            return min(1.0, max(0.0, traveled / totalDistance))
+        }
+
+        /// Progress as a percentage string
+        var progressPercent: String {
+            String(format: "%.1f%%", progress * 100)
+        }
+    }
+
+    /// Callback type for progress updates
+    typealias ProgressCallback = (TripProgress) -> Void
 
     // MARK: - Public run
 
-    func run(_ input: TripInput, geom: GeometryService, project: ProjectState) -> [TripStep] {
+    /// Run trip simulation with optional progress callback
+    func run(_ input: TripInput, geom: GeometryService, project: ProjectState, onProgress: ProgressCallback? = nil) -> [TripStep] {
         var sabp_kPa = input.initialSABP_kPa
         var bitMD = input.startBitMD_m
         let step = max(0.1, input.step_m)
@@ -299,7 +352,149 @@ final class NumericalTripModel {
             StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
         }
 
-        // --- Pre-step initial snapshot (state BEFORE any movement) ---
+        // --- Slug Pulse / U-Tube Equalization Phase ---
+        // Before the trip starts, check if the float would be open (string heavier than annulus).
+        // If so, the heavy slug drains from the string, pushes annulus fluid up, and air fills the string.
+        //
+        // Two modes:
+        // 1. Calculated: Iteratively drain until pressures equalize (pressure-based)
+        // 2. Observed: Use user-provided pit gain to determine exactly how much slug drained (field calibration)
+
+        // Report initial state
+        onProgress?(TripProgress(
+            phase: .initializing,
+            currentMD_m: bitMD,
+            startMD_m: input.startBitMD_m,
+            endMD_m: input.endMD_m,
+            floatState: "CHECKING",
+            equalizationIterations: 0,
+            message: "Initializing simulation..."
+        ))
+
+        let pulseStep_m3 = 0.01  // Small volume parcels for equalization (10 L)
+        let maxPulseIterations = 10000  // Safety limit
+        var pulseIteration = 0
+        var totalDrainedVolume_m3 = 0.0  // Track total volume drained for observed mode
+
+        // Helper function to drain a single parcel from string to annulus
+        func drainParcel(volume: Double) -> Bool {
+            guard volume > 1e-12, !stringStack.layers.isEmpty else { return false }
+
+            let bottomLayer = stringStack.layers[stringStack.layers.count - 1]
+            let bottomLen = bottomLayer.bottomMD - bottomLayer.topMD
+            let bottomVol = geom.volumeInString_m3(bottomLayer.topMD, bottomLayer.bottomMD)
+
+            let drainVol = min(volume, bottomVol)
+            guard drainVol > 1e-12 else { return false }
+
+            let drainLen = (bottomVol > 1e-12) ? (drainVol / bottomVol) * bottomLen : 0
+            guard drainLen > 1e-12 else { return false }
+
+            // Remove from bottom of string
+            let drainRho = bottomLayer.rho
+            let drainColor = bottomLayer.color
+            stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
+            if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
+                stringStack.layers.removeLast()
+            }
+
+            // Add air at top of string
+            let airLen = geom.lengthForStringVolume_m(0, drainVol)
+            if airLen > 1e-9 {
+                if stringStack.layers.isEmpty || abs(stringStack.layers[0].rho - NumericalTripModel.rhoAir) > 1e-6 {
+                    stringStack.layers.insert(Layer(rho: NumericalTripModel.rhoAir, topMD: 0, bottomMD: 0, color: nil), at: 0)
+                }
+                for i in 1..<stringStack.layers.count {
+                    stringStack.layers[i].topMD += airLen
+                    stringStack.layers[i].bottomMD += airLen
+                }
+                stringStack.layers[0].bottomMD += airLen
+            }
+            stringStack.ensureInvariants(bitMD: bitMD)
+
+            // Inject at bottom of annulus, push everything up
+            let annulusArea = geom.annulusArea_m2(bitMD)
+            let annulusInjectLen = (annulusArea > 1e-12) ? drainVol / annulusArea : 0
+
+            for i in annulusStack.layers.indices {
+                annulusStack.layers[i].topMD = max(0, annulusStack.layers[i].topMD - annulusInjectLen)
+                annulusStack.layers[i].bottomMD = max(0, annulusStack.layers[i].bottomMD - annulusInjectLen)
+            }
+
+            let newTop = max(0, bitMD - annulusInjectLen)
+            if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
+                annulusStack.layers[annulusStack.layers.count - 1].bottomMD = bitMD
+            } else {
+                annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: bitMD, color: drainColor))
+            }
+            annulusStack.ensureInvariants(bitMD: bitMD)
+
+            totalDrainedVolume_m3 += drainVol
+            return true
+        }
+
+        if let observedPitGain = input.observedInitialPitGain_m3, observedPitGain > 0 {
+            // --- OBSERVED MODE: Drain exactly the observed pit gain volume ---
+            onProgress?(TripProgress(
+                phase: .initialEqualization,
+                currentMD_m: bitMD,
+                startMD_m: input.startBitMD_m,
+                endMD_m: input.endMD_m,
+                floatState: "CALIBRATING",
+                equalizationIterations: 0,
+                message: "Calibrating to observed pit gain: \(String(format: "%.1f", observedPitGain * 1000))L"
+            ))
+
+            var remainingToDrain = observedPitGain
+            while remainingToDrain > 1e-12 && pulseIteration < maxPulseIterations {
+                pulseIteration += 1
+                let drainAmount = min(pulseStep_m3, remainingToDrain)
+                if !drainParcel(volume: drainAmount) { break }
+                remainingToDrain -= drainAmount
+
+                if pulseIteration % 100 == 0 {
+                    onProgress?(TripProgress(
+                        phase: .initialEqualization,
+                        currentMD_m: bitMD,
+                        startMD_m: input.startBitMD_m,
+                        endMD_m: input.endMD_m,
+                        floatState: "CALIBRATING",
+                        equalizationIterations: pulseIteration,
+                        message: "Calibrating - drained \(String(format: "%.1f", totalDrainedVolume_m3 * 1000))L of \(String(format: "%.1f", observedPitGain * 1000))L"
+                    ))
+                }
+            }
+        } else {
+            // --- CALCULATED MODE: Drain until pressures equalize ---
+            while pulseIteration < maxPulseIterations {
+                pulseIteration += 1
+
+                if pulseIteration % 100 == 0 {
+                    onProgress?(TripProgress(
+                        phase: .initialEqualization,
+                        currentMD_m: bitMD,
+                        startMD_m: input.startBitMD_m,
+                        endMD_m: input.endMD_m,
+                        floatState: "OPEN",
+                        equalizationIterations: pulseIteration,
+                        message: "Initial slug pulse - draining \(String(format: "%.1f", totalDrainedVolume_m3 * 1000))L"
+                    ))
+                }
+
+                // Calculate pressures at bit
+                let Pstr = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD)
+                let Pann = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
+
+                // Float closes when string pressure <= annulus pressure
+                if Pstr <= Pann + input.crackFloat_kPa {
+                    break
+                }
+
+                if !drainParcel(volume: pulseStep_m3) { break }
+            }
+        }
+
+        // --- Pre-step initial snapshot (state AFTER slug pulse equalization) ---
         var pocket: [Layer] = []
         let initPocketRows = snapshotPocket(pocket, bitMD: bitMD)
         let initAnnRows = snapshotStack(annulusStack, bitMD: bitMD)
@@ -317,6 +512,21 @@ final class NumericalTripModel {
         let initBitTVD = tvdOfMd(bitMD)
         let initESD_TD = (initTotPocket.deltaP_kPa + initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
         let initESD_Bit = max(0.0, (initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(initBitTVD, 1e-9))
+        // Volume tracking - cumulative values
+        var cumulativeBackfill_m3: Double = 0.0
+        var cumulativeSlugContribution_m3: Double = 0.0
+        var cumulativePitGain_m3: Double = 0.0
+        var cumulativeSurfaceTankDelta_m3: Double = 0.0
+
+        // Track slug contribution from initial equalization phase
+        // When slug drains from string, it pushes annulus fluid up and out at surface (pit gain)
+        // Use actual drained volume (more accurate than pulseIteration * pulseStep_m3)
+        let initialSlugContribution_m3: Double = totalDrainedVolume_m3
+        let initialPitGain_m3: Double = initialSlugContribution_m3  // Overflow at surface = slug drained
+        cumulativePitGain_m3 = initialPitGain_m3
+        cumulativeSlugContribution_m3 = initialSlugContribution_m3
+        cumulativeSurfaceTankDelta_m3 = initialPitGain_m3  // Tank increases during initial equalization
+
         var results: [TripStep] = [
             TripStep(
                 bitMD_m: bitMD,
@@ -326,8 +536,19 @@ final class NumericalTripModel {
                 ESDatTD_kgpm3: initESD_TD,
                 ESDatBit_kgpm3: initESD_Bit,
                 backfillRemaining_m3: max(0.0, input.fixedBackfillVolume_m3),
-                swabDropToBit_kPa: 0.0, // pre-step snapshot
-                SABP_Dynamic_kPa: sabp_kPa, // no swab component yet
+                swabDropToBit_kPa: 0.0,
+                SABP_Dynamic_kPa: sabp_kPa,
+                floatState: pulseIteration > 0 ? "OPEN (Initial Slug)" : "CLOSED",  // Initial state
+                stepBackfill_m3: 0,
+                cumulativeBackfill_m3: 0,
+                expectedFillIfClosed_m3: 0,
+                expectedFillIfOpen_m3: 0,
+                slugContribution_m3: initialSlugContribution_m3,
+                cumulativeSlugContribution_m3: initialSlugContribution_m3,
+                pitGain_m3: initialPitGain_m3,
+                cumulativePitGain_m3: cumulativePitGain_m3,
+                surfaceTankDelta_m3: initialPitGain_m3,  // Initial: tank increases from overflow
+                cumulativeSurfaceTankDelta_m3: cumulativeSurfaceTankDelta_m3,
                 layersPocket: initPocketRows,
                 layersAnnulus: initAnnRows,
                 layersString: initStrRows,
@@ -400,22 +621,165 @@ final class NumericalTripModel {
             }
         }
 
-        // Loop
-        // var _wasClosedPrev = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD) <= annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
+        // Main Trip Loop
+        // Use 1m internal steps for precise float state checking
+        // Record results every step_m (user-defined step interval)
+        let internalStep: Double = 1.0  // 1m internal step for float checking
+        var lastRecordedMD = bitMD  // Track when we last recorded a result
+        var lastProgressReportMD = bitMD  // Track when we last reported progress
+        let progressReportInterval: Double = 10.0  // Report progress every 10m
+
+        // Step-level volume tracking (accumulated across internal 1m steps until recorded)
+        var stepBackfill_m3: Double = 0.0
+        var stepSlugContribution_m3: Double = 0.0
+        var stepPitGain_m3: Double = 0.0
+        var stepExpectedIfClosed_m3: Double = 0.0
+        var stepExpectedIfOpen_m3: Double = 0.0
+        var stepFloatState: String = "CLOSED"
+        var stepInternalCount: Int = 0      // Total internal steps in this output step
+        var stepOpenCount: Int = 0          // Number of internal steps where float was OPEN
+
+        // Float valve tolerance: allows float to open when string pressure exceeds
+        // annulus pressure by more than this threshold. Accounts for numerical
+        // precision and real-world conditions where small differentials crack the float.
+        let floatTolerance_kPa: Double = 5.0
 
         while bitMD > input.endMD_m + 1e-9 {
-            let nextMD = max(input.endMD_m, bitMD - step)
+            // Calculate next position: move by 1m internally
+            let nextMD = max(input.endMD_m, bitMD - internalStep)
             let dL = bitMD - nextMD
             let oldBitMD = bitMD
 
+            // Calculate expected fill volumes for this 1m step (before knowing float state)
+            // DP Wet = Pipe OD volume (capacity + displacement)
+            // DP Dry = Steel displacement only (metal ring area)
+            let expectedIfClosed = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)  // DP Wet
+            let expectedIfOpen = geom.steelDisplacement_m2(oldBitMD) * dL  // DP Dry
+            stepExpectedIfClosed_m3 += expectedIfClosed
+            stepExpectedIfOpen_m3 += expectedIfOpen
+
             // Float state before carving
+            // Float opens when string pressure exceeds annulus pressure by more than tolerance
             var Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: oldBitMD)
             var Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
-            var floatClosed = (Pstr_bit <= Pann_bit)
+            var floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
+
+            // Report progress periodically
+            if lastProgressReportMD - bitMD >= progressReportInterval {
+                lastProgressReportMD = bitMD
+                onProgress?(TripProgress(
+                    phase: .tripping,
+                    currentMD_m: bitMD,
+                    startMD_m: input.startBitMD_m,
+                    endMD_m: input.endMD_m,
+                    floatState: floatClosed ? "CLOSED" : "OPEN",
+                    equalizationIterations: 0,
+                    message: "Tripping at \(String(format: "%.0f", bitMD))m MD - Float \(floatClosed ? "CLOSED" : "OPEN")"
+                ))
+            }
+
+            // If float is OPEN, run U-tube equalization before continuing the trip step
+            // This drains string fluid into annulus until pressures equalize
+            if !floatClosed {
+                var eqIterations = 0
+                let maxEqIterations = 1000  // Safety limit per step
+                var eqSlugDrained_m3 = 0.0  // Track slug volume drained during this step's equalization
+
+                while eqIterations < maxEqIterations {
+                    eqIterations += 1
+
+                    // Report progress every 50 iterations during mid-trip equalization
+                    if eqIterations % 50 == 0 {
+                        onProgress?(TripProgress(
+                            phase: .stepEqualization,
+                            currentMD_m: bitMD,
+                            startMD_m: input.startBitMD_m,
+                            endMD_m: input.endMD_m,
+                            floatState: "OPEN",
+                            equalizationIterations: eqIterations,
+                            message: "Float cracked at \(String(format: "%.0f", bitMD))m - equalizing (\(eqIterations) iterations)"
+                        ))
+                    }
+
+                    // Recalculate pressures
+                    let Pstr_eq = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
+                    let Pann_eq = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: oldBitMD)
+
+                    // Float closes when string pressure <= annulus pressure
+                    if Pstr_eq <= Pann_eq + input.crackFloat_kPa {
+                        floatClosed = true
+                        break
+                    }
+
+                    // Drain a small parcel from string bottom
+                    guard !stringStack.layers.isEmpty else { break }
+
+                    let bottomLayer = stringStack.layers[stringStack.layers.count - 1]
+                    let bottomLen = bottomLayer.bottomMD - bottomLayer.topMD
+                    let bottomVol = geom.volumeInString_m3(bottomLayer.topMD, bottomLayer.bottomMD)
+
+                    let drainVol = min(pulseStep_m3, bottomVol)
+                    guard drainVol > 1e-12 else { break }
+
+                    // Track slug contribution
+                    eqSlugDrained_m3 += drainVol
+
+                    let drainLen = (bottomVol > 1e-12) ? (drainVol / bottomVol) * bottomLen : 0
+                    guard drainLen > 1e-12 else { break }
+
+                    // Remove from string bottom
+                    let drainRho = bottomLayer.rho
+                    let drainColor = bottomLayer.color
+                    stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
+                    if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
+                        stringStack.layers.removeLast()
+                    }
+
+                    // Add air at top of string
+                    let airLen = geom.lengthForStringVolume_m(0, drainVol)
+                    if airLen > 1e-9 {
+                        if stringStack.layers.isEmpty || abs(stringStack.layers[0].rho - NumericalTripModel.rhoAir) > 1e-6 {
+                            stringStack.layers.insert(Layer(rho: NumericalTripModel.rhoAir, topMD: 0, bottomMD: 0, color: nil), at: 0)
+                        }
+                        for i in 1..<stringStack.layers.count {
+                            stringStack.layers[i].topMD += airLen
+                            stringStack.layers[i].bottomMD += airLen
+                        }
+                        stringStack.layers[0].bottomMD += airLen
+                    }
+                    stringStack.ensureInvariants(bitMD: oldBitMD)
+
+                    // Push annulus fluid up, inject drained string fluid at bottom
+                    // Use annulus area at oldBitMD since we're injecting at the bottom
+                    let annulusAreaMid = geom.annulusArea_m2(oldBitMD)
+                    let annulusInjectLen = (annulusAreaMid > 1e-12) ? drainVol / annulusAreaMid : 0
+                    for i in annulusStack.layers.indices {
+                        annulusStack.layers[i].topMD = max(0, annulusStack.layers[i].topMD - annulusInjectLen)
+                        annulusStack.layers[i].bottomMD = max(0, annulusStack.layers[i].bottomMD - annulusInjectLen)
+                    }
+
+                    let newTop = max(0, oldBitMD - annulusInjectLen)
+                    if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
+                        annulusStack.layers[annulusStack.layers.count - 1].bottomMD = oldBitMD
+                    } else {
+                        annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: oldBitMD, color: drainColor))
+                    }
+                    annulusStack.ensureInvariants(bitMD: oldBitMD)
+                }
+
+                // Recalculate float state after equalization
+                Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: oldBitMD)
+                Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
+                floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
+
+                // Add slug contribution from this step's equalization
+                // Slug drains from string → pushes annulus up → overflow at surface (pit gain)
+                stepSlugContribution_m3 += eqSlugDrained_m3
+                stepPitGain_m3 += eqSlugDrained_m3  // Overflow at surface = slug drained
+            }
 
             // Carve @ bottom for this step
             var lenA = 0.0, volA = 0.0, massA = 0.0
-            var lenS = 0.0, volS = 0.0, massS = 0.0
 
             func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?) {
                 var remaining = lenReq
@@ -462,73 +826,102 @@ final class NumericalTripModel {
 
             var colorA: ColorRGBA? = nil
             var colorS: ColorRGBA? = nil
+            var lenS = 0.0, volS = 0.0, massS = 0.0
+            var mPocket = 0.0, vPocket = 0.0, lenPocket = 0.0
 
             if !floatClosed {
+                // Float OPEN: String mud drains out the bottom (stays stationary relative to hole)
+                // Pocket receives: string capacity + annulus capacity + steel displacement
+                // Both stacks donate fluid that goes into the pocket below the bit
+
+                // Carve from both string AND annulus
                 let s = takeBottomByLen(stringStack, isAnnulus: false, lenReq: dL)
-                let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
                 lenS = s.len; volS = s.vol; massS = s.mass; colorS = s.blendedColor
+
+                let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
-                // steel displacement goes to annulus side
-                let vSteel = geom.steelArea_m2(oldBitMD) * dL
+
+                // Steel displacement goes to annulus side (added to pocket)
+                let vSteel = geom.steelDisplacement_m2(oldBitMD) * dL
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
                 massA += rhoA * vSteel
                 volA += vSteel
+
+                // Pocket receives both string and annulus contributions
+                mPocket = massA + massS
+                vPocket = volA + volS
+                lenPocket = min(lenA, lenS)
+
             } else {
+                // Float CLOSED: String mud rises with the pipe (no draining)
+                // Pocket receives: annulus only + pipe OD volume (all from annulus)
+
+                // Only carve from annulus
                 let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
+
+                // Full pipe OD volume (not just steel) - the void left by the pipe
                 let vOD = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
                 massA += rhoA * vOD
                 volA += vOD
+
+                mPocket = massA
+                vPocket = volA
+                lenPocket = lenA
+
+                // String fluid moves with pipe - translate upward
+                stringStack.translateAllLayers(by: -dL, bitMD: bitMD)
             }
 
-            let vPocket = volA + (floatClosed ? 0.0 : volS)
-            let mPocket = massA + (floatClosed ? 0.0 : massS)
             let rhoMix = (vPocket > 1e-12) ? (mPocket / vPocket) : input.baseMudDensity_kgpm3
 
-            // Blend colors from annulus and string (volume-weighted)
+            // Blend colors for mixed pocket (float OPEN mixes string + annulus colors)
             let mixedColor: ColorRGBA? = {
                 var totalR = 0.0, totalG = 0.0, totalB = 0.0, totalA = 0.0
                 var totalVol = 0.0
 
                 if let cA = colorA, volA > 1e-12 {
-                    totalR += cA.r * volA
-                    totalG += cA.g * volA
-                    totalB += cA.b * volA
-                    totalA += cA.a * volA
+                    totalR += cA.r * volA; totalG += cA.g * volA
+                    totalB += cA.b * volA; totalA += cA.a * volA
                     totalVol += volA
                 }
                 if !floatClosed, let cS = colorS, volS > 1e-12 {
-                    totalR += cS.r * volS
-                    totalG += cS.g * volS
-                    totalB += cS.b * volS
-                    totalA += cS.a * volS
+                    totalR += cS.r * volS; totalG += cS.g * volS
+                    totalB += cS.b * volS; totalA += cS.a * volS
                     totalVol += volS
                 }
                 guard totalVol > 1e-12 else { return nil }
-                return ColorRGBA(
-                    r: totalR / totalVol,
-                    g: totalG / totalVol,
-                    b: totalB / totalVol,
-                    a: totalA / totalVol
-                )
+                return ColorRGBA(r: totalR/totalVol, g: totalG/totalVol,
+                                 b: totalB/totalVol, a: totalA/totalVol)
             }()
 
             // Re-anchor stacks to new bit
             bitMD = nextMD
+
             if floatClosed {
-                stringStack.translateAllLayers(by: -dL, bitMD: bitMD)
+                // String already translated above, just ensure annulus invariants
                 annulusStack.ensureInvariants(bitMD: bitMD)
             } else {
+                // Both stacks adjust to new bit position
                 annulusStack.adjustBit(to: bitMD)
                 stringStack.adjustBit(to: bitMD)
                 annulusStack.ensureInvariants(bitMD: bitMD)
+                stringStack.ensureInvariants(bitMD: bitMD)
             }
+
             // Append pocket at new bit with blended color
-            addPocketBelowBit(rho: rhoMix, len: min(lenA, (floatClosed ? lenA : lenS)), bitMD: bitMD, color: mixedColor)
+            addPocketBelowBit(rho: rhoMix, len: lenPocket, bitMD: bitMD, color: mixedColor)
 
             // Surface backfill required
-            let needBefore = floatClosed ? geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD) : geom.steelArea_m2(oldBitMD) * dL
+            // Float CLOSED (DP Wet): backfill = pipe OD volume (capacity + displacement)
+            // Float OPEN (DP Dry): backfill = steel displacement only
+            let needBefore: Double
+            if floatClosed {
+                needBefore = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)  // DP Wet
+            } else {
+                needBefore = geom.steelDisplacement_m2(oldBitMD) * dL  // DP Dry
+            }
             var need = needBefore
             // Tracking placeholders commented out to silence warnings
             // var _usedKill = 0.0, _usedBase = 0.0
@@ -549,63 +942,133 @@ final class NumericalTripModel {
                 annulusStack.ensureInvariants(bitMD: bitMD)
             }
 
+            // Track actual backfill used for this 1m step
+            let actualBackfill = needBefore - need
+            stepBackfill_m3 += actualBackfill
+
+            // Track float state for this step - count OPEN vs CLOSED internal steps
+            stepInternalCount += 1
+            if !floatClosed {
+                stepOpenCount += 1
+            }
+
             // Recompute pressures after fill
             Pann_bit = annulusStack.pressureAtBit_kPa(sabp_kPa: sabp_kPa, bitMD: bitMD)
             Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: bitMD)
-            floatClosed = (Pstr_bit <= Pann_bit)
+            floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
 
-            // Snapshots & totals
-            let pocketRows = snapshotPocket(pocket, bitMD: bitMD)
-            let annRows = snapshotStack(annulusStack, bitMD: bitMD)
-            let strRows = snapshotStack(stringStack, bitMD: bitMD)
-            let totPocket = sum(pocketRows)
-            let totAnn = sum(annRows)
-            let totString = sum(strRows)
+            // Only record results at step_m intervals (or at the final position)
+            let distanceSinceLastRecord = lastRecordedMD - bitMD
+            let shouldRecord = distanceSinceLastRecord >= step - 0.01 || bitMD <= input.endMD_m + 0.01
 
-            // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
-            // Calculate swab pressure based on annulus layers above bit
-            let swab_kPa = calculateSwab(
-                annulusLayers: project.finalAnnulusLayersSorted,
-                bitMD: bitMD,
-                tripSpeed_m_per_s: input.tripSpeed_m_per_s,
-                eccentricityFactor: input.eccentricityFactor,
-                geom: geom,
-                tvdOfMd: tvdOfMd,
-                fallbackTheta600: input.fallbackTheta600,
-                fallbackTheta300: input.fallbackTheta300,
-                floatIsOpen: !floatClosed
-            )
+            if shouldRecord {
+                lastRecordedMD = bitMD
 
-            let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
-            if input.holdSABPOpen {
-                sabp_kPa = 0.0
-            } else {
-                sabp_kPa = max(0.0, sabpRaw)
+                // Snapshots & totals
+                let pocketRows = snapshotPocket(pocket, bitMD: bitMD)
+                let annRows = snapshotStack(annulusStack, bitMD: bitMD)
+                let strRows = snapshotStack(stringStack, bitMD: bitMD)
+                let totPocket = sum(pocketRows)
+                let totAnn = sum(annRows)
+                let totString = sum(strRows)
+
+                // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
+                // Calculate swab pressure based on annulus layers above bit
+                // Use dynamic float state for swab calculation
+                let swab_kPa = calculateSwab(
+                    annulusLayers: project.finalAnnulusLayersSorted,
+                    bitMD: bitMD,
+                    tripSpeed_m_per_s: input.tripSpeed_m_per_s,
+                    eccentricityFactor: input.eccentricityFactor,
+                    geom: geom,
+                    tvdOfMd: tvdOfMd,
+                    fallbackTheta600: input.fallbackTheta600,
+                    fallbackTheta300: input.fallbackTheta300,
+                    floatIsOpen: !floatClosed
+                )
+
+                let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
+                if input.holdSABPOpen {
+                    sabp_kPa = 0.0
+                } else {
+                    sabp_kPa = max(0.0, sabpRaw)
+                }
+                // Dynamic SABP includes swab compensation
+                let sabpDyn = max(0.0, sabp_kPa + swab_kPa)
+
+                let bitTVD = tvdOfMd(bitMD)
+                let esdTD = (totPocket.deltaP_kPa + totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
+                let esdBit = max(0.0, (totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(bitTVD, 1e-9))
+
+                // Update cumulative volume tracking
+                cumulativeBackfill_m3 += stepBackfill_m3
+                cumulativeSlugContribution_m3 += stepSlugContribution_m3
+                cumulativePitGain_m3 += stepPitGain_m3
+
+                // Calculate surface tank delta (positive = tank gained, negative = tank used)
+                // Pit gain increases tank, backfill decreases tank
+                let stepTankDelta = stepPitGain_m3 - stepBackfill_m3
+                cumulativeSurfaceTankDelta_m3 += stepTankDelta
+
+                // Format float state with percentage (e.g., "OPEN 72%" or "CLOSED 100%")
+                let openPercent = stepInternalCount > 0 ? Int(round(Double(stepOpenCount) / Double(stepInternalCount) * 100)) : 0
+                if openPercent == 100 {
+                    stepFloatState = "OPEN 100%"
+                } else if openPercent == 0 {
+                    stepFloatState = "CLOSED 100%"
+                } else {
+                    stepFloatState = "OPEN \(openPercent)%"
+                }
+
+                results.append(TripStep(bitMD_m: bitMD,
+                                        bitTVD_m: bitTVD,
+                                        SABP_kPa: sabp_kPa,
+                                        SABP_kPa_Raw: sabpRaw,
+                                        ESDatTD_kgpm3: esdTD,
+                                        ESDatBit_kgpm3: esdBit,
+                                        backfillRemaining_m3: max(0.0, backfillRemaining),
+                                        swabDropToBit_kPa: swab_kPa,
+                                        SABP_Dynamic_kPa: sabpDyn,
+                                        floatState: stepFloatState,
+                                        stepBackfill_m3: stepBackfill_m3,
+                                        cumulativeBackfill_m3: cumulativeBackfill_m3,
+                                        expectedFillIfClosed_m3: stepExpectedIfClosed_m3,
+                                        expectedFillIfOpen_m3: stepExpectedIfOpen_m3,
+                                        slugContribution_m3: stepSlugContribution_m3,
+                                        cumulativeSlugContribution_m3: cumulativeSlugContribution_m3,
+                                        pitGain_m3: stepPitGain_m3,
+                                        cumulativePitGain_m3: cumulativePitGain_m3,
+                                        surfaceTankDelta_m3: stepTankDelta,
+                                        cumulativeSurfaceTankDelta_m3: cumulativeSurfaceTankDelta_m3,
+                                        layersPocket: pocketRows,
+                                        layersAnnulus: annRows,
+                                        layersString: strRows,
+                                        totalsPocket: totPocket,
+                                        totalsAnnulus: totAnn,
+                                        totalsString: totString))
+
+                // Reset step-level accumulators for next recording interval
+                stepBackfill_m3 = 0.0
+                stepSlugContribution_m3 = 0.0
+                stepPitGain_m3 = 0.0
+                stepExpectedIfClosed_m3 = 0.0
+                stepExpectedIfOpen_m3 = 0.0
+                stepFloatState = "CLOSED"
+                stepInternalCount = 0
+                stepOpenCount = 0
             }
-            // Dynamic SABP includes swab compensation
-            let sabpDyn = max(0.0, sabp_kPa + swab_kPa)
-
-            let bitTVD = tvdOfMd(bitMD)
-            let esdTD = (totPocket.deltaP_kPa + totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
-            let esdBit = max(0.0, (totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(bitTVD, 1e-9))
-
-            results.append(TripStep(bitMD_m: bitMD,
-                                    bitTVD_m: bitTVD,
-                                    SABP_kPa: sabp_kPa,
-                                    SABP_kPa_Raw: sabpRaw,
-                                    ESDatTD_kgpm3: esdTD,
-                                    ESDatBit_kgpm3: esdBit,
-                                    backfillRemaining_m3: max(0.0, backfillRemaining),
-                                    swabDropToBit_kPa: swab_kPa,
-                                    SABP_Dynamic_kPa: sabpDyn,
-                                    layersPocket: pocketRows,
-                                    layersAnnulus: annRows,
-                                    layersString: strRows,
-                                    totalsPocket: totPocket,
-                                    totalsAnnulus: totAnn,
-                                    totalsString: totString))
-            // _wasClosedPrev = floatClosed
         }
+
+        // Report completion
+        onProgress?(TripProgress(
+            phase: .complete,
+            currentMD_m: bitMD,
+            startMD_m: input.startBitMD_m,
+            endMD_m: input.endMD_m,
+            floatState: "N/A",
+            equalizationIterations: 0,
+            message: "Simulation complete - \(results.count) steps recorded"
+        ))
 
         return results
     }

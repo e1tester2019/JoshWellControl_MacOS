@@ -295,15 +295,15 @@ struct TripSimulationViewIOS: View {
                             .fontWeight(.medium)
                         VStack(spacing: 6) {
                             Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-                            
+
                             Divider()
-                            
+
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Trip speed (m/s)")
+                                Text("Trip speed (m/min)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 HStack {
-                                    TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                    TextField("Trip speed", value: tripSpeedBinding_mpm, format: .number)
                                         .textFieldStyle(.roundedBorder)
                                     Text(tripSpeedDirectionText)
                                         .font(.caption2)
@@ -315,33 +315,87 @@ struct TripSimulationViewIOS: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Initial Slug Calibration
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Slug Calibration")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            if viewmodel.calculatedInitialPitGain_m3 > 0 {
+                                HStack {
+                                    Text("Calculated:")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
+                                        .monospacedDigit()
+                                    Button {
+                                        viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
+                                    } label: {
+                                        Image(systemName: "arrow.right.circle")
+                                    }
+                                }
+                            }
+                            Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
+                            HStack {
+                                TextField("Observed", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                                    .textFieldStyle(.roundedBorder)
+                                    .disabled(!viewmodel.useObservedPitGain)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
+
             // Action buttons below the group box
             HStack(spacing: 12) {
                 Toggle("Show details", isOn: $viewmodel.showDetails)
                     .toggleStyle(.switch)
-                
+
                 Spacer()
-                
-                Button("Run Simulation") {
-                    viewmodel.runSimulation(project: project)
+
+                if viewmodel.isRunning {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(viewmodel.progressMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            ProgressView(value: viewmodel.progressValue)
+                                .frame(width: 120)
+                        }
+                    }
+                } else {
+                    Button("Run Simulation") {
+                        viewmodel.runSimulation(project: project)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
-                
+
                 Menu {
+                    Button("Export PDF Report") {
+                        exportPDFReport()
+                    }
+                    Button("Export HTML Report") {
+                        exportHTMLReport()
+                    }
+                    Divider()
                     Button("Export Project JSON") {
                         exportProjectJSON()
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "square.and.arrow.up")
                 }
                 .buttonStyle(.bordered)
             }
         }
     }
-    
+
     private var headerInputs: some View {
         VStack(alignment: .leading, spacing: 12) {
             // All inputs in a single group box using LazyVGrid
@@ -422,15 +476,15 @@ struct TripSimulationViewIOS: View {
                             .fontWeight(.medium)
                         VStack(spacing: 6) {
                             Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-                            
+
                             Divider()
-                            
+
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Trip speed (m/s)")
+                                Text("Trip speed (m/min)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 HStack {
-                                    TextField("Trip speed", value: tripSpeedBinding, format: .number)
+                                    TextField("Trip speed", value: tripSpeedBinding_mpm, format: .number)
                                         .textFieldStyle(.roundedBorder)
                                         .frame(maxWidth: 120)
                                     Text(tripSpeedDirectionText)
@@ -443,10 +497,43 @@ struct TripSimulationViewIOS: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("Signed trip speed in m/s. Positive values pull out of hole; negative values run in.")
+                    .help("Signed trip speed in m/min. Positive values pull out of hole; negative values run in.")
+
+                    // Initial Slug Calibration
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Slug Calibration")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        VStack(spacing: 6) {
+                            if viewmodel.calculatedInitialPitGain_m3 > 0 {
+                                HStack {
+                                    Text("Calculated:")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
+                                        .monospacedDigit()
+                                    Button {
+                                        viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
+                                    } label: {
+                                        Image(systemName: "arrow.right.circle")
+                                    }
+                                }
+                            }
+                            Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
+                            HStack {
+                                TextField("Observed", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 80)
+                                    .disabled(!viewmodel.useObservedPitGain)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
+
             // Action buttons below the group box
             HStack(spacing: 12) {
                 Toggle("Show details", isOn: $viewmodel.showDetails)
@@ -454,16 +541,249 @@ struct TripSimulationViewIOS: View {
 
                 Spacer()
 
-                Button("Run Simulation") {
-                    viewmodel.runSimulation(project: project)
+                if viewmodel.isRunning {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(viewmodel.progressMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            ProgressView(value: viewmodel.progressValue)
+                                .frame(width: 120)
+                        }
+                    }
+                } else {
+                    Button("Run Simulation") {
+                        viewmodel.runSimulation(project: project)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
-                
-                Button("Export Project JSON") {
-                    exportProjectJSON()
+
+                Menu {
+                    Button("Export PDF Report") {
+                        exportPDFReport()
+                    }
+                    Button("Export HTML Report") {
+                        exportHTMLReport()
+                    }
+                    Divider()
+                    Button("Export Project JSON") {
+                        exportProjectJSON()
+                    }
+                } label: {
+                    Text("Export")
                 }
                 .buttonStyle(.bordered)
-                .help("Export the current project's data as a JSON file.")
+            }
+        }
+    }
+
+    // MARK: - Export PDF Report
+    private func exportPDFReport() {
+        guard !viewmodel.steps.isEmpty else {
+            exportErrorMessage = "Run simulation first before exporting."
+            showingExportErrorAlert = true
+            return
+        }
+
+        // Build geometry data for PDF
+        let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
+            let id = ds.innerDiameter_m
+            let od = ds.outerDiameter_m
+            let capacity = .pi * (id * id) / 4.0  // m³/m (pipe bore capacity)
+            let displacement = .pi * (od * od - id * id) / 4.0  // m³/m (steel volume)
+            return PDFSectionData(
+                name: ds.name,
+                topMD: ds.topDepth_m,
+                bottomMD: ds.bottomDepth_m,
+                length: ds.length_m,
+                innerDiameter: id,
+                outerDiameter: od,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: displacement,
+                totalVolume: capacity * ds.length_m
+            )
+        }
+
+        // Helper to find pipe OD from drill string at a given depth
+        let drillStringSorted = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        func pipeODAtDepth(_ md: Double) -> Double {
+            for ds in drillStringSorted {
+                if ds.topDepth_m <= md && md <= ds.bottomDepth_m {
+                    return ds.outerDiameter_m
+                }
+            }
+            return 0.0
+        }
+
+        let annulusSections: [PDFSectionData] = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ann in
+            let holeID = ann.innerDiameter_m
+            let midDepth = (ann.topDepth_m + ann.bottomDepth_m) / 2.0
+            let pipeOD = pipeODAtDepth(midDepth)
+            let capacity = .pi * (holeID * holeID - pipeOD * pipeOD) / 4.0  // m³/m (annular capacity)
+            return PDFSectionData(
+                name: ann.name,
+                topMD: ann.topDepth_m,
+                bottomMD: ann.bottomDepth_m,
+                length: ann.length_m,
+                innerDiameter: holeID,
+                outerDiameter: pipeOD,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: 0,  // Not applicable for annulus
+                totalVolume: capacity * ann.length_m
+            )
+        }
+
+        let reportData = TripSimulationReportData(
+            wellName: project.well?.name ?? "Unknown Well",
+            projectName: project.name,
+            generatedDate: Date(),
+            startMD: viewmodel.startBitMD_m,
+            endMD: viewmodel.endMD_m,
+            controlMD: viewmodel.shoeMD_m,
+            stepSize: viewmodel.step_m,
+            baseMudDensity: viewmodel.baseMudDensity_kgpm3,
+            backfillDensity: viewmodel.backfillDensity_kgpm3,
+            targetESD: viewmodel.targetESDAtTD_kgpm3,
+            crackFloat: viewmodel.crackFloat_kPa,
+            initialSABP: viewmodel.initialSABP_kPa,
+            holdSABPOpen: viewmodel.holdSABPOpen,
+            tripSpeed: project.settings.tripSpeed_m_per_s * 60,
+            useObservedPitGain: viewmodel.useObservedPitGain,
+            observedPitGain: viewmodel.useObservedPitGain ? viewmodel.observedInitialPitGain_m3 : nil,
+            drillStringSections: drillStringSections,
+            annulusSections: annulusSections,
+            steps: viewmodel.steps
+        )
+
+        guard let pdfData = TripSimulationPDFGenerator.shared.generatePDF(for: reportData) else {
+            exportErrorMessage = "Failed to generate PDF report."
+            showingExportErrorAlert = true
+            return
+        }
+
+        let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let defaultName = "TripSimulation_\(wellName)_\(dateStr).pdf"
+
+        Task {
+            let success = await FileService.shared.saveFile(
+                data: pdfData,
+                defaultName: defaultName,
+                allowedFileTypes: ["pdf"]
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to save PDF report."
+                    showingExportErrorAlert = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Export HTML Report
+    private func exportHTMLReport() {
+        guard !viewmodel.steps.isEmpty else {
+            exportErrorMessage = "Run simulation first before exporting."
+            showingExportErrorAlert = true
+            return
+        }
+
+        // Build geometry data (same as PDF)
+        let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
+            let id = ds.innerDiameter_m
+            let od = ds.outerDiameter_m
+            let capacity = .pi * (id * id) / 4.0
+            let displacement = .pi * (od * od - id * id) / 4.0
+            return PDFSectionData(
+                name: ds.name,
+                topMD: ds.topDepth_m,
+                bottomMD: ds.bottomDepth_m,
+                length: ds.length_m,
+                innerDiameter: id,
+                outerDiameter: od,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: displacement,
+                totalVolume: capacity * ds.length_m
+            )
+        }
+
+        // Helper to find pipe OD from drill string at a given depth
+        let drillStringSorted2 = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        func pipeODAtDepth2(_ md: Double) -> Double {
+            for ds in drillStringSorted2 {
+                if ds.topDepth_m <= md && md <= ds.bottomDepth_m {
+                    return ds.outerDiameter_m
+                }
+            }
+            return 0.0
+        }
+
+        let annulusSections: [PDFSectionData] = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ann in
+            let holeID = ann.innerDiameter_m
+            let midDepth = (ann.topDepth_m + ann.bottomDepth_m) / 2.0
+            let pipeOD = pipeODAtDepth2(midDepth)
+            let capacity = .pi * (holeID * holeID - pipeOD * pipeOD) / 4.0
+            return PDFSectionData(
+                name: ann.name,
+                topMD: ann.topDepth_m,
+                bottomMD: ann.bottomDepth_m,
+                length: ann.length_m,
+                innerDiameter: holeID,
+                outerDiameter: pipeOD,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: 0,
+                totalVolume: capacity * ann.length_m
+            )
+        }
+
+        let reportData = TripSimulationReportData(
+            wellName: project.well?.name ?? "Unknown Well",
+            projectName: project.name,
+            generatedDate: Date(),
+            startMD: viewmodel.startBitMD_m,
+            endMD: viewmodel.endMD_m,
+            controlMD: viewmodel.shoeMD_m,
+            stepSize: viewmodel.step_m,
+            baseMudDensity: viewmodel.baseMudDensity_kgpm3,
+            backfillDensity: viewmodel.backfillDensity_kgpm3,
+            targetESD: viewmodel.targetESDAtTD_kgpm3,
+            crackFloat: viewmodel.crackFloat_kPa,
+            initialSABP: viewmodel.initialSABP_kPa,
+            holdSABPOpen: viewmodel.holdSABPOpen,
+            tripSpeed: project.settings.tripSpeed_m_per_s * 60,
+            useObservedPitGain: viewmodel.useObservedPitGain,
+            observedPitGain: viewmodel.useObservedPitGain ? viewmodel.observedInitialPitGain_m3 : nil,
+            drillStringSections: drillStringSections,
+            annulusSections: annulusSections,
+            steps: viewmodel.steps
+        )
+
+        let htmlContent = TripSimulationHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let defaultName = "TripSimulation_\(wellName)_\(dateStr).html"
+
+        Task {
+            let success = await FileService.shared.saveTextFile(
+                text: htmlContent,
+                defaultName: defaultName,
+                allowedFileTypes: ["html"]
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to save HTML report."
+                    showingExportErrorAlert = true
+                }
             }
         }
     }
@@ -518,27 +838,54 @@ struct TripSimulationViewIOS: View {
                     .contentShape(Rectangle())
                     .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
             }
-            .width(min: 80, ideal: 100, max: 120)
+            .width(min: 60, ideal: 70, max: 90)
 
             TableColumn("Bit TVD") { row in
                 selectableText(format0(row.bitTVD_m), for: row)
             }
-            .width(min: 80, ideal: 100, max: 120)
+            .width(min: 60, ideal: 70, max: 90)
 
-            TableColumn("SABP kPa") { row in
+            TableColumn("Static SABP") { row in
                 selectableText(format0(row.SABP_kPa), for: row)
             }
-            .width(min: 80, ideal: 100, max: 120)
+            .width(min: 70, ideal: 85, max: 100)
 
-            TableColumn("ESD@TD kg/m³") { row in
+            TableColumn("Dynamic SABP") { row in
+                selectableText(format0(row.SABP_Dynamic_kPa), for: row)
+            }
+            .width(min: 70, ideal: 85, max: 100)
+
+            TableColumn("ESD@TD") { row in
                 selectableText(format0(row.ESDatTD_kgpm3), for: row)
             }
-            .width(min: 100, ideal: 120, max: 150)
+            .width(min: 70, ideal: 85, max: 100)
 
-            TableColumn("Swab Drop kPa") { row in
-                selectableText(format0(row.swabDropToBit_kPa), for: row)
+            TableColumn("DP Wet") { row in
+                selectableText(format3(row.expectedFillIfClosed_m3), for: row)
             }
-            .width(min: 100, ideal: 130, max: 170)
+            .width(min: 70, ideal: 85, max: 100)
+
+            TableColumn("DP Dry") { row in
+                selectableText(format3(row.expectedFillIfOpen_m3), for: row)
+            }
+            .width(min: 70, ideal: 85, max: 100)
+
+            TableColumn("Actual") { row in
+                selectableText(format3(row.stepBackfill_m3), for: row)
+            }
+            .width(min: 70, ideal: 85, max: 100)
+
+            TableColumn("Tank Δ") { row in
+                let delta = row.cumulativeSurfaceTankDelta_m3
+                let color: Color = delta >= 0 ? .green : .red
+                Text(String(format: "%+.2f", delta))
+                    .monospacedDigit()
+                    .foregroundStyle(color)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
+            }
+            .width(min: 70, ideal: 85, max: 100)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
@@ -759,6 +1106,41 @@ struct TripSimulationViewIOS: View {
                     DisclosureGroup("Pocket (below bit)") {
                         layerTable(s.layersPocket)
                     }
+                    DisclosureGroup("Volume Tracking") {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                            GridRow {
+                                Text("Float State").foregroundStyle(.secondary)
+                                Text(s.floatState)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(s.floatState.contains("OPEN") ? .orange : .green)
+                            }
+                            Divider()
+                            GridRow {
+                                Text("This Step").foregroundStyle(.secondary).fontWeight(.semibold)
+                                Text("")
+                            }
+                            gridRow("Backfill pumped", format3(s.stepBackfill_m3) + " m³")
+                            gridRow("Pit gain (overflow)", format3(s.pitGain_m3) + " m³")
+                            gridRow("Tank change", formatSigned3(s.surfaceTankDelta_m3) + " m³")
+                            gridRow("Expected if CLOSED", format3(s.expectedFillIfClosed_m3) + " m³")
+                            gridRow("Expected if OPEN", format3(s.expectedFillIfOpen_m3) + " m³")
+                            Divider()
+                            GridRow {
+                                Text("Cumulative").foregroundStyle(.secondary).fontWeight(.semibold)
+                                Text("")
+                            }
+                            gridRow("Total backfill", format3(s.cumulativeBackfill_m3) + " m³")
+                            gridRow("Total pit gain", format3(s.cumulativePitGain_m3) + " m³")
+                            GridRow {
+                                Text("Net tank change").foregroundStyle(.secondary)
+                                Text(formatSigned3(s.cumulativeSurfaceTankDelta_m3) + " m³")
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(s.cumulativeSurfaceTankDelta_m3 >= 0 ? .green : .red)
+                            }
+                            gridRow("Slug contribution", format3(s.cumulativeSlugContribution_m3) + " m³")
+                        }
+                        .padding(.top, 4)
+                    }
                     DisclosureGroup("ESD@control debug") {
                         let rows = esdDebugRows(project: project, step: s)
                         debugTable(rows)
@@ -923,6 +1305,7 @@ struct TripSimulationViewIOS: View {
     private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
+    private func formatSigned3(_ v: Double) -> String { String(format: "%+.3f", v) }
 
     // Clamp Control MD to not exceed geometry
     private var controlMDLimit: Double {
@@ -946,6 +1329,14 @@ struct TripSimulationViewIOS: View {
         Binding(
             get: { project.settings.tripSpeed_m_per_s },
             set: { project.settings.tripSpeed_m_per_s = $0 }
+        )
+    }
+
+    // Trip speed in m/min (converts to/from m/s for storage)
+    private var tripSpeedBinding_mpm: Binding<Double> {
+        Binding(
+            get: { project.settings.tripSpeed_m_per_s * 60 },  // m/s -> m/min
+            set: { project.settings.tripSpeed_m_per_s = $0 / 60 }  // m/min -> m/s
         )
     }
 
