@@ -275,7 +275,10 @@ class TripSimulationHTMLGenerator {
             <script>
                 // Simulation data
                 const steps = \(stepsJSON);
-                const maxDepth = \(String(format: "%.1f", max(data.startMD, data.steps.map { $0.bitMD_m }.max() ?? 0)));
+                // maxDepth includes pocket bottom to match SwiftUI visualization
+                const maxBitMD = \(String(format: "%.1f", max(data.startMD, data.steps.map { $0.bitMD_m }.max() ?? 0)));
+                const maxPocketMD = \(String(format: "%.1f", data.steps.flatMap { $0.layersPocket }.map { $0.bottomMD }.max() ?? 0));
+                const maxDepth = Math.max(maxBitMD, maxPocketMD);
                 const maxTVD = \(String(format: "%.1f", data.steps.map { $0.bitTVD_m }.max() ?? 0));
 
                 // Playback state
@@ -915,23 +918,27 @@ class TripSimulationHTMLGenerator {
             if (maxDepth <= 0) { debugLog('Invalid maxDepth: ' + maxDepth); return; }
             debugLog('Drawing ' + canvasId + ': ' + (layers ? layers.length : 0) + ' layers, bitMD=' + bitMD);
 
-            // Fill background - pocket layers will cover below bit
+            const bitY = (bitMD / maxDepth) * h;
+
+            // Clear entire canvas first
+            ctx.clearRect(0, 0, w, h);
+
+            // Fill background only ABOVE bit (pocket overlay covers below)
             ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(0, 0, w, h);
+            ctx.fillRect(0, 0, w, bitY);
 
             // Draw layers (only above bit)
-            const bitY = (bitMD / maxDepth) * h;
             layers.forEach(layer => {
                 if (layer.bottomMD > bitMD) return;
                 const y1 = (layer.topMD / maxDepth) * h;
-                const y2 = (layer.bottomMD / maxDepth) * h;
+                const y2 = Math.min((layer.bottomMD / maxDepth) * h, bitY);
                 const layerH = Math.max(1, y2 - y1);
 
                 ctx.fillStyle = layer.color || densityToColor(layer.rho);
                 ctx.fillRect(0, y1, w, layerH);
             });
 
-            // Draw bit line
+            // Draw bit line (full width handled by main canvas)
             ctx.fillStyle = '#e05040';
             ctx.fillRect(0, bitY - 1, w, 2);
         }
@@ -969,7 +976,14 @@ class TripSimulationHTMLGenerator {
             // Clear overlay
             ctx.clearRect(0, 0, w, h);
 
-            // Draw pocket layers full width
+            // Calculate bit position
+            const bitY = (bitMD / maxDepth) * h;
+
+            // Fill pocket area (below bit) with dark background
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(0, bitY, w, h - bitY);
+
+            // Draw pocket layers full width (below bit)
             layers.forEach(layer => {
                 const y1 = (layer.topMD / maxDepth) * h;
                 const y2 = (layer.bottomMD / maxDepth) * h;
@@ -978,6 +992,10 @@ class TripSimulationHTMLGenerator {
                 ctx.fillStyle = layer.color || densityToColor(layer.rho);
                 ctx.fillRect(0, y1, w, layerH);
             });
+
+            // Draw bit line across full width
+            ctx.fillStyle = '#e05040';
+            ctx.fillRect(0, bitY - 1, w, 2);
         }
 
         function densityToColor(rho) {
