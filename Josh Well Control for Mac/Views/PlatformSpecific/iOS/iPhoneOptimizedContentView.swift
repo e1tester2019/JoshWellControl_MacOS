@@ -310,6 +310,12 @@ struct iPhoneOptimizedContentView: View {
                     } label: {
                         Label(ViewSelection.tripTracker.title, systemImage: ViewSelection.tripTracker.icon)
                     }
+
+                    NavigationLink {
+                        MPDTrackingView(project: project)
+                    } label: {
+                        Label(ViewSelection.mpdTracking.title, systemImage: ViewSelection.mpdTracking.icon)
+                    }
                 } else {
                     noProjectSelectedRow
                 }

@@ -563,7 +563,7 @@ class CementJobSimulationViewModel {
 
     // MARK: - APL (Annular Pressure Loss) Calculations
 
-    /// Calculate annular velocity given flow rate and geometry
+    /// Calculate annular velocity given flow rate and geometry (uses shared APLCalculationService)
     /// - Parameters:
     ///   - flowRate_m3_per_min: Flow rate in m³/min
     ///   - holeDiameter_m: Hole or casing ID (m)
@@ -574,9 +574,11 @@ class CementJobSimulationViewModel {
         holeDiameter_m: Double,
         pipeDiameter_m: Double
     ) -> Double {
-        let area_m2 = Double.pi / 4.0 * (pow(holeDiameter_m, 2) - pow(pipeDiameter_m, 2))
-        guard area_m2 > 1e-9 else { return 0 }
-        return flowRate_m3_per_min / area_m2
+        APLCalculationService.shared.annularVelocity(
+            flowRate_m3_per_min: flowRate_m3_per_min,
+            holeDiameter_m: holeDiameter_m,
+            pipeDiameter_m: pipeDiameter_m
+        )
     }
 
     /// Calculate friction pressure gradient using Bingham Plastic model (laminar flow)

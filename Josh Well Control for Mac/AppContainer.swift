@@ -74,7 +74,9 @@ enum AppContainer {
             TripSimulation.self,
             TripSimulationStep.self,
             TripTrack.self,
-            TripTrackStep.self
+            TripTrackStep.self,
+            MPDSheet.self,
+            MPDReading.self
         ]
         let fullSchema = Schema(models)
 
