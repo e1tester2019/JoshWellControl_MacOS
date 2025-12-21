@@ -23,9 +23,17 @@ struct MPDTrackingView: View {
     @State private var refreshTrigger = UUID()
     @State private var showingExtendPrompt = false
     @State private var chartXAxisIsBitMD = false
-    @State private var selectedReading: MPDReading?
+    @State private var selectedReadings: [MPDReading] = []
     @State private var editingBitMD: Double = 0
+    @State private var editingTimestampReading: MPDReading?
+    @State private var editingTimestamp: Date = Date()
+    @State private var chartMinMD: Double = 0
+    @State private var chartMaxMD: Double = 5000
+    @State private var editingChartMinMD: Double = 0
+    @State private var editingChartMaxMD: Double = 5000
     @FocusState private var bitMDFieldFocused: Bool
+    @FocusState private var chartMinFieldFocused: Bool
+    @FocusState private var chartMaxFieldFocused: Bool
 
     /// Readings filtered to current sheet
     private var readings: [MPDReading] {
@@ -117,6 +125,12 @@ struct MPDTrackingView: View {
                 viewModel.inputShutInPressure_kPa = viewModel.defaultShutInChoke_kPa
             }
         }
+        .onChange(of: chartXAxisIsBitMD) { _, isBitMD in
+            if isBitMD {
+                // Initialize depth range to 100m either side of data range
+                initializeChartDepthRange()
+            }
+        }
     }
     #endif
 
@@ -124,6 +138,41 @@ struct MPDTrackingView: View {
         guard viewModel.boundSheet != nil else { return }
         viewModel.updateSheetConfiguration()
         try? modelContext.save()
+    }
+
+    private func applyChartDepthRange() {
+        // Ensure min <= max, swap if needed
+        let minVal = min(editingChartMinMD, editingChartMaxMD)
+        let maxVal = max(editingChartMinMD, editingChartMaxMD)
+
+        // Ensure we have at least a 10m range to avoid issues
+        if maxVal - minVal < 10 {
+            chartMinMD = minVal
+            chartMaxMD = minVal + 10
+        } else {
+            chartMinMD = minVal
+            chartMaxMD = maxVal
+        }
+
+        // Sync editing values back
+        editingChartMinMD = chartMinMD
+        editingChartMaxMD = chartMaxMD
+    }
+
+    private func initializeChartDepthRange() {
+        // Set bounds to 100m either side of the data range
+        if readings.isEmpty {
+            // Fall back to heel-toe if no data
+            chartMinMD = viewModel.heelMD_m
+            chartMaxMD = viewModel.toeMD_m
+        } else {
+            let dataMin = readings.map { $0.bitMD_m }.min() ?? viewModel.heelMD_m
+            let dataMax = readings.map { $0.bitMD_m }.max() ?? viewModel.toeMD_m
+            chartMinMD = max(0, dataMin - 10)
+            chartMaxMD = dataMax + 10
+        }
+        editingChartMinMD = chartMinMD
+        editingChartMaxMD = chartMaxMD
     }
 
     // MARK: - iOS Layout
@@ -482,6 +531,7 @@ struct MPDTrackingView: View {
         return max(dataMax, viewModel.fracGradient_kgm3) + 50
     }
 
+
     #if os(macOS)
     private var chartSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -489,6 +539,47 @@ struct MPDTrackingView: View {
                 Text("Trend")
                     .font(.headline)
                 Spacer()
+
+                if chartXAxisIsBitMD {
+                    HStack(spacing: 4) {
+                        Text("From:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $editingChartMinMD, format: .number.precision(.fractionLength(0)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                            .focused($chartMinFieldFocused)
+                            .onChange(of: chartMinFieldFocused) { _, focused in
+                                if !focused { applyChartDepthRange() }
+                            }
+                            .onSubmit { applyChartDepthRange() }
+                        Text("To:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $editingChartMaxMD, format: .number.precision(.fractionLength(0)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                            .focused($chartMaxFieldFocused)
+                            .onChange(of: chartMaxFieldFocused) { _, focused in
+                                if !focused { applyChartDepthRange() }
+                            }
+                            .onSubmit { applyChartDepthRange() }
+                        Text("m")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            // Reset to 100m padding around data
+                            initializeChartDepthRange()
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Reset to data range ± 100m")
+                    }
+                }
+
                 Picker("X Axis", selection: $chartXAxisIsBitMD) {
                     Text("Time").tag(false)
                     Text("Bit MD").tag(true)
@@ -500,8 +591,8 @@ struct MPDTrackingView: View {
             .padding(.top, 8)
 
             // Selected reading info
-            if let selected = selectedReading {
-                selectedReadingBanner(selected)
+            if !selectedReadings.isEmpty {
+                selectedReadingsBanner
             }
 
             if readings.isEmpty {
@@ -518,40 +609,64 @@ struct MPDTrackingView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func selectedReadingBanner(_ selected: MPDReading) -> some View {
-        HStack(spacing: 16) {
-            Text(selected.timestamp, format: .dateTime.hour().minute())
-                .font(.caption)
-            Text("Bit: \(selected.bitMD_m, specifier: "%.0f")m")
-                .font(.caption)
-            Divider().frame(height: 12)
-            Text("Heel: \(Int(selected.effectiveDensityAtHeel_kgm3))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(viewModel.densityColor(selected.effectiveDensityAtHeel_kgm3))
-            Text("Bit: \(Int(selected.effectiveDensityAtBit_kgm3))")
-                .font(.caption.monospacedDigit().bold())
-                .foregroundStyle(viewModel.densityColor(selected.effectiveDensityAtBit_kgm3))
-            Text("Toe: \(Int(selected.effectiveDensityAtToe_kgm3))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(viewModel.densityColor(selected.effectiveDensityAtToe_kgm3))
-            Text("kg/m³")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button {
-                selectedReading = nil
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+    private var selectedReadingsBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(selectedReadings) { reading in
+                HStack(spacing: 12) {
+                    // Mode indicator
+                    Text(reading.isCirculating ? "ECD" : "ESD")
+                        .font(.caption.bold())
+                        .foregroundStyle(reading.isCirculating ? .blue : .purple)
+                        .frame(width: 28)
+
+                    Text(reading.timestamp, format: .dateTime.hour().minute())
+                        .font(.caption)
+                    Text("Bit: \(reading.bitMD_m, specifier: "%.0f")m")
+                        .font(.caption)
+                    Divider().frame(height: 12)
+                    Text("Heel: \(Int(reading.effectiveDensityAtHeel_kgm3))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(viewModel.densityColor(reading.effectiveDensityAtHeel_kgm3))
+                    Text("Bit: \(Int(reading.effectiveDensityAtBit_kgm3))")
+                        .font(.caption.monospacedDigit().bold())
+                        .foregroundStyle(viewModel.densityColor(reading.effectiveDensityAtBit_kgm3))
+                    Text("Toe: \(Int(reading.effectiveDensityAtToe_kgm3))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(viewModel.densityColor(reading.effectiveDensityAtToe_kgm3))
+                    Text("kg/m³")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal)
         .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                selectedReadings = []
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+        }
     }
 
+    /// Circulating readings sorted for chart
+    private var circulatingReadings: [MPDReading] {
+        chartReadings.filter { $0.isCirculating }
+    }
+
+    /// Shut-in readings sorted for chart
+    private var shutInReadings: [MPDReading] {
+        chartReadings.filter { !$0.isCirculating }
+    }
+
+    @ViewBuilder
     private var chartContent: some View {
         Chart {
             // Reference lines
@@ -563,7 +678,57 @@ struct MPDTrackingView: View {
                 .foregroundStyle(.red.opacity(0.7))
                 .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
 
-            // Data marks
+            // Circulating trend line (blue)
+            ForEach(circulatingReadings) { reading in
+                if chartXAxisIsBitMD {
+                    LineMark(
+                        x: .value("Bit MD", reading.bitMD_m),
+                        y: .value("ECD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Circulating")
+                    )
+                    .foregroundStyle(.blue)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.circle)
+                    .symbolSize(30)
+                } else {
+                    LineMark(
+                        x: .value("Time", reading.timestamp),
+                        y: .value("ECD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Circulating")
+                    )
+                    .foregroundStyle(.blue)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.circle)
+                    .symbolSize(30)
+                }
+            }
+
+            // Shut-in trend line (purple)
+            ForEach(shutInReadings) { reading in
+                if chartXAxisIsBitMD {
+                    LineMark(
+                        x: .value("Bit MD", reading.bitMD_m),
+                        y: .value("ESD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Shut-In")
+                    )
+                    .foregroundStyle(.purple)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.square)
+                    .symbolSize(30)
+                } else {
+                    LineMark(
+                        x: .value("Time", reading.timestamp),
+                        y: .value("ESD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Shut-In")
+                    )
+                    .foregroundStyle(.purple)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.square)
+                    .symbolSize(30)
+                }
+            }
+
+            // Data marks (bars showing heel-toe range)
             ForEach(chartReadings) { reading in
                 chartMarksForReading(reading)
             }
@@ -582,71 +747,51 @@ struct MPDTrackingView: View {
                     }
             }
         }
+        .modifier(ChartXScaleModifier(isEnabled: chartXAxisIsBitMD, min: chartMinMD, max: chartMaxMD))
         .padding()
+    }
+
+    /// Custom modifier to conditionally apply chartXScale
+    private struct ChartXScaleModifier: ViewModifier {
+        let isEnabled: Bool
+        let min: Double
+        let max: Double
+
+        func body(content: Content) -> some View {
+            if isEnabled {
+                content.chartXScale(domain: min...max)
+            } else {
+                content
+            }
+        }
     }
 
     @ChartContentBuilder
     private func chartMarksForReading(_ reading: MPDReading) -> some ChartContent {
-        let isSelected = reading.id == selectedReading?.id
-        let barOpacity = isSelected ? 0.6 : 0.3
+        let isSelected = selectedReadings.contains { $0.id == reading.id }
+        let barOpacity = isSelected ? 0.5 : 0.2
         let barColor = reading.isCirculating ? Color.blue : Color.purple
 
         if chartXAxisIsBitMD {
-            // Range bar
+            // Range bar (heel to toe)
             RectangleMark(
                 x: .value("Bit MD", reading.bitMD_m),
                 yStart: .value("Heel", reading.effectiveDensityAtHeel_kgm3),
                 yEnd: .value("Toe", reading.effectiveDensityAtToe_kgm3),
-                width: 12
+                width: 10
             )
             .foregroundStyle(barColor.opacity(barOpacity))
             .cornerRadius(2)
-
-            // Bit marker
-            RectangleMark(
-                x: .value("Bit MD", reading.bitMD_m),
-                yStart: .value("BitLow", reading.effectiveDensityAtBit_kgm3 - 3),
-                yEnd: .value("BitHigh", reading.effectiveDensityAtBit_kgm3 + 3),
-                width: 16
-            )
-            .foregroundStyle(barColor)
-            .cornerRadius(1)
-
-            // Trend line
-            LineMark(
-                x: .value("Bit MD", reading.bitMD_m),
-                y: .value("Bit", reading.effectiveDensityAtBit_kgm3)
-            )
-            .foregroundStyle(.blue.opacity(0.5))
-            .lineStyle(StrokeStyle(lineWidth: 1))
         } else {
-            // Range bar
+            // Range bar (heel to toe)
             RectangleMark(
                 x: .value("Time", reading.timestamp),
                 yStart: .value("Heel", reading.effectiveDensityAtHeel_kgm3),
                 yEnd: .value("Toe", reading.effectiveDensityAtToe_kgm3),
-                width: 12
+                width: 10
             )
             .foregroundStyle(barColor.opacity(barOpacity))
             .cornerRadius(2)
-
-            // Bit marker
-            RectangleMark(
-                x: .value("Time", reading.timestamp),
-                yStart: .value("BitLow", reading.effectiveDensityAtBit_kgm3 - 3),
-                yEnd: .value("BitHigh", reading.effectiveDensityAtBit_kgm3 + 3),
-                width: 16
-            )
-            .foregroundStyle(barColor)
-            .cornerRadius(1)
-
-            // Trend line
-            LineMark(
-                x: .value("Time", reading.timestamp),
-                y: .value("Bit", reading.effectiveDensityAtBit_kgm3)
-            )
-            .foregroundStyle(.blue.opacity(0.5))
-            .lineStyle(StrokeStyle(lineWidth: 1))
         }
     }
 
@@ -655,16 +800,16 @@ struct MPDTrackingView: View {
 
         if chartXAxisIsBitMD {
             guard let bitMD: Double = proxy.value(atX: xPosition) else { return }
-            // Find closest reading by bit MD
-            selectedReading = chartReadings.min(by: {
-                abs($0.bitMD_m - bitMD) < abs($1.bitMD_m - bitMD)
-            })
+            // Find all readings within 20m of tap position
+            let threshold = 20.0
+            selectedReadings = chartReadings.filter { abs($0.bitMD_m - bitMD) <= threshold }
+                .sorted { $0.isCirculating && !$1.isCirculating } // ECD first, then ESD
         } else {
             guard let date: Date = proxy.value(atX: xPosition) else { return }
-            // Find closest reading by time
-            selectedReading = chartReadings.min(by: {
-                abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
-            })
+            // Find all readings within 1 minute of tap position
+            let threshold: TimeInterval = 60
+            selectedReadings = chartReadings.filter { abs($0.timestamp.timeIntervalSince(date)) <= threshold }
+                .sorted { $0.isCirculating && !$1.isCirculating } // ECD first, then ESD
         }
     }
     #endif
@@ -695,10 +840,48 @@ struct MPDTrackingView: View {
             } else {
                 Table(readings) {
                     TableColumn("Time") { reading in
-                        Text(reading.timestamp, format: .dateTime.hour().minute())
-                            .font(.caption)
+                        Button(action: {
+                            editingTimestampReading = reading
+                            editingTimestamp = reading.timestamp
+                        }) {
+                            HStack(spacing: 2) {
+                                Text(reading.timestamp, format: .dateTime.hour().minute())
+                                    .font(.caption)
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: Binding(
+                            get: { editingTimestampReading?.id == reading.id },
+                            set: { if !$0 { editingTimestampReading = nil } }
+                        )) {
+                            VStack(spacing: 12) {
+                                Text("Edit Time")
+                                    .font(.headline)
+                                DatePicker("", selection: $editingTimestamp)
+                                    .datePickerStyle(.graphical)
+                                    .labelsHidden()
+                                HStack {
+                                    Button("Cancel") {
+                                        editingTimestampReading = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    Spacer()
+                                    Button("Save") {
+                                        reading.timestamp = editingTimestamp
+                                        try? modelContext.save()
+                                        editingTimestampReading = nil
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                            .padding()
+                            .frame(width: 300)
+                        }
                     }
-                    .width(50)
+                    .width(60)
 
                     TableColumn("Mode") { reading in
                         Text(reading.isCirculating ? "Circ" : "S/I")
