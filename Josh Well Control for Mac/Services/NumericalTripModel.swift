@@ -8,15 +8,14 @@
 import Foundation
 
 
-@MainActor
-final class NumericalTripModel {
+final class NumericalTripModel: @unchecked Sendable {
     static let g: Double = 9.81
     static let eps: Double = 1e-9
     static let rhoAir: Double = 1.2
 
     enum Side { case string, annulus }
 
-    struct ColorRGBA: Equatable, Codable {
+    struct ColorRGBA: Equatable, Codable, Sendable {
         var r: Double
         var g: Double
         var b: Double
@@ -24,11 +23,56 @@ final class NumericalTripModel {
         static let clear = ColorRGBA(r: 0, g: 0, b: 0, a: 0)
     }
 
-    struct Layer {
+    struct Layer: Sendable {
         var rho: Double
         var topMD: Double
         var bottomMD: Double
         var color: ColorRGBA? = nil
+    }
+
+    /// Sendable snapshot of fluid layer data for crossing concurrency boundaries
+    struct FinalLayerSnapshot: Sendable {
+        let topMD_m: Double
+        let bottomMD_m: Double
+        let density_kgm3: Double
+        let colorR: Double
+        let colorG: Double
+        let colorB: Double
+        let colorA: Double
+        // Mud rheology for swab calculation
+        let mudDial600: Double?
+        let mudDial300: Double?
+        let mudK_annulus: Double?
+        let mudN_annulus: Double?
+        let mudK_powerLaw: Double?
+        let mudN_powerLaw: Double?
+
+        init(from layer: FinalFluidLayer) {
+            self.topMD_m = layer.topMD_m
+            self.bottomMD_m = layer.bottomMD_m
+            self.density_kgm3 = layer.density_kgm3
+            self.colorR = layer.colorR
+            self.colorG = layer.colorG
+            self.colorB = layer.colorB
+            self.colorA = layer.colorA
+            self.mudDial600 = layer.mud?.dial600
+            self.mudDial300 = layer.mud?.dial300
+            self.mudK_annulus = layer.mud?.K_annulus
+            self.mudN_annulus = layer.mud?.n_annulus
+            self.mudK_powerLaw = layer.mud?.k_powerLaw_Pa_s_n
+            self.mudN_powerLaw = layer.mud?.n_powerLaw
+        }
+    }
+
+    /// All project data needed for simulation, in sendable form
+    struct ProjectSnapshot: Sendable {
+        let annulusLayers: [FinalLayerSnapshot]
+        let stringLayers: [FinalLayerSnapshot]
+
+        init(from project: ProjectState) {
+            self.annulusLayers = project.finalAnnulusLayersSorted.map { FinalLayerSnapshot(from: $0) }
+            self.stringLayers = project.finalStringLayersSorted.map { FinalLayerSnapshot(from: $0) }
+        }
     }
 
     // MARK: - StackOps (Swift port)
@@ -266,8 +310,8 @@ final class NumericalTripModel {
         var totalsString: Totals
     }
 
-    struct TripInput {
-        var tvdOfMd: (Double)->Double
+    struct TripInput: @unchecked Sendable {
+        var tvdOfMd: @Sendable (Double)->Double
         var shoeTVD_m: Double
         var startBitMD_m: Double
         var endMD_m: Double
@@ -331,22 +375,22 @@ final class NumericalTripModel {
 
     // MARK: - Public run
 
-    /// Run trip simulation with optional progress callback
-    func run(_ input: TripInput, geom: GeometryService, project: ProjectState, onProgress: ProgressCallback? = nil) -> [TripStep] {
+    /// Run trip simulation with pre-extracted project snapshot (concurrency-safe version)
+    /// Callers should create the ProjectSnapshot on the main actor before calling this method.
+    func run(_ input: TripInput, geom: GeometryService, projectSnapshot: ProjectSnapshot, onProgress: ProgressCallback? = nil) -> [TripStep] {
         var sabp_kPa = input.initialSABP_kPa
         var bitMD = input.startBitMD_m
         let step = max(0.1, input.step_m)
         let tvdOfMd = input.tvdOfMd
         let tdTVD = tvdOfMd(input.startBitMD_m)
         let targetP_TD_kPa = input.targetESDAtTD_kgpm3 * NumericalTripModel.g * tdTVD / 1000.0
-        // let sampler = TvdSampler(stations: project.surveys) // Unused
 
         // Stacks
         let stringStack = Stack(side: .string, geom: geom, tvdOfMd: tvdOfMd)
         let annulusStack = Stack(side: .annulus, geom: geom, tvdOfMd: tvdOfMd)
 
-        let ann = project.finalAnnulusLayersSorted
-        let str = project.finalStringLayersSorted
+        let ann = projectSnapshot.annulusLayers
+        let str = projectSnapshot.stringLayers
 
         annulusStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
         for l in ann {
@@ -986,8 +1030,8 @@ final class NumericalTripModel {
 
             // Calculate swab at this 1m internal step using current float state
             // Accumulate for averaging over the recording interval
-            let internalSwab_kPa = calculateSwab(
-                annulusLayers: project.finalAnnulusLayersSorted,
+            let internalSwab_kPa = calculateSwabFromSnapshot(
+                annulusLayers: projectSnapshot.annulusLayers,
                 bitMD: bitMD,
                 tripSpeed_m_per_s: input.tripSpeed_m_per_s,
                 eccentricityFactor: input.eccentricityFactor,
@@ -1173,6 +1217,109 @@ final class NumericalTripModel {
                     theta600 = d600
                     theta300 = d300
                 }
+            }
+
+            layerDTOs.append(SwabCalculator.LayerDTO(
+                rho_kgpm3: layer.density_kgm3,
+                topMD_m: topMD,
+                bottomMD_m: bottomMD,
+                K_Pa_s_n: K,
+                n_powerLaw: n,
+                theta600: theta600,
+                theta300: theta300
+            ))
+        }
+
+        guard !layerDTOs.isEmpty else { return 0 }
+
+        // Check if we have any rheology data
+        let hasRheology = layerDTOs.contains { dto in
+            (dto.K_Pa_s_n != nil && dto.n_powerLaw != nil) ||
+            (dto.theta600 != nil && dto.theta300 != nil)
+        } || (fallbackTheta600 != nil && fallbackTheta300 != nil)
+
+        guard hasRheology else {
+            #if DEBUG
+            print("[Swab] No rheology data available for swab calculation")
+            #endif
+            return 0
+        }
+
+        // Create trajectory sampler wrapper for TVD lookup
+        let trajSampler = ClosureTrajectorySampler(tvdOfMd: tvdOfMd)
+
+        // Calculate swab
+        let calculator = SwabCalculator()
+        do {
+            let result = try calculator.estimateFromLayersPowerLaw(
+                layers: layerDTOs,
+                theta600: fallbackTheta600,
+                theta300: fallbackTheta300,
+                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0, // Convert m/s to m/min
+                eccentricityFactor: eccentricityFactor,
+                step_m: 10.0, // Fine step for accuracy
+                geom: geom,
+                traj: trajSampler,
+                sabpSafety: 1.0, // We'll apply safety factor separately
+                floatIsOpen: floatIsOpen
+            )
+            return result.totalSwab_kPa
+        } catch {
+            #if DEBUG
+            print("[Swab] Calculation error: \(error.localizedDescription)")
+            #endif
+            return 0
+        }
+    }
+
+    /// Calculates swab pressure using pre-extracted layer snapshots (concurrency-safe version)
+    private func calculateSwabFromSnapshot(
+        annulusLayers: [FinalLayerSnapshot],
+        bitMD: Double,
+        tripSpeed_m_per_s: Double,
+        eccentricityFactor: Double,
+        geom: GeometryService,
+        tvdOfMd: @escaping (Double) -> Double,
+        fallbackTheta600: Double?,
+        fallbackTheta300: Double?,
+        floatIsOpen: Bool
+    ) -> Double {
+        // Only calculate if we have positive trip speed (pulling out)
+        guard tripSpeed_m_per_s > 0 else { return 0 }
+
+        // Filter to layers above the bit
+        let layersAboveBit = annulusLayers.filter { $0.topMD_m < bitMD }
+        guard !layersAboveBit.isEmpty else { return 0 }
+
+        // Build LayerDTO array with rheology from snapshot
+        var layerDTOs: [SwabCalculator.LayerDTO] = []
+
+        for layer in layersAboveBit {
+            let topMD = layer.topMD_m
+            let bottomMD = min(layer.bottomMD_m, bitMD) // Clamp to bit depth
+
+            guard bottomMD > topMD else { continue }
+
+            // Get rheology from the snapshot, or use fallback
+            var theta600: Double? = fallbackTheta600
+            var theta300: Double? = fallbackTheta300
+            var K: Double? = nil
+            var n: Double? = nil
+
+            // Prefer annulus-specific K/n if available
+            if let K_ann = layer.mudK_annulus, let n_ann = layer.mudN_annulus, K_ann > 0, n_ann > 0 {
+                K = K_ann
+                n = n_ann
+            }
+            // Otherwise use general K/n
+            else if let K_gen = layer.mudK_powerLaw, let n_gen = layer.mudN_powerLaw, K_gen > 0, n_gen > 0 {
+                K = K_gen
+                n = n_gen
+            }
+            // Otherwise use dial readings
+            else if let d600 = layer.mudDial600, let d300 = layer.mudDial300, d600 > 0, d300 > 0 {
+                theta600 = d600
+                theta300 = d300
             }
 
             layerDTOs.append(SwabCalculator.LayerDTO(

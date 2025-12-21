@@ -59,7 +59,8 @@ extension GeometryService {
 
 /// Geometry provider backed by the project's AnnulusSection and DrillStringSection arrays.
 /// - Note: `currentStringBottomMD` controls how far down the pipe is considered present.
-final class ProjectGeometryService: GeometryService {
+/// - Note: Marked @unchecked Sendable because the section data is effectively immutable during simulation.
+final class ProjectGeometryService: GeometryService, @unchecked Sendable {
     private let annulus: [AnnulusSection]
     private let string: [DrillStringSection]
     private let mdToTvd: (Double) -> Double

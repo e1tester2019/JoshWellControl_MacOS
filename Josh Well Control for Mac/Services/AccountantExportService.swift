@@ -997,7 +997,7 @@ class AccountantExportService {
             let mileageMonthFormatter = DateFormatter()
             mileageMonthFormatter.dateFormat = "MMM yyyy"
 
-            for (index, log) in data.mileageLogs.sorted(by: { $0.date < $1.date }).enumerated() {
+            for log in data.mileageLogs.sorted(by: { $0.date < $1.date }) {
                 let roundTripNote = log.isRoundTrip ? " (RT)" : ""
                 let detailLink: String
                 if let filename = mileageLinks[log.id] {

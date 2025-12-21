@@ -11,25 +11,27 @@ import MapKit
 import AppKit
 
 /// Service for generating static map snapshots for export on macOS
-final class MapSnapshotServiceMacOS: @unchecked Sendable {
+/// Options for map snapshot generation - defined outside class to avoid actor isolation
+struct MapSnapshotOptions {
+    var size: CGSize = CGSize(width: 600, height: 400)
+    var showRoute: Bool = true
+    var routeColor: NSColor = .systemBlue
+    var routeLineWidth: CGFloat = 3
+    var startMarkerColor: NSColor = .systemGreen
+    var endMarkerColor: NSColor = .systemRed
+    var markerSize: CGFloat = 14
+    var padding: Double = 0.3
+
+    @MainActor static let standard = MapSnapshotOptions()
+    @MainActor static let thumbnail = MapSnapshotOptions(size: CGSize(width: 200, height: 150), routeLineWidth: 2, markerSize: 10)
+    @MainActor static let large = MapSnapshotOptions(size: CGSize(width: 800, height: 500), routeLineWidth: 4, markerSize: 18)
+}
+
+@MainActor
+final class MapSnapshotServiceMacOS {
     static let shared = MapSnapshotServiceMacOS()
 
     private init() {}
-
-    struct SnapshotOptions {
-        var size: CGSize = CGSize(width: 600, height: 400)
-        var showRoute: Bool = true
-        var routeColor: NSColor = .systemBlue
-        var routeLineWidth: CGFloat = 3
-        var startMarkerColor: NSColor = .systemGreen
-        var endMarkerColor: NSColor = .systemRed
-        var markerSize: CGFloat = 14
-        var padding: Double = 0.3
-
-        static let standard = SnapshotOptions()
-        static let thumbnail = SnapshotOptions(size: CGSize(width: 200, height: 150), routeLineWidth: 2, markerSize: 10)
-        static let large = SnapshotOptions(size: CGSize(width: 800, height: 500), routeLineWidth: 4, markerSize: 18)
-    }
 
     enum SnapshotError: LocalizedError {
         case missingCoordinates
@@ -49,8 +51,9 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
 
     func generateSnapshot(
         for mileageLog: MileageLog,
-        options: SnapshotOptions = .standard
+        options: MapSnapshotOptions? = nil
     ) async throws -> NSImage {
+        let opts = options ?? MapSnapshotOptions.standard
         guard let startLat = mileageLog.startLatitude,
               let startLon = mileageLog.startLongitude,
               let endLat = mileageLog.endLatitude,
@@ -75,7 +78,7 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
             startCoordinate: start,
             endCoordinate: end,
             routePoints: routeCoordinates,
-            options: options
+            options: opts
         )
     }
 
@@ -83,14 +86,15 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
         startCoordinate: CLLocationCoordinate2D,
         endCoordinate: CLLocationCoordinate2D,
         routePoints: [CLLocationCoordinate2D] = [],
-        options: SnapshotOptions = .standard
+        options: MapSnapshotOptions? = nil
     ) async throws -> NSImage {
+        let opts = options ?? MapSnapshotOptions.standard
         let allPoints = routePoints.isEmpty ? [startCoordinate, endCoordinate] : routePoints
-        let region = calculateRegion(for: allPoints, padding: options.padding)
+        let region = calculateRegion(for: allPoints, padding: opts.padding)
 
         let snapshotOptions = MKMapSnapshotter.Options()
         snapshotOptions.region = region
-        snapshotOptions.size = options.size
+        snapshotOptions.size = opts.size
         snapshotOptions.mapType = .standard
         snapshotOptions.showsBuildings = true
 
@@ -102,7 +106,7 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
             start: startCoordinate,
             end: endCoordinate,
             routePoints: allPoints,
-            options: options
+            options: opts
         )
 
         return image
@@ -112,10 +116,10 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
 
     func generateJPEGData(
         for mileageLog: MileageLog,
-        options: SnapshotOptions = .standard,
+        options: MapSnapshotOptions? = nil,
         compressionFactor: CGFloat = 0.85
     ) async throws -> Data {
-        let image = try await generateSnapshot(for: mileageLog, options: options)
+        let image = try await generateSnapshot(for: mileageLog, options: options ?? MapSnapshotOptions.standard)
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionFactor]) else {
@@ -171,7 +175,7 @@ final class MapSnapshotServiceMacOS: @unchecked Sendable {
         start: CLLocationCoordinate2D,
         end: CLLocationCoordinate2D,
         routePoints: [CLLocationCoordinate2D],
-        options: SnapshotOptions
+        options: MapSnapshotOptions
     ) -> NSImage {
         let image = NSImage(size: options.size)
         image.lockFocus()

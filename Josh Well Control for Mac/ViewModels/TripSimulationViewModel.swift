@@ -91,10 +91,13 @@ extension TripSimulationView {
       progressMessage = "Initializing..."
       progressPhase = .initializing
 
+      // Create sendable TVD sampler from surveys (avoid capturing @MainActor project)
+      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,
-        tvdMapper: { md in project.tvd(of: md) }
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
       )
 
       // Get fallback rheology from active mud
@@ -113,9 +116,13 @@ extension TripSimulationView {
         NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
       }
 
+      // Pre-extract values from project to avoid capturing @MainActor state
+      let tripSpeed = abs(project.settings.tripSpeed_m_per_s)
+      let shoeTVD = tvdSampler.tvd(of: shoeMD_m)
+
       let input = NumericalTripModel.TripInput(
-        tvdOfMd: { md in project.tvd(of: md) },
-        shoeTVD_m: project.tvd(of: shoeMD_m),
+        tvdOfMd: { md in tvdSampler.tvd(of: md) },
+        shoeTVD_m: shoeTVD,
         startBitMD_m: startBitMD_m,
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
@@ -127,34 +134,39 @@ extension TripSimulationView {
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,
-        tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),  // Use absolute value for speed
+        tripSpeed_m_per_s: tripSpeed,
         eccentricityFactor: eccentricityFactor,
         fallbackTheta600: fallbackTheta600,
         fallbackTheta300: fallbackTheta300,
         observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
 
+      // Extract project data into sendable snapshot BEFORE entering detached task
+      let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
+
       // Run simulation on background thread with progress updates
       Task.detached { [weak self] in
         let model = NumericalTripModel()
-        let results = model.run(input, geom: geom, project: project) { progress in
-          Task { @MainActor in
-            self?.progressValue = progress.progress
-            self?.progressMessage = progress.message
-            self?.progressPhase = progress.phase
+        let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.progressValue = progress.progress
+            self.progressMessage = progress.message
+            self.progressPhase = progress.phase
           }
         }
 
-        await MainActor.run {
-          self?.steps = results
-          self?.selectedIndex = results.isEmpty ? nil : 0
-          self?.stepSlider = 0
-          self?.isRunning = false
-          self?.progressMessage = "Complete"
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.steps = results
+          self.selectedIndex = results.isEmpty ? nil : 0
+          self.stepSlider = 0
+          self.isRunning = false
+          self.progressMessage = "Complete"
 
           // Store the calculated pit gain from the initial step (for display/comparison)
           if let firstStep = results.first {
-            self?.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
           }
         }
       }
@@ -422,10 +434,13 @@ extension TripSimulationViewIOS {
       progressMessage = "Initializing..."
       progressPhase = .initializing
 
+      // Create sendable TVD sampler from surveys (avoid capturing @MainActor project)
+      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,
-        tvdMapper: { md in project.tvd(of: md) }
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
       )
 
       // Get fallback rheology from active mud
@@ -444,9 +459,13 @@ extension TripSimulationViewIOS {
         NumericalTripModel.ColorRGBA(r: $0.colorR, g: $0.colorG, b: $0.colorB, a: $0.colorA)
       }
 
+      // Pre-extract values from project to avoid capturing @MainActor state
+      let tripSpeed = abs(project.settings.tripSpeed_m_per_s)
+      let shoeTVD = tvdSampler.tvd(of: shoeMD_m)
+
       let input = NumericalTripModel.TripInput(
-        tvdOfMd: { md in project.tvd(of: md) },
-        shoeTVD_m: project.tvd(of: shoeMD_m),
+        tvdOfMd: { md in tvdSampler.tvd(of: md) },
+        shoeTVD_m: shoeTVD,
         startBitMD_m: startBitMD_m,
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
@@ -458,34 +477,39 @@ extension TripSimulationViewIOS {
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,
-        tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),
+        tripSpeed_m_per_s: tripSpeed,
         eccentricityFactor: eccentricityFactor,
         fallbackTheta600: fallbackTheta600,
         fallbackTheta300: fallbackTheta300,
         observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
 
+      // Extract project data into sendable snapshot BEFORE entering detached task
+      let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
+
       // Run simulation on background thread with progress updates
       Task.detached { [weak self] in
         let model = NumericalTripModel()
-        let results = model.run(input, geom: geom, project: project) { progress in
-          Task { @MainActor in
-            self?.progressValue = progress.progress
-            self?.progressMessage = progress.message
-            self?.progressPhase = progress.phase
+        let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.progressValue = progress.progress
+            self.progressMessage = progress.message
+            self.progressPhase = progress.phase
           }
         }
 
-        await MainActor.run {
-          self?.steps = results
-          self?.selectedIndex = results.isEmpty ? nil : 0
-          self?.stepSlider = 0
-          self?.isRunning = false
-          self?.progressMessage = "Complete"
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.steps = results
+          self.selectedIndex = results.isEmpty ? nil : 0
+          self.stepSlider = 0
+          self.isRunning = false
+          self.progressMessage = "Complete"
 
           // Store the calculated pit gain from the initial step
           if let firstStep = results.first {
-            self?.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
           }
         }
       }

@@ -81,8 +81,11 @@ enum AppContainer {
         let fullSchema = Schema(models)
 
         // Run one-time schema diagnosis on DEBUG to find bad types quickly.
+        // Skip when CloudKit is enabled to avoid interference with mirroring delegate.
         #if DEBUG
-        diagnoseSchema(models: models)
+        if cloudKitContainerID == nil || cloudKitContainerID?.isEmpty == true {
+            diagnoseSchema(models: models)
+        }
         #endif
 
         func buildDiskContainer(schema: Schema, wipe: Bool) throws -> ModelContainer {

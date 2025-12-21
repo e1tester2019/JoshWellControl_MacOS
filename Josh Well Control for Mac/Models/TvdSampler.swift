@@ -6,7 +6,7 @@
 //
 
 
-final class TvdSampler {
+final class TvdSampler: Sendable {
     private let md: [Double]
     private let tvd: [Double]
 
@@ -27,7 +27,7 @@ final class TvdSampler {
         self.tvd = tvdArr
     }
 
-    func tvd(of queryMD: Double) -> Double {
+    nonisolated func tvd(of queryMD: Double) -> Double {
         guard let firstMD = md.first, let lastMD = md.last else { return queryMD }
         if queryMD <= firstMD { return tvd.first! }
         if queryMD >= lastMD  { return tvd.last!  }
