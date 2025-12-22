@@ -180,7 +180,19 @@ class PumpScheduleViewModel {
         )
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
         let activeMud = project.activeMud
-        // Annulus first – order by shallow to deep (top MD ascending)
+
+        // For final layers mode, we simulate pumping fluids DOWN THE STRING.
+        // The annulus final layers represent fluids that end up in the annulus after
+        // being pumped through the string and exiting at the bit.
+        //
+        // Pump order: shallow→deep in annulus = earliest→latest pumped
+        // (earliest pumped fluid travels furthest up the annulus)
+        //
+        // ALL fluids must be side: .string because they're pumped down the string.
+        // The old code used side: .annulus which incorrectly injected at annulus
+        // surface and pushed down - the opposite of normal circulation.
+
+        // Annulus layers – order by shallow to deep (earliest to latest pumped)
         let ann = (project.finalLayers ?? []).filter { $0.placement == .annulus || $0.placement == .both }
             .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
         for L in ann {
@@ -188,9 +200,12 @@ class PumpScheduleViewModel {
             let b = max(L.topMD_m, L.bottomMD_m)
             let vol = geom.volumeInAnnulus_m3(t, b)
             let col = L.mud?.color ?? L.color
-            stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .annulus, mud: L.mud ?? activeMud))
+            // Use side: .string - fluids are pumped down string, exit bit, travel up annulus
+            stages.append(Stage(name: L.name, color: col, totalVolume_m3: vol, side: .string, mud: L.mud ?? activeMud))
         }
-        // Then string – order deepest to shallowest as per spec
+
+        // String layers – order deepest to shallowest (these are pumped after annulus is filled)
+        // These represent fluids that remain in or travel through the string
         let str = (project.finalLayers ?? []).filter { $0.placement == .string || $0.placement == .both }
             .sorted { min($0.topMD_m, $0.bottomMD_m) < min($1.topMD_m, $1.bottomMD_m) }
             .reversed()
@@ -472,7 +487,10 @@ class PumpScheduleViewModel {
                     totalPumpedVolume += vol
                 }
             } else if st.side == .annulus {
-                // Annulus-only pumping: inject at surface (top) and displace downward.
+                // Annulus injection (reverse circulation / bullheading): inject at surface (top) of
+                // annulus and displace downward. NOT used for normal cement jobs where fluids are
+                // pumped down the string. This path is triggered only if a stage explicitly uses
+                // side: .annulus (e.g., for specialized reverse circulation simulations).
                 let vol = i < stageIndex ? max(0, st.totalVolume_m3) : pumpedV
                 if vol > 0 {
                     // annulusParcelsDeepToShallow: deep->shallow, so surface is the LAST parcel.

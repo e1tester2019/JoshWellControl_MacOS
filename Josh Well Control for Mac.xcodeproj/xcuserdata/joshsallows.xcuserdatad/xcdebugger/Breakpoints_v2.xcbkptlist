@@ -80,7 +80,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "218"
             endingLineNumber = "218"
-            landmarkName = "buildStagesFromProgram(project:)"
+            landmarkName = "buildStagesFromFinalLayers(project:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
