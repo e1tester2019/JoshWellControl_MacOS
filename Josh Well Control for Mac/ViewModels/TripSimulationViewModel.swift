@@ -27,6 +27,21 @@ extension TripSimulationView {
     // New property for backfill mud selection
     var backfillMudID: UUID? = nil
 
+    // Backfill switching: pump backfill mud until displacement volume, then switch to active mud
+    // When enabled, uses backfill mud for the drill string displacement portion,
+    // then switches to active mud for the remaining backfill (pit gain portion)
+    var switchToActiveAfterDisplacement: Bool = false
+
+    // Computed displacement volume (can be overridden by user)
+    var computedDisplacementVolume_m3: Double = 0.0
+    var overrideDisplacementVolume_m3: Double = 0.0
+    var useOverrideDisplacementVolume: Bool = false
+
+    // The actual displacement volume to use (computed or overridden)
+    var effectiveDisplacementVolume_m3: Double {
+        useOverrideDisplacementVolume ? overrideDisplacementVolume_m3 : computedDisplacementVolume_m3
+    }
+
     // Swab calculation parameters
     var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
 
@@ -76,6 +91,24 @@ extension TripSimulationView {
       #endif
     }
 
+    /// Computes the steel displacement volume for the trip range and stores it
+    func computeDisplacementVolume(project: ProjectState) {
+      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: startBitMD_m,
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
+      )
+      let odVolume = geom.volumeOfStringOD_m3(endMD_m, startBitMD_m)
+      let idVolume = geom.volumeInString_m3(endMD_m, startBitMD_m)
+      computedDisplacementVolume_m3 = max(0, odVolume - idVolume)
+
+      // Initialize override to computed value if not yet set
+      if overrideDisplacementVolume_m3 < 0.001 {
+        overrideDisplacementVolume_m3 = computedDisplacementVolume_m3
+      }
+    }
+
     func runSimulation(project: ProjectState) {
       #if DEBUG
       let annLayers = project.finalAnnulusLayersSorted
@@ -120,6 +153,14 @@ extension TripSimulationView {
       let tripSpeed = abs(project.settings.tripSpeed_m_per_s)
       let shoeTVD = tvdSampler.tvd(of: shoeMD_m)
 
+      // Use effective displacement volume (computed or user-overridden) if switching enabled
+      let displacementVolume_m3: Double = switchToActiveAfterDisplacement ? effectiveDisplacementVolume_m3 : 0.0
+      #if DEBUG
+      if switchToActiveAfterDisplacement {
+        print("[TripSim] Switch to active after displacement enabled - using \(useOverrideDisplacementVolume ? "override" : "computed") volume: \(String(format: "%.2f", displacementVolume_m3)) m³")
+      }
+      #endif
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
@@ -131,6 +172,8 @@ extension TripSimulationView {
         backfillDensity_kgpm3: (backfillMud?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
         backfillColor: backfillColor,
         baseMudColor: baseMudColor,
+        fixedBackfillVolume_m3: displacementVolume_m3,
+        switchToBaseAfterFixed: switchToActiveAfterDisplacement,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,
@@ -387,6 +430,18 @@ extension TripSimulationViewIOS {
     // New property for backfill mud selection
     var backfillMudID: UUID? = nil
 
+    // Backfill switching: pump backfill mud until displacement volume, then switch to active mud
+    var switchToActiveAfterDisplacement: Bool = false
+
+    // Computed displacement volume (can be overridden by user)
+    var computedDisplacementVolume_m3: Double = 0.0
+    var overrideDisplacementVolume_m3: Double = 0.0
+    var useOverrideDisplacementVolume: Bool = false
+
+    var effectiveDisplacementVolume_m3: Double {
+        useOverrideDisplacementVolume ? overrideDisplacementVolume_m3 : computedDisplacementVolume_m3
+    }
+
     // Swab calculation parameters
     var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
 
@@ -427,6 +482,21 @@ extension TripSimulationViewIOS {
       targetESDAtTD_kgpm3 = baseActive
     }
 
+    func computeDisplacementVolume(project: ProjectState) {
+      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: startBitMD_m,
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
+      )
+      let odVolume = geom.volumeOfStringOD_m3(endMD_m, startBitMD_m)
+      let idVolume = geom.volumeInString_m3(endMD_m, startBitMD_m)
+      computedDisplacementVolume_m3 = max(0, odVolume - idVolume)
+      if overrideDisplacementVolume_m3 < 0.001 {
+        overrideDisplacementVolume_m3 = computedDisplacementVolume_m3
+      }
+    }
+
     func runSimulation(project: ProjectState) {
       // Reset progress state
       isRunning = true
@@ -463,6 +533,9 @@ extension TripSimulationViewIOS {
       let tripSpeed = abs(project.settings.tripSpeed_m_per_s)
       let shoeTVD = tvdSampler.tvd(of: shoeMD_m)
 
+      // Use effective displacement volume (computed or user-overridden) if switching enabled
+      let displacementVolume_m3: Double = switchToActiveAfterDisplacement ? effectiveDisplacementVolume_m3 : 0.0
+
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
@@ -474,6 +547,8 @@ extension TripSimulationViewIOS {
         backfillDensity_kgpm3: (backfillMud2?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
         backfillColor: backfillColor2,
         baseMudColor: baseMudColor2,
+        fixedBackfillVolume_m3: displacementVolume_m3,
+        switchToBaseAfterFixed: switchToActiveAfterDisplacement,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
         initialSABP_kPa: initialSABP_kPa,
         holdSABPOpen: holdSABPOpen,

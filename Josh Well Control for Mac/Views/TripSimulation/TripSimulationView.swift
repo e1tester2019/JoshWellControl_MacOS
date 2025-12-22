@@ -137,6 +137,33 @@ struct TripSimulationView: View {
                             .frame(maxWidth: 180)
                             .pickerStyle(.menu)
                         }
+                        Toggle("Switch to active after displacement", isOn: $viewmodel.switchToActiveAfterDisplacement)
+                            .controlSize(.small)
+                            .help("Pump backfill mud for the drill string displacement volume, then switch to active mud for the remaining pit gain portion")
+                            .onChange(of: viewmodel.switchToActiveAfterDisplacement) { _, newValue in
+                                if newValue {
+                                    viewmodel.computeDisplacementVolume(project: project)
+                                }
+                            }
+
+                        if viewmodel.switchToActiveAfterDisplacement {
+                            HStack(spacing: 4) {
+                                Text("Vol:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f", viewmodel.computedDisplacementVolume_m3))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.blue)
+                                    .help("Computed steel displacement volume")
+                                Toggle("Override:", isOn: $viewmodel.useOverrideDisplacementVolume)
+                                    .controlSize(.small)
+                                TextField("", value: $viewmodel.overrideDisplacementVolume_m3, format: .number.precision(.fractionLength(2)))
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 70)
+                                    .disabled(!viewmodel.useOverrideDisplacementVolume)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         HStack(spacing: 4) {
                             Text("Target ESD:").foregroundStyle(.secondary)
                             TextField("", value: $viewmodel.targetESDAtTD_kgpm3, format: .number)
@@ -335,9 +362,10 @@ struct TripSimulationView: View {
             return
         }
 
-        // Get actual backfill density from selected mud (matches simulation logic)
+        // Get actual mud densities from project (matches simulation logic)
         let backfillMud = viewmodel.backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
         let actualBackfillDensity = backfillMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+        let actualBaseMudDensity = project.activeMud?.density_kgm3 ?? viewmodel.baseMudDensity_kgpm3
 
         // Get actual initial SABP from first simulation step (not the input value)
         let actualInitialSABP = viewmodel.steps.first?.SABP_kPa ?? viewmodel.initialSABP_kPa
@@ -399,7 +427,7 @@ struct TripSimulationView: View {
             endMD: viewmodel.endMD_m,
             controlMD: viewmodel.shoeMD_m,
             stepSize: viewmodel.step_m,
-            baseMudDensity: viewmodel.baseMudDensity_kgpm3,
+            baseMudDensity: actualBaseMudDensity,
             backfillDensity: actualBackfillDensity,
             targetESD: viewmodel.targetESDAtTD_kgpm3,
             crackFloat: viewmodel.crackFloat_kPa,
@@ -479,9 +507,10 @@ struct TripSimulationView: View {
 
     // MARK: - Build Report Data Helper
     private func buildReportData() -> TripSimulationReportData {
-        // Get actual backfill density from selected mud (matches simulation logic)
+        // Get actual mud densities from project (matches simulation logic)
         let backfillMud = viewmodel.backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
         let actualBackfillDensity = backfillMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+        let actualBaseMudDensity = project.activeMud?.density_kgm3 ?? viewmodel.baseMudDensity_kgpm3
 
         // Get actual initial SABP from first simulation step (not the input value)
         let actualInitialSABP = viewmodel.steps.first?.SABP_kPa ?? viewmodel.initialSABP_kPa
@@ -540,7 +569,7 @@ struct TripSimulationView: View {
             endMD: viewmodel.endMD_m,
             controlMD: viewmodel.shoeMD_m,
             stepSize: viewmodel.step_m,
-            baseMudDensity: viewmodel.baseMudDensity_kgpm3,
+            baseMudDensity: actualBaseMudDensity,
             backfillDensity: actualBackfillDensity,
             targetESD: viewmodel.targetESDAtTD_kgpm3,
             crackFloat: viewmodel.crackFloat_kPa,
