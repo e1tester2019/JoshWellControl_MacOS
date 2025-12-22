@@ -34,7 +34,12 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case tripTracker
     case mpdTracking
 
-    // Operations
+    // Operations - Look Ahead
+    case lookAheadScheduler
+    case vendors
+    case jobCodes
+
+    // Operations - Other
     case rentals
     case transfers
 
@@ -110,6 +115,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .operations
         case .pumpSchedule, .cementJob, .tripSimulation, .tripTracker, .mpdTracking:
             return .simulation
+        case .lookAheadScheduler, .vendors, .jobCodes:
+            return .operations
         case .workDays, .invoices, .clients:
             return .income
         case .expenses, .mileage:
@@ -149,6 +156,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "Trip Simulation"
         case .tripTracker: return "Trip Tracker"
         case .mpdTracking: return "MPD Tracking"
+        case .lookAheadScheduler: return "Look Ahead"
+        case .vendors: return "Vendors"
+        case .jobCodes: return "Job Codes"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
         case .workDays: return "Work Days"
@@ -186,6 +196,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "play.circle.fill"
         case .tripTracker: return "figure.walk.circle.fill"
         case .mpdTracking: return "gauge.with.needle.fill"
+        case .lookAheadScheduler: return "calendar.badge.clock"
+        case .vendors: return "person.2.badge.gearshape"
+        case .jobCodes: return "list.bullet.rectangle"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
         case .workDays: return "calendar"
@@ -261,6 +274,12 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Process-based step-by-step trip tracking"
         case .mpdTracking:
             return "Managed Pressure Drilling ECD/ESD tracking"
+        case .lookAheadScheduler:
+            return "Drilling operations scheduler with vendor call tracking"
+        case .vendors:
+            return "Manage service providers and contacts"
+        case .jobCodes:
+            return "Task categories with learned duration estimates"
         case .rentals:
             return "Equipment rental tracking"
         case .transfers:

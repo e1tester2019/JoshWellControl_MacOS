@@ -28,10 +28,17 @@ struct SurveyListView: View {
             List(selection: $vm.selection) {
                 Section {
                     ForEach(surveys) { s in
-                        SurveyRow(station: s, onDelete: { vm.delete(s, from: surveys) }) { field in
-                            vm.onSurveyChange(field, surveys: surveys)
+                        // Use lightweight display row for non-selected, editable for selected
+                        if vm.selection?.id == s.id {
+                            SurveyRowEditable(station: s, onDelete: { vm.delete(s, from: surveys) }) { field in
+                                vm.onSurveyChange(field, surveys: surveys)
+                            }
+                            .tag(s)
+                        } else {
+                            SurveyRowDisplay(station: s, onDelete: { vm.delete(s, from: surveys) })
+                                .tag(s)
+                                .contentShape(Rectangle())
                         }
-                        .tag(s)
                     }
                     .onDelete { idx in
                         let items = idx.map { surveys[$0] }
@@ -41,10 +48,13 @@ struct SurveyListView: View {
             }
             .listStyle(.inset)
             .scrollIndicators(.hidden)
-            .id(vm.listVersion)
             footer
         }
         .onAppear { vm.attach(project: project, context: modelContext); vm.recomputeTVD(surveys: surveys) }
+        .onChange(of: project) { _, newProject in
+            vm.attach(project: newProject, context: modelContext)
+            vm.recomputeTVD(surveys: surveys)
+        }
         .onChange(of: surveys.count) { vm.recomputeTVD(surveys: surveys) }
         .fileImporter(isPresented: $vm.showingImporter,
                       allowedContentTypes: [.commaSeparatedText, .plainText, .utf8PlainText],
@@ -84,11 +94,55 @@ struct SurveyListView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Button("Add Station") { vm.add(after: surveys.last) }
-            Button("Clear Stations") { vm.clearStations(surveys) }
-            Spacer()
-            Button("Import Surveys…") { vm.showingImporter = true }
+        VStack(alignment: .leading, spacing: 8) {
+            // Survey calculation settings
+            HStack(spacing: 16) {
+                HStack(spacing: 4) {
+                    Text("VSD:")
+                        .foregroundStyle(.secondary)
+                    TextField("VSD", value: $project.vsdDirection_deg, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .monospacedDigit()
+                    Text("°")
+                        .foregroundStyle(.secondary)
+                }
+                .help("Vertical Section Direction - reference azimuth for VS calculation")
+
+                if let well = project.well {
+                    HStack(spacing: 4) {
+                        Text("KB:")
+                            .foregroundStyle(.secondary)
+                        TextField("KB", value: Binding(
+                            get: { well.kbElevation_m ?? 0 },
+                            set: { well.kbElevation_m = $0 }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .monospacedDigit()
+                        Text("m")
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("Kelly Bushing elevation above sea level")
+                }
+
+                Button("Recalculate") {
+                    vm.recalculateSurveys(surveys: surveys)
+                }
+                .buttonStyle(.bordered)
+                .help("Recalculate all directional values using minimum curvature")
+
+                Spacer()
+            }
+            .font(.caption)
+
+            // Action buttons
+            HStack {
+                Button("Add Station") { vm.add(after: surveys.last) }
+                Button("Clear Stations") { vm.clearStations(surveys) }
+                Spacer()
+                Button("Import Surveys…") { vm.showingImporter = true }
+            }
         }
         .padding(.vertical, 8)
     }
@@ -126,31 +180,32 @@ extension SurveyListView {
             self.project = project
         }
 
-        func recomputeTVD(surveys: [SurveyStation]) {
-            // Surveys are already sorted by @Query
-            var last: SurveyStation? = nil
-            for s in surveys {
-                if let prev = last {
-                    let dmd = s.md - prev.md
-                    let inc1 = prev.inc * .pi / 180.0
-                    let inc2 = s.inc * .pi / 180.0
-                    let avgInc = 0.5 * (inc1 + inc2)
-                    let prevTVD = prev.tvd ?? 0
-                    let dTVD = dmd * cos(avgInc)
-                    s.tvd = prevTVD + dTVD
-                } else {
-                    s.tvd = s.tvd ?? 0
-                }
-                last = s
-            }
+        /// Recalculate all directional survey values using minimum curvature method
+        func recalculateSurveys(surveys: [SurveyStation]) {
+            guard let project else { return }
+
+            // Get KB elevation from well if available
+            let kbElevation = project.well?.kbElevation_m
+
+            // Use project's VSD direction
+            let vsdDirection = project.vsdDirection_deg
+
+            // Run full minimum curvature calculation
+            DirectionalSurveyService.recalculate(
+                surveys: surveys,
+                vsdDirection: vsdDirection,
+                kbElevation: kbElevation
+            )
         }
 
         func onSurveyChange(_ field: SurveyField, surveys: [SurveyStation]) {
-            // MD changes trigger re-sort via @Query, then TVD recompute via onChange
-            if case .md = field {
-                listVersion &+= 1
-            }
-            recomputeTVD(surveys: surveys)
+            // Recalculate all derived values when primary inputs change
+            recalculateSurveys(surveys: surveys)
+        }
+
+        /// Legacy function name for compatibility - now calls full recalculation
+        func recomputeTVD(surveys: [SurveyStation]) {
+            recalculateSurveys(surveys: surveys)
         }
 
         func clearStations(_ surveys: [SurveyStation]) {
@@ -300,230 +355,130 @@ extension SurveyListView {
     }
 }
 
-private struct SurveyRow: View {
+// MARK: - Lightweight Display Row (for scrolling performance)
+private struct SurveyRowDisplay: View {
+    let station: SurveyStation
+    var onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(format2(station.md))
+                .frame(width: 90, alignment: .leading)
+                .monospacedDigit()
+            Text(format0(station.inc))
+                .frame(width: 80, alignment: .leading)
+                .monospacedDigit()
+            Text(format0(station.azi))
+                .frame(width: 80, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.tvd ?? 0))
+                .frame(width: 90, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.vs_m ?? 0))
+                .frame(width: 80, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.ns_m ?? 0))
+                .frame(width: 80, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.ew_m ?? 0))
+                .frame(width: 80, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.dls_deg_per30m ?? 0))
+                .frame(width: 110, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.subsea_m ?? 0))
+                .frame(width: 90, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.buildRate_deg_per30m ?? 0))
+                .frame(width: 120, alignment: .leading)
+                .monospacedDigit()
+            Text(format2(station.turnRate_deg_per30m ?? 0))
+                .frame(width: 120, alignment: .leading)
+                .monospacedDigit()
+            Spacer()
+            Button("Delete", role: .destructive, action: onDelete)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+        }
+    }
+
+    private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
+    private func format2(_ v: Double) -> String { String(format: "%.2f", v) }
+}
+
+// MARK: - Editable Row (only shown for selected station)
+private struct SurveyRowEditable: View {
     typealias SurveyField = SurveyListView.ViewModel.SurveyField
     @Bindable var station: SurveyStation
     var onDelete: () -> Void
     var onChange: (SurveyField) -> Void
 
-    // Local UI state so we don't mutate the model while typing
-    @State private var mdText: String = ""
-    @State private var incText: String = ""
-    @State private var aziText: String = ""
-    @State private var tvdText: String = ""
-    @State private var vsText: String = ""
-    @State private var nsText: String = ""
-    @State private var ewText: String = ""
-    @State private var dlsText: String = ""
-    @State private var subseaText: String = ""
-    @State private var buildText: String = ""
-    @State private var turnText: String = ""
-
-    // Track focus to commit on focus changes
-    private enum Field { case md, inc, azi, tvd, vs, ns, ew, dls, subsea, build, turn }
-    @FocusState private var focusedField: Field?
-    @State private var lastFocused: Field? = nil
-
-    init(station: SurveyStation, onDelete: @escaping () -> Void, onChange: @escaping (SurveyField) -> Void) {
-        self._station = Bindable(wrappedValue: station)
-        self.onDelete = onDelete
-        self.onChange = onChange
-        // seed local text values
-        _mdText = State(initialValue: Self.format2(station.md))
-        _incText = State(initialValue: Self.format2(station.inc))
-        _aziText = State(initialValue: Self.format2(station.azi))
-        _tvdText = State(initialValue: Self.format2(station.tvd ?? 0))
-        _vsText = State(initialValue: Self.format2(station.vs_m ?? 0))
-        _nsText = State(initialValue: Self.format2(station.ns_m ?? 0))
-        _ewText = State(initialValue: Self.format2(station.ew_m ?? 0))
-        _dlsText = State(initialValue: Self.format2(station.dls_deg_per30m ?? 0))
-        _subseaText = State(initialValue: Self.format2(station.subsea_m ?? 0))
-        _buildText = State(initialValue: Self.format2(station.buildRate_deg_per30m ?? 0))
-        _turnText = State(initialValue: Self.format2(station.turnRate_deg_per30m ?? 0))
-    }
-
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            TextField("MD", text: $mdText)
+            TextField("MD", value: $station.md, format: .number)
                 .frame(width: 90, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .md)
-                .onSubmit { commitMD() }
+                .onChange(of: station.md) { onChange(.md) }
 
-            TextField("Incl", text: $incText)
+            TextField("Incl", value: $station.inc, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .inc)
-                .onSubmit { commitInc() }
+                .onChange(of: station.inc) { onChange(.inc) }
 
-            TextField("Azm", text: $aziText)
+            TextField("Azm", value: $station.azi, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .azi)
-                .onSubmit { commitAzi() }
+                .onChange(of: station.azi) { onChange(.azi) }
 
-            TextField("TVD", text: $tvdText)
+            TextField("TVD", value: $station.tvd, format: .number)
                 .frame(width: 90, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .tvd)
-                .onSubmit { commitTVD() }
 
-            TextField("VS", text: $vsText)
+            TextField("VS", value: $station.vs_m, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .vs)
-                .onSubmit { commitVS() }
 
-            TextField("NS", text: $nsText)
+            TextField("NS", value: $station.ns_m, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .ns)
-                .onSubmit { commitNS() }
 
-            TextField("EW", text: $ewText)
+            TextField("EW", value: $station.ew_m, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .ew)
-                .onSubmit { commitEW() }
 
-            TextField("DLS", text: $dlsText)
+            TextField("DLS", value: $station.dls_deg_per30m, format: .number)
                 .frame(width: 110, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .dls)
-                .onSubmit { commitDLS() }
 
-            TextField("Subsea", text: $subseaText)
+            TextField("Subsea", value: $station.subsea_m, format: .number)
                 .frame(width: 90, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .subsea)
-                .onSubmit { commitSubsea() }
 
-            TextField("Build", text: $buildText)
+            TextField("Build", value: $station.buildRate_deg_per30m, format: .number)
                 .frame(width: 120, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .build)
-                .onSubmit { commitBuild() }
 
-            TextField("Turn", text: $turnText)
+            TextField("Turn", value: $station.turnRate_deg_per30m, format: .number)
                 .frame(width: 120, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .focused($focusedField, equals: .turn)
-                .onSubmit { commitTurn() }
 
             Spacer()
             Button("Delete", role: .destructive, action: onDelete)
                 .buttonStyle(.borderless)
                 .controlSize(.small)
         }
-        .onChange(of: focusedField) { newValue, oldValue in
-            // When focus moves away from a field, commit the previous field
-            defer { lastFocused = newValue }
-            switch lastFocused {
-            case .md?: commitMD()
-            case .inc?: commitInc()
-            case .azi?: commitAzi()
-            case .tvd?: commitTVD()
-            case .vs?: commitVS()
-            case .ns?: commitNS()
-            case .ew?: commitEW()
-            case .dls?: commitDLS()
-            case .subsea?: commitSubsea()
-            case .build?: commitBuild()
-            case .turn?: commitTurn()
-            case nil: break
-            }
-        }
-        .onAppear { syncFromModel() }
     }
-
-    // MARK: - Commit helpers
-    private func commitMD() {
-        if let v = Self.parse(mdText) {
-            if v != station.md { station.md = v; onChange(.md) }
-            mdText = Self.format2(station.md)
-        } else {
-            mdText = Self.format2(station.md)
-        }
-    }
-    private func commitInc() {
-        if let v = Self.parse(incText) {
-            if v != station.inc { station.inc = v; onChange(.inc) }
-            incText = Self.format0(station.inc)
-        } else {
-            incText = Self.format0(station.inc)
-        }
-    }
-    private func commitAzi() {
-        if let v = Self.parse(aziText) {
-            if v != station.azi { station.azi = v; onChange(.azi) }
-            aziText = Self.format0(station.azi)
-        } else {
-            aziText = Self.format0(station.azi)
-        }
-    }
-    private func commitTVD() {
-        if let v = Self.parse(tvdText) {
-            station.tvd = v
-            tvdText = Self.format2(v)
-        } else {
-            tvdText = Self.format2(station.tvd ?? 0)
-        }
-    }
-    private func commitVS() {
-        if let v = Self.parse(vsText) { station.vs_m = v; vsText = Self.format2(v) } else { vsText = Self.format2(station.vs_m ?? 0) }
-    }
-    private func commitNS() {
-        if let v = Self.parse(nsText) { station.ns_m = v; nsText = Self.format2(v) } else { nsText = Self.format2(station.ns_m ?? 0) }
-    }
-    private func commitEW() {
-        if let v = Self.parse(ewText) { station.ew_m = v; ewText = Self.format2(v) } else { ewText = Self.format2(station.ew_m ?? 0) }
-    }
-    private func commitDLS() {
-        if let v = Self.parse(dlsText) { station.dls_deg_per30m = v; dlsText = Self.format2(v) } else { dlsText = Self.format2(station.dls_deg_per30m ?? 0) }
-    }
-    private func commitSubsea() {
-        if let v = Self.parse(subseaText) { station.subsea_m = v; subseaText = Self.format2(v) } else { subseaText = Self.format2(station.subsea_m ?? 0) }
-    }
-    private func commitBuild() {
-        if let v = Self.parse(buildText) { station.buildRate_deg_per30m = v; buildText = Self.format2(v) } else { buildText = Self.format2(station.buildRate_deg_per30m ?? 0) }
-    }
-    private func commitTurn() {
-        if let v = Self.parse(turnText) { station.turnRate_deg_per30m = v; turnText = Self.format2(v) } else { turnText = Self.format2(station.turnRate_deg_per30m ?? 0) }
-    }
-
-    private func syncFromModel() {
-        mdText = Self.format2(station.md)
-        incText = Self.format0(station.inc)
-        aziText = Self.format0(station.azi)
-        tvdText = Self.format2(station.tvd ?? 0)
-        vsText = Self.format2(station.vs_m ?? 0)
-        nsText = Self.format2(station.ns_m ?? 0)
-        ewText = Self.format2(station.ew_m ?? 0)
-        dlsText = Self.format2(station.dls_deg_per30m ?? 0)
-        subseaText = Self.format2(station.subsea_m ?? 0)
-        buildText = Self.format2(station.buildRate_deg_per30m ?? 0)
-        turnText = Self.format2(station.turnRate_deg_per30m ?? 0)
-    }
-
-    // MARK: - Formatting & parsing
-    private static func parse(_ raw: String) -> Double? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
-        return Double(cleaned)
-    }
-    private static func format0(_ v: Double) -> String { String(format: "%.0f", v) }
-    private static func format2(_ v: Double) -> String { String(format: "%.2f", v) }
 }
 
 // MARK: - Tiny CSV helper (robust enough for common cases; not RFC‑complete)

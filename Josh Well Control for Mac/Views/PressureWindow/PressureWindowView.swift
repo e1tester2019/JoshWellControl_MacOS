@@ -68,6 +68,9 @@ struct PressureWindowView: View {
         .background(pageBackgroundColor)
         .navigationTitle("Pressure Window")
         .onAppear { viewmodel.attach(context: modelContext) }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 
     private var headerRow: some View {

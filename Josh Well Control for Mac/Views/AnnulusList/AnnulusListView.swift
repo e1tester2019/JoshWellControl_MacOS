@@ -87,6 +87,10 @@ struct AnnulusListView: View {
                 viewmodel.attach(context: modelContext)
                 viewmodel.refreshIfNeeded()
             }
+            .onChange(of: project) { _, newProject in
+                viewmodel.project = newProject
+                viewmodel.refreshIfNeeded()
+            }
             .toolbar {
                 if viewmodel.hasGaps {
                     ToolbarItemGroup {

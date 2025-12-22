@@ -72,6 +72,11 @@ struct CementJobView: View {
             // Explicit save for CloudKit sync when job properties change
             try? modelContext.save()
         }
+        .onChange(of: project) { _, _ in
+            // Clear selection when project changes
+            viewModel.selectedJob = nil
+            viewModel.selectedStage = nil
+        }
         #else
         // iOS/iPadOS layout
         NavigationSplitView {
@@ -106,6 +111,11 @@ struct CementJobView: View {
         .onChange(of: viewModel.selectedJob?.updatedAt) { _, _ in
             // Explicit save for CloudKit sync when job properties change
             try? modelContext.save()
+        }
+        .onChange(of: project) { _, _ in
+            // Clear selection when project changes
+            viewModel.selectedJob = nil
+            viewModel.selectedStage = nil
         }
         #endif
     }

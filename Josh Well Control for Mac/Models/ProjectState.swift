@@ -104,6 +104,9 @@ final class ProjectState {
     var activeMudVolume_m3: Double = 56.5
     var surfaceLineVolume_m3: Double = 1.4
 
+    // Survey calculation settings
+    var vsdDirection_deg: Double = 0.0  // Vertical Section Direction (reference azimuth for VS calculation)
+
     init() {
         // Initialize singletons so they're never nil
         self._window = PressureWindow()
@@ -186,6 +189,7 @@ extension ProjectState {
         p.activeMudDensity_kgm3 = self.activeMudDensity_kgm3
         p.activeMudVolume_m3 = self.activeMudVolume_m3
         p.surfaceLineVolume_m3 = self.surfaceLineVolume_m3
+        p.vsdDirection_deg = self.vsdDirection_deg
         p.basedOnProjectID = self.id
         p.createdAt = .now
 
@@ -224,7 +228,18 @@ extension ProjectState {
                 md: s0.md,
                 inc: s0.inc,
                 azi: s0.azi,
-                tvd: s0.tvd)
+                tvd: s0.tvd,
+                vs_m: s0.vs_m,
+                ns_m: s0.ns_m,
+                ew_m: s0.ew_m,
+                dls_deg_per30m: s0.dls_deg_per30m,
+                subsea_m: s0.subsea_m,
+                buildRate_deg_per30m: s0.buildRate_deg_per30m,
+                turnRate_deg_per30m: s0.turnRate_deg_per30m,
+                vsd_direction_deg: s0.vsd_direction_deg,
+                sourceFileName: s0.sourceFileName
+            )
+            s.project = p
             p.surveys?.append(s)
         }
 

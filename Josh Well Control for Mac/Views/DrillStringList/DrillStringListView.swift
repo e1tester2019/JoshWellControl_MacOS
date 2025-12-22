@@ -73,6 +73,9 @@ struct DrillStringListView: View {
         .onAppear {
             viewmodel.attach(context: modelContext)
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
         .toolbar {
             if viewmodel.hasGaps {
                 ToolbarItemGroup {

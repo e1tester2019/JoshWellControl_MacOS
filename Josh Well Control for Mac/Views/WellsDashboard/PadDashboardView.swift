@@ -11,6 +11,10 @@ import SwiftData
 struct PadDashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Pad.name) private var allPads: [Pad]
+    @Query(sort: \JobCode.name) private var jobCodes: [JobCode]
+    @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
+    @Query(sort: \Well.name) private var allWells: [Well]
+    @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
     @Bindable var pad: Pad
 
     // Optional navigation callback for wells (to navigate in main view, not sheet)
@@ -29,6 +33,8 @@ struct PadDashboardView: View {
     @State private var selectedTransfer: MaterialTransfer?
     @State private var selectedNote: HandoverNote?
     @State private var selectedTask: WellTask?
+    @State private var selectedLookAheadTask: LookAheadTask?
+    @State private var showingAddLookAheadTask = false
 
     private var pageBackgroundColor: Color {
         #if os(macOS)
@@ -105,6 +111,7 @@ struct PadDashboardView: View {
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 16) {
+                        lookAheadSection
                         notesSection
                         tasksSection
                     }
@@ -114,6 +121,7 @@ struct PadDashboardView: View {
                 wellsSection
                 rentalsSection
                 transfersSection
+                lookAheadSection
                 notesSection
                 tasksSection
                 #endif
@@ -164,6 +172,24 @@ struct PadDashboardView: View {
         }
         .sheet(item: $selectedWellForSheet) { well in
             WellDashboardView(well: well)
+        }
+        .sheet(item: $selectedLookAheadTask) { task in
+            LookAheadTaskEditorView(
+                schedule: task.schedule,
+                task: task,
+                jobCodes: jobCodes,
+                vendors: vendors,
+                wells: allWells
+            )
+        }
+        .sheet(isPresented: $showingAddLookAheadTask) {
+            LookAheadTaskEditorView(
+                schedule: activeSchedule,
+                task: nil,
+                jobCodes: jobCodes,
+                vendors: vendors,
+                wells: allWells
+            )
         }
     }
 
@@ -332,58 +358,56 @@ struct PadDashboardView: View {
 
     // MARK: - Wells Section
 
+    private var sortedWells: [Well] {
+        (pad.wells ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private var wellsSection: some View {
         WellSection(title: "Wells", icon: "building.2", subtitle: "\(pad.wells?.count ?? 0) well(s) on this pad") {
             VStack(alignment: .leading, spacing: 8) {
-                if let wells = pad.wells, !wells.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(wells.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending })) { well in
-                            Button {
-                                if let callback = onSelectWell {
-                                    callback(well)
-                                } else {
-                                    selectedWellForSheet = well
-                                }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack {
-                                            Text(well.name)
-                                                .fontWeight(.medium)
-                                            if well.isFavorite {
-                                                Image(systemName: "star.fill")
-                                                    .foregroundStyle(.yellow)
-                                                    .font(.caption)
-                                            }
-                                        }
-                                        if let uwi = well.uwi, !uwi.isEmpty {
-                                            Text(uwi)
+                if !sortedWells.isEmpty {
+                    PaginatedList(items: sortedWells, pageSize: 5) { well in
+                        Button {
+                            if let callback = onSelectWell {
+                                callback(well)
+                            } else {
+                                selectedWellForSheet = well
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Text(well.name)
+                                            .fontWeight(.medium)
+                                        if well.isFavorite {
+                                            Image(systemName: "star.fill")
+                                                .foregroundStyle(.yellow)
                                                 .font(.caption)
-                                                .foregroundStyle(.secondary)
                                         }
                                     }
-                                    Spacer()
-                                    HStack(spacing: 16) {
-                                        Label("\(well.projects?.count ?? 0)", systemImage: "folder")
-                                        Label("\(well.rentals?.count ?? 0)", systemImage: "bag")
-                                        Label("\(well.transfers?.count ?? 0)", systemImage: "arrow.left.arrow.right")
+                                    if let uwi = well.uwi, !uwi.isEmpty {
+                                        Text(uwi)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
                                 }
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                                Spacer()
+                                HStack(spacing: 16) {
+                                    Label("\(well.projects?.count ?? 0)", systemImage: "folder")
+                                    Label("\(well.rentals?.count ?? 0)", systemImage: "bag")
+                                    Label("\(well.transfers?.count ?? 0)", systemImage: "arrow.left.arrow.right")
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                            if well.id != wells.last?.id {
-                                Divider()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 } else {
                     Text("No wells on this pad")
@@ -436,17 +460,8 @@ struct PadDashboardView: View {
                     .padding(.bottom, 8)
 
                     Divider()
-                }
 
-                // On-location rentals (most important)
-                if !onLocationRentals.isEmpty {
-                    Text("On Location")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-
-                    ForEach(onLocationRentals.prefix(5)) { rental in
+                    PaginatedList(items: allPadRentals, pageSize: 5) { rental in
                         Button {
                             selectedRental = rental
                         } label: {
@@ -454,39 +469,7 @@ struct PadDashboardView: View {
                         }
                         .buttonStyle(.plain)
                     }
-
-                    if onLocationRentals.count > 5 {
-                        Text("+ \(onLocationRentals.count - 5) more on location")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Recent rentals (not on location)
-                let recentOffLocation = allPadRentals.filter { !$0.onLocation }.prefix(3)
-                if !recentOffLocation.isEmpty {
-                    if !onLocationRentals.isEmpty {
-                        Divider()
-                            .padding(.vertical, 4)
-                    }
-
-                    Text("Recent")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-
-                    ForEach(Array(recentOffLocation)) { rental in
-                        Button {
-                            selectedRental = rental
-                        } label: {
-                            PadRentalRow(rental: rental)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                if allPadRentals.isEmpty {
+                } else {
                     Text("No rentals for wells on this pad")
                         .foregroundStyle(.secondary)
                         .italic()
@@ -503,71 +486,34 @@ struct PadDashboardView: View {
             icon: "arrow.left.arrow.right.circle",
             subtitle: "\(pendingTransfers.count) pending • \(totalTransferItems) items"
         ) {
-            VStack(alignment: .leading, spacing: 12) {
-                if !allPadTransfers.isEmpty {
-                    // Pending transfers first
-                    if !pendingTransfers.isEmpty {
-                        Text("Pending")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-
-                        ForEach(pendingTransfers.prefix(5)) { transfer in
-                            Button {
-                                selectedTransfer = transfer
-                            } label: {
-                                PadTransferRow(transfer: transfer)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        if pendingTransfers.count > 5 {
-                            Text("+ \(pendingTransfers.count - 5) more pending")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+            if !allPadTransfers.isEmpty {
+                PaginatedList(items: allPadTransfers, pageSize: 5) { transfer in
+                    Button {
+                        selectedTransfer = transfer
+                    } label: {
+                        PadTransferRow(transfer: transfer)
                     }
-
-                    // Completed transfers
-                    let completedTransfers = allPadTransfers.filter { $0.isShippedBack }
-                    if !completedTransfers.isEmpty {
-                        if !pendingTransfers.isEmpty {
-                            Divider()
-                                .padding(.vertical, 4)
-                        }
-
-                        Text("Completed")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-
-                        ForEach(completedTransfers.prefix(3)) { transfer in
-                            Button {
-                                selectedTransfer = transfer
-                            } label: {
-                                PadTransferRow(transfer: transfer)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                } else {
-                    Text("No material transfers for wells on this pad")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    .buttonStyle(.plain)
                 }
+            } else {
+                Text("No material transfers for wells on this pad")
+                    .foregroundStyle(.secondary)
+                    .italic()
             }
         }
     }
 
     // MARK: - Notes Section
 
+    private var sortedPadNotes: [HandoverNote] {
+        (pad.notes ?? []).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     private var notesSection: some View {
         WellSection(title: "Pad Notes", icon: "note.text", subtitle: "\(pad.notes?.count ?? 0) note(s)") {
             VStack(alignment: .leading, spacing: 8) {
-                if let notes = pad.notes, !notes.isEmpty {
-                    ForEach(notes.sorted(by: { $0.updatedAt > $1.updatedAt }).prefix(5)) { note in
+                if !sortedPadNotes.isEmpty {
+                    PaginatedList(items: sortedPadNotes, pageSize: 5) { note in
                         Button {
                             selectedNote = note
                         } label: {
@@ -605,12 +551,6 @@ struct PadDashboardView: View {
                         }
                         .buttonStyle(.plain)
                     }
-
-                    if (pad.notes?.count ?? 0) > 5 {
-                        Text("+ \((pad.notes?.count ?? 0) - 5) more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     Text("No notes for this pad")
                         .foregroundStyle(.secondary)
@@ -636,7 +576,7 @@ struct PadDashboardView: View {
         WellSection(title: "Pad Tasks", icon: "checkmark.circle", subtitle: "\(padPendingTasks.count) pending") {
             VStack(alignment: .leading, spacing: 8) {
                 if !padPendingTasks.isEmpty {
-                    ForEach(padPendingTasks.prefix(5)) { task in
+                    PaginatedList(items: padPendingTasks, pageSize: 5) { task in
                         Button {
                             selectedTask = task
                         } label: {
@@ -673,12 +613,6 @@ struct PadDashboardView: View {
                         }
                         .buttonStyle(.plain)
                     }
-
-                    if padPendingTasks.count > 5 {
-                        Text("+ \(padPendingTasks.count - 5) more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     Text("No pending tasks")
                         .foregroundStyle(.secondary)
@@ -691,6 +625,63 @@ struct PadDashboardView: View {
                 .buttonStyle(.borderless)
                 .padding(.top, 4)
             }
+        }
+    }
+
+    // MARK: - Look Ahead Section
+
+    /// All Look Ahead tasks from wells on this pad, sorted by start time
+    private var padLookAheadTasks: [LookAheadTask] {
+        (pad.wells ?? [])
+            .flatMap { $0.lookAheadTasks ?? [] }
+            .filter { $0.status != .completed && $0.status != .cancelled }
+            .sorted { $0.startTime < $1.startTime }
+    }
+
+    private var activeSchedule: LookAheadSchedule? {
+        activeSchedules.first
+    }
+
+    private var lookAheadSection: some View {
+        WellSection(
+            title: "Look Ahead",
+            icon: "calendar.badge.clock",
+            subtitle: "\(padLookAheadTasks.count) upcoming task(s)"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !padLookAheadTasks.isEmpty {
+                    PaginatedList(items: padLookAheadTasks, pageSize: 5) { task in
+                        Button {
+                            selectedLookAheadTask = task
+                        } label: {
+                            PadLookAheadTaskRow(task: task)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    Text("No scheduled look ahead tasks for wells on this pad")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+
+                if activeSchedule != nil {
+                    Button(action: { showingAddLookAheadTask = true }) {
+                        Label("Add Look Ahead Task", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    private func lookAheadStatusColor(_ status: LookAheadTaskStatus) -> Color {
+        switch status {
+        case .scheduled: return .blue
+        case .inProgress: return .orange
+        case .completed: return .green
+        case .delayed: return .red
+        case .cancelled: return .gray
         }
     }
 
@@ -1087,6 +1078,86 @@ private struct PadTransferRow: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Pad Look Ahead Task Row
+
+private struct PadLookAheadTaskRow: View {
+    let task: LookAheadTask
+
+    private var statusColor: Color {
+        switch task.status {
+        case .scheduled: return .blue
+        case .inProgress: return .orange
+        case .completed: return .green
+        case .delayed: return .red
+        case .cancelled: return .gray
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(task.name)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    if let jc = task.jobCode {
+                        Text(jc.code)
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.2))
+                            .cornerRadius(3)
+                    }
+
+                    if let well = task.well {
+                        Text("• \(well.name)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text(task.startTime.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("(\(task.estimatedDurationFormatted))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+
+            // Vendor/call status
+            if !task.assignedVendors.isEmpty {
+                if task.hasConfirmedCall {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.caption)
+                } else {
+                    Image(systemName: "phone.badge.waveform")
+                        .foregroundStyle(task.isCallOverdue ? .red : .orange)
+                        .font(.caption)
                 }
             }
 

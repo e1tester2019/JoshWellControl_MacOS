@@ -32,6 +32,10 @@ final class Well {
     var isLocked: Bool = false
     var lastAccessedAt: Date?
 
+    // Survey reference elevations
+    var kbElevation_m: Double?      // Kelly Bushing elevation above sea level (m)
+    var groundElevation_m: Double?  // Ground level elevation above sea level (m)
+
     @Relationship var pad: Pad?
 
     @Relationship(deleteRule: .nullify, inverse: \ProjectState.well) var projects: [ProjectState]?
@@ -43,6 +47,10 @@ final class Well {
     @Relationship(deleteRule: .nullify, inverse: \MileageLog.well) var mileageLogs: [MileageLog]?
     @Relationship(deleteRule: .cascade, inverse: \WellTask.well) var tasks: [WellTask]?
     @Relationship(deleteRule: .cascade, inverse: \HandoverNote.well) var notes: [HandoverNote]?
+
+    // Look Ahead Scheduler
+    @Relationship(deleteRule: .nullify, inverse: \LookAheadTask.well) var lookAheadTasks: [LookAheadTask]?
+    @Relationship(deleteRule: .nullify, inverse: \LookAheadSchedule.well) var lookAheadSchedules: [LookAheadSchedule]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name

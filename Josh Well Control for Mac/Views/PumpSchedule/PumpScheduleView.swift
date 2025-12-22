@@ -40,6 +40,9 @@ struct PumpScheduleView: View {
         }
         .padding(12)
         .onAppear { viewModel.bootstrap(project: project, context: modelContext) }
+        .onChange(of: project) { _, newProject in
+            viewModel.bootstrap(project: newProject, context: modelContext)
+        }
         .navigationTitle("Pump Schedule")
     }
 

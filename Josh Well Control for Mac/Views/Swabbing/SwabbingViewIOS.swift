@@ -143,6 +143,9 @@ struct SwabbingViewIOS: View {
         .onAppear {
             initializeViewModel()
         }
+        .onChange(of: project) { _, _ in
+            initializeViewModel()
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Calculate") {

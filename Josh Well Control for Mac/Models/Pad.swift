@@ -24,6 +24,10 @@ final class Pad {
     @Relationship(deleteRule: .cascade, inverse: \WellTask.pad) var tasks: [WellTask]?
     @Relationship(deleteRule: .cascade, inverse: \HandoverNote.pad) var notes: [HandoverNote]?
 
+    // Look Ahead Scheduler
+    @Relationship(deleteRule: .nullify, inverse: \LookAheadTask.pad) var lookAheadTasks: [LookAheadTask]?
+    @Relationship(deleteRule: .nullify, inverse: \LookAheadSchedule.pad) var lookAheadSchedules: [LookAheadSchedule]?
+
     init(name: String = "New Pad", surfaceLocation: String = "", latitude: Double? = nil, longitude: Double? = nil) {
         self.name = name
         self.surfaceLocation = surfaceLocation

@@ -54,6 +54,10 @@ struct SwabbingView: View {
             viewmodel.preloadDefaults()
             viewmodel.compute(project: project, layers: allFinalLayers)
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.syncBitDepth(to: newProject)
+            viewmodel.compute(project: newProject, layers: allFinalLayers)
+        }
         .onChange(of: viewmodel.bitMD_m) { viewmodel.compute(project: project, layers: allFinalLayers) }
         .onChange(of: viewmodel.theta600) { viewmodel.compute(project: project, layers: allFinalLayers) }
         .onChange(of: viewmodel.theta300) { viewmodel.compute(project: project, layers: allFinalLayers) }

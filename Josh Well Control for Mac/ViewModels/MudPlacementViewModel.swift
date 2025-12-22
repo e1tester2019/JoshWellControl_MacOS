@@ -257,4 +257,14 @@ struct FinalLayer: Identifiable, Equatable {
     var color: Color
     var density: Double
     var mud: MudProperties?
+
+    static func == (lhs: FinalLayer, rhs: FinalLayer) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.domain == rhs.domain &&
+        lhs.top == rhs.top &&
+        lhs.bottom == rhs.bottom &&
+        lhs.name == rhs.name &&
+        lhs.density == rhs.density &&
+        lhs.mud?.id == rhs.mud?.id
+    }
 }

@@ -184,6 +184,9 @@ struct VolumeSummaryViewIOS: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Volume Summary")
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 }
 

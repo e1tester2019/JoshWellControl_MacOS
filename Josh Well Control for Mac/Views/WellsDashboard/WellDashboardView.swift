@@ -11,6 +11,10 @@ import SwiftData
 struct WellDashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Pad.name) private var allPads: [Pad]
+    @Query(sort: \JobCode.name) private var jobCodes: [JobCode]
+    @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
+    @Query(sort: \Well.name) private var allWells: [Well]
+    @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
     @Bindable var well: Well
 
     // Optional navigation callback for projects (to navigate in main view, not sheet)
@@ -30,6 +34,8 @@ struct WellDashboardView: View {
     @State private var selectedTransfer: MaterialTransfer?
     @State private var selectedNote: HandoverNote?
     @State private var selectedTask: WellTask?
+    @State private var selectedLookAheadTask: LookAheadTask?
+    @State private var showingAddLookAheadTask = false
 
     private var pageBackgroundColor: Color {
         #if os(macOS)
@@ -54,6 +60,7 @@ struct WellDashboardView: View {
                     VStack(spacing: 16) {
                         projectsSection
                         rentalsSection
+                        lookAheadSection
                     }
                     .frame(maxWidth: .infinity)
 
@@ -69,6 +76,7 @@ struct WellDashboardView: View {
                 projectsSection
                 rentalsSection
                 transfersSection
+                lookAheadSection
                 notesSection
                 tasksSection
                 #endif
@@ -120,6 +128,25 @@ struct WellDashboardView: View {
         }
         .sheet(item: $selectedProjectForSheet) { project in
             ProjectDashboardView(project: project)
+        }
+        .sheet(item: $selectedLookAheadTask) { task in
+            LookAheadTaskEditorView(
+                schedule: task.schedule,
+                task: task,
+                jobCodes: jobCodes,
+                vendors: vendors,
+                wells: allWells
+            )
+        }
+        .sheet(isPresented: $showingAddLookAheadTask) {
+            LookAheadTaskEditorView(
+                schedule: activeSchedule,
+                task: nil,
+                jobCodes: jobCodes,
+                vendors: vendors,
+                wells: allWells,
+                preselectedWell: well
+            )
         }
     }
 
@@ -349,49 +376,47 @@ struct WellDashboardView: View {
 
     // MARK: - Projects Section
 
+    private var sortedProjects: [ProjectState] {
+        (well.projects ?? []).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     private var projectsSection: some View {
         WellSection(title: "Projects", icon: "folder", subtitle: "\(well.projects?.count ?? 0) project(s)") {
             VStack(alignment: .leading, spacing: 8) {
-                if let projects = well.projects, !projects.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(projects.sorted(by: { $0.updatedAt > $1.updatedAt })) { project in
-                            Button {
-                                if let callback = onSelectProject {
-                                    callback(project)
-                                } else {
-                                    selectedProjectForSheet = project
-                                }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(project.name)
-                                            .fontWeight(.medium)
-                                        Text("Updated \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    HStack(spacing: 12) {
-                                        Label("\(project.drillString?.count ?? 0)", systemImage: "cylinder.split.1x2")
-                                        Label("\(project.annulus?.count ?? 0)", systemImage: "circle.hexagonpath")
-                                        Label("\(project.surveys?.count ?? 0)", systemImage: "location.north.circle")
-                                    }
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                    Image(systemName: "chevron.right")
+                if !sortedProjects.isEmpty {
+                    PaginatedList(items: sortedProjects, pageSize: 5) { project in
+                        Button {
+                            if let callback = onSelectProject {
+                                callback(project)
+                            } else {
+                                selectedProjectForSheet = project
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(project.name)
+                                        .fontWeight(.medium)
+                                    Text("Updated \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                                         .font(.caption)
-                                        .foregroundStyle(.tertiary)
+                                        .foregroundStyle(.secondary)
                                 }
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                                Spacer()
+                                HStack(spacing: 12) {
+                                    Label("\(project.drillString?.count ?? 0)", systemImage: "cylinder.split.1x2")
+                                    Label("\(project.annulus?.count ?? 0)", systemImage: "circle.hexagonpath")
+                                    Label("\(project.surveys?.count ?? 0)", systemImage: "location.north.circle")
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                            if project.id != projects.last?.id {
-                                Divider()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 } else {
                     Text("No projects")
@@ -410,10 +435,14 @@ struct WellDashboardView: View {
 
     // MARK: - Rentals Section
 
+    private var sortedRentals: [RentalItem] {
+        (well.rentals ?? []).sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+    }
+
     private var rentalsSection: some View {
         WellSection(title: "Rentals", icon: "bag", subtitle: "\(well.rentals?.count ?? 0) item(s)") {
             VStack(alignment: .leading, spacing: 8) {
-                if let rentals = well.rentals, !rentals.isEmpty {
+                if !sortedRentals.isEmpty {
                     VStack(spacing: 0) {
                         // Header row
                         HStack {
@@ -429,7 +458,7 @@ struct WellDashboardView: View {
 
                         Divider()
 
-                        ForEach(rentals.sorted(by: { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) })) { rental in
+                        PaginatedList(items: sortedRentals, pageSize: 5) { rental in
                             Button {
                                 selectedRental = rental
                             } label: {
@@ -473,10 +502,6 @@ struct WellDashboardView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-
-                            if rental.id != rentals.last?.id {
-                                Divider()
-                            }
                         }
                     }
                 } else {
@@ -496,10 +521,14 @@ struct WellDashboardView: View {
 
     // MARK: - Transfers Section
 
+    private var sortedTransfers: [MaterialTransfer] {
+        (well.transfers ?? []).sorted { $0.date > $1.date }
+    }
+
     private var transfersSection: some View {
         WellSection(title: "Material Transfers", icon: "arrow.left.arrow.right.circle", subtitle: "\(well.transfers?.count ?? 0) transfer(s)") {
             VStack(alignment: .leading, spacing: 8) {
-                if let transfers = well.transfers, !transfers.isEmpty {
+                if !sortedTransfers.isEmpty {
                     VStack(spacing: 0) {
                         // Header row
                         HStack {
@@ -515,7 +544,7 @@ struct WellDashboardView: View {
 
                         Divider()
 
-                        ForEach(transfers.sorted(by: { $0.date > $1.date })) { transfer in
+                        PaginatedList(items: sortedTransfers, pageSize: 5) { transfer in
                             Button {
                                 selectedTransfer = transfer
                             } label: {
@@ -545,10 +574,6 @@ struct WellDashboardView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-
-                            if transfer.id != transfers.last?.id {
-                                Divider()
-                            }
                         }
                     }
                 } else {
@@ -568,11 +593,15 @@ struct WellDashboardView: View {
 
     // MARK: - Notes Section
 
+    private var sortedNotes: [HandoverNote] {
+        (well.notes ?? []).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     private var notesSection: some View {
         WellSection(title: "Notes", icon: "note.text", subtitle: "\(well.notes?.count ?? 0) note(s)") {
             VStack(alignment: .leading, spacing: 8) {
-                if let notes = well.notes, !notes.isEmpty {
-                    ForEach(notes.sorted(by: { $0.updatedAt > $1.updatedAt }).prefix(5)) { note in
+                if !sortedNotes.isEmpty {
+                    PaginatedList(items: sortedNotes, pageSize: 5) { note in
                         Button {
                             selectedNote = note
                         } label: {
@@ -610,12 +639,6 @@ struct WellDashboardView: View {
                         }
                         .buttonStyle(.plain)
                     }
-
-                    if (well.notes?.count ?? 0) > 5 {
-                        Text("+ \((well.notes?.count ?? 0) - 5) more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     Text("No notes")
                         .foregroundStyle(.secondary)
@@ -637,7 +660,7 @@ struct WellDashboardView: View {
         WellSection(title: "Tasks", icon: "checkmark.circle", subtitle: "\(well.pendingTasks.count) pending") {
             VStack(alignment: .leading, spacing: 8) {
                 if !well.pendingTasks.isEmpty {
-                    ForEach(well.pendingTasks.prefix(5)) { task in
+                    PaginatedList(items: well.pendingTasks, pageSize: 5) { task in
                         Button {
                             selectedTask = task
                         } label: {
@@ -674,12 +697,6 @@ struct WellDashboardView: View {
                         }
                         .buttonStyle(.plain)
                     }
-
-                    if well.pendingTasks.count > 5 {
-                        Text("+ \(well.pendingTasks.count - 5) more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     Text("No pending tasks")
                         .foregroundStyle(.secondary)
@@ -691,6 +708,51 @@ struct WellDashboardView: View {
                 }
                 .buttonStyle(.borderless)
                 .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - Look Ahead Section
+
+    private var wellLookAheadTasks: [LookAheadTask] {
+        (well.lookAheadTasks ?? [])
+            .filter { $0.status != .completed && $0.status != .cancelled }
+            .sorted { $0.startTime < $1.startTime }
+    }
+
+    private var activeSchedule: LookAheadSchedule? {
+        activeSchedules.first
+    }
+
+    private var lookAheadSection: some View {
+        WellSection(
+            title: "Look Ahead",
+            icon: "calendar.badge.clock",
+            subtitle: "\(wellLookAheadTasks.count) upcoming task(s)"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !wellLookAheadTasks.isEmpty {
+                    PaginatedList(items: wellLookAheadTasks, pageSize: 5) { task in
+                        Button {
+                            selectedLookAheadTask = task
+                        } label: {
+                            LookAheadTaskDashboardRow(task: task)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    Text("No scheduled look ahead tasks")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+
+                if activeSchedule != nil {
+                    Button(action: { showingAddLookAheadTask = true }) {
+                        Label("Add Look Ahead Task", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.top, 4)
+                }
             }
         }
     }
@@ -984,6 +1046,88 @@ private struct AddTransferSheet: View {
         #if os(macOS)
         .frame(minWidth: 350, minHeight: 180)
         #endif
+    }
+}
+
+// MARK: - Look Ahead Task Dashboard Row
+
+struct LookAheadTaskDashboardRow: View {
+    let task: LookAheadTask
+
+    private var statusColor: Color {
+        switch task.status {
+        case .scheduled: return .blue
+        case .inProgress: return .orange
+        case .completed: return .green
+        case .delayed: return .red
+        case .cancelled: return .gray
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(task.name)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    if let jc = task.jobCode {
+                        Text(jc.code)
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.2))
+                            .cornerRadius(3)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text(task.startTime.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("(\(task.estimatedDurationFormatted))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+
+            // Vendor indicator
+            if !task.assignedVendors.isEmpty {
+                HStack(spacing: 2) {
+                    Image(systemName: "person.2.badge.gearshape")
+                        .font(.caption2)
+                    Text("\(task.assignedVendors.count)")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+
+            // Call status
+            if task.hasConfirmedCall {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            } else if !task.assignedVendors.isEmpty {
+                Image(systemName: "phone.badge.waveform")
+                    .foregroundStyle(task.isCallOverdue ? .red : .orange)
+                    .font(.caption)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

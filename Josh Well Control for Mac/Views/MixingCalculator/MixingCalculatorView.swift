@@ -66,6 +66,10 @@ struct MixingCalculatorView: View {
             vm.newActiveMudVolume = max(project.activeMudVolume_m3 + project.surfaceLineVolume_m3, 0)
             vm.killMudVolume = 0
         }
+        .onChange(of: project) { _, newProject in
+            viewModel.project = newProject
+            viewModel.compute()
+        }
     }
 
     // MARK: - UI Helpers

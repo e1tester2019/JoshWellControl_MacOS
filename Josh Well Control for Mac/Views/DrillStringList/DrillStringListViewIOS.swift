@@ -66,6 +66,9 @@ struct DrillStringListViewIOS: View {
         .onAppear {
             viewmodel.attach(context: modelContext)
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 }
 

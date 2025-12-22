@@ -67,6 +67,10 @@ struct AnnulusListViewIOS: View {
             viewmodel.attach(context: modelContext)
             viewmodel.refreshIfNeeded()
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+            viewmodel.refreshIfNeeded()
+        }
     }
 }
 

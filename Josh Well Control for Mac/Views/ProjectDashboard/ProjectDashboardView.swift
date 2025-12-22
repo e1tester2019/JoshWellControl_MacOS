@@ -633,6 +633,9 @@ struct ProjectDashboardView: View {
         }
         .background(pageBackgroundColor)
         .navigationTitle("Project Dashboard")
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 
     // MARK: - Project Notes Section

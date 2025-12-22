@@ -30,6 +30,10 @@ struct MudCheckView: View {
             .toolbar { toolbar }
         }
         .onAppear { attachInitialSelection() }
+        .onChange(of: project) { _, _ in
+            selection = nil
+            attachInitialSelection()
+        }
     }
 
     // MARK: - Sidebar

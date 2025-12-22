@@ -466,16 +466,8 @@ private extension ContentView {
 
     func duplicateProject(from source: ProjectState) {
         guard let well = source.well else { return }
-        // Minimal duplicate now — deep copy can be added later
+        // deepClone handles all copying and relationship setup
         let p = source.deepClone(into: well, using: modelContext)
-        vm.selectedProject = p
-        p.name = source.name + " (Copy)"
-        p.baseAnnulusDensity_kgm3 = source.baseAnnulusDensity_kgm3
-        p.baseStringDensity_kgm3 = source.baseStringDensity_kgm3
-        p.pressureDepth_m = source.pressureDepth_m
-        p.well = well
-        if well.projects == nil { well.projects = [] }
-        well.projects?.append(p)
         try? modelContext.save()
         vm.selectedProject = p
     }
@@ -613,6 +605,8 @@ private extension ContentView {
 
     func duplicateWell(from source: Well) {
         let w = Well(name: source.name + " (Copy)")
+        w.kbElevation_m = source.kbElevation_m
+        w.groundElevation_m = source.groundElevation_m
         modelContext.insert(w)
         if w.projects == nil { w.projects = [] }
         // Shallow-copy project states (scalar fields); deep-copy of related collections can be added later
@@ -622,6 +616,10 @@ private extension ContentView {
             p.baseAnnulusDensity_kgm3 = p0.baseAnnulusDensity_kgm3
             p.baseStringDensity_kgm3 = p0.baseStringDensity_kgm3
             p.pressureDepth_m = p0.pressureDepth_m
+            p.vsdDirection_deg = p0.vsdDirection_deg
+            p.activeMudDensity_kgm3 = p0.activeMudDensity_kgm3
+            p.activeMudVolume_m3 = p0.activeMudVolume_m3
+            p.surfaceLineVolume_m3 = p0.surfaceLineVolume_m3
             p.well = w
             if w.projects == nil { w.projects = [] }
             w.projects?.append(p)

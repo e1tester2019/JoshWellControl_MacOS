@@ -481,6 +481,9 @@ struct MudPlacementView: View {
                 previewDensity_kgm3 = m.density_kgm3
             }
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 
     // MARK: - Section Header Helper

@@ -282,6 +282,7 @@ struct MacOSSidebarView: View {
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation, .tripTracker, .mpdTracking]
+    private let schedulingViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers]
 
     // Business sections
@@ -330,6 +331,15 @@ struct MacOSSidebarView: View {
             // Analysis & Simulation
             Section("Analysis & Simulation") {
                 ForEach(analysisViews, id: \.self) { view in
+                    NavigationLink(value: view) {
+                        Label(view.title, systemImage: view.icon)
+                    }
+                }
+            }
+
+            // Scheduling
+            Section("Scheduling") {
+                ForEach(schedulingViews, id: \.self) { view in
                     NavigationLink(value: view) {
                         Label(view.title, systemImage: view.icon)
                     }
@@ -532,6 +542,14 @@ struct MacOSDetailView: View {
         case .payrollReport:
             PayrollReportView()
                 .toolbar { businessSettingsToolbar }
+
+        // Scheduling views (no project required)
+        case .lookAheadScheduler:
+            LookAheadListView()
+        case .vendors:
+            VendorListView()
+        case .jobCodes:
+            JobCodeListView()
 
         // Project-dependent views
         default:
@@ -971,6 +989,10 @@ struct MacOSProjectPicker: View {
                     Label("Rename Project", systemImage: "pencil")
                 }
                 .disabled(selectedProject == nil)
+                Button(action: duplicateCurrentProject) {
+                    Label("Duplicate Project", systemImage: "doc.on.doc")
+                }
+                .disabled(selectedProject == nil)
                 Button(role: .destructive, action: deleteCurrentProject) {
                     Label("Delete Project", systemImage: "trash")
                 }
@@ -1018,6 +1040,15 @@ struct MacOSProjectPicker: View {
         modelContext.delete(project)
         try? modelContext.save()
         selectedProject = selectedWell?.projects?.first
+    }
+
+    private func duplicateCurrentProject() {
+        guard let project = selectedProject,
+              let well = project.well else { return }
+        // deepClone handles all copying and relationship setup
+        let duplicate = project.deepClone(into: well, using: modelContext)
+        try? modelContext.save()
+        selectedProject = duplicate
     }
 }
 

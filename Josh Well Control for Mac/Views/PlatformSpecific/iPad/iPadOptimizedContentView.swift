@@ -441,6 +441,10 @@ struct iPadDetailView: View {
                     SwabbingView(project: project)
                 case .tripSimulation:
                     TripSimulationViewIOS(project: project)
+                case .tripTracker:
+                    TripTrackerViewIOS(project: project)
+                case .mpdTracking:
+                    MPDTrackingView(project: project)
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)

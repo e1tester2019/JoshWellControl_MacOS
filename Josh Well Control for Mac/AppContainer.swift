@@ -13,7 +13,8 @@ enum AppContainer {
     // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
     // v3: Added TripSimulation and TripSimulationStep models
     // v4: Added TripTrack and TripTrackStep models for process-based trip tracking
-    private static let schemaVersion = 4
+    // v5: Added Look Ahead Scheduler models (JobCode, Vendor, CallLogEntry, LookAheadTask, LookAheadSchedule)
+    private static let schemaVersion = 5
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     private static func shouldWipeForSchemaMigration() -> Bool {
@@ -76,7 +77,14 @@ enum AppContainer {
             TripTrack.self,
             TripTrackStep.self,
             MPDSheet.self,
-            MPDReading.self
+            MPDReading.self,
+            // Look Ahead Scheduler
+            JobCode.self,
+            Vendor.self,
+            CallLogEntry.self,
+            TaskVendorAssignment.self,
+            LookAheadTask.self,
+            LookAheadSchedule.self
         ]
         let fullSchema = Schema(models)
 

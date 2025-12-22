@@ -50,6 +50,9 @@ struct TripSimulationViewIOS: View {
             }
         }
         .onAppear { viewmodel.bootstrap(from: project) }
+        .onChange(of: project) { _, newProject in
+            viewmodel.bootstrap(from: newProject)
+        }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
         }
@@ -236,14 +239,14 @@ struct TripSimulationViewIOS: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
                         VStack(spacing: 6) {
-                            numberField("Start MD", value: $viewmodel.startBitMD_m)
-                            numberField("End MD", value: $viewmodel.endMD_m)
-                            numberField("Control MD", value: controlMDBinding)
+                            startMDField
+                            endMDField
+                            controlMDField
                             numberField("Step (m)", value: $viewmodel.step_m)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    
+
                     // Fluids section
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Fluids")
@@ -517,14 +520,14 @@ struct TripSimulationViewIOS: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
                         VStack(spacing: 6) {
-                            numberField("Start MD", value: $viewmodel.startBitMD_m)
-                            numberField("End MD", value: $viewmodel.endMD_m)
-                            numberField("Control MD", value: controlMDBinding)
+                            startMDField
+                            endMDField
+                            controlMDField
                             numberField("Step (m)", value: $viewmodel.step_m)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    
+
                     // Fluids
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Fluids")
@@ -718,6 +721,13 @@ struct TripSimulationViewIOS: View {
             return
         }
 
+        // Get actual backfill density from selected mud (matches simulation logic)
+        let backfillMud = viewmodel.backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+        let actualBackfillDensity = backfillMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+
+        // Get actual initial SABP from first simulation step (not the input value)
+        let actualInitialSABP = viewmodel.steps.first?.SABP_kPa ?? viewmodel.initialSABP_kPa
+
         // Build geometry data for PDF
         let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
             let id = ds.innerDiameter_m
@@ -775,10 +785,10 @@ struct TripSimulationViewIOS: View {
             controlMD: viewmodel.shoeMD_m,
             stepSize: viewmodel.step_m,
             baseMudDensity: viewmodel.baseMudDensity_kgpm3,
-            backfillDensity: viewmodel.backfillDensity_kgpm3,
+            backfillDensity: actualBackfillDensity,
             targetESD: viewmodel.targetESDAtTD_kgpm3,
             crackFloat: viewmodel.crackFloat_kPa,
-            initialSABP: viewmodel.initialSABP_kPa,
+            initialSABP: actualInitialSABP,
             holdSABPOpen: viewmodel.holdSABPOpen,
             tripSpeed: project.settings.tripSpeed_m_per_s * 60,
             useObservedPitGain: viewmodel.useObservedPitGain,
@@ -826,6 +836,13 @@ struct TripSimulationViewIOS: View {
             showingExportErrorAlert = true
             return
         }
+
+        // Get actual backfill density from selected mud (matches simulation logic)
+        let backfillMud2 = viewmodel.backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+        let actualBackfillDensity2 = backfillMud2?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+
+        // Get actual initial SABP from first simulation step (not the input value)
+        let actualInitialSABP2 = viewmodel.steps.first?.SABP_kPa ?? viewmodel.initialSABP_kPa
 
         // Build geometry data (same as PDF)
         let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
@@ -884,10 +901,10 @@ struct TripSimulationViewIOS: View {
             controlMD: viewmodel.shoeMD_m,
             stepSize: viewmodel.step_m,
             baseMudDensity: viewmodel.baseMudDensity_kgpm3,
-            backfillDensity: viewmodel.backfillDensity_kgpm3,
+            backfillDensity: actualBackfillDensity2,
             targetESD: viewmodel.targetESDAtTD_kgpm3,
             crackFloat: viewmodel.crackFloat_kPa,
-            initialSABP: viewmodel.initialSABP_kPa,
+            initialSABP: actualInitialSABP2,
             holdSABPOpen: viewmodel.holdSABPOpen,
             tripSpeed: project.settings.tripSpeed_m_per_s * 60,
             useObservedPitGain: viewmodel.useObservedPitGain,
@@ -1456,6 +1473,76 @@ struct TripSimulationViewIOS: View {
                 viewmodel.shoeMD_m = clamped
             }
         )
+    }
+
+    /// TVD at the control depth
+    private var controlTVD: Double {
+        let controlMD = min(max(0, viewmodel.shoeMD_m), controlMDLimit)
+        return project.tvd(of: controlMD)
+    }
+
+    /// Start MD field with TVD display
+    private var startMDField: some View {
+        HStack(spacing: 4) {
+            Text("Start MD")
+                .frame(minWidth: 100, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            TextField("Start MD", value: $viewmodel.startBitMD_m, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 70, maxWidth: 140)
+
+            Text("(\(Int(startTVD)) TVD)")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        }
+    }
+
+    /// End MD field with TVD display
+    private var endMDField: some View {
+        HStack(spacing: 4) {
+            Text("End MD")
+                .frame(minWidth: 100, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            TextField("End MD", value: $viewmodel.endMD_m, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 70, maxWidth: 140)
+
+            Text("(\(Int(endTVD)) TVD)")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        }
+    }
+
+    /// Control MD field with TVD display
+    private var controlMDField: some View {
+        HStack(spacing: 4) {
+            Text("Control MD")
+                .frame(minWidth: 100, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            TextField("Control MD", value: controlMDBinding, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 70, maxWidth: 140)
+
+            Text("(\(Int(controlTVD)) TVD)")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        }
+    }
+
+    /// TVD at the start depth
+    private var startTVD: Double {
+        project.tvd(of: viewmodel.startBitMD_m)
+    }
+
+    /// TVD at the end depth
+    private var endTVD: Double {
+        project.tvd(of: viewmodel.endMD_m)
     }
 
     private var tripSpeedBinding: Binding<Double> {

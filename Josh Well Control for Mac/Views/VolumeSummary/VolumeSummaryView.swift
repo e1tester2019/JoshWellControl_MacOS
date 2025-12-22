@@ -66,6 +66,9 @@ struct VolumeSummaryView: View {
             }
             .padding(24)
         }
+        .onChange(of: project) { _, newProject in
+            viewmodel.project = newProject
+        }
     }
 }
 

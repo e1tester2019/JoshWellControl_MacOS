@@ -28,8 +28,11 @@ struct PumpScheduleViewIOS: View {
             }
         }
         .onAppear { viewModel.bootstrap(project: project, context: modelContext) }
+        .onChange(of: project) { _, newProject in
+            viewModel.bootstrap(project: newProject, context: modelContext)
+        }
     }
-    
+
     // MARK: - Portrait Layout
     private func portraitLayout(geo: GeometryProxy) -> some View {
         ScrollView {

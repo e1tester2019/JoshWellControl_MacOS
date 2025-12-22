@@ -9,6 +9,7 @@
 import SwiftUI
 import SwiftData
 import Charts
+import UniformTypeIdentifiers
 
 struct MPDTrackingView: View {
     @Environment(\.modelContext) private var modelContext
@@ -82,6 +83,10 @@ struct MPDTrackingView: View {
         .id(refreshTrigger)
         .onAppear {
             viewModel.bootstrap(project: project, context: modelContext)
+            editingBitMD = viewModel.bitMD_m
+        }
+        .onChange(of: project) { _, newProject in
+            viewModel.bootstrap(project: newProject, context: modelContext)
             editingBitMD = viewModel.bitMD_m
         }
         .alert("Delete Reading?", isPresented: $showingDeleteConfirmation) {
@@ -175,6 +180,187 @@ struct MPDTrackingView: View {
         editingChartMaxMD = chartMaxMD
     }
 
+    // MARK: - Export Functions
+
+    #if os(macOS)
+    private func exportToCSV() {
+        guard !readings.isEmpty else { return }
+
+        var csv = "Time,Mode,Bit MD (m),Density Out (kg/m³),Flow Rate (m³/min),Choke/SIP (kPa),ECD/ESD Heel (kg/m³),ECD/ESD Bit (kg/m³),ECD/ESD Toe (kg/m³),Notes\n"
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+
+        for reading in chartReadings {
+            let time = dateFormatter.string(from: reading.timestamp)
+            let mode = reading.isCirculating ? "Circulating" : "Shut-In"
+            let pressure = reading.isCirculating ? reading.chokeFriction_kPa : reading.shutInPressure_kPa
+            let flowRate = reading.isCirculating ? String(format: "%.3f", reading.flowRate_m3_per_min) : ""
+            let notes = reading.notes.replacingOccurrences(of: ",", with: ";")
+
+            csv += "\(time),\(mode),\(String(format: "%.1f", reading.bitMD_m)),\(Int(reading.densityOut_kgm3)),\(flowRate),\(Int(pressure)),\(Int(reading.effectiveDensityAtHeel_kgm3)),\(Int(reading.effectiveDensityAtBit_kgm3)),\(Int(reading.effectiveDensityAtToe_kgm3)),\(notes)\n"
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.commaSeparatedText]
+        savePanel.nameFieldStringValue = "MPD_Readings_\(viewModel.sheetName).csv"
+
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                try? csv.write(to: url, atomically: true, encoding: .utf8)
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func exportToPDF() {
+        guard !readings.isEmpty else { return }
+
+        let pageWidth: CGFloat = 792  // Landscape letter
+        let pageHeight: CGFloat = 612
+        let margin: CGFloat = 40
+
+        let pdfData = NSMutableData()
+        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+
+        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData),
+              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return }
+
+        context.beginPDFPage(nil)
+
+        // Title
+        let titleFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 18, nil)
+        let bodyFont = CTFontCreateWithName("Helvetica" as CFString, 10, nil)
+        let smallFont = CTFontCreateWithName("Helvetica" as CFString, 8, nil)
+
+        drawText("MPD Tracking: \(viewModel.sheetName)", at: CGPoint(x: margin, y: pageHeight - margin), font: titleFont, context: context)
+
+        // Summary info
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let summaryY = pageHeight - margin - 30
+
+        drawText("Heel: \(Int(viewModel.heelMD_m))m  |  Toe: \(Int(viewModel.toeMD_m))m  |  Pore: \(Int(viewModel.porePressure_kgm3)) kg/m³  |  Frac: \(Int(viewModel.fracGradient_kgm3)) kg/m³  |  Readings: \(readings.count)", at: CGPoint(x: margin, y: summaryY), font: bodyFont, context: context)
+
+        // Table header
+        let tableTop = summaryY - 30
+        let colWidths: [CGFloat] = [70, 60, 60, 50, 50, 50, 60, 60, 60, 140]
+        let headers = ["Time", "Mode", "Bit MD", "ρ Out", "Q", "Choke", "Heel", "Bit", "Toe", "Notes"]
+
+        var xPos = margin
+        for (i, header) in headers.enumerated() {
+            drawText(header, at: CGPoint(x: xPos, y: tableTop), font: bodyFont, context: context)
+            xPos += colWidths[i]
+        }
+
+        // Draw line under header
+        context.setStrokeColor(CGColor(gray: 0.5, alpha: 1))
+        context.setLineWidth(0.5)
+        context.move(to: CGPoint(x: margin, y: tableTop - 5))
+        context.addLine(to: CGPoint(x: pageWidth - margin, y: tableTop - 5))
+        context.strokePath()
+
+        // Table rows
+        var rowY = tableTop - 20
+        for reading in chartReadings.prefix(35) { // Limit rows per page
+            xPos = margin
+            let time = dateFormatter.string(from: reading.timestamp)
+            let mode = reading.isCirculating ? "Circ" : "S/I"
+            let pressure = reading.isCirculating ? Int(reading.chokeFriction_kPa) : Int(reading.shutInPressure_kPa)
+            let flowRate = reading.isCirculating ? String(format: "%.2f", reading.flowRate_m3_per_min) : "-"
+
+            let rowData = [
+                time,
+                mode,
+                String(format: "%.0f", reading.bitMD_m),
+                "\(Int(reading.densityOut_kgm3))",
+                flowRate,
+                "\(pressure)",
+                "\(Int(reading.effectiveDensityAtHeel_kgm3))",
+                "\(Int(reading.effectiveDensityAtBit_kgm3))",
+                "\(Int(reading.effectiveDensityAtToe_kgm3))",
+                String(reading.notes.prefix(25))
+            ]
+
+            for (i, text) in rowData.enumerated() {
+                drawText(text, at: CGPoint(x: xPos, y: rowY), font: smallFont, context: context)
+                xPos += colWidths[i]
+            }
+            rowY -= 14
+        }
+
+        context.endPDFPage()
+        context.closePDF()
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.pdf]
+        savePanel.nameFieldStringValue = "MPD_Report_\(viewModel.sheetName).pdf"
+
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                pdfData.write(to: url, atomically: true)
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private func drawText(_ text: String, at point: CGPoint, font: CTFont, context: CGContext) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black
+        ]
+        let attrString = NSAttributedString(string: text, attributes: attributes)
+        let line = CTLineCreateWithAttributedString(attrString)
+
+        context.saveGState()
+        context.textMatrix = .identity
+        context.translateBy(x: point.x, y: point.y)
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func copyToClipboard() {
+        guard !readings.isEmpty else { return }
+
+        // Create render view for image export
+        let renderView = MPDChartRenderView(
+            sheetName: viewModel.sheetName,
+            heelMD_m: viewModel.heelMD_m,
+            toeMD_m: viewModel.toeMD_m,
+            porePressure_kgm3: viewModel.porePressure_kgm3,
+            fracGradient_kgm3: viewModel.fracGradient_kgm3,
+            readings: chartReadings,
+            densityColorFunc: viewModel.densityColor
+        )
+
+        let size = CGSize(width: 800, height: 600)
+        let success = ClipboardService.shared.copyViewToClipboard(renderView, size: size)
+
+        if !success {
+            // Fall back to text copy if image fails
+            copyTextToClipboard()
+        }
+    }
+
+    private func copyTextToClipboard() {
+        var text = "MPD Tracking: \(viewModel.sheetName)\n"
+        text += "Heel: \(Int(viewModel.heelMD_m))m | Toe: \(Int(viewModel.toeMD_m))m | Pore: \(Int(viewModel.porePressure_kgm3)) | Frac: \(Int(viewModel.fracGradient_kgm3)) kg/m³\n\n"
+        text += "Time\t\tMode\tBit MD\tρ Out\tHeel\tBit\tToe\n"
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "HH:mm"
+
+        for reading in chartReadings {
+            let time = dateFormatter.string(from: reading.timestamp)
+            let mode = reading.isCirculating ? "ECD" : "ESD"
+            text += "\(time)\t\t\(mode)\t\(Int(reading.bitMD_m))\t\(Int(reading.densityOut_kgm3))\t\(Int(reading.effectiveDensityAtHeel_kgm3))\t\(Int(reading.effectiveDensityAtBit_kgm3))\t\(Int(reading.effectiveDensityAtToe_kgm3))\n"
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    #endif
+
     // MARK: - iOS Layout
 
     #if os(iOS)
@@ -190,6 +376,10 @@ struct MPDTrackingView: View {
             .navigationTitle("MPD Tracking")
             .onAppear {
                 viewModel.bootstrap(project: project, context: modelContext)
+                editingBitMD = viewModel.bitMD_m
+            }
+            .onChange(of: project) { _, newProject in
+                viewModel.bootstrap(project: newProject, context: modelContext)
                 editingBitMD = viewModel.bitMD_m
             }
             .alert("Extend Well Geometry?", isPresented: $showingExtendPrompt) {
@@ -538,6 +728,30 @@ struct MPDTrackingView: View {
             HStack {
                 Text("Trend")
                     .font(.headline)
+
+                Menu {
+                    Button {
+                        exportToCSV()
+                    } label: {
+                        Label("Export CSV", systemImage: "tablecells")
+                    }
+                    Button {
+                        exportToPDF()
+                    } label: {
+                        Label("Export PDF", systemImage: "doc.richtext")
+                    }
+                    Divider()
+                    Button {
+                        copyToClipboard()
+                    } label: {
+                        Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+
                 Spacer()
 
                 if chartXAxisIsBitMD {
@@ -1243,6 +1457,209 @@ struct MPDTrackingView: View {
     }
     #endif
 }
+
+// MARK: - MPD Chart Render View (for clipboard export)
+
+#if os(macOS)
+/// A self-contained view that renders the MPD chart for clipboard export
+private struct MPDChartRenderView: View {
+    let sheetName: String
+    let heelMD_m: Double
+    let toeMD_m: Double
+    let porePressure_kgm3: Double
+    let fracGradient_kgm3: Double
+    let readings: [MPDReading]
+    let densityColorFunc: (Double) -> Color
+
+    private var circulatingReadings: [MPDReading] {
+        readings.filter { $0.isCirculating }
+    }
+
+    private var shutInReadings: [MPDReading] {
+        readings.filter { !$0.isCirculating }
+    }
+
+    private var chartYMin: Double {
+        guard !readings.isEmpty else { return porePressure_kgm3 - 50 }
+        let dataMin = readings.map { min($0.effectiveDensityAtHeel_kgm3, $0.effectiveDensityAtBit_kgm3, $0.effectiveDensityAtToe_kgm3) }.min() ?? porePressure_kgm3
+        return min(dataMin, porePressure_kgm3) - 50
+    }
+
+    private var chartYMax: Double {
+        guard !readings.isEmpty else { return fracGradient_kgm3 + 50 }
+        let dataMax = readings.map { max($0.effectiveDensityAtHeel_kgm3, $0.effectiveDensityAtBit_kgm3, $0.effectiveDensityAtToe_kgm3) }.max() ?? fracGradient_kgm3
+        return max(dataMax, fracGradient_kgm3) + 50
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 4) {
+                Text("MPD Tracking: \(sheetName)")
+                    .font(.title2.bold())
+                    .foregroundColor(.black)
+                HStack(spacing: 16) {
+                    Text("Heel: \(Int(heelMD_m))m")
+                    Text("Toe: \(Int(toeMD_m))m")
+                    Text("Pore: \(Int(porePressure_kgm3)) kg/m³")
+                        .foregroundColor(.orange)
+                    Text("Frac: \(Int(fracGradient_kgm3)) kg/m³")
+                        .foregroundColor(.red)
+                }
+                .font(.subheadline)
+                .foregroundColor(.gray)
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            // Chart
+            Chart {
+                // Reference lines
+                RuleMark(y: .value("Pore", porePressure_kgm3))
+                    .foregroundStyle(.orange.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                    .annotation(position: .leading, alignment: .leading) {
+                        Text("Pore")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+
+                RuleMark(y: .value("Frac", fracGradient_kgm3))
+                    .foregroundStyle(.red.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                    .annotation(position: .leading, alignment: .leading) {
+                        Text("Frac")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+
+                // Circulating trend line (blue)
+                ForEach(circulatingReadings) { reading in
+                    LineMark(
+                        x: .value("Time", reading.timestamp),
+                        y: .value("ECD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Circulating")
+                    )
+                    .foregroundStyle(.blue)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.circle)
+                    .symbolSize(30)
+                }
+
+                // Shut-in trend line (purple)
+                ForEach(shutInReadings) { reading in
+                    LineMark(
+                        x: .value("Time", reading.timestamp),
+                        y: .value("ESD", reading.effectiveDensityAtBit_kgm3),
+                        series: .value("Type", "Shut-In")
+                    )
+                    .foregroundStyle(.purple)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .symbol(.square)
+                    .symbolSize(30)
+                }
+
+                // Range bars
+                ForEach(readings) { reading in
+                    RectangleMark(
+                        x: .value("Time", reading.timestamp),
+                        yStart: .value("Heel", reading.effectiveDensityAtHeel_kgm3),
+                        yEnd: .value("Toe", reading.effectiveDensityAtToe_kgm3),
+                        width: 8
+                    )
+                    .foregroundStyle(reading.isCirculating ? Color.blue.opacity(0.2) : Color.purple.opacity(0.2))
+                    .cornerRadius(2)
+                }
+            }
+            .chartYScale(domain: chartYMin...chartYMax)
+            .chartYAxisLabel("Density (kg/m³)")
+            .chartXAxisLabel("Time")
+            .chartLegend(position: .top) {
+                HStack(spacing: 16) {
+                    HStack(spacing: 4) {
+                        Circle().fill(.blue).frame(width: 8, height: 8)
+                        Text("ECD (Circulating)")
+                            .font(.caption)
+                    }
+                    HStack(spacing: 4) {
+                        Rectangle().fill(.purple).frame(width: 8, height: 8)
+                        Text("ESD (Shut-In)")
+                            .font(.caption)
+                    }
+                }
+            }
+            .frame(height: 300)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+
+            // Readings table
+            VStack(alignment: .leading, spacing: 4) {
+                // Table header
+                HStack(spacing: 0) {
+                    Text("Time").frame(width: 60, alignment: .leading)
+                    Text("Mode").frame(width: 50, alignment: .leading)
+                    Text("Bit MD").frame(width: 60, alignment: .trailing)
+                    Text("ρ Out").frame(width: 50, alignment: .trailing)
+                    Text("Heel").frame(width: 50, alignment: .trailing)
+                    Text("Bit").frame(width: 50, alignment: .trailing)
+                    Text("Toe").frame(width: 50, alignment: .trailing)
+                    Text("Notes").frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption.bold())
+                .foregroundColor(.gray)
+                .padding(.horizontal, 20)
+
+                Divider()
+                    .padding(.horizontal, 20)
+
+                // Table rows (limit to avoid overflow)
+                ForEach(readings.prefix(12)) { reading in
+                    HStack(spacing: 0) {
+                        Text(reading.timestamp, format: .dateTime.hour().minute())
+                            .frame(width: 60, alignment: .leading)
+                        Text(reading.isCirculating ? "ECD" : "ESD")
+                            .foregroundColor(reading.isCirculating ? .blue : .purple)
+                            .frame(width: 50, alignment: .leading)
+                        Text("\(Int(reading.bitMD_m))")
+                            .frame(width: 60, alignment: .trailing)
+                        Text("\(Int(reading.densityOut_kgm3))")
+                            .frame(width: 50, alignment: .trailing)
+                        Text("\(Int(reading.effectiveDensityAtHeel_kgm3))")
+                            .foregroundColor(densityColorFunc(reading.effectiveDensityAtHeel_kgm3))
+                            .frame(width: 50, alignment: .trailing)
+                        Text("\(Int(reading.effectiveDensityAtBit_kgm3))")
+                            .fontWeight(.medium)
+                            .foregroundColor(densityColorFunc(reading.effectiveDensityAtBit_kgm3))
+                            .frame(width: 50, alignment: .trailing)
+                        Text("\(Int(reading.effectiveDensityAtToe_kgm3))")
+                            .foregroundColor(densityColorFunc(reading.effectiveDensityAtToe_kgm3))
+                            .frame(width: 50, alignment: .trailing)
+                        Text(reading.notes)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 20)
+                }
+
+                if readings.count > 12 {
+                    Text("+ \(readings.count - 12) more readings...")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 4)
+                }
+            }
+            .padding(.vertical, 8)
+            .background(Color.gray.opacity(0.05))
+
+            Spacer(minLength: 0)
+        }
+        .background(Color.white)
+    }
+}
+#endif
 
 #Preview {
     let container = try! ModelContainer(
