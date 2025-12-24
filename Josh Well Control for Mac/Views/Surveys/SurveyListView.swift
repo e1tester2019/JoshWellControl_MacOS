@@ -550,11 +550,11 @@ private struct SurveyListPreview: View {
             .frame(width: 760, height: 520)
     }
 }
-#endif
 
 #Preview("Surveys – Sample Data") {
     SurveyListPreview()
 }
+#endif
 
 // MARK: - Pason Text Parser Utility
 private enum PasonParser {
