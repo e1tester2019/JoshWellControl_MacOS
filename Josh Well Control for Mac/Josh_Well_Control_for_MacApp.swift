@@ -9,8 +9,19 @@
 import SwiftUI
 import SwiftData
 
+#if os(macOS)
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
+#endif
+
 @main
 struct Josh_Well_Control_for_MacApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
 
     private let container = AppContainer.make(
         cloudKitContainerID: "iCloud.com.josh-sallows-wellcontrolapp"
