@@ -1,5 +1,9 @@
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 struct MaterialTransferListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -8,6 +12,7 @@ struct MaterialTransferListView: View {
     @State private var selection: MaterialTransfer? = nil
     @State private var editingTransfer: MaterialTransfer? = nil
     @State private var previewingTransfer: MaterialTransfer? = nil
+    @State private var exportError: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -74,17 +79,45 @@ struct MaterialTransferListView: View {
         }
         .sheet(item: $previewingTransfer) { transfer in
             #if os(macOS)
-            MaterialTransferReportPreview(well: well, transfer: transfer)
-                .environment(\.colorScheme, .light)
-                .background(Color.white)
-                .frame(minWidth: 800, minHeight: 1000)
+            MaterialTransferPDFPreviewSheet(well: well, transfer: transfer)
+                .frame(minWidth: 700, minHeight: 900)
             #else
             MaterialTransferReportView(well: well, transfer: transfer)
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
             #endif
         }
+        .alert("Export Error", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "Unknown error")
+        }
     }
+
+    // MARK: - PDF Export (macOS)
+
+    #if os(macOS)
+    private func exportPDF(_ transfer: MaterialTransfer) {
+        guard let data = MaterialTransferPDFGenerator.shared.generatePDF(for: transfer, well: well) else {
+            exportError = "Failed to generate PDF"
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try data.write(to: url)
+                NSWorkspace.shared.open(url)
+            } catch {
+                exportError = error.localizedDescription
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder
     private func transferRow(_ t: MaterialTransfer) -> some View {
@@ -169,6 +202,110 @@ struct MaterialTransferListView: View {
         try? modelContext.save()
     }
 }
+
+// MARK: - PDF Preview Sheet (macOS)
+
+#if os(macOS)
+struct MaterialTransferPDFPreviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let well: Well
+    let transfer: MaterialTransfer
+
+    @State private var pdfData: Data?
+    @State private var exportError: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Material Transfer #\(transfer.number)")
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    exportPDF()
+                } label: {
+                    Label("Export PDF", systemImage: "square.and.arrow.up")
+                }
+
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
+
+            Divider()
+
+            // PDF Preview
+            if let data = pdfData {
+                PDFKitView(data: data)
+            } else {
+                ContentUnavailableView("Generating PDF...", systemImage: "doc.text", description: Text("Please wait"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            generatePDF()
+        }
+        .alert("Export Error", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "Unknown error")
+        }
+    }
+
+    private func generatePDF() {
+        pdfData = MaterialTransferPDFGenerator.shared.generatePDF(for: transfer, well: well)
+    }
+
+    private func exportPDF() {
+        guard let data = pdfData else {
+            exportError = "No PDF data available"
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try data.write(to: url)
+                NSWorkspace.shared.open(url)
+            } catch {
+                exportError = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - PDFKit View Wrapper
+
+import PDFKit
+
+struct PDFKitView: NSViewRepresentable {
+    let data: Data
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = NSColor.windowBackgroundColor
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        if let document = PDFDocument(data: data) {
+            pdfView.document = document
+        }
+    }
+}
+#endif
 
 //#Preview("Material Transfer List") {
 //    let config = ModelConfiguration(isStoredInMemoryOnly: true)

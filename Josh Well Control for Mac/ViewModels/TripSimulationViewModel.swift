@@ -85,10 +85,22 @@ extension TripSimulationView {
       backfillMudID = project.activeMud?.id
       targetESDAtTD_kgpm3 = baseActive
 
+      // Load persisted backfill switching settings
+      switchToActiveAfterDisplacement = project.settings.switchToActiveAfterDisplacement
+      useOverrideDisplacementVolume = project.settings.useOverrideDisplacementVolume
+      overrideDisplacementVolume_m3 = project.settings.overrideDisplacementVolume_m3
+
       #if DEBUG
       let layerCount = (project.finalLayers ?? []).count
       print("[TripSim] Bootstrap: found \(layerCount) final layers, startBitMD=\(startBitMD_m), shoeMD=\(shoeMD_m)")
       #endif
+    }
+
+    /// Save backfill switching settings to project
+    func saveBackfillSettings(to project: ProjectState) {
+      project.settings.switchToActiveAfterDisplacement = switchToActiveAfterDisplacement
+      project.settings.useOverrideDisplacementVolume = useOverrideDisplacementVolume
+      project.settings.overrideDisplacementVolume_m3 = overrideDisplacementVolume_m3
     }
 
     /// Computes the steel displacement volume for the trip range and stores it
@@ -480,6 +492,17 @@ extension TripSimulationViewIOS {
       backfillDensity_kgpm3 = baseActive
       backfillMudID = project.activeMud?.id
       targetESDAtTD_kgpm3 = baseActive
+
+      // Load persisted backfill switching settings
+      switchToActiveAfterDisplacement = project.settings.switchToActiveAfterDisplacement
+      useOverrideDisplacementVolume = project.settings.useOverrideDisplacementVolume
+      overrideDisplacementVolume_m3 = project.settings.overrideDisplacementVolume_m3
+    }
+
+    func saveBackfillSettings(to project: ProjectState) {
+      project.settings.switchToActiveAfterDisplacement = switchToActiveAfterDisplacement
+      project.settings.useOverrideDisplacementVolume = useOverrideDisplacementVolume
+      project.settings.overrideDisplacementVolume_m3 = overrideDisplacementVolume_m3
     }
 
     func computeDisplacementVolume(project: ProjectState) {

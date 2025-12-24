@@ -25,7 +25,7 @@ struct LookAheadTaskEditorView: View {
     @State private var selectedJobCode: JobCode?
     @State private var vendorAssignmentData: [VendorAssignmentData] = []
     @State private var selectedWell: Well?
-    @State private var estimatedDuration: Double = 60
+    @State private var estimatedDuration_hours: Double = 1.0  // In hours, stored in 0.25 increments
     @State private var isMetarageBased = false
     @State private var startDepth: Double = 0
     @State private var endDepth: Double = 0
@@ -37,6 +37,7 @@ struct LookAheadTaskEditorView: View {
     }
     @State private var vendorComments: String = ""
     @State private var insertPosition: Int = 0
+    @State private var isLoading: Bool = true  // Prevents recalculation during initial load
 
     /// Filtered vendors for picker
     private var filteredVendors: [Vendor] {
@@ -102,10 +103,9 @@ struct LookAheadTaskEditorView: View {
                 }
             }
             .onChange(of: selectedJobCode) { _, newValue in
-                if let jc = newValue {
-                    isMetarageBased = jc.isMetarageBased
-                    recalculateDuration()
-                }
+                guard !isLoading, let jc = newValue else { return }
+                isMetarageBased = jc.isMetarageBased
+                recalculateDuration()
             }
 
             Picker("Well", selection: $selectedWell) {
@@ -121,6 +121,7 @@ struct LookAheadTaskEditorView: View {
         Section("Duration") {
             Toggle("Meterage-Based Estimate", isOn: $isMetarageBased)
                 .onChange(of: isMetarageBased) { _, _ in
+                    guard !isLoading else { return }
                     recalculateDuration()
                 }
 
@@ -133,6 +134,7 @@ struct LookAheadTaskEditorView: View {
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .onChange(of: startDepth) { _, _ in
+                            guard !isLoading else { return }
                             recalculateDuration()
                         }
                     Text("m")
@@ -147,6 +149,7 @@ struct LookAheadTaskEditorView: View {
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .onChange(of: endDepth) { _, _ in
+                            guard !isLoading else { return }
                             recalculateDuration()
                         }
                     Text("m")
@@ -175,21 +178,24 @@ struct LookAheadTaskEditorView: View {
             HStack {
                 Text("Estimated Duration")
                 Spacer()
-                TextField("", value: $estimatedDuration, format: .number)
+                TextField("", value: $estimatedDuration_hours, format: .number.precision(.fractionLength(2)))
                     .frame(width: 100)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
-                Text("min")
+                Stepper("", value: $estimatedDuration_hours, in: 0.25...24, step: 0.25)
+                    .labelsHidden()
+                    .frame(width: 20)
+                Text("hrs")
                     .foregroundStyle(.secondary)
             }
 
             // Show formatted duration
-            if estimatedDuration > 0 {
+            if estimatedDuration_hours > 0 {
                 HStack {
                     Text("Duration")
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(formatDuration(estimatedDuration))
+                    Text(formatDuration(estimatedDuration_hours))
                         .foregroundStyle(.secondary)
                 }
                 .font(.caption)
@@ -273,19 +279,29 @@ struct LookAheadTaskEditorView: View {
 
     private func recalculateDuration() {
         if isMetarageBased, let jc = selectedJobCode {
-            estimatedDuration = jc.estimateDuration(forMeters: calculatedMeterage)
+            // Job code returns minutes, convert to hours rounded to nearest 0.25
+            let minutes = jc.estimateDuration(forMeters: calculatedMeterage)
+            estimatedDuration_hours = roundToQuarterHour(minutes / 60.0)
         } else if let jc = selectedJobCode, !isMetarageBased {
-            estimatedDuration = jc.estimateDuration(forMeters: nil)
+            let minutes = jc.estimateDuration(forMeters: nil)
+            estimatedDuration_hours = roundToQuarterHour(minutes / 60.0)
         }
     }
 
-    private func formatDuration(_ minutes: Double) -> String {
-        let hours = Int(minutes) / 60
-        let mins = Int(minutes) % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
+    private func roundToQuarterHour(_ hours: Double) -> Double {
+        (hours * 4).rounded() / 4
+    }
+
+    private func formatDuration(_ hours: Double) -> String {
+        let totalMinutes = Int(hours * 60)
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        if h > 0 && m > 0 {
+            return "\(h)h \(m)m"
+        } else if h > 0 {
+            return "\(h)h"
         }
-        return "\(mins)m"
+        return "\(m)m"
     }
 
     private func loadTask() {
@@ -298,6 +314,9 @@ struct LookAheadTaskEditorView: View {
             // No source task - check for preselected well (e.g., adding from dashboard)
             if let well = preselectedWell {
                 selectedWell = well
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isLoading = false
             }
             return
         }
@@ -315,16 +334,31 @@ struct LookAheadTaskEditorView: View {
             )
         }
         selectedWell = t.well
-        estimatedDuration = t.estimatedDuration_min
-        isMetarageBased = t.isMetarageBased
+        vendorComments = t.vendorComments
+
+        // IMPORTANT: Set depths BEFORE isMetarageBased to ensure correct recalculation
         startDepth = t.startDepth_m ?? 0
         endDepth = t.endDepth_m ?? 0
-        vendorComments = t.vendorComments
+
+        // Set all values while isLoading is true (prevents onChange handlers from recalculating)
+        isMetarageBased = t.isMetarageBased
+
+        // Convert stored minutes to hours for display
+        estimatedDuration_hours = roundToQuarterHour(t.estimatedDuration_min / 60.0)
+
+        // Delay enabling onChange handlers until after SwiftUI processes all state changes
+        // onChange handlers fire asynchronously in the next render cycle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isLoading = false
+        }
     }
 
     private func save() {
         let viewModel = LookAheadViewModel()
         viewModel.schedule = schedule
+
+        // Convert hours back to minutes for storage
+        let durationMinutes = estimatedDuration_hours * 60
 
         if let t = task {
             // Update existing task
@@ -332,7 +366,7 @@ struct LookAheadTaskEditorView: View {
             t.notes = notes
             t.jobCode = selectedJobCode
             t.well = selectedWell
-            t.estimatedDuration_min = estimatedDuration
+            t.estimatedDuration_min = durationMinutes
             t.isMetarageBased = isMetarageBased
             t.startDepth_m = isMetarageBased ? startDepth : nil
             t.endDepth_m = isMetarageBased ? endDepth : nil
@@ -342,7 +376,7 @@ struct LookAheadTaskEditorView: View {
             // Update vendor assignments
             updateVendorAssignments(for: t)
 
-            viewModel.updateDuration(t, newDuration: estimatedDuration, context: modelContext)
+            viewModel.updateDuration(t, newDuration: durationMinutes, context: modelContext)
 
             // Reschedule notifications
             if !t.assignments.isEmpty {
@@ -352,7 +386,7 @@ struct LookAheadTaskEditorView: View {
             // Create new task
             let newTask = LookAheadTask(
                 name: name,
-                estimatedDuration_min: estimatedDuration,
+                estimatedDuration_min: durationMinutes,
                 sequenceOrder: insertPosition
             )
             newTask.notes = notes

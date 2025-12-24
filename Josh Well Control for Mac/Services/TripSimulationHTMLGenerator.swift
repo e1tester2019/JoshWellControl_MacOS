@@ -202,27 +202,38 @@ class TripSimulationHTMLGenerator {
                 <!-- Charts -->
                 <section class="card">
                     <h2>Trip Profile Charts</h2>
+                    <p class="chart-hint">Use the slider above to see values at each depth</p>
                     <div class="charts-grid">
-                        <div class="chart-container">
+                        <div class="chart-container" id="container-esd">
                             <canvas id="chart-esd" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-esd"></div>
                         </div>
-                        <div class="chart-container">
+                        <div class="chart-container" id="container-sabp">
                             <canvas id="chart-sabp" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-sabp"></div>
                         </div>
-                        <div class="chart-container">
+                        <div class="chart-container" id="container-tank">
                             <canvas id="chart-tank" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-tank"></div>
                         </div>
-                        <div class="chart-container">
+                        <div class="chart-container" id="container-backfill">
                             <canvas id="chart-backfill" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-backfill"></div>
                         </div>
                     </div>
+                </section>
+
+                <!-- Fluids Used -->
+                <section class="card">
+                    <h2>Fluids Used</h2>
+                    \(generateFluidsTable(data))
                 </section>
 
                 <!-- Geometry Tables -->
                 <section class="card">
                     <h2>Well Geometry</h2>
                     <h3>Drill String</h3>
-                    \(generateDrillStringTable(data.drillStringSections, totalCapacity: data.totalStringCapacity))
+                    \(generateDrillStringTable(data.drillStringSections, totalCapacity: data.totalStringCapacity, totalDisplacement: data.totalStringDisplacement))
 
                     <h3>Annulus</h3>
                     \(generateAnnulusTable(data.annulusSections, totalCapacity: data.totalAnnulusCapacity))
@@ -582,6 +593,53 @@ class TripSimulationHTMLGenerator {
             height: 100% !important;
         }
 
+        .chart-container {
+            position: relative;
+        }
+
+        .chart-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 100;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .chart-tooltip.visible {
+            opacity: 1;
+        }
+
+        .chart-tooltip .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #aaa;
+        }
+
+        .chart-tooltip .tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .chart-tooltip .tooltip-value {
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .chart-hint {
+            font-size: 0.75rem;
+            color: var(--text-light);
+            margin-bottom: 12px;
+            font-style: italic;
+        }
+
         /* Tables */
         .table-controls {
             display: flex;
@@ -789,6 +847,7 @@ class TripSimulationHTMLGenerator {
                 debugLog('requestAnimationFrame callback');
                 try {
                     initCharts();
+                    updateChartMarker(0);  // Show tooltips for initial position
                     debugLog('initCharts completed');
                 } catch (e) {
                     debugLog('initCharts error: ' + e.message);
@@ -804,6 +863,7 @@ class TripSimulationHTMLGenerator {
                     debugLog('Retry after 100ms');
                     try {
                         initCharts();
+                        updateChartMarker(0);  // Show tooltips for initial position
                         updateWellbore(0);
                         debugLog('Retry completed');
                     } catch (e) {
@@ -1075,6 +1135,10 @@ class TripSimulationHTMLGenerator {
             const ctx = canvas.getContext('2d');
             if (!ctx) { debugLog('No 2d context for chart: ' + canvasId); return null; }
 
+            // Get tooltip element
+            const tooltipId = 'tooltip-' + canvasId.replace('chart-', '');
+            const tooltip = document.getElementById(tooltipId);
+
             // Use explicit canvas dimensions (set in HTML) or fallback
             // Only resize if the canvas has default/small dimensions
             const rect = canvas.parentElement ? canvas.parentElement.getBoundingClientRect() : { width: 0, height: 0 };
@@ -1104,6 +1168,23 @@ class TripSimulationHTMLGenerator {
             const yPad = (yMax - yMin) * 0.1 || 1;
             yMin -= yPad;
             yMax += yPad;
+
+            // Convert pixel X to data index
+            function pxToIndex(px) {
+                const relX = (px - margin.left) / plotW;
+                const depth = xMax - relX * (xMax - xMin);
+                // Find closest data point
+                let closestIdx = 0;
+                let closestDist = Infinity;
+                xData.forEach((x, i) => {
+                    const dist = Math.abs(x - depth);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestIdx = i;
+                    }
+                });
+                return closestIdx;
+            }
 
             function draw(highlightIndex = -1) {
                 ctx.clearRect(0, 0, w, h);
@@ -1182,6 +1263,15 @@ class TripSimulationHTMLGenerator {
                     ctx.lineTo(px, h - margin.bottom);
                     ctx.stroke();
                     ctx.setLineDash([]);
+
+                    // Draw data points at highlight
+                    datasets.forEach(ds => {
+                        const py = margin.top + ((yMax - ds.data[highlightIndex]) / (yMax - yMin)) * plotH;
+                        ctx.fillStyle = ds.color;
+                        ctx.beginPath();
+                        ctx.arc(px, py, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
                 }
 
                 // Legend
@@ -1197,13 +1287,38 @@ class TripSimulationHTMLGenerator {
                 });
             }
 
+            // Update tooltip for given index (called when slider changes)
+            function updateTooltip(idx) {
+                if (!tooltip || idx < 0 || idx >= xData.length) {
+                    if (tooltip) tooltip.classList.remove('visible');
+                    return;
+                }
+
+                const depth = xData[idx];
+                let html = '<div class="tooltip-title">MD: ' + depth.toFixed(0) + ' m</div>';
+                datasets.forEach(ds => {
+                    const val = ds.data[idx];
+                    html += '<div class="tooltip-row"><span>' + ds.label + ':</span><span class="tooltip-value" style="color:' + ds.color + '">' + val.toFixed(val >= 100 ? 0 : 2) + '</span></div>';
+                });
+                tooltip.innerHTML = html;
+
+                // Position tooltip at top-right of chart
+                tooltip.style.right = '8px';
+                tooltip.style.top = '8px';
+                tooltip.style.left = 'auto';
+                tooltip.classList.add('visible');
+            }
+
             draw();
-            return { draw };
+            return { draw, updateTooltip };
         }
 
         function updateChartMarker(index) {
             Object.values(charts).forEach(chart => {
-                if (chart && chart.draw) chart.draw(index);
+                if (chart && chart.draw) {
+                    chart.draw(index);
+                    if (chart.updateTooltip) chart.updateTooltip(index);
+                }
             });
         }
 
@@ -1339,7 +1454,91 @@ class TripSimulationHTMLGenerator {
         return html
     }
 
-    private func generateDrillStringTable(_ sections: [PDFSectionData], totalCapacity: Double) -> String {
+    private func generateFluidsTable(_ data: TripSimulationReportData) -> String {
+        var html = """
+        <table class="geometry-table fluids-table">
+            <thead>
+                <tr>
+                    <th>Mud</th>
+                    <th>Density (kg/m³)</th>
+                    <th>Volume (m³)</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        // Slug mud (if present) - heaviest mud in string at start
+        if data.slugMudVolume > 0.01 {
+            html += """
+            <tr>
+                <td>\(escapeHTML(data.slugMudName))</td>
+                <td>\(String(format: "%.0f", data.slugMudDensity))</td>
+                <td>\(String(format: "%.2f", data.slugMudVolume))</td>
+                <td>Slug (in string at start)</td>
+            </tr>
+            """
+        }
+
+        if data.switchToActiveAfterDisplacement {
+            // Two muds used for backfill - backfill first, then active
+            html += """
+            <tr>
+                <td>\(escapeHTML(data.backfillMudName))</td>
+                <td>\(String(format: "%.0f", data.backfillDensity))</td>
+                <td>\(String(format: "%.2f", data.backfillMudVolume))</td>
+                <td>Backfill (displacement)</td>
+            </tr>
+            <tr>
+                <td>\(escapeHTML(data.baseMudName))</td>
+                <td>\(String(format: "%.0f", data.baseMudDensity))</td>
+                <td>\(String(format: "%.2f", data.activeMudBackfillVolume))</td>
+                <td>Backfill (after switch)</td>
+            </tr>
+            <tr class="total-row">
+                <td>TOTAL BACKFILL</td>
+                <td></td>
+                <td>\(String(format: "%.2f", data.totalBackfill))</td>
+                <td></td>
+            </tr>
+            """
+        } else {
+            // Single backfill mud used
+            html += """
+            <tr>
+                <td>\(escapeHTML(data.backfillMudName))</td>
+                <td>\(String(format: "%.0f", data.backfillDensity))</td>
+                <td>\(String(format: "%.2f", data.totalBackfill))</td>
+                <td>Backfill</td>
+            </tr>
+            """
+        }
+
+        html += """
+            </tbody>
+        </table>
+        """
+
+        if data.switchToActiveAfterDisplacement {
+            html += """
+            <div class="volume-summary">
+                <h4>Backfill Strategy</h4>
+                <div class="summary-row">
+                    <span>Switch Volume:</span>
+                    <span>\(String(format: "%.2f m³", data.displacementSwitchVolume))</span>
+                </div>
+                <div class="summary-row">
+                    <span>Method:</span>
+                    <span>Backfill then Active</span>
+                </div>
+            </div>
+            """
+        }
+
+        return html
+    }
+
+    private func generateDrillStringTable(_ sections: [PDFSectionData], totalCapacity: Double, totalDisplacement: Double) -> String {
         guard !sections.isEmpty else {
             return "<p>No drill string sections defined</p>"
         }
@@ -1376,11 +1575,21 @@ class TripSimulationHTMLGenerator {
             """
         }
 
+        // Calculate total displacement
+        let totalDisp = sections.reduce(0.0) { $0 + $1.displacement_m3_per_m * $1.length }
+
         html += """
             <tr class="total-row">
                 <td>TOTAL</td>
-                <td colspan="6"></td>
+                <td colspan="4"></td>
+                <td>\(String(format: "%.4f", sections.reduce(0.0) { $0 + $1.capacity_m3_per_m * $1.length } / max(1, sections.reduce(0.0) { $0 + $1.length })))</td>
+                <td>\(String(format: "%.4f", totalDisp / max(1, sections.reduce(0.0) { $0 + $1.length })))</td>
                 <td>\(String(format: "%.2f", totalCapacity))</td>
+            </tr>
+            <tr class="total-row">
+                <td>DISPLACEMENT</td>
+                <td colspan="6"></td>
+                <td>\(String(format: "%.2f", totalDisplacement))</td>
             </tr>
             </tbody>
         </table>

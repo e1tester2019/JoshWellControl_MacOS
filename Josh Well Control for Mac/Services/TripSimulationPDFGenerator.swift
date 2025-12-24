@@ -49,6 +49,17 @@ struct TripSimulationReportData {
     let useObservedPitGain: Bool
     let observedPitGain: Double?
 
+    // Mud details for report
+    var baseMudName: String = "Active Mud"
+    var backfillMudName: String = "Backfill Mud"
+    var switchToActiveAfterDisplacement: Bool = false
+    var displacementSwitchVolume: Double = 0  // Volume at which to switch from backfill to active
+
+    // Slug mud - heaviest mud in string at start (for weighted spacer/pill)
+    var slugMudName: String = ""
+    var slugMudDensity: Double = 0
+    var slugMudVolume: Double = 0  // Volume in string at start
+
     // Geometry data
     let drillStringSections: [PDFSectionData]
     let annulusSections: [PDFSectionData]
@@ -71,6 +82,20 @@ struct TripSimulationReportData {
         drillStringSections.reduce(0) { $0 + $1.displacement_m3_per_m * $1.length }
     }
     var totalAnnulusCapacity: Double { annulusSections.reduce(0) { $0 + $1.totalVolume } }
+
+    // Computed backfill volumes by mud type
+    var backfillMudVolume: Double {
+        if switchToActiveAfterDisplacement {
+            return min(totalBackfill, displacementSwitchVolume)
+        }
+        return totalBackfill
+    }
+    var activeMudBackfillVolume: Double {
+        if switchToActiveAfterDisplacement {
+            return max(0, totalBackfill - displacementSwitchVolume)
+        }
+        return 0
+    }
 }
 
 /// Cross-platform PDF generator that renders HTML to PDF using WebKit

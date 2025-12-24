@@ -14,7 +14,8 @@ enum AppContainer {
     // v3: Added TripSimulation and TripSimulationStep models
     // v4: Added TripTrack and TripTrackStep models for process-based trip tracking
     // v5: Added Look Ahead Scheduler models (JobCode, Vendor, CallLogEntry, LookAheadTask, LookAheadSchedule)
-    private static let schemaVersion = 5
+    // v6: Added TripRecord and TripRecordStep for field data vs simulation comparison
+    private static let schemaVersion = 6
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     private static func shouldWipeForSchemaMigration() -> Bool {
@@ -76,6 +77,8 @@ enum AppContainer {
             TripSimulationStep.self,
             TripTrack.self,
             TripTrackStep.self,
+            TripRecord.self,
+            TripRecordStep.self,
             MPDSheet.self,
             MPDReading.self,
             // Look Ahead Scheduler

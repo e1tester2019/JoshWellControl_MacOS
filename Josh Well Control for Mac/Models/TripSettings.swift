@@ -59,6 +59,14 @@ final class TripSettings {
     /// Optional auto-stop at ECD limit
     var stopOnLimit: Bool = true
 
+    // MARK: - Backfill switching settings
+    /// Switch from backfill mud to active mud after pumping displacement volume
+    var switchToActiveAfterDisplacement: Bool = false
+    /// Use manual override for displacement volume instead of computed
+    var useOverrideDisplacementVolume: Bool = false
+    /// Manual override displacement volume (m³)
+    var overrideDisplacementVolume_m3: Double = 0.0
+
     // MARK: - Relationships (must match internal _settings property)
     @Relationship(deleteRule: .cascade, inverse: \ProjectState._settings)
     var project: ProjectState?

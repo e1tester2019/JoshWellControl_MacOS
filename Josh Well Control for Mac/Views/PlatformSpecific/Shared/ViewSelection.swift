@@ -30,8 +30,10 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case pumpSchedule
     case cementJob
     case swabbing
+    case surgeSwab
     case tripSimulation
     case tripTracker
+    case tripRecord
     case mpdTracking
 
     // Operations - Look Ahead
@@ -111,9 +113,9 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         switch self {
         case .handover, .padDashboard, .wellDashboard, .dashboard, .drillString, .annulus, .volumeSummary, .surveys:
             return .technical
-        case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing:
+        case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing, .surgeSwab:
             return .operations
-        case .pumpSchedule, .cementJob, .tripSimulation, .tripTracker, .mpdTracking:
+        case .pumpSchedule, .cementJob, .tripSimulation, .tripTracker, .tripRecord, .mpdTracking:
             return .simulation
         case .lookAheadScheduler, .vendors, .jobCodes:
             return .operations
@@ -153,8 +155,10 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .pumpSchedule: return "Pump Schedule"
         case .cementJob: return "Cement Job"
         case .swabbing: return "Swabbing"
+        case .surgeSwab: return "Surge/Swab"
         case .tripSimulation: return "Trip Simulation"
         case .tripTracker: return "Trip Tracker"
+        case .tripRecord: return "Trip Recording"
         case .mpdTracking: return "MPD Tracking"
         case .lookAheadScheduler: return "Look Ahead"
         case .vendors: return "Vendors"
@@ -193,8 +197,10 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .pumpSchedule: return "timer"
         case .cementJob: return "cylinder.split.1x2.fill"
         case .swabbing: return "arrow.up.circle.fill"
+        case .surgeSwab: return "arrow.up.arrow.down"
         case .tripSimulation: return "play.circle.fill"
         case .tripTracker: return "figure.walk.circle.fill"
+        case .tripRecord: return "list.bullet.clipboard"
         case .mpdTracking: return "gauge.with.needle.fill"
         case .lookAheadScheduler: return "calendar.badge.clock"
         case .vendors: return "person.2.badge.gearshape"
@@ -268,10 +274,14 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Cement job planning and calculations"
         case .swabbing:
             return "Swabbing analysis and charts"
+        case .surgeSwab:
+            return "Surge/swab pressure calculator with closed-end displacement"
         case .tripSimulation:
             return "Trip simulation and modeling"
         case .tripTracker:
             return "Process-based step-by-step trip tracking"
+        case .tripRecord:
+            return "Record actual trip observations vs simulation predictions"
         case .mpdTracking:
             return "Managed Pressure Drilling ECD/ESD tracking"
         case .lookAheadScheduler:

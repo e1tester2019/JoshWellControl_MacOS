@@ -828,44 +828,43 @@ struct TaskCompleteSheet: View {
                 Section("Task") {
                     Text(task.name)
                         .font(.headline)
+                        .lineLimit(2)
                     if let jc = task.jobCode {
                         Text(jc.displayName)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 Section("Duration") {
-                    HStack {
-                        Text("Estimated")
-                        Spacer()
+                    LabeledContent("Estimated") {
                         Text(task.estimatedDurationFormatted)
                             .foregroundStyle(.secondary)
                     }
 
-                    HStack {
-                        Text("Actual (minutes)")
-                        Spacer()
+                    LabeledContent("Actual (minutes)") {
                         TextField("", value: $actualDuration, format: .number)
-                            .frame(width: 80)
+                            .frame(width: 100)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                     }
 
                     if actualDuration > 0 {
                         let variance = actualDuration - task.estimatedDuration_min
-                        let variancePercent = (variance / task.estimatedDuration_min) * 100
-                        HStack {
-                            Text("Variance")
-                            Spacer()
+                        let variancePercent = task.estimatedDuration_min > 0
+                            ? (variance / task.estimatedDuration_min) * 100
+                            : 0
+                        LabeledContent("Variance") {
                             Text(String(format: "%+.0f min (%+.1f%%)", variance, variancePercent))
                                 .foregroundStyle(abs(variancePercent) < 10 ? .green : .orange)
                         }
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("Complete Task")
             #if os(macOS)
-            .frame(minWidth: 400, minHeight: 300)
+            .frame(minWidth: 450, minHeight: 280)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

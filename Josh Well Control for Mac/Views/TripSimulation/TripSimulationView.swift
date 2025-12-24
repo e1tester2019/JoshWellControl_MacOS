@@ -144,6 +144,7 @@ struct TripSimulationView: View {
                                 if newValue {
                                     viewmodel.computeDisplacementVolume(project: project)
                                 }
+                                viewmodel.saveBackfillSettings(to: project)
                             }
 
                         if viewmodel.switchToActiveAfterDisplacement {
@@ -156,10 +157,16 @@ struct TripSimulationView: View {
                                     .help("Computed steel displacement volume")
                                 Toggle("Override:", isOn: $viewmodel.useOverrideDisplacementVolume)
                                     .controlSize(.small)
+                                    .onChange(of: viewmodel.useOverrideDisplacementVolume) { _, _ in
+                                        viewmodel.saveBackfillSettings(to: project)
+                                    }
                                 TextField("", value: $viewmodel.overrideDisplacementVolume_m3, format: .number.precision(.fractionLength(2)))
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 70)
                                     .disabled(!viewmodel.useOverrideDisplacementVolume)
+                                    .onChange(of: viewmodel.overrideDisplacementVolume_m3) { _, _ in
+                                        viewmodel.saveBackfillSettings(to: project)
+                                    }
                                 Text("m³")
                                     .foregroundStyle(.secondary)
                             }
@@ -561,7 +568,11 @@ struct TripSimulationView: View {
             )
         }
 
-        return TripSimulationReportData(
+        // Get mud names
+        let baseMudName = project.activeMud?.name ?? "Active Mud"
+        let backfillMudName = backfillMud?.name ?? baseMudName
+
+        var reportData = TripSimulationReportData(
             wellName: project.well?.name ?? "Unknown Well",
             projectName: project.name,
             generatedDate: Date(),
@@ -582,6 +593,37 @@ struct TripSimulationView: View {
             annulusSections: annulusSections,
             steps: viewmodel.steps
         )
+
+        // Add mud info
+        reportData.baseMudName = baseMudName
+        reportData.backfillMudName = backfillMudName
+        reportData.switchToActiveAfterDisplacement = viewmodel.switchToActiveAfterDisplacement
+        reportData.displacementSwitchVolume = viewmodel.effectiveDisplacementVolume_m3
+
+        // Find slug mud - heaviest mud in string at start of trip
+        if let firstStep = viewmodel.steps.first {
+            let stringLayers = firstStep.layersString
+            if let heaviestLayer = stringLayers.max(by: { $0.rho_kgpm3 < $1.rho_kgpm3 }),
+               heaviestLayer.rho_kgpm3 > actualBaseMudDensity + 10 {  // Only if significantly heavier than base
+                // Calculate volume of this layer
+                let layerDepth = heaviestLayer.bottomMD - heaviestLayer.topMD
+                // Find matching mud by density
+                if let slugMud = (project.muds ?? []).first(where: { abs($0.density_kgm3 - heaviestLayer.rho_kgpm3) < 5 }) {
+                    reportData.slugMudName = slugMud.name
+                    reportData.slugMudDensity = slugMud.density_kgm3
+                    // Estimate volume from string geometry
+                    let avgCapacity = reportData.totalStringCapacity / max(1, viewmodel.startBitMD_m)
+                    reportData.slugMudVolume = layerDepth * avgCapacity
+                } else {
+                    reportData.slugMudName = "Slug"
+                    reportData.slugMudDensity = heaviestLayer.rho_kgpm3
+                    let avgCapacity = reportData.totalStringCapacity / max(1, viewmodel.startBitMD_m)
+                    reportData.slugMudVolume = layerDepth * avgCapacity
+                }
+            }
+        }
+
+        return reportData
     }
 
     // MARK: - Export Project JSON Feature
