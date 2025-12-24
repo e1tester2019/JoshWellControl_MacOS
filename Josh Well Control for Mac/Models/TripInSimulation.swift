@@ -78,6 +78,9 @@ final class TripInSimulation {
 
     // MARK: - Fluid Inputs
 
+    /// UUID of the fill mud used (for retrieving color on load)
+    var fillMudID: UUID?
+
     /// Active mud density used to fill pipe (kg/m³)
     var activeMudDensity_kgpm3: Double = 1200
 
@@ -119,10 +122,6 @@ final class TripInSimulation {
     /// Back-reference to the owning project
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
-
-    /// Reference to the active mud used for fill
-    @Relationship(deleteRule: .nullify)
-    var activeMud: MudProperties?
 
     // MARK: - Computed Properties
 
@@ -179,6 +178,7 @@ final class TripInSimulation {
         isFloatedCasing: Bool = false,
         floatSubMD_m: Double = 0,
         crackFloat_kPa: Double = 2100,
+        fillMudID: UUID? = nil,
         activeMudDensity_kgpm3: Double = 1200,
         targetESD_kgpm3: Double = 1200,
         baseMudDensity_kgpm3: Double = 1200,
@@ -198,6 +198,7 @@ final class TripInSimulation {
         self.isFloatedCasing = isFloatedCasing
         self.floatSubMD_m = floatSubMD_m
         self.crackFloat_kPa = crackFloat_kPa
+        self.fillMudID = fillMudID
         self.activeMudDensity_kgpm3 = activeMudDensity_kgpm3
         self.targetESD_kgpm3 = targetESD_kgpm3
         self.baseMudDensity_kgpm3 = baseMudDensity_kgpm3

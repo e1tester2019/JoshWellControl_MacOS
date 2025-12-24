@@ -32,6 +32,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case swabbing
     case surgeSwab
     case tripSimulation
+    case tripInSimulation
     case tripTracker
     case tripRecord
     case mpdTracking
@@ -115,7 +116,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing, .surgeSwab:
             return .operations
-        case .pumpSchedule, .cementJob, .tripSimulation, .tripTracker, .tripRecord, .mpdTracking:
+        case .pumpSchedule, .cementJob, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking:
             return .simulation
         case .lookAheadScheduler, .vendors, .jobCodes:
             return .operations
@@ -157,6 +158,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .swabbing: return "Swabbing"
         case .surgeSwab: return "Surge/Swab"
         case .tripSimulation: return "Trip Simulation"
+        case .tripInSimulation: return "Trip In"
         case .tripTracker: return "Trip Tracker"
         case .tripRecord: return "Trip Recording"
         case .mpdTracking: return "MPD Tracking"
@@ -199,6 +201,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .swabbing: return "arrow.up.circle.fill"
         case .surgeSwab: return "arrow.up.arrow.down"
         case .tripSimulation: return "play.circle.fill"
+        case .tripInSimulation: return "arrow.down.circle.fill"
         case .tripTracker: return "figure.walk.circle.fill"
         case .tripRecord: return "list.bullet.clipboard"
         case .mpdTracking: return "gauge.with.needle.fill"
@@ -278,6 +281,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Surge/swab pressure calculator with closed-end displacement"
         case .tripSimulation:
             return "Trip simulation and modeling"
+        case .tripInSimulation:
+            return "Simulate running pipe into well with floated casing support"
         case .tripTracker:
             return "Process-based step-by-step trip tracking"
         case .tripRecord:

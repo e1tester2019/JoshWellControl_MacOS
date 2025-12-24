@@ -104,6 +104,23 @@ final class TripSimulation {
     /// Final surface tank delta (m³)
     var finalTankDelta_m3: Double = 0
 
+    // MARK: - Final Pocket State (for Trip-In import)
+
+    /// Final pocket layers at end of trip (JSON encoded)
+    /// Stored here to avoid loading all steps when importing to Trip-In
+    var finalPocketLayersData: Data?
+
+    /// Decoded final pocket layers
+    @Transient var finalPocketLayers: [TripLayerSnapshot] {
+        get {
+            guard let data = finalPocketLayersData else { return [] }
+            return (try? JSONDecoder().decode([TripLayerSnapshot].self, from: data)) ?? []
+        }
+        set {
+            finalPocketLayersData = try? JSONEncoder().encode(newValue)
+        }
+    }
+
     // MARK: - Relationships
 
     /// Steps for this simulation

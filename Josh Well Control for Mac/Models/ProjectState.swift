@@ -36,6 +36,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \TripSimulation.project) var tripSimulations: [TripSimulation]?
     @Relationship(deleteRule: .nullify, inverse: \TripTrack.project) var tripTracks: [TripTrack]?
     @Relationship(deleteRule: .nullify, inverse: \TripRecord.project) var tripRecords: [TripRecord]?
+    @Relationship(deleteRule: .nullify, inverse: \TripInSimulation.project) var tripInSimulations: [TripInSimulation]?
     @Relationship(deleteRule: .nullify, inverse: \MPDSheet.project) var mpdSheets: [MPDSheet]?
     @Relationship(deleteRule: .nullify, inverse: \WellTask.project) var tasks: [WellTask]?
     @Relationship(deleteRule: .nullify, inverse: \HandoverNote.project) var notes: [HandoverNote]?

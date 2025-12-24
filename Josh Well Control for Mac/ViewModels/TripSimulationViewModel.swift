@@ -327,6 +327,12 @@ extension TripSimulationView {
       // Update summary results
       simulation.updateSummaryResults()
 
+      // Store final pocket layers for quick access during Trip-In import
+      // (avoids loading all steps just to get the final pocket state)
+      if let lastStep = steps.last {
+          simulation.finalPocketLayers = lastStep.layersPocket.map { TripLayerSnapshot(from: $0) }
+      }
+
       // Link to project
       if project.tripSimulations == nil { project.tripSimulations = [] }
       project.tripSimulations?.append(simulation)
@@ -712,6 +718,12 @@ extension TripSimulationViewIOS {
 
       // Update summary results
       simulation.updateSummaryResults()
+
+      // Store final pocket layers for quick access during Trip-In import
+      // (avoids loading all steps just to get the final pocket state)
+      if let lastStep = steps.last {
+          simulation.finalPocketLayers = lastStep.layersPocket.map { TripLayerSnapshot(from: $0) }
+      }
 
       // Link to project
       if project.tripSimulations == nil { project.tripSimulations = [] }
