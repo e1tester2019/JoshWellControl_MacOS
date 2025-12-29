@@ -279,7 +279,7 @@ struct MacOSSidebarView: View {
     @Binding var searchText: String
     let isBusinessUnlocked: Bool
 
-    private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
+    private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys, .directionalPlanning]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking]
     private let schedulingViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
@@ -591,6 +591,8 @@ struct MacOSDetailView: View {
                     TripRecordView(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
+                case .directionalPlanning:
+                    DirectionalDashboardView(project: project)
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)

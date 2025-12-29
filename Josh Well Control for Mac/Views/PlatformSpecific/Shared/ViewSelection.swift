@@ -36,6 +36,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case tripTracker
     case tripRecord
     case mpdTracking
+    case directionalPlanning
 
     // Operations - Look Ahead
     case lookAheadScheduler
@@ -112,7 +113,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
 
     var category: Category {
         switch self {
-        case .handover, .padDashboard, .wellDashboard, .dashboard, .drillString, .annulus, .volumeSummary, .surveys:
+        case .handover, .padDashboard, .wellDashboard, .dashboard, .drillString, .annulus, .volumeSummary, .surveys, .directionalPlanning:
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing, .surgeSwab:
             return .operations
@@ -162,6 +163,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripTracker: return "Trip Tracker"
         case .tripRecord: return "Trip Recording"
         case .mpdTracking: return "MPD Tracking"
+        case .directionalPlanning: return "Directional Planning"
         case .lookAheadScheduler: return "Look Ahead"
         case .vendors: return "Vendors"
         case .jobCodes: return "Job Codes"
@@ -205,6 +207,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripTracker: return "figure.walk.circle.fill"
         case .tripRecord: return "list.bullet.clipboard"
         case .mpdTracking: return "gauge.with.needle.fill"
+        case .directionalPlanning: return "arrow.triangle.turn.up.right.diamond"
         case .lookAheadScheduler: return "calendar.badge.clock"
         case .vendors: return "person.2.badge.gearshape"
         case .jobCodes: return "list.bullet.rectangle"
@@ -289,6 +292,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Record actual trip observations vs simulation predictions"
         case .mpdTracking:
             return "Managed Pressure Drilling ECD/ESD tracking"
+        case .directionalPlanning:
+            return "Compare actual wellbore trajectory against planned path with variance analysis"
         case .lookAheadScheduler:
             return "Drilling operations scheduler with vendor call tracking"
         case .vendors:

@@ -19,7 +19,8 @@ enum AppContainer {
     // v8: Fixed TripInSimulation model (removed activeMud relationship)
     // v9: Added HP pressure fields to TripInSimulationStep
     // v10: Added fillMudID to TripInSimulation for mud color persistence
-    private static let schemaVersion = 10
+    // v11: Added DirectionalPlan, DirectionalPlanStation, DirectionalLimits for directional drilling features
+    private static let schemaVersion = 11
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     private static func shouldWipeForSchemaMigration() -> Bool {
@@ -93,7 +94,11 @@ enum AppContainer {
             CallLogEntry.self,
             TaskVendorAssignment.self,
             LookAheadTask.self,
-            LookAheadSchedule.self
+            LookAheadSchedule.self,
+            // Directional Drilling
+            DirectionalPlan.self,
+            DirectionalPlanStation.self,
+            DirectionalLimits.self
         ]
         let fullSchema = Schema(models)
 

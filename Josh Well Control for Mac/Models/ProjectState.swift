@@ -40,6 +40,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \MPDSheet.project) var mpdSheets: [MPDSheet]?
     @Relationship(deleteRule: .nullify, inverse: \WellTask.project) var tasks: [WellTask]?
     @Relationship(deleteRule: .nullify, inverse: \HandoverNote.project) var notes: [HandoverNote]?
+    @Relationship(deleteRule: .nullify, inverse: \DirectionalPlan.project) var directionalPlans: [DirectionalPlan]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .nullify) var _window: PressureWindow?
@@ -47,6 +48,7 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify) var _backfill: BackfillPlan?
     @Relationship(deleteRule: .nullify) var _settings: TripSettings?
     @Relationship(deleteRule: .nullify) var _swab: SwabInput?
+    @Relationship(deleteRule: .nullify) var _directionalLimits: DirectionalLimits?
 
     // Public non-optional accessors for backward compatibility
     @Transient var window: PressureWindow {
@@ -99,6 +101,16 @@ final class ProjectState {
         set { _swab = newValue }
     }
 
+    @Transient var directionalLimits: DirectionalLimits {
+        get {
+            if let d = _directionalLimits { return d }
+            let d = DirectionalLimits()
+            _directionalLimits = d
+            return d
+        }
+        set { _directionalLimits = newValue }
+    }
+
     var baseAnnulusDensity_kgm3: Double = 1260
     var baseStringDensity_kgm3: Double = 1260
     var pressureDepth_m: Double = 3200
@@ -116,6 +128,7 @@ final class ProjectState {
         self._backfill = BackfillPlan()
         self._settings = TripSettings()
         self._swab = SwabInput()
+        self._directionalLimits = DirectionalLimits()
     }
 }
 extension ProjectState {
