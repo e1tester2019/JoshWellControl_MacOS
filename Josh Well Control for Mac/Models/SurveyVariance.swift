@@ -232,10 +232,8 @@ struct BitProjection {
 
     // Target-based calculations (when user sets a specific target)
     let targetTVD: Double?           // User's target TVD (nil = use plan)
-    let targetLandingInc: Double?    // User's target landing inclination
-    let userDistanceToLand: Double?  // User-specified distance to land
-    let calculatedDistanceToLand: Double?  // Auto-calculated distance to land
     let requiredBRToTarget: Double?  // BR required to reach target
+    let distanceToTarget: Double?    // Distance to land at target TVD
 
     // Variances at bit
     var tvdVariance: Double { bitTVD - planTVD }

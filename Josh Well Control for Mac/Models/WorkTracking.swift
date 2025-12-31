@@ -82,6 +82,11 @@ final class WorkDay {
     var rigNameOverride: String?
     var costCodeOverride: String?
 
+    // Manual invoiced flag (for marking as invoiced without an actual invoice line item link)
+    var manuallyMarkedInvoiced: Bool = false
+    var manuallyMarkedPaid: Bool = false
+    var manualPaidDate: Date?
+
     init(startDate: Date = Date.now, endDate: Date = Date.now, well: Well? = nil, client: Client? = nil) {
         self.startDate = startDate
         self.endDate = endDate
@@ -126,19 +131,24 @@ final class WorkDay {
         }
     }
 
-    /// Whether this work day has been invoiced
+    /// Whether this work day has been invoiced (via line item link OR manual flag)
     var isInvoiced: Bool {
-        lineItem != nil
+        lineItem != nil || manuallyMarkedInvoiced
     }
 
-    /// Whether this work day has been paid (invoice marked as paid)
+    /// Whether this work day has been paid (invoice marked as paid OR manual flag)
     var isPaid: Bool {
-        lineItem?.invoice?.isPaid ?? false
+        (lineItem?.invoice?.isPaid ?? false) || manuallyMarkedPaid
     }
 
     /// Date the invoice was paid
     var paidDate: Date? {
-        lineItem?.invoice?.paidDate
+        lineItem?.invoice?.paidDate ?? manualPaidDate
+    }
+
+    /// Whether this work day was marked manually (not via invoice system)
+    var isManuallyMarked: Bool {
+        manuallyMarkedInvoiced || manuallyMarkedPaid
     }
 }
 

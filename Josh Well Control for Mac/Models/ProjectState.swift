@@ -40,7 +40,6 @@ final class ProjectState {
     @Relationship(deleteRule: .nullify, inverse: \MPDSheet.project) var mpdSheets: [MPDSheet]?
     @Relationship(deleteRule: .nullify, inverse: \WellTask.project) var tasks: [WellTask]?
     @Relationship(deleteRule: .nullify, inverse: \HandoverNote.project) var notes: [HandoverNote]?
-    @Relationship(deleteRule: .nullify, inverse: \DirectionalPlan.project) var directionalPlans: [DirectionalPlan]?
 
     // Singletons - Internal storage MUST be @Relationship to match inverse declarations
     @Relationship(deleteRule: .nullify) var _window: PressureWindow?

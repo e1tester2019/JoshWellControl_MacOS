@@ -23,13 +23,25 @@ enum ChartViewMode: String, CaseIterable {
     }
 }
 
+enum Engine3D: String, CaseIterable {
+    case sceneKit = "SceneKit"
+    case realityKit = "RealityKit"
+
+    var icon: String {
+        switch self {
+        case .sceneKit: return "cube"
+        case .realityKit: return "cube.transparent"
+        }
+    }
+}
+
 struct DirectionalDashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
 
     @State private var vm = DirectionalDashboardViewModel()
     @State private var chartViewMode: ChartViewMode = .all
-    @State private var chartZoom: CGFloat = 1.0
+    @State private var engine3D: Engine3D = .sceneKit
 
     var body: some View {
         ScrollView {
@@ -197,41 +209,6 @@ struct DirectionalDashboardView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 300)
 
-                    // Zoom controls for 2D charts
-                    if chartViewMode != .chart3D {
-                        HStack(spacing: 4) {
-                            Text("Zoom:")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Button {
-                                chartZoom = max(0.5, chartZoom - 0.25)
-                            } label: {
-                                Image(systemName: "minus.magnifyingglass")
-                            }
-                            .buttonStyle(.borderless)
-
-                            Text("\(Int(chartZoom * 100))%")
-                                .font(.caption)
-                                .monospacedDigit()
-                                .frame(width: 40)
-
-                            Button {
-                                chartZoom = min(3.0, chartZoom + 0.25)
-                            } label: {
-                                Image(systemName: "plus.magnifyingglass")
-                            }
-                            .buttonStyle(.borderless)
-
-                            Button {
-                                chartZoom = 1.0
-                            } label: {
-                                Image(systemName: "arrow.counterclockwise")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Reset zoom")
-                        }
-                    }
-
                     Spacer()
 
                     // VS Azimuth display with edit capability
@@ -261,13 +238,17 @@ struct DirectionalDashboardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                TextField("°", value: Binding(
-                    get: { plan.vsAzimuth_deg ?? vm.vsdDirection },
-                    set: { newValue in
-                        plan.vsAzimuth_deg = newValue
-                        vm.recalculateVariances()
-                    }
-                ), format: .number.precision(.fractionLength(2)))
+                NumericTextField(
+                    placeholder: "°",
+                    value: Binding(
+                        get: { plan.vsAzimuth_deg ?? vm.vsdDirection },
+                        set: { newValue in
+                            plan.vsAzimuth_deg = newValue
+                            vm.recalculateVariances()
+                        }
+                    ),
+                    fractionDigits: 2
+                )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 70)
                 .font(.caption)
@@ -424,10 +405,11 @@ struct DirectionalDashboardView: View {
                     Text("Distance:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("m", value: $newScenarioDistance, format: .number.precision(.fractionLength(1)))
+                    NumericTextField(placeholder: "m", value: $newScenarioDistance, fractionDigits: 1)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         .font(.caption)
+                        .monospacedDigit()
                     Text("m")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -437,10 +419,11 @@ struct DirectionalDashboardView: View {
                     Text("Inc:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("°", value: $newScenarioInc, format: .number.precision(.fractionLength(2)))
+                    NumericTextField(placeholder: "°", value: $newScenarioInc, fractionDigits: 2)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         .font(.caption)
+                        .monospacedDigit()
                     Text("°")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -450,10 +433,11 @@ struct DirectionalDashboardView: View {
                     Text("Azi:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("°", value: $newScenarioAzi, format: .number.precision(.fractionLength(2)))
+                    NumericTextField(placeholder: "°", value: $newScenarioAzi, fractionDigits: 2)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         .font(.caption)
+                        .monospacedDigit()
                     Text("°")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -582,13 +566,18 @@ struct DirectionalDashboardView: View {
                         Text("Survey to Bit:")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("m", value: Binding(
-                            get: { vm.surveyToBitDistance },
-                            set: { vm.updateBitProjectionDistance($0) }
-                        ), format: .number.precision(.fractionLength(1)))
+                        NumericTextField(
+                            placeholder: "m",
+                            value: Binding(
+                                get: { vm.surveyToBitDistance },
+                                set: { vm.updateBitProjectionDistance($0) }
+                            ),
+                            fractionDigits: 1
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         .font(.caption)
+                        .monospacedDigit()
                         Text("m")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -611,13 +600,18 @@ struct DirectionalDashboardView: View {
                         Text("Target TVD:")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextField("m", value: Binding(
-                            get: { vm.targetTVD ?? vm.bitProjection?.planTVD ?? 0 },
-                            set: { vm.targetTVD = $0 }
-                        ), format: .number.precision(.fractionLength(1)))
+                        NumericTextField(
+                            placeholder: "m",
+                            value: Binding(
+                                get: { vm.targetTVD ?? vm.bitProjection?.planTVD ?? 0 },
+                                set: { vm.targetTVD = $0 }
+                            ),
+                            fractionDigits: 1
+                        )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 70)
                         .font(.caption)
+                        .monospacedDigit()
                         Text("m")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -908,18 +902,14 @@ struct DirectionalDashboardView: View {
             switch chartViewMode {
             case .all:
                 // All views - compact layout
-                charts2DRow(minHeight: 350)
+                charts2DRow(minHeight: 350, expanded: false)
                 #if os(macOS)
                 chart3DView(minHeight: 400)
                 #endif
 
             case .charts2D:
-                // 2D charts only - expanded with zoom
-                ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                    charts2DRow(minHeight: 500 * chartZoom)
-                        .frame(minWidth: 800 * chartZoom)
-                }
-                .frame(minHeight: min(600, 500 * chartZoom))
+                // 2D charts only - expanded, equal width, full height
+                charts2DRow(minHeight: 600, expanded: true)
 
             case .chart3D:
                 // 3D view only - expanded
@@ -930,7 +920,7 @@ struct DirectionalDashboardView: View {
         }
     }
 
-    private func charts2DRow(minHeight: CGFloat) -> some View {
+    private func charts2DRow(minHeight: CGFloat, expanded: Bool) -> some View {
         HStack(alignment: .top, spacing: 16) {
             // Side View (TVD vs VS)
             GroupBox {
@@ -939,12 +929,14 @@ struct DirectionalDashboardView: View {
                     plan: vm.selectedPlan,
                     limits: vm.limits,
                     vsAzimuth: vm.effectiveVsAzimuth,
+                    bitProjection: vm.bitProjection,
                     hoveredMD: $vm.hoveredMD,
                     onHover: { vm.setHoveredMD($0) }
                 )
             } label: {
                 Label("Side View (TVD vs VS)", systemImage: "rectangle.split.1x2")
             }
+            .frame(maxWidth: expanded ? .infinity : nil)
 
             // Top View (NS vs EW)
             GroupBox {
@@ -952,12 +944,14 @@ struct DirectionalDashboardView: View {
                     variances: vm.variances,
                     plan: vm.selectedPlan,
                     limits: vm.limits,
+                    bitProjection: vm.bitProjection,
                     hoveredMD: $vm.hoveredMD,
                     onHover: { vm.setHoveredMD($0) }
                 )
             } label: {
                 Label("Top View (NS vs EW)", systemImage: "viewfinder")
             }
+            .frame(maxWidth: expanded ? .infinity : nil)
         }
         .frame(minHeight: minHeight)
     }
@@ -965,18 +959,43 @@ struct DirectionalDashboardView: View {
     #if os(macOS)
     private func chart3DView(minHeight: CGFloat) -> some View {
         GroupBox {
-            Trajectory3DView(
-                variances: vm.variances,
-                plan: vm.selectedPlan,
-                limits: vm.limits,
-                hoveredMD: $vm.hoveredMD,
-                onHover: { vm.setHoveredMD($0) }
-            )
+            Group {
+                switch engine3D {
+                case .sceneKit:
+                    Trajectory3DView(
+                        variances: vm.variances,
+                        plan: vm.selectedPlan,
+                        limits: vm.limits,
+                        bitProjection: vm.bitProjection,
+                        hoveredMD: $vm.hoveredMD,
+                        onHover: { vm.setHoveredMD($0) }
+                    )
+                case .realityKit:
+                    Trajectory3DViewRealityKit(
+                        variances: vm.variances,
+                        plan: vm.selectedPlan,
+                        limits: vm.limits,
+                        bitProjection: vm.bitProjection,
+                        hoveredMD: $vm.hoveredMD,
+                        onHover: { vm.setHoveredMD($0) }
+                    )
+                }
+            }
         } label: {
             HStack {
-                Label("3D Trajectory View", systemImage: "cube")
+                Label("3D Trajectory View", systemImage: engine3D.icon)
+
+                Picker("Engine", selection: $engine3D) {
+                    ForEach(Engine3D.allCases, id: \.self) { engine in
+                        Label(engine.rawValue, systemImage: engine.icon)
+                            .tag(engine)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+
                 Spacer()
-                Text("Drag to rotate • Scroll to zoom • Two-finger pan")
+                Text("Drag to rotate • Scroll to zoom")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

@@ -519,10 +519,12 @@ enum DirectionalVarianceService {
         )
 
         // Calculate BR required to reach target TVD (if set)
-        let targetCalcs = calculateTargetTVDRates(
+        let targetCalcs = calculateTargetRates(
             currentTVD: bitTVD,
             currentInc: bitInc,
             targetTVD: targetTVD,
+            targetInc: nil,
+            userDistance: nil,
             planStations: planStations
         )
 
@@ -547,7 +549,7 @@ enum DirectionalVarianceService {
             projectionToTargetMD: actualProjectionMD > 0 ? actualProjectionMD : projectionMD,
             targetTVD: targetTVD,
             requiredBRToTarget: targetCalcs?.requiredBR,
-            distanceToTarget: targetCalcs?.distance
+            distanceToTarget: targetCalcs?.calculatedDistance
         )
     }
 
@@ -648,10 +650,12 @@ enum DirectionalVarianceService {
         )
 
         // Calculate BR required to reach target TVD (if set)
-        let targetCalcs = calculateTargetTVDRates(
+        let targetCalcs = calculateTargetRates(
             currentTVD: bitTVD,
             currentInc: bitInc,
             targetTVD: targetTVD,
+            targetInc: nil,
+            userDistance: nil,
             planStations: planStations
         )
 
@@ -676,7 +680,7 @@ enum DirectionalVarianceService {
             projectionToTargetMD: actualProjectionMD > 0 ? actualProjectionMD : projectionMD,
             targetTVD: targetTVD,
             requiredBRToTarget: targetCalcs?.requiredBR,
-            distanceToTarget: targetCalcs?.distance
+            distanceToTarget: targetCalcs?.calculatedDistance
         )
     }
 

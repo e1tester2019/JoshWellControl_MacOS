@@ -15,6 +15,7 @@ struct WellDashboardView: View {
     @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
     @Query(sort: \Well.name) private var allWells: [Well]
     @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
+    @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
     @Bindable var well: Well
 
     // Optional navigation callback for projects (to navigate in main view, not sheet)
@@ -65,6 +66,7 @@ struct WellDashboardView: View {
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 16) {
+                        workDaysSection
                         transfersSection
                         notesSection
                         tasksSection
@@ -74,6 +76,7 @@ struct WellDashboardView: View {
                 #else
                 // Stacked layout for iOS
                 projectsSection
+                workDaysSection
                 rentalsSection
                 transfersSection
                 lookAheadSection
@@ -111,7 +114,7 @@ struct WellDashboardView: View {
         }
         // Navigation sheets for clickable list items
         .sheet(item: $selectedRental) { rental in
-            RentalDetailEditor(rental: rental)
+            RentalDetailEditor(rental: rental, allEquipment: allEquipment)
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 #if os(macOS)
                 .frame(minWidth: 720, minHeight: 520)
@@ -275,9 +278,11 @@ struct WellDashboardView: View {
                                 }
                             }
                             .labelsHidden()
+                            .frame(minWidth: 120)
                         }
                     }
                 }
+                .opacity(well.isLocked ? 0.6 : 1.0)
                 .allowsHitTesting(!well.isLocked)
                 #else
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
@@ -752,6 +757,133 @@ struct WellDashboardView: View {
                     }
                     .buttonStyle(.borderless)
                     .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    // MARK: - Work Days Section
+
+    private var sortedWorkDays: [WorkDay] {
+        (well.workDays ?? []).sorted { $0.startDate > $1.startDate }
+    }
+
+    private var totalWorkDays: Int {
+        (well.workDays ?? []).reduce(0) { $0 + $1.dayCount }
+    }
+
+    private var totalEarnings: Double {
+        (well.workDays ?? []).reduce(0) { $0 + $1.totalEarnings }
+    }
+
+    private var workDaysSection: some View {
+        WellSection(
+            title: "Work Days",
+            icon: "calendar.badge.clock",
+            subtitle: "\(totalWorkDays) day(s) • \(totalEarnings.formatted(.currency(code: "CAD")))"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Summary stats
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Total Days")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(totalWorkDays)")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Total Earnings")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(totalEarnings.formatted(.currency(code: "CAD")))
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.green)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Entries")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(well.workDays?.count ?? 0)")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+                }
+                .padding(.bottom, 8)
+
+                Divider()
+
+                // Recent work days list
+                if !sortedWorkDays.isEmpty {
+                    VStack(spacing: 0) {
+                        // Header row
+                        HStack {
+                            Text("Dates").fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading)
+                            Text("Days").fontWeight(.medium).frame(width: 40, alignment: .trailing)
+                            Text("Rate").fontWeight(.medium).frame(width: 70, alignment: .trailing)
+                            Text("Total").fontWeight(.medium).frame(width: 80, alignment: .trailing)
+                            Text("Status").fontWeight(.medium).frame(width: 60, alignment: .center)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+
+                        Divider()
+
+                        PaginatedList(items: sortedWorkDays, pageSize: 5) { workDay in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(workDay.dateRangeString)
+                                        .lineLimit(1)
+                                    if let client = workDay.client {
+                                        Text(client.companyName)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text("\(workDay.dayCount)")
+                                    .monospacedDigit()
+                                    .frame(width: 40, alignment: .trailing)
+
+                                Text(workDay.effectiveDayRate.formatted(.currency(code: "CAD")))
+                                    .font(.caption)
+                                    .monospacedDigit()
+                                    .frame(width: 70, alignment: .trailing)
+
+                                Text(workDay.totalEarnings.formatted(.currency(code: "CAD")))
+                                    .fontWeight(.medium)
+                                    .monospacedDigit()
+                                    .frame(width: 80, alignment: .trailing)
+
+                                HStack(spacing: 4) {
+                                    if workDay.isPaid {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    } else if workDay.isInvoiced {
+                                        Image(systemName: "doc.text.fill")
+                                            .foregroundStyle(.blue)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(width: 60, alignment: .center)
+                            }
+                            .font(.callout)
+                            .padding(.vertical, 6)
+                        }
+                    }
+                } else {
+                    Text("No work days recorded")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                        .padding(.vertical, 8)
                 }
             }
         }

@@ -52,6 +52,9 @@ final class Well {
     @Relationship(deleteRule: .nullify, inverse: \LookAheadTask.well) var lookAheadTasks: [LookAheadTask]?
     @Relationship(deleteRule: .nullify, inverse: \LookAheadSchedule.well) var lookAheadSchedules: [LookAheadSchedule]?
 
+    // Directional Planning
+    @Relationship(deleteRule: .cascade, inverse: \DirectionalPlan.well) var directionalPlans: [DirectionalPlan]?
+
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name
         self.uwi = uwi

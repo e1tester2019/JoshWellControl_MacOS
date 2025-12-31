@@ -143,6 +143,7 @@ class DirectionalDashboardViewModel {
 
     @ObservationIgnored var modelContext: ModelContext?
     @ObservationIgnored private(set) var project: ProjectState?
+    @ObservationIgnored private(set) var well: Well?
 
     // MARK: - State
 
@@ -179,6 +180,7 @@ class DirectionalDashboardViewModel {
     func attach(project: ProjectState, context: ModelContext) {
         self.modelContext = context
         self.project = project
+        self.well = project.well
 
         // Select first plan if available
         if selectedPlan == nil, let firstPlan = sortedPlans.first {
@@ -191,7 +193,7 @@ class DirectionalDashboardViewModel {
     // MARK: - Computed Properties
 
     var sortedPlans: [DirectionalPlan] {
-        (project?.directionalPlans ?? []).sorted { $0.importedAt > $1.importedAt }
+        (well?.directionalPlans ?? []).sorted { $0.importedAt > $1.importedAt }
     }
 
     var surveys: [SurveyStation] {
@@ -239,7 +241,7 @@ class DirectionalDashboardViewModel {
     // MARK: - Import
 
     func handleImport(_ result: Result<[URL], Error>) {
-        guard let project = project, let context = modelContext else { return }
+        guard let well = well, let context = modelContext else { return }
 
         switch result {
         case .failure(let error):
@@ -288,7 +290,7 @@ class DirectionalDashboardViewModel {
                     sourceFileName: importResult.sourceFileName,
                     notes: "",
                     vsAzimuth_deg: importResult.vsAzimuth_deg,
-                    project: project
+                    well: well
                 )
 
                 // Create stations
@@ -308,11 +310,11 @@ class DirectionalDashboardViewModel {
                 }
                 plan.stations = stations
 
-                // Add to project
-                if project.directionalPlans == nil {
-                    project.directionalPlans = []
+                // Add to well
+                if well.directionalPlans == nil {
+                    well.directionalPlans = []
                 }
-                project.directionalPlans?.append(plan)
+                well.directionalPlans?.append(plan)
 
                 // Insert into context
                 context.insert(plan)

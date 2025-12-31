@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 enum AppContainer {
-    // Increment this when schema changes require a local store wipe
+    // Schema version history (for reference only - SwiftData handles migrations automatically)
     // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
     // v3: Added TripSimulation and TripSimulationStep models
     // v4: Added TripTrack and TripTrackStep models for process-based trip tracking
@@ -20,20 +20,63 @@ enum AppContainer {
     // v9: Added HP pressure fields to TripInSimulationStep
     // v10: Added fillMudID to TripInSimulation for mud color persistence
     // v11: Added DirectionalPlan, DirectionalPlanStation, DirectionalLimits for directional drilling features
-    private static let schemaVersion = 11
+    // v12: Added equipment registry and enhanced rentals (RentalCategory, RentalEquipment, RentalEquipmentIssue, VendorContact, VendorAddress)
+    private static let schemaVersion = 12
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
-    private static func shouldWipeForSchemaMigration() -> Bool {
-        let currentVersion = UserDefaults.standard.integer(forKey: schemaVersionKey)
-        if currentVersion < schemaVersion {
+    /// Tracks whether the app is running in a degraded state (in-memory only)
+    static var isRunningInMemory: Bool = false
+
+    /// Tracks the last container creation error for diagnostics
+    static var lastContainerError: String?
+
+    /// Log schema version for debugging (no longer triggers auto-wipe)
+    private static func logSchemaVersion() {
+        let previousVersion = UserDefaults.standard.integer(forKey: schemaVersionKey)
+        if previousVersion != schemaVersion {
+            print("📋 Schema version: \(previousVersion) → \(schemaVersion) (SwiftData will handle migration)")
             UserDefaults.standard.set(schemaVersion, forKey: schemaVersionKey)
-            print("🔄 Schema version changed from \(currentVersion) to \(schemaVersion) - will wipe local store")
-            return true
+        } else {
+            print("📋 Schema version: \(schemaVersion)")
         }
-        return false
+    }
+
+    /// Manually reset local data store. Call this from settings if user chooses to reset.
+    /// Data will resync from CloudKit after reset.
+    static func resetLocalStore() {
+        let fm = FileManager.default
+        guard let base = try? fm.url(for: .applicationSupportDirectory,
+                                     in: .userDomainMask,
+                                     appropriateFor: nil,
+                                     create: false) else {
+            print("⚠️ Could not find Application Support directory")
+            return
+        }
+
+        // Remove SwiftData store files
+        let file = base.appendingPathComponent("default.store", isDirectory: false)
+        let dir = base.appendingPathComponent("default.store", isDirectory: true)
+        try? fm.removeItem(at: file)
+        try? fm.removeItem(at: dir)
+
+        // Remove CloudKit metadata to force full resync
+        let ckMeta = base.appendingPathComponent("default.store-ck", isDirectory: true)
+        try? fm.removeItem(at: ckMeta)
+
+        // Reset schema version so it logs on next launch
+        UserDefaults.standard.removeObject(forKey: schemaVersionKey)
+
+        print("🗑️ Local store reset complete. Restart the app to resync from CloudKit.")
     }
 
     static func make(cloudKitContainerID: String? = nil) -> ModelContainer {
+        // Reset state
+        isRunningInMemory = false
+        lastContainerError = nil
+
+        // Log schema version (informational only)
+        logSchemaVersion()
+
         let models: [any PersistentModel.Type] = [
             Well.self,
             ProjectState.self,
@@ -98,7 +141,13 @@ enum AppContainer {
             // Directional Drilling
             DirectionalPlan.self,
             DirectionalPlanStation.self,
-            DirectionalLimits.self
+            DirectionalLimits.self,
+            // Equipment Registry & Enhanced Rentals
+            RentalCategory.self,
+            RentalEquipment.self,
+            RentalEquipmentIssue.self,
+            VendorContact.self,
+            VendorAddress.self
         ]
         let fullSchema = Schema(models)
 
@@ -110,96 +159,64 @@ enum AppContainer {
         }
         #endif
 
-        func buildDiskContainer(schema: Schema, wipe: Bool) throws -> ModelContainer {
-            if wipe {
-                let fm = FileManager.default
-                let base = try fm.url(for: .applicationSupportDirectory,
-                                      in: .userDomainMask,
-                                      appropriateFor: nil,
-                                      create: true)
-                // SwiftData store can be file or directory depending on OS/version.
-                let file = base.appendingPathComponent("default.store", isDirectory: false)
-                let dir  = base.appendingPathComponent("default.store", isDirectory: true)
-                try? fm.removeItem(at: file)
-                try? fm.removeItem(at: dir)
-            }
-            let cfg = ModelConfiguration(schema: schema)
-            return try ModelContainer(for: schema, configurations: [cfg])
-        }
-
-        // Check if we need to wipe local store due to schema migration
-        let needsSchemaMigration = shouldWipeForSchemaMigration()
-        if needsSchemaMigration {
-            // Wipe local store files before creating CloudKit container
-            let fm = FileManager.default
-            if let base = try? fm.url(for: .applicationSupportDirectory,
-                                      in: .userDomainMask,
-                                      appropriateFor: nil,
-                                      create: false) {
-                let file = base.appendingPathComponent("default.store", isDirectory: false)
-                let dir = base.appendingPathComponent("default.store", isDirectory: true)
-                try? fm.removeItem(at: file)
-                try? fm.removeItem(at: dir)
-                // Also remove CloudKit metadata to force full resync
-                let ckMeta = base.appendingPathComponent("default.store-ck", isDirectory: true)
-                try? fm.removeItem(at: ckMeta)
-                print("🗑️ Wiped local store for schema migration")
-            }
-        }
-
         // 1) CloudKit (only if a non-empty ID is provided)
+        // SwiftData handles lightweight migrations automatically
         if let id = cloudKitContainerID, !id.isEmpty {
             do {
                 let ck = ModelConfiguration(schema: fullSchema, cloudKitDatabase: .private(id))
                 let container = try ModelContainer(for: fullSchema, configurations: [ck])
                 print("✅ Using CloudKit container:", id)
 
-                // Debug: Log CementJob count on launch
+                // Debug: Log counts on launch
                 Task { @MainActor in
                     let ctx = container.mainContext
                     let cementJobCount = (try? ctx.fetchCount(FetchDescriptor<CementJob>())) ?? -1
                     let projectCount = (try? ctx.fetchCount(FetchDescriptor<ProjectState>())) ?? -1
                     print("📊 [Sync Debug] Launch state: \(projectCount) projects, \(cementJobCount) cement jobs")
 
-                    // One-time migration: update hasReceiptAttached flag for existing expenses
+                    // One-time migrations
                     migrateExpenseReceiptFlags(context: ctx)
+                    migrateRentalsToEquipmentRegistry(context: ctx)
                 }
 
                 return container
             } catch {
-                print("⚠️ CloudKit container failed:", error)
+                let errorMsg = "CloudKit container failed: \(error.localizedDescription)"
+                print("⚠️ \(errorMsg)")
+                lastContainerError = errorMsg
+                // Don't wipe - fall through to try local disk
             }
         } else {
             print("ℹ️ CloudKit disabled for this run.")
         }
 
-        // 2) Local disk store
+        // 2) Local disk store - SwiftData handles migrations automatically
         do {
-            let container = try buildDiskContainer(schema: fullSchema, wipe: false)
+            let cfg = ModelConfiguration(schema: fullSchema)
+            let container = try ModelContainer(for: fullSchema, configurations: [cfg])
             print("✅ Using local on-disk store")
             return container
         } catch {
-            print("⚠️ Local on-disk store failed:", error)
-            print("🔁 Wiping on-disk store and retrying once…")
-            do {
-                let container = try buildDiskContainer(schema: fullSchema, wipe: true)
-                print("✅ Recovered after wiping on-disk store")
-                return container
-            } catch {
-                print("⛔️ Disk store still failed after wipe:", error)
-            }
+            let errorMsg = "Local disk store failed: \(error.localizedDescription)"
+            print("⚠️ \(errorMsg)")
+            lastContainerError = errorMsg
+            // Don't auto-wipe - fall through to in-memory as safe fallback
         }
 
-        // 3) In-memory with full schema
+        // 3) In-memory with full schema - app works but data won't persist
+        // This is a SAFE FALLBACK - no data is lost, user can try resetting manually
         do {
             let mem = ModelConfiguration(schema: fullSchema, isStoredInMemoryOnly: true)
             let container = try ModelContainer(for: fullSchema, configurations: [mem])
-            print("🧪 Using in-memory store (full schema). Data won't persist.")
+            isRunningInMemory = true
+            print("🧪 Using in-memory store (full schema). Data won't persist!")
+            print("⚠️ App is in degraded mode. User should check Settings → Reset Local Data")
             return container
         } catch {
             print("⛔️ In-memory store with full schema failed:", error)
             print("🚨 This almost always means a schema issue: duplicated @Model type,")
             print("   non-optional attribute without default, or relationship missing inverse.")
+            lastContainerError = "In-memory store failed: \(error.localizedDescription)"
         }
 
         // 4) Last-ditch: EMPTY schema so the app never crashes
@@ -207,6 +224,7 @@ enum AppContainer {
             let empty = Schema([])
             let mem = ModelConfiguration(schema: empty, isStoredInMemoryOnly: true)
             let container = try ModelContainer(for: empty, configurations: [mem])
+            isRunningInMemory = true
             print("🆘 Falling back to EMPTY in-memory schema so the app can launch.")
             return container
         } catch {
@@ -237,6 +255,7 @@ private func diagnoseSchema(models: [any PersistentModel.Type]) {
 // MARK: - Migrations
 
 private let expenseReceiptMigrationKey = "hasRunExpenseReceiptMigration_v1"
+private let rentalEquipmentMigrationKey = "hasRunRentalEquipmentMigration_v1"
 
 @MainActor
 private func migrateExpenseReceiptFlags(context: ModelContext) {
@@ -267,5 +286,67 @@ private func migrateExpenseReceiptFlags(context: ModelContext) {
         UserDefaults.standard.set(true, forKey: expenseReceiptMigrationKey)
     } catch {
         print("⚠️ Failed to migrate expense receipt flags: \(error)")
+    }
+}
+
+/// Migration: Convert existing RentalItems to RentalEquipment registry entries.
+/// Groups rentals by name + serial number and creates equipment records, then links them.
+@MainActor
+private func migrateRentalsToEquipmentRegistry(context: ModelContext) {
+    // Only run this migration once
+    guard !UserDefaults.standard.bool(forKey: rentalEquipmentMigrationKey) else {
+        return
+    }
+
+    do {
+        // Fetch all RentalItems that don't have equipment links
+        let descriptor = FetchDescriptor<RentalItem>(
+            predicate: #Predicate { $0.equipment == nil }
+        )
+        let rentals = try context.fetch(descriptor)
+
+        if rentals.isEmpty {
+            UserDefaults.standard.set(true, forKey: rentalEquipmentMigrationKey)
+            print("📦 No unlinked rentals to migrate to equipment registry")
+            return
+        }
+
+        // Group by name + serial number to find unique equipment
+        var equipmentGroups: [String: [RentalItem]] = [:]
+        for rental in rentals {
+            let serial = rental.serialNumber ?? ""
+            let key = "\(rental.name)||||\(serial)"
+            equipmentGroups[key, default: []].append(rental)
+        }
+
+        var createdCount = 0
+        var linkedCount = 0
+
+        for (_, groupRentals) in equipmentGroups {
+            guard let firstRental = groupRentals.first else { continue }
+
+            // Create equipment record from the rental info
+            let equipment = RentalEquipment(
+                serialNumber: firstRental.serialNumber ?? "",
+                name: firstRental.name,
+                description: firstRental.detail ?? "",
+                model: ""
+            )
+            equipment.isActive = true
+            context.insert(equipment)
+            createdCount += 1
+
+            // Link all matching rentals to this equipment
+            for rental in groupRentals {
+                rental.equipment = equipment
+                linkedCount += 1
+            }
+        }
+
+        try context.save()
+        UserDefaults.standard.set(true, forKey: rentalEquipmentMigrationKey)
+        print("📦 Migrated rentals to equipment registry: \(createdCount) equipment created, \(linkedCount) rentals linked")
+    } catch {
+        print("⚠️ Failed to migrate rentals to equipment registry: \(error)")
     }
 }

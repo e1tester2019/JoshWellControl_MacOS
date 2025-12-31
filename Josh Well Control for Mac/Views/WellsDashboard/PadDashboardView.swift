@@ -15,6 +15,7 @@ struct PadDashboardView: View {
     @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
     @Query(sort: \Well.name) private var allWells: [Well]
     @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
+    @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
     @Bindable var pad: Pad
 
     // Optional navigation callback for wells (to navigate in main view, not sheet)
@@ -89,6 +90,24 @@ struct PadDashboardView: View {
         allPadTransfers.reduce(0) { $0 + ($1.items?.count ?? 0) }
     }
 
+    // All work days from wells on this pad
+    private var allPadWorkDays: [WorkDay] {
+        (pad.wells ?? []).flatMap { $0.workDays ?? [] }
+            .sorted { $0.startDate > $1.startDate }
+    }
+
+    private var totalPadWorkDays: Int {
+        allPadWorkDays.reduce(0) { $0 + $1.dayCount }
+    }
+
+    private var totalPadEarnings: Double {
+        allPadWorkDays.reduce(0) { $0 + $1.totalEarnings }
+    }
+
+    private var uninvoicedPadEarnings: Double {
+        allPadWorkDays.filter { !$0.isInvoiced }.reduce(0) { $0 + $1.totalEarnings }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -111,6 +130,7 @@ struct PadDashboardView: View {
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 16) {
+                        workDaysSection
                         lookAheadSection
                         notesSection
                         tasksSection
@@ -119,6 +139,7 @@ struct PadDashboardView: View {
                 }
                 #else
                 wellsSection
+                workDaysSection
                 rentalsSection
                 transfersSection
                 lookAheadSection
@@ -153,7 +174,7 @@ struct PadDashboardView: View {
         }
         // Navigation sheets
         .sheet(item: $selectedRental) { rental in
-            RentalDetailEditor(rental: rental)
+            RentalDetailEditor(rental: rental, allEquipment: allEquipment)
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 #if os(macOS)
                 .frame(minWidth: 720, minHeight: 520)
@@ -499,6 +520,63 @@ struct PadDashboardView: View {
                 Text("No material transfers for wells on this pad")
                     .foregroundStyle(.secondary)
                     .italic()
+            }
+        }
+    }
+
+    // MARK: - Work Days Section
+
+    private var workDaysSection: some View {
+        WellSection(
+            title: "Work Days",
+            icon: "calendar.badge.clock",
+            subtitle: "\(totalPadWorkDays) day(s) • \(totalPadEarnings.formatted(.currency(code: "CAD")))"
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Summary stats
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Total Days")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(totalPadWorkDays)")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Total Earnings")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(totalPadEarnings.formatted(.currency(code: "CAD")))
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.green)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Uninvoiced")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(uninvoicedPadEarnings.formatted(.currency(code: "CAD")))
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(uninvoicedPadEarnings > 0 ? .orange : .green)
+                    }
+                }
+                .padding(.bottom, 8)
+
+                if !allPadWorkDays.isEmpty {
+                    Divider()
+
+                    PaginatedList(items: allPadWorkDays, pageSize: 5) { workDay in
+                        PadWorkDayRow(workDay: workDay)
+                    }
+                } else {
+                    Text("No work days recorded for wells on this pad")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
             }
         }
     }
@@ -1164,6 +1242,70 @@ private struct PadLookAheadTaskRow: View {
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Pad Work Day Row
+
+private struct PadWorkDayRow: View {
+    let workDay: WorkDay
+
+    private var statusColor: Color {
+        if workDay.isPaid { return .green }
+        if workDay.isInvoiced { return .blue }
+        return .orange
+    }
+
+    private var statusIcon: String {
+        if workDay.isPaid { return "checkmark.circle.fill" }
+        if workDay.isInvoiced { return "doc.text.fill" }
+        return "circle"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator
+            Image(systemName: statusIcon)
+                .foregroundStyle(statusColor)
+                .font(.caption)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(workDay.dateRangeString)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    if let well = workDay.well {
+                        Text("• \(well.name)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text("\(workDay.dayCount) day\(workDay.dayCount == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let client = workDay.client {
+                        Text("• \(client.companyName)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Text(workDay.totalEarnings.formatted(.currency(code: "CAD")))
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .monospacedDigit()
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

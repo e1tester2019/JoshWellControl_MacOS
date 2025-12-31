@@ -8,6 +8,12 @@ struct MaterialTransferEditorView: View {
     @Bindable var well: Well
     @Bindable var transfer: MaterialTransfer
 
+    // Query all equipment for matching
+    @Query(sort: \RentalEquipment.serialNumber) private var allEquipment: [RentalEquipment]
+    @Query(sort: \RentalCategory.sortOrder) private var categories: [RentalCategory]
+    @Query(filter: #Predicate<Vendor> { $0.serviceTypeRaw == "Rentals" }, sort: \Vendor.companyName)
+    private var rentalVendors: [Vendor]
+
     @State private var selection: MaterialTransferItem? = nil
     @State private var showingPreview = false
     @State private var expandedItems: Set<UUID> = []
@@ -20,6 +26,8 @@ struct MaterialTransferEditorView: View {
     @State private var showCreateRentals: Bool = false
     @State private var selectedTransferItemIDs: Set<UUID> = []
     @State private var showAffectedList: Bool = false
+    @State private var showProcessToRegistry: Bool = false
+    @State private var registryProcessResult: String? = nil
 
     init(well: Well, transfer: MaterialTransfer) {
         self._well = Bindable(wrappedValue: well)
@@ -41,6 +49,10 @@ struct MaterialTransferEditorView: View {
                 Button { addItem() } label: { Label("Add Item", systemImage: "plus") }
                 Button { showAddFromRentals = true } label: { Label("Add From Rentals…", systemImage: "shippingbox") }
                 Button { showCreateRentals = true } label: { Label("Create Rentals From Lines…", systemImage: "") }
+                Button { showProcessToRegistry = true } label: {
+                    Label("Process to Registry", systemImage: "archivebox.fill")
+                }
+                .help(transfer.isShippingOut ? "Mark equipment as backhauled to vendor" : "Add/update equipment in registry and create rentals")
                 Button { showAffectedList = true } label: { Label("Preview Changes", systemImage: "eye") }
                 Button("Save") { try? modelContext.save() }
                 Button {
@@ -122,6 +134,26 @@ struct MaterialTransferEditorView: View {
                 .environment(\.colorScheme, .light)
                 .background(Color.white)
             #endif
+        }
+        .sheet(isPresented: $showProcessToRegistry) {
+            ProcessToRegistrySheet(
+                items: (transfer.items ?? []).filter { $0.serialNumber != nil && !$0.serialNumber!.isEmpty && !$0.equipmentProcessed },
+                allEquipment: allEquipment,
+                categories: categories,
+                vendors: rentalVendors,
+                isShippingOut: transfer.isShippingOut,
+                wellName: well.name,
+                onCancel: { showProcessToRegistry = false },
+                onProcess: { result in
+                    processItemsToRegistry(result: result)
+                    showProcessToRegistry = false
+                }
+            )
+        }
+        .alert("Registry Updated", isPresented: Binding(get: { registryProcessResult != nil }, set: { if !$0 { registryProcessResult = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(registryProcessResult ?? "")
         }
     }
 
@@ -806,6 +838,261 @@ struct MaterialTransferEditorView: View {
         // Ensure latest edits are persisted before previewing
         try? modelContext.save()
         showingPreview = true
+    }
+
+    // MARK: - Equipment Registry Processing
+
+    struct RegistryProcessResult {
+        var itemsToProcess: [MaterialTransferItem]
+        var equipmentMatches: [UUID: RentalEquipment?]  // item.id -> matched equipment (nil = create new)
+        var categoryAssignments: [UUID: RentalCategory?]  // item.id -> category for new equipment
+        var createRentals: Bool
+    }
+
+    private func processItemsToRegistry(result: RegistryProcessResult) {
+        var created = 0
+        var updated = 0
+        var rentalsCreated = 0
+
+        let locationName = well.pad?.name ?? well.name
+
+        for item in result.itemsToProcess {
+            guard let serialNumber = item.serialNumber, !serialNumber.isEmpty else { continue }
+
+            var equipment: RentalEquipment
+
+            if let existing = result.equipmentMatches[item.id] ?? allEquipment.first(where: {
+                $0.serialNumber.lowercased() == serialNumber.lowercased()
+            }) {
+                // Update existing equipment
+                equipment = existing
+                updated += 1
+            } else {
+                // Create new equipment
+                equipment = RentalEquipment(
+                    serialNumber: serialNumber,
+                    name: item.descriptionText,
+                    description: item.detailText ?? "",
+                    model: ""
+                )
+                equipment.category = result.categoryAssignments[item.id] ?? nil
+                modelContext.insert(equipment)
+                created += 1
+            }
+
+            // Link transfer item to equipment
+            item.equipment = equipment
+            item.equipmentProcessed = true
+
+            // Update equipment location based on transfer direction
+            if transfer.isShippingOut {
+                // Shipping out = backhaul to vendor
+                equipment.backhaul()
+            } else {
+                // Receiving = on location
+                equipment.receiveAt(locationName: locationName)
+            }
+
+            // Create rental for incoming items
+            if !transfer.isShippingOut && result.createRentals {
+                // Check if rental already exists for this equipment on this well
+                let existingRental = (well.rentals ?? []).first {
+                    $0.equipment?.id == equipment.id && $0.onLocation
+                }
+
+                if existingRental == nil {
+                    let rental = RentalItem(
+                        name: equipment.name,
+                        detail: equipment.description_,
+                        serialNumber: equipment.serialNumber,
+                        startDate: transfer.date,
+                        onLocation: true,
+                        costPerDay: 0,
+                        well: well,
+                        equipment: equipment
+                    )
+                    if well.rentals == nil { well.rentals = [] }
+                    well.rentals?.append(rental)
+                    modelContext.insert(rental)
+                    rentalsCreated += 1
+                }
+            }
+        }
+
+        try? modelContext.save()
+
+        // Build result message
+        var messages: [String] = []
+        if created > 0 { messages.append("\(created) equipment added to registry") }
+        if updated > 0 { messages.append("\(updated) equipment updated") }
+        if rentalsCreated > 0 { messages.append("\(rentalsCreated) rentals created") }
+        if transfer.isShippingOut && (created + updated) > 0 {
+            messages.append("Equipment marked as backhauled")
+        }
+        registryProcessResult = messages.isEmpty ? "No items processed" : messages.joined(separator: "\n")
+    }
+}
+
+// MARK: - Process to Registry Sheet
+
+private struct ProcessToRegistrySheet: View {
+    let items: [MaterialTransferItem]
+    let allEquipment: [RentalEquipment]
+    let categories: [RentalCategory]
+    let vendors: [Vendor]
+    let isShippingOut: Bool
+    let wellName: String
+    let onCancel: () -> Void
+    let onProcess: (MaterialTransferEditorView.RegistryProcessResult) -> Void
+
+    @State private var selectedItems: Set<UUID> = []
+    @State private var categoryAssignments: [UUID: RentalCategory?] = [:]
+    @State private var createRentals: Bool = true
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                if items.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.largeTitle)
+                            .foregroundStyle(.green)
+                        Text("All items with serial numbers have been processed")
+                            .foregroundStyle(.secondary)
+                        Text("Only items with serial numbers that haven't been processed will appear here.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    // Header info
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: isShippingOut ? "arrow.up.doc" : "arrow.down.doc")
+                                    .foregroundStyle(isShippingOut ? .orange : .green)
+                                Text(isShippingOut ? "Outgoing Transfer (Backhaul)" : "Incoming Transfer (Receiving)")
+                                    .font(.headline)
+                            }
+                            Text(isShippingOut
+                                 ? "Equipment will be marked as returned to vendor"
+                                 : "Equipment will be added/updated in registry and marked on location at \(wellName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            if !isShippingOut {
+                                Toggle("Create rental records for this well", isOn: $createRentals)
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    // Items list
+                    List {
+                        ForEach(items) { item in
+                            let isMatched = allEquipment.contains { $0.serialNumber.lowercased() == (item.serialNumber ?? "").lowercased() }
+
+                            HStack {
+                                Toggle("", isOn: Binding(
+                                    get: { selectedItems.contains(item.id) },
+                                    set: { if $0 { selectedItems.insert(item.id) } else { selectedItems.remove(item.id) } }
+                                ))
+                                .labelsHidden()
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.descriptionText)
+                                        .font(.headline)
+                                    HStack {
+                                        Text("SN: \(item.serialNumber ?? "—")")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+
+                                        if isMatched {
+                                            Label("In Registry", systemImage: "checkmark.circle.fill")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                        } else {
+                                            Label("New", systemImage: "plus.circle.fill")
+                                                .font(.caption2)
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                }
+
+                                Spacer()
+
+                                // Category picker for new items
+                                if !isMatched && !isShippingOut {
+                                    Picker("Category", selection: Binding(
+                                        get: { categoryAssignments[item.id] ?? nil },
+                                        set: { categoryAssignments[item.id] = $0 }
+                                    )) {
+                                        Text("No Category").tag(nil as RentalCategory?)
+                                        ForEach(categories) { cat in
+                                            Label(cat.name, systemImage: cat.icon).tag(cat as RentalCategory?)
+                                        }
+                                    }
+                                    .frame(width: 150)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    // Summary
+                    HStack {
+                        let newCount = items.filter { item in
+                            selectedItems.contains(item.id) &&
+                            !allEquipment.contains { $0.serialNumber.lowercased() == (item.serialNumber ?? "").lowercased() }
+                        }.count
+                        let updateCount = selectedItems.count - newCount
+
+                        Text("\(selectedItems.count) selected")
+                        if newCount > 0 {
+                            Text("• \(newCount) new")
+                                .foregroundStyle(.blue)
+                        }
+                        if updateCount > 0 {
+                            Text("• \(updateCount) existing")
+                                .foregroundStyle(.green)
+                        }
+                        Spacer()
+                        Button("Select All") {
+                            selectedItems = Set(items.map(\.id))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .font(.caption)
+                    .padding(.horizontal)
+                }
+            }
+            .navigationTitle("Process to Equipment Registry")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isShippingOut ? "Mark Backhauled" : "Process") {
+                        let result = MaterialTransferEditorView.RegistryProcessResult(
+                            itemsToProcess: items.filter { selectedItems.contains($0.id) },
+                            equipmentMatches: [:],
+                            categoryAssignments: categoryAssignments,
+                            createRentals: createRentals
+                        )
+                        onProcess(result)
+                    }
+                    .disabled(selectedItems.isEmpty)
+                }
+            }
+            .onAppear {
+                // Pre-select all items
+                selectedItems = Set(items.map(\.id))
+            }
+        }
+        .frame(minWidth: 600, minHeight: 450)
     }
 }
 

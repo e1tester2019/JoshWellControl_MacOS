@@ -22,8 +22,8 @@ final class DirectionalPlan {
     /// This is the direction the VS plane faces, typically toward the target
     var vsAzimuth_deg: Double?
 
-    // Inverse relationship back to project
-    @Relationship var project: ProjectState?
+    // Inverse relationship back to well
+    @Relationship var well: Well?
 
     // Child stations - cascade delete when plan is deleted
     @Relationship(deleteRule: .cascade, inverse: \DirectionalPlanStation.plan)
@@ -35,14 +35,14 @@ final class DirectionalPlan {
          sourceFileName: String? = nil,
          notes: String = "",
          vsAzimuth_deg: Double? = nil,
-         project: ProjectState? = nil) {
+         well: Well? = nil) {
         self.name = name
         self.revision = revision
         self.planDate = planDate
         self.sourceFileName = sourceFileName
         self.notes = notes
         self.vsAzimuth_deg = vsAzimuth_deg
-        self.project = project
+        self.well = well
     }
 }
 

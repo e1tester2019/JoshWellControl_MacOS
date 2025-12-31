@@ -53,15 +53,27 @@ final class MaterialTransferItem {
     var receiverAddress: String? = nil  // Receiver address
     var estimatedWeight: Double? = nil  // Estimated weight in pounds
 
+    // Equipment registry integration
+    var isRentalEquipment: Bool = false  // Flag to indicate this is tracked equipment
+    var equipmentProcessed: Bool = false // Has this item been processed into registry
+
     // Derived
     var totalValue: Double { (unitPrice ?? 0) * quantity }
 
     // Back link to transfer
     @Relationship var transfer: MaterialTransfer?
 
+    // Link to equipment registry (optional)
+    @Relationship var equipment: RentalEquipment?
+
     init(quantity: Double = 1, descriptionText: String) {
         self.quantity = quantity
         self.descriptionText = descriptionText
+    }
+
+    /// Display name - uses equipment name if linked, otherwise description
+    var displayName: String {
+        equipment?.displayName ?? descriptionText
     }
 }
 

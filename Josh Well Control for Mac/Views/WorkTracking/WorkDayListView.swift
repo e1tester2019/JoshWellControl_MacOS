@@ -337,6 +337,9 @@ struct WorkDayEditorView: View {
     @State private var useCustomCostCode = false
     @State private var mileage: Double = 0
     @State private var mileageDescription: String = ""
+    @State private var manuallyMarkedInvoiced: Bool = false
+    @State private var manuallyMarkedPaid: Bool = false
+    @State private var manualPaidDate: Date = Date.now
 
     private var dayCount: Int {
         let calendar = Calendar.current
@@ -484,10 +487,21 @@ struct WorkDayEditorView: View {
                         .frame(minHeight: 60)
                 }
 
-                if workDay?.lineItem != nil {
-                    Section {
-                        Label("This work period has been invoiced", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                Section("Invoicing Status") {
+                    if workDay?.lineItem != nil {
+                        Label("Linked to invoice #\(workDay?.lineItem?.invoice?.invoiceNumber ?? 0)", systemImage: "link.circle.fill")
+                            .foregroundStyle(.blue)
+                    } else {
+                        Toggle("Mark as Invoiced", isOn: $manuallyMarkedInvoiced)
+
+                        if manuallyMarkedInvoiced {
+                            Toggle("Mark as Paid", isOn: $manuallyMarkedPaid)
+
+                            if manuallyMarkedPaid {
+                                DatePicker("Paid Date", selection: $manualPaidDate, displayedComponents: .date)
+                                    .environment(\.locale, Locale(identifier: "en_GB"))
+                            }
+                        }
                     }
                 }
             }
@@ -522,6 +536,9 @@ struct WorkDayEditorView: View {
         useCustomCostCode = wd.costCodeOverride != nil
         mileage = wd.mileage
         mileageDescription = wd.mileageDescription
+        manuallyMarkedInvoiced = wd.manuallyMarkedInvoiced
+        manuallyMarkedPaid = wd.manuallyMarkedPaid
+        manualPaidDate = wd.manualPaidDate ?? Date.now
     }
 
     private func save() {
@@ -536,6 +553,9 @@ struct WorkDayEditorView: View {
         wd.costCodeOverride = useCustomCostCode && !costCodeOverride.isEmpty ? costCodeOverride : nil
         wd.mileage = mileage
         wd.mileageDescription = mileageDescription
+        wd.manuallyMarkedInvoiced = manuallyMarkedInvoiced
+        wd.manuallyMarkedPaid = manuallyMarkedPaid
+        wd.manualPaidDate = manuallyMarkedPaid ? manualPaidDate : nil
 
         if workDay == nil {
             modelContext.insert(wd)

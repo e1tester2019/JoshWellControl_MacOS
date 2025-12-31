@@ -46,6 +46,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     // Operations - Other
     case rentals
     case transfers
+    case equipmentRegistry
 
     // Business - Income
     case workDays
@@ -131,7 +132,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .dividendsCat
         case .companyStatement, .expenseReport, .payrollReport:
             return .reports
-        case .rentals, .transfers:
+        case .rentals, .transfers, .equipmentRegistry:
             return .more
         }
     }
@@ -169,6 +170,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .jobCodes: return "Job Codes"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
+        case .equipmentRegistry: return "Equipment Registry"
         case .workDays: return "Work Days"
         case .invoices: return "Invoices"
         case .clients: return "Clients"
@@ -213,6 +215,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .jobCodes: return "list.bullet.rectangle"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
+        case .equipmentRegistry: return "shippingbox.fill"
         case .workDays: return "calendar"
         case .invoices: return "doc.text"
         case .clients: return "person.2"
@@ -304,6 +307,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Equipment rental tracking"
         case .transfers:
             return "Material transfer management"
+        case .equipmentRegistry:
+            return "Track rental equipment across wells with issue logging"
         case .workDays:
             return "Track work days for clients"
         case .invoices:
