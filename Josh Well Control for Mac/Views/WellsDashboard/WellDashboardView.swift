@@ -89,10 +89,10 @@ struct WellDashboardView: View {
         .background(pageBackgroundColor)
         .navigationTitle("Well Dashboard")
         .sheet(isPresented: $showingAddNote) {
-            AddNoteSheet(well: well, project: nil, pad: well.pad)
+            NoteEditorView(well: well, note: nil)
         }
         .sheet(isPresented: $showingAddTask) {
-            AddTaskSheet(well: well, project: nil, pad: well.pad)
+            TaskEditorView(well: well, task: nil)
         }
         .sheet(isPresented: $showingAddProject) {
             AddProjectSheet(well: well)

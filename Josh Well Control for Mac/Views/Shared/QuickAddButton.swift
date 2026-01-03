@@ -13,11 +13,11 @@ struct QuickAddButton: View {
 
     var body: some View {
         Menu {
-            Button(action: { manager.showAddNote() }) {
+            Button(action: { manager.showNoteEditor = true }) {
                 Label("Add Note", systemImage: "note.text.badge.plus")
             }
 
-            Button(action: { manager.showAddTask() }) {
+            Button(action: { manager.showTaskEditor = true }) {
                 Label("Add Task", systemImage: "checkmark.circle.badge.plus")
             }
         } label: {
@@ -34,7 +34,7 @@ struct QuickAddButton: View {
             }
         } primaryAction: {
             // Primary tap adds a note
-            manager.showAddNote()
+            manager.showNoteEditor = true
         }
         .help("Quick Add (Cmd+Shift+N)")
         .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -60,33 +60,25 @@ private struct BadgeView: View {
     }
 }
 
-/// Simple toolbar item wrapper for the quick-add button
-struct QuickAddToolbarContent: ToolbarContent {
-    @Bindable var manager: QuickNoteManager
-
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
-            QuickAddButton(manager: manager)
-        }
-    }
-}
-
 // MARK: - View Modifier for Integration
 
-/// Adds quick-add sheet presentation to any view
+/// Adds quick-add sheets to any view (button should be added separately to toolbar)
 struct QuickAddSheetModifier: ViewModifier {
     @Bindable var manager: QuickNoteManager
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $manager.showQuickAdd) {
-                QuickAddSheet(manager: manager)
+            .sheet(isPresented: $manager.showNoteEditor) {
+                NoteEditorView()
+            }
+            .sheet(isPresented: $manager.showTaskEditor) {
+                TaskEditorView()
             }
     }
 }
 
 extension View {
-    /// Attaches the quick-add sheet to this view
+    /// Attaches the quick-add sheets to this view
     func quickAddSheet(manager: QuickNoteManager) -> some View {
         modifier(QuickAddSheetModifier(manager: manager))
     }
@@ -95,27 +87,8 @@ extension View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("Quick Add Button - No Badge") {
-    let manager = QuickNoteManager.shared
-    manager.pendingTaskCount = 0
-    manager.overdueTaskCount = 0
-    return QuickAddButton(manager: manager)
-        .padding()
-}
-
-#Preview("Quick Add Button - Pending") {
-    let manager = QuickNoteManager.shared
-    manager.pendingTaskCount = 5
-    manager.overdueTaskCount = 0
-    return QuickAddButton(manager: manager)
-        .padding()
-}
-
-#Preview("Quick Add Button - Overdue") {
-    let manager = QuickNoteManager.shared
-    manager.pendingTaskCount = 5
-    manager.overdueTaskCount = 3
-    return QuickAddButton(manager: manager)
+#Preview("Quick Add Button") {
+    QuickAddButton(manager: QuickNoteManager.shared)
         .padding()
 }
 #endif

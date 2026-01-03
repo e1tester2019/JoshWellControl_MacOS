@@ -8,8 +8,10 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
+#endif
 
 // MARK: - ViewModel Cache
 
@@ -29,6 +31,7 @@ enum TripInViewModelCache {
     }
 }
 
+#if os(macOS)
 struct TripInSimulationView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
@@ -1205,6 +1208,21 @@ struct TripInSimulationView: View {
         .padding(.top, 4)
     }
 }
+#endif // os(macOS)
+
+#if os(iOS)
+struct TripInSimulationView: View {
+    @Bindable var project: ProjectState
+
+    var body: some View {
+        ContentUnavailableView(
+            "Trip In Simulation",
+            systemImage: "arrow.down.to.line.circle",
+            description: Text("Trip In Simulation is optimized for macOS. Use a Mac for full functionality.")
+        )
+    }
+}
+#endif
 
 #Preview {
     Text("TripInSimulationView Preview")

@@ -175,32 +175,79 @@ struct LookAheadTaskEditorView: View {
                 }
             }
 
+            // Quick duration presets
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Quick Set")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 6) {
+                    ForEach([0.5, 1.0, 2.0, 4.0, 8.0, 12.0], id: \.self) { hours in
+                        Button {
+                            estimatedDuration_hours = hours
+                        } label: {
+                            Text(hours < 1 ? "30m" : "\(Int(hours))h")
+                                .font(.caption)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(estimatedDuration_hours == hours ? Color.accentColor : Color.secondary.opacity(0.2))
+                                .foregroundStyle(estimatedDuration_hours == hours ? .white : .primary)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             HStack {
-                Text("Estimated Duration")
+                Text("Duration")
                 Spacer()
                 TextField("", value: $estimatedDuration_hours, format: .number.precision(.fractionLength(2)))
-                    .frame(width: 100)
+                    .frame(width: 80)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
-                Stepper("", value: $estimatedDuration_hours, in: 0.25...24, step: 0.25)
+                Stepper("", value: $estimatedDuration_hours, in: 0.25...168, step: 0.25)
                     .labelsHidden()
-                    .frame(width: 20)
                 Text("hrs")
                     .foregroundStyle(.secondary)
+            }
+
+            // Show start and end times if editing
+            if let task = task {
+                Divider()
+
+                HStack {
+                    Text("Starts")
+                    Spacer()
+                    Text(task.startTime.formatted(date: .abbreviated, time: .shortened))
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text("Ends")
+                    Spacer()
+                    Text(calculatedEndTime(from: task.startTime).formatted(date: .abbreviated, time: .shortened))
+                        .fontWeight(.medium)
+                        .foregroundStyle(.blue)
+                }
             }
 
             // Show formatted duration
             if estimatedDuration_hours > 0 {
                 HStack {
-                    Text("Duration")
+                    Text("Total")
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(formatDuration(estimatedDuration_hours))
-                        .foregroundStyle(.secondary)
+                        .fontWeight(.medium)
                 }
-                .font(.caption)
+                .font(.callout)
             }
         }
+    }
+
+    private func calculatedEndTime(from startTime: Date) -> Date {
+        startTime.addingTimeInterval(estimatedDuration_hours * 3600)
     }
 
     private var vendorSection: some View {

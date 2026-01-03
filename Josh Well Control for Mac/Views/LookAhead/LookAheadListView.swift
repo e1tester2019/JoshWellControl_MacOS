@@ -400,7 +400,10 @@ struct LookAheadListView: View {
                 onDelete: { viewModel.deleteTask(task, context: modelContext) },
                 onStart: { startTask(task) },
                 onComplete: { taskToComplete = task },
-                onDelay: { delayTask(task) }
+                onDelay: { delayTask(task) },
+                onDurationChange: { newMinutes in
+                    viewModel.updateDuration(task, newDuration: newMinutes, context: modelContext)
+                }
             )
         }
     }
@@ -676,6 +679,9 @@ struct LookAheadTaskRow: View {
     var onStart: () -> Void
     var onComplete: () -> Void
     var onDelay: () -> Void
+    var onDurationChange: ((Double) -> Void)? = nil
+
+    @State private var showDurationPicker = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -711,9 +717,26 @@ struct LookAheadTaskRow: View {
                 HStack {
                     Text(task.timeRangeFormatted)
                         .font(.callout)
-                    Text("(\(task.estimatedDurationFormatted))")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+
+                    // Clickable duration with popover
+                    Button {
+                        showDurationPicker = true
+                    } label: {
+                        Text("(\(task.estimatedDurationFormatted))")
+                            .font(.callout)
+                            .foregroundStyle(.blue)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showDurationPicker) {
+                        QuickDurationPicker(
+                            currentMinutes: task.estimatedDuration_min,
+                            onChange: { minutes in
+                                onDurationChange?(minutes)
+                                showDurationPicker = false
+                            }
+                        )
+                    }
 
                     if let well = task.well {
                         Text("•")
@@ -1077,6 +1100,113 @@ struct BulkDuplicateSheet: View {
         try? modelContext.save()
         onComplete()
         dismiss()
+    }
+}
+
+// MARK: - Quick Duration Picker
+
+struct QuickDurationPicker: View {
+    let currentMinutes: Double
+    var onChange: (Double) -> Void
+
+    @State private var customHours: Double = 1.0
+
+    private let presets: [(String, Double)] = [
+        ("30m", 30),
+        ("1h", 60),
+        ("2h", 120),
+        ("4h", 240),
+        ("6h", 360),
+        ("8h", 480),
+        ("12h", 720),
+        ("24h", 1440)
+    ]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Set Duration")
+                .font(.headline)
+                .padding(.top, 8)
+
+            // Quick presets in a grid
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible()),
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: 8) {
+                ForEach(presets, id: \.1) { label, minutes in
+                    Button {
+                        onChange(minutes)
+                    } label: {
+                        Text(label)
+                            .font(.callout)
+                            .fontWeight(currentMinutes == minutes ? .bold : .regular)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(currentMinutes == minutes ? Color.accentColor : Color.secondary.opacity(0.2))
+                            .foregroundStyle(currentMinutes == minutes ? .white : .primary)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+
+            // Custom duration with stepper
+            HStack {
+                Text("Custom:")
+                    .foregroundStyle(.secondary)
+
+                Stepper(value: $customHours, in: 0.25...48, step: 0.25) {
+                    Text(formatHours(customHours))
+                        .frame(width: 60, alignment: .trailing)
+                        .fontWeight(.medium)
+                }
+
+                Button("Apply") {
+                    onChange(customHours * 60)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            // Current value display
+            Text("Current: \(formatMinutes(currentMinutes))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
+        }
+        .padding()
+        .frame(width: 280)
+        .onAppear {
+            customHours = currentMinutes / 60.0
+        }
+    }
+
+    private func formatHours(_ hours: Double) -> String {
+        if hours < 1 {
+            return "\(Int(hours * 60))m"
+        } else if hours == Double(Int(hours)) {
+            return "\(Int(hours))h"
+        } else {
+            let h = Int(hours)
+            let m = Int((hours - Double(h)) * 60)
+            return "\(h)h \(m)m"
+        }
+    }
+
+    private func formatMinutes(_ minutes: Double) -> String {
+        let totalMinutes = Int(minutes)
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        if h > 0 && m > 0 {
+            return "\(h)h \(m)m"
+        } else if h > 0 {
+            return "\(h)h"
+        }
+        return "\(m)m"
     }
 }
 

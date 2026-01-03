@@ -12,12 +12,24 @@ struct QuickAddSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    @Query(sort: \Pad.name) private var allPads: [Pad]
+    @Query(sort: \Well.name) private var allWells: [Well]
+
     @Bindable var manager: QuickNoteManager
 
     @FocusState private var titleFocused: Bool
+    @State private var selectedPad: Pad?
+    @State private var selectedWell: Well?
 
     private var canSave: Bool {
-        !manager.pendingTitle.trimmingCharacters(in: .whitespaces).isEmpty && manager.currentWell != nil
+        !manager.pendingTitle.trimmingCharacters(in: .whitespaces).isEmpty && (selectedWell != nil || selectedPad != nil)
+    }
+
+    private var wellsForSelectedPad: [Well] {
+        if let pad = selectedPad {
+            return (pad.wells ?? []).sorted { $0.name < $1.name }
+        }
+        return allWells
     }
 
     var body: some View {
@@ -65,19 +77,22 @@ struct QuickAddSheet: View {
                     taskOptions
                 }
 
-                // Target (well context)
-                Section("Target") {
-                    if let well = manager.currentWell {
-                        HStack {
-                            Label(well.name, systemImage: "building.2")
-                            Spacer()
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.green)
+                // Assignment
+                Section("Assignment") {
+                    Picker("Pad", selection: $selectedPad) {
+                        Text("None").tag(nil as Pad?)
+                        ForEach(allPads) { pad in
+                            Text(pad.name).tag(pad as Pad?)
                         }
-                    } else {
-                        Label("No well selected", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
                     }
+
+                    Picker("Well", selection: $selectedWell) {
+                        Text("None").tag(nil as Well?)
+                        ForEach(wellsForSelectedPad) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+                    .disabled(selectedPad == nil && allPads.count > 0)
                 }
             }
             .navigationTitle(manager.quickAddType == .note ? "Quick Note" : "Quick Task")
@@ -100,6 +115,17 @@ struct QuickAddSheet: View {
             }
             .onAppear {
                 titleFocused = true
+                // Initialize from manager's current context
+                selectedWell = manager.currentWell
+                selectedPad = manager.currentPad ?? manager.currentWell?.pad
+            }
+            .onChange(of: selectedPad) { _, newPad in
+                // Reset well selection if it doesn't belong to the new pad
+                if let newPad = newPad, let well = selectedWell {
+                    if well.pad?.id != newPad.id {
+                        selectedWell = nil
+                    }
+                }
             }
         }
         #if os(macOS)
@@ -163,10 +189,32 @@ struct QuickAddSheet: View {
 
     private func save() {
         if manager.quickAddType == .note {
-            manager.createNote(context: modelContext)
+            let note = HandoverNote(
+                title: manager.pendingTitle.trimmingCharacters(in: .whitespaces),
+                content: manager.pendingContent,
+                category: manager.pendingCategory,
+                author: "",
+                isPinned: manager.pendingIsPinned
+            )
+            modelContext.insert(note)
+            note.well = selectedWell
+            note.pad = selectedPad
         } else {
-            manager.createTask(context: modelContext)
+            let task = WellTask(
+                title: manager.pendingTitle.trimmingCharacters(in: .whitespaces),
+                description: manager.pendingContent,
+                priority: manager.pendingPriority,
+                status: .pending,
+                dueDate: manager.pendingDueDate,
+                author: ""
+            )
+            modelContext.insert(task)
+            task.well = selectedWell
+            task.pad = selectedPad
         }
+
+        try? modelContext.save()
+        manager.dismiss()
     }
 
     private func priorityColor(_ priority: TaskPriority) -> Color {

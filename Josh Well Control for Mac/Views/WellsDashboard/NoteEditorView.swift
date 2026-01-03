@@ -12,8 +12,11 @@ struct NoteEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    let well: Well?
-    let pad: Pad?
+    @Query(sort: \Pad.name) private var allPads: [Pad]
+    @Query(sort: \Well.name) private var allWells: [Well]
+
+    let initialWell: Well?
+    let initialPad: Pad?
     let note: HandoverNote?
 
     @State private var title: String = ""
@@ -21,24 +24,42 @@ struct NoteEditorView: View {
     @State private var category: NoteCategory = .general
     @State private var author: String = ""
     @State private var isPinned: Bool = false
+    @State private var selectedWell: Well?
+    @State private var selectedPad: Pad?
+    @State private var isSaving = false
 
     private var isEditing: Bool { note != nil }
 
-    private var ownerName: String {
-        if let well = well { return well.name }
-        if let pad = pad { return "\(pad.name) (Pad)" }
-        return "Unknown"
+    private var wellsForSelectedPad: [Well] {
+        if let pad = selectedPad {
+            return (pad.wells ?? []).sorted { $0.name < $1.name }
+        }
+        return allWells
     }
 
     init(well: Well, note: HandoverNote?) {
-        self.well = well
-        self.pad = nil
+        self.initialWell = well
+        self.initialPad = nil
         self.note = note
     }
 
     init(pad: Pad, note: HandoverNote?) {
-        self.well = nil
-        self.pad = pad
+        self.initialWell = nil
+        self.initialPad = pad
+        self.note = note
+    }
+
+    /// Initialize for creating a new note without a pre-selected well/pad
+    init() {
+        self.initialWell = nil
+        self.initialPad = nil
+        self.note = nil
+    }
+
+    /// Initialize for editing an existing note
+    init(note: HandoverNote) {
+        self.initialWell = note.well
+        self.initialPad = note.pad
         self.note = note
     }
 
@@ -96,13 +117,21 @@ struct NoteEditorView: View {
                         .help("Pinned notes appear at the top of the list")
                 }
 
-                Section {
-                    HStack {
-                        Text(pad != nil ? "Pad:" : "Well:")
-                        Spacer()
-                        Text(ownerName)
-                            .foregroundStyle(.secondary)
+                Section("Assignment") {
+                    Picker("Pad", selection: $selectedPad) {
+                        Text("None").tag(nil as Pad?)
+                        ForEach(allPads) { pad in
+                            Text(pad.name).tag(pad as Pad?)
+                        }
                     }
+
+                    Picker("Well", selection: $selectedWell) {
+                        Text("None").tag(nil as Well?)
+                        ForEach(wellsForSelectedPad) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+                    .disabled(selectedPad == nil && allPads.count > 0)
 
                     if let note = note {
                         HStack {
@@ -150,6 +179,19 @@ struct NoteEditorView: View {
                 category = note.category
                 author = note.author
                 isPinned = note.isPinned
+                selectedWell = note.well
+                selectedPad = note.pad ?? note.well?.pad
+            } else {
+                selectedWell = initialWell
+                selectedPad = initialPad ?? initialWell?.pad
+            }
+        }
+        .onChange(of: selectedPad) { _, newPad in
+            // Reset well selection if it doesn't belong to the new pad
+            if let newPad = newPad, let well = selectedWell {
+                if well.pad?.id != newPad.id {
+                    selectedWell = nil
+                }
             }
         }
     }
@@ -166,6 +208,12 @@ struct NoteEditorView: View {
     }
 
     private func saveNote() {
+        guard !isSaving else { return }
+        isSaving = true
+
+        // Immediately reset the manager flag to prevent any re-triggering
+        QuickNoteManager.shared.showNoteEditor = false
+
         if let note = note {
             // Update existing
             note.update(
@@ -175,26 +223,21 @@ struct NoteEditorView: View {
             note.category = category
             note.author = author
             note.isPinned = isPinned
-        } else if let well = well {
-            // Create new note for well
-            _ = well.createNote(
+            // Update assignment
+            note.well = selectedWell
+            note.pad = selectedPad
+        } else {
+            // Create new note
+            let newNote = HandoverNote(
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content,
                 category: category,
                 author: author,
-                isPinned: isPinned,
-                context: modelContext
+                isPinned: isPinned
             )
-        } else if let pad = pad {
-            // Create new note for pad
-            _ = pad.createNote(
-                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                content: content,
-                category: category,
-                author: author,
-                isPinned: isPinned,
-                context: modelContext
-            )
+            modelContext.insert(newNote)
+            newNote.well = selectedWell
+            newNote.pad = selectedPad
         }
 
         try? modelContext.save()
@@ -203,12 +246,6 @@ struct NoteEditorView: View {
 
     private func deleteNote() {
         if let note = note {
-            if let well = well {
-                well.notes?.removeAll { $0.id == note.id }
-            }
-            if let pad = pad {
-                pad.notes?.removeAll { $0.id == note.id }
-            }
             modelContext.delete(note)
             try? modelContext.save()
         }

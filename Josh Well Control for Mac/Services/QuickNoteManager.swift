@@ -30,8 +30,16 @@ final class QuickNoteManager {
 
     // MARK: - Sheet State
 
-    var showQuickAdd = false
     var quickAddType: QuickAddType = .note
+    var showNoteEditor = false
+    var showTaskEditor = false
+
+    // MARK: - Save Guards (shared across all view instances)
+
+    /// Prevents duplicate note saves across all NoteEditorView instances
+    var isSavingNote = false
+    /// Prevents duplicate task saves across all TaskEditorView instances
+    var isSavingTask = false
 
     // MARK: - Current Context (set by active view)
 
@@ -63,19 +71,20 @@ final class QuickNoteManager {
     func showAddNote() {
         resetPendingData()
         quickAddType = .note
-        showQuickAdd = true
+        showNoteEditor = true
     }
 
     /// Shows the quick-add sheet for tasks
     func showAddTask() {
         resetPendingData()
         quickAddType = .task
-        showQuickAdd = true
+        showTaskEditor = true
     }
 
     /// Dismisses the quick-add sheet
     func dismiss() {
-        showQuickAdd = false
+        showNoteEditor = false
+        showTaskEditor = false
         resetPendingData()
     }
 
@@ -105,14 +114,11 @@ final class QuickNoteManager {
             author: "", // Could be set from user preferences
             isPinned: pendingIsPinned
         )
+        context.insert(note)
+        // SwiftData automatically manages the inverse relationship
         note.well = well
         note.project = currentProject
         note.pad = currentPad
-        context.insert(note)
-
-        // Update well's notes array
-        if well.notes == nil { well.notes = [] }
-        well.notes?.append(note)
 
         try? context.save()
         dismiss()
@@ -135,14 +141,11 @@ final class QuickNoteManager {
             dueDate: pendingDueDate,
             author: ""
         )
+        context.insert(task)
+        // SwiftData automatically manages the inverse relationship
         task.well = well
         task.project = currentProject
         task.pad = currentPad
-        context.insert(task)
-
-        // Update well's tasks array
-        if well.tasks == nil { well.tasks = [] }
-        well.tasks?.append(task)
 
         try? context.save()
         dismiss()

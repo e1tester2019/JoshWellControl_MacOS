@@ -217,6 +217,32 @@ struct iPhoneOptimizedContentView: View {
                         Label(ViewSelection.rentals.title, systemImage: ViewSelection.rentals.icon)
                     }
                 }
+
+                NavigationLink {
+                    RentalEquipmentListViewIOS()
+                } label: {
+                    Label(ViewSelection.equipmentRegistry.title, systemImage: ViewSelection.equipmentRegistry.icon)
+                }
+            }
+
+            Section("Look Ahead") {
+                NavigationLink {
+                    LookAheadListView()
+                } label: {
+                    Label(ViewSelection.lookAheadScheduler.title, systemImage: ViewSelection.lookAheadScheduler.icon)
+                }
+
+                NavigationLink {
+                    VendorListView()
+                } label: {
+                    Label(ViewSelection.vendors.title, systemImage: ViewSelection.vendors.icon)
+                }
+
+                NavigationLink {
+                    JobCodeListView()
+                } label: {
+                    Label(ViewSelection.jobCodes.title, systemImage: ViewSelection.jobCodes.icon)
+                }
             }
         }
         .navigationTitle("Technical")
@@ -268,6 +294,24 @@ struct iPhoneOptimizedContentView: View {
                     } label: {
                         Label(ViewSelection.swabbing.title, systemImage: ViewSelection.swabbing.icon)
                     }
+
+                    NavigationLink {
+                        SurgeSwabView(project: project)
+                    } label: {
+                        Label(ViewSelection.surgeSwab.title, systemImage: ViewSelection.surgeSwab.icon)
+                    }
+                } else {
+                    noProjectSelectedRow
+                }
+            }
+
+            Section("Directional") {
+                if let project = selectedProject {
+                    NavigationLink {
+                        DirectionalDashboardView(project: project)
+                    } label: {
+                        Label(ViewSelection.directionalPlanning.title, systemImage: ViewSelection.directionalPlanning.icon)
+                    }
                 } else {
                     noProjectSelectedRow
                 }
@@ -306,9 +350,21 @@ struct iPhoneOptimizedContentView: View {
                     }
 
                     NavigationLink {
+                        TripInSimulationViewIOS(project: project)
+                    } label: {
+                        Label(ViewSelection.tripInSimulation.title, systemImage: ViewSelection.tripInSimulation.icon)
+                    }
+
+                    NavigationLink {
                         TripTrackerViewIOS(project: project)
                     } label: {
                         Label(ViewSelection.tripTracker.title, systemImage: ViewSelection.tripTracker.icon)
+                    }
+
+                    NavigationLink {
+                        TripRecordViewIOS(project: project)
+                    } label: {
+                        Label(ViewSelection.tripRecord.title, systemImage: ViewSelection.tripRecord.icon)
                     }
 
                     NavigationLink {
@@ -363,7 +419,13 @@ struct iPhoneOptimizedContentView: View {
                 NavigationLink {
                     DividendListViewIOS()
                 } label: {
-                    Label("Dividends & Shareholders", systemImage: "chart.line.uptrend.xyaxis")
+                    Label(ViewSelection.dividends.title, systemImage: ViewSelection.dividends.icon)
+                }
+
+                NavigationLink {
+                    ShareholderListView()
+                } label: {
+                    Label(ViewSelection.shareholders.title, systemImage: ViewSelection.shareholders.icon)
                 }
             }
 
@@ -440,6 +502,14 @@ struct iPhoneOptimizedContentView: View {
                     Label("Delete Project", systemImage: "trash")
                 }
                 .disabled(selectedProject == nil)
+            }
+
+            Section("Settings") {
+                NavigationLink {
+                    DataSettingsView()
+                } label: {
+                    Label("Data & Sync", systemImage: "arrow.clockwise.icloud")
+                }
             }
 
             Section("About") {

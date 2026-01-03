@@ -271,16 +271,14 @@ struct MaterialTransferReportView: View {
 }
 
 #if os(macOS)
+import PDFKit
+
 struct MaterialTransferReportPreview: View {
     var well: Well
     var transfer: MaterialTransfer
+    @Environment(\.dismiss) private var dismiss
     @State private var exportError: String? = nil
-
-    private let pageSize = CGSize(width: 612, height: 792)
-
-    private var report: MaterialTransferReportView {
-        MaterialTransferReportView(well: well, transfer: transfer)
-    }
+    @State private var pdfData: Data? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -288,17 +286,26 @@ struct MaterialTransferReportPreview: View {
                 Text("Preview – Material Transfer #\(transfer.number)")
                     .font(.headline)
                 Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button {
                     export()
                 } label: {
                     Label("Export PDF", systemImage: "square.and.arrow.up")
                 }
+                .keyboardShortcut(.defaultAction)
             }
             .padding(8)
             Divider()
-            ScrollView {
-                report
+
+            if let data = pdfData {
+                MaterialTransferPDFPreviewView(data: data)
+            } else {
+                ContentUnavailableView("Generating PDF...", systemImage: "doc.text")
             }
+        }
+        .onAppear {
+            generatePreview()
         }
         .alert("Export Error", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -307,24 +314,45 @@ struct MaterialTransferReportPreview: View {
         }
     }
 
+    private func generatePreview() {
+        pdfData = MaterialTransferPDFGenerator.shared.generatePDF(for: transfer, well: well)
+    }
+
     private func export() {
-        // Validate receiver addresses before export
-        let missingAddr = (transfer.items ?? []).filter { ($0.receiverAddress?.isEmpty ?? true) }
-        if !missingAddr.isEmpty {
-            exportError = "One or more items are missing a Receiver Address. Please fill in all Receiver Addresses before exporting."
+        guard let data = pdfData else {
+            exportError = "No PDF data to export"
             return
         }
-        
-        if let data = pdfDataForView(report, pageSize: pageSize) {
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.pdf]
-            panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
-            panel.canCreateDirectories = true
-            if panel.runModal() == .OK, let url = panel.url {
-                do { try data.write(to: url) } catch { exportError = error.localizedDescription }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "MaterialTransfer_\(transfer.number).pdf"
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try data.write(to: url)
+            } catch {
+                exportError = error.localizedDescription
             }
-        } else {
-            exportError = "Failed to generate PDF"
+        }
+    }
+}
+
+private struct MaterialTransferPDFPreviewView: NSViewRepresentable {
+    let data: Data
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.backgroundColor = .windowBackgroundColor
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        if let document = PDFDocument(data: data) {
+            pdfView.document = document
         }
     }
 }

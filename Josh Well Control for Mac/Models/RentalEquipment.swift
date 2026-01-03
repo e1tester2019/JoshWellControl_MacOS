@@ -102,9 +102,9 @@ final class RentalEquipment {
         Set((rentalUsages ?? []).compactMap { $0.well?.id }).count
     }
 
-    /// Current active rental (if any) - equipment marked as "run" on a well
+    /// Current active rental (if any) - equipment marked as "run" on a well and still on location
     var currentActiveRental: RentalItem? {
-        (rentalUsages ?? []).first { $0.used && !$0.invoiced }
+        (rentalUsages ?? []).first { $0.used && $0.onLocation && !$0.invoiced }
     }
 
     /// The well where this equipment is currently active

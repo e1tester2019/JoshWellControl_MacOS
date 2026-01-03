@@ -80,10 +80,8 @@ extension Well {
 
     func createTask(title: String, description: String = "", priority: TaskPriority = .medium, dueDate: Date? = nil, author: String = "", context: ModelContext) -> WellTask {
         let task = WellTask(title: title, description: description, priority: priority, dueDate: dueDate, author: author)
-        task.well = self
-        if tasks == nil { tasks = [] }
-        tasks?.append(task)
         context.insert(task)
+        task.well = self  // SwiftData automatically manages the inverse relationship
         return task
     }
 
@@ -99,10 +97,8 @@ extension Well {
 
     func createNote(title: String, content: String = "", category: NoteCategory = .general, author: String = "", isPinned: Bool = false, context: ModelContext) -> HandoverNote {
         let note = HandoverNote(title: title, content: content, category: category, author: author, isPinned: isPinned)
-        note.well = self
-        if notes == nil { notes = [] }
-        notes?.append(note)
         context.insert(note)
+        note.well = self  // SwiftData automatically manages the inverse relationship
         return note
     }
 
@@ -111,10 +107,8 @@ extension Well {
     func createTransfer(number: Int? = nil, context: ModelContext) -> MaterialTransfer {
         let transferNumber = number ?? (((transfers ?? []).map { $0.number }.max() ?? 0) + 1)
         let transfer = MaterialTransfer(number: transferNumber)
-        transfer.well = self
-        if transfers == nil { transfers = [] }
-        transfers?.append(transfer)
         context.insert(transfer)
+        transfer.well = self  // SwiftData automatically manages the inverse relationship
         return transfer
     }
 

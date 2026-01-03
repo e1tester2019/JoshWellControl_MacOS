@@ -36,6 +36,7 @@ struct PadDashboardView: View {
     @State private var selectedTask: WellTask?
     @State private var selectedLookAheadTask: LookAheadTask?
     @State private var showingAddLookAheadTask = false
+    @State private var showingOnLocationReport = false
 
     private var pageBackgroundColor: Color {
         #if os(macOS)
@@ -65,7 +66,7 @@ struct PadDashboardView: View {
     }
 
     private var onLocationRentals: [RentalItem] {
-        allPadRentals.filter { $0.onLocation }
+        allPadRentals.filter { $0.onLocation && !$0.invoiced }
     }
 
     private var totalRentalCost: Double {
@@ -152,10 +153,10 @@ struct PadDashboardView: View {
         .background(pageBackgroundColor)
         .navigationTitle("Pad Dashboard")
         .sheet(isPresented: $showingAddNote) {
-            AddPadNoteSheet(pad: pad)
+            NoteEditorView(pad: pad, note: nil)
         }
         .sheet(isPresented: $showingAddTask) {
-            AddPadTaskSheet(pad: pad)
+            TaskEditorView(pad: pad, task: nil)
         }
         .sheet(isPresented: $showingAddWell) {
             AddWellToPadSheet(pad: pad)
@@ -212,6 +213,11 @@ struct PadDashboardView: View {
                 wells: allWells
             )
         }
+        #if os(macOS)
+        .sheet(isPresented: $showingOnLocationReport) {
+            PadRentalsOnLocationReportPreview(pad: pad, rentals: onLocationRentals)
+        }
+        #endif
     }
 
     // MARK: - Header
@@ -477,6 +483,14 @@ struct PadDashboardView: View {
                         }
 
                         Spacer()
+
+                        #if os(macOS)
+                        Button("On Location Report", systemImage: "doc.text") {
+                            showingOnLocationReport = true
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(onLocationRentals.isEmpty)
+                        #endif
                     }
                     .padding(.bottom, 8)
 
@@ -845,10 +859,8 @@ private struct AddPadNoteSheet: View {
                             category: category,
                             isPinned: isPinned
                         )
-                        note.pad = pad
-                        if pad.notes == nil { pad.notes = [] }
-                        pad.notes?.append(note)
                         modelContext.insert(note)
+                        note.pad = pad  // SwiftData automatically manages the inverse relationship
                         try? modelContext.save()
                         dismiss()
                     }
@@ -908,10 +920,8 @@ private struct AddPadTaskSheet: View {
                             priority: priority,
                             dueDate: hasDueDate ? dueDate : nil
                         )
-                        task.pad = pad
-                        if pad.tasks == nil { pad.tasks = [] }
-                        pad.tasks?.append(task)
                         modelContext.insert(task)
+                        task.pad = pad  // SwiftData automatically manages the inverse relationship
                         try? modelContext.save()
                         dismiss()
                     }

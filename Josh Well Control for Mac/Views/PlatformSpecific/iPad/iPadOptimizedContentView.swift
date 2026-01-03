@@ -175,11 +175,14 @@ struct iPadSidebarView: View {
     let selectedProject: ProjectState?
 
     // Technical sections (same as macOS)
-    private let dashboardViews: [ViewSelection] = [.padDashboard, .wellDashboard, .dashboard]
+    private let dashboardViews: [ViewSelection] = [.handover, .padDashboard, .wellDashboard, .dashboard]
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
-    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .tripSimulation]
-    private let operationsViews: [ViewSelection] = [.rentals, .transfers]
+    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab]
+    private let simulationViews: [ViewSelection] = [.tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking]
+    private let directionalViews: [ViewSelection] = [.directionalPlanning]
+    private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
+    private let lookAheadViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
 
     // Business sections
     private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
@@ -187,6 +190,8 @@ struct iPadSidebarView: View {
     private let payrollViews: [ViewSelection] = [.payroll, .employees]
     private let dividendViews: [ViewSelection] = [.dividends, .shareholders]
     private let reportViews: [ViewSelection] = [.companyStatement, .expenseReport, .payrollReport]
+
+    @State private var showingDataSettings = false
 
     var body: some View {
         List {
@@ -211,9 +216,23 @@ struct iPadSidebarView: View {
                 }
             }
 
-            // Analysis & Simulation
+            // Analysis
             Section("Analysis") {
                 ForEach(analysisViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Simulation
+            Section("Simulation") {
+                ForEach(simulationViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Directional
+            Section("Directional") {
+                ForEach(directionalViews, id: \.self) { view in
                     sidebarRow(for: view)
                 }
             }
@@ -221,6 +240,13 @@ struct iPadSidebarView: View {
             // Operations
             Section("Operations") {
                 ForEach(operationsViews, id: \.self) { view in
+                    sidebarRow(for: view)
+                }
+            }
+
+            // Look Ahead
+            Section("Look Ahead") {
+                ForEach(lookAheadViews, id: \.self) { view in
                     sidebarRow(for: view)
                 }
             }
@@ -259,10 +285,31 @@ struct iPadSidebarView: View {
                     sidebarRow(for: view)
                 }
             }
+
+            // Settings
+            Section("Settings") {
+                Button {
+                    showingDataSettings = true
+                } label: {
+                    Label("Data & Sync", systemImage: "arrow.clockwise.icloud")
+                }
+            }
         }
         .navigationTitle("Features")
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.sidebar)
+        .sheet(isPresented: $showingDataSettings) {
+            NavigationStack {
+                DataSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showingDataSettings = false
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     @ViewBuilder
@@ -391,7 +438,7 @@ struct iPadDetailView: View {
     private func detailContent(for project: ProjectState) -> some View {
         switch selectedView {
         case .handover:
-            ContentUnavailableView("Handover", systemImage: "list.clipboard", description: Text("Handover view is optimized for macOS. Use Pad/Well dashboards on iPad."))
+            WellsDashboardView()
                 case .padDashboard:
                     if let pad = selectedPad {
                         PadDashboardView(pad: pad, onSelectWell: { well in
@@ -439,12 +486,26 @@ struct iPadDetailView: View {
                     CementJobView(project: project)
                 case .swabbing:
                     SwabbingView(project: project)
+                case .surgeSwab:
+                    SurgeSwabView(project: project)
                 case .tripSimulation:
                     TripSimulationViewIOS(project: project)
+                case .tripInSimulation:
+                    TripInSimulationViewIOS(project: project)
                 case .tripTracker:
                     TripTrackerViewIOS(project: project)
+                case .tripRecord:
+                    TripRecordViewIOS(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
+                case .directionalPlanning:
+                    DirectionalDashboardView(project: project)
+                case .lookAheadScheduler:
+                    LookAheadListView()
+                case .vendors:
+                    VendorListView()
+                case .jobCodes:
+                    JobCodeListView()
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)
@@ -453,6 +514,8 @@ struct iPadDetailView: View {
                     }
                 case .transfers:
                     AllMaterialTransfersViewIOS()
+                case .equipmentRegistry:
+                    RentalEquipmentListViewIOS()
                 case .workDays:
                     WorkTrackingContainerViewIOS()
 

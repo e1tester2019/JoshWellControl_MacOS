@@ -807,12 +807,11 @@ private struct ProjectAddNoteSheet: View {
                             category: category,
                             isPinned: isPinned
                         )
+                        modelContext.insert(note)
+                        // SwiftData automatically manages inverse relationships
                         note.project = project
                         note.well = project.well
                         note.pad = project.well?.pad
-                        if project.notes == nil { project.notes = [] }
-                        project.notes?.append(note)
-                        modelContext.insert(note)
                         try? modelContext.save()
                         dismiss()
                     }
@@ -872,12 +871,11 @@ private struct ProjectAddTaskSheet: View {
                             priority: priority,
                             dueDate: hasDueDate ? dueDate : nil
                         )
+                        modelContext.insert(task)
+                        // SwiftData automatically manages inverse relationships
                         task.project = project
                         task.well = project.well
                         task.pad = project.well?.pad
-                        if project.tasks == nil { project.tasks = [] }
-                        project.tasks?.append(task)
-                        modelContext.insert(task)
                         try? modelContext.save()
                         dismiss()
                     }

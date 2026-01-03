@@ -21,6 +21,20 @@ struct RentalItemsView: View {
     @State private var showTransferSheet = false
     @State private var showEquipmentPicker = false
     @State private var showAddFromRegistry = false
+    @State private var showOnLocationReport = false
+    @State private var viewMode: RentalViewMode = .list
+
+    enum RentalViewMode: String, CaseIterable {
+        case list = "List"
+        case cards = "Cards"
+
+        var icon: String {
+            switch self {
+            case .list: return "list.bullet"
+            case .cards: return "rectangle.grid.1x2"
+            }
+        }
+    }
 
     init(well: Well) { self._well = Bindable(wrappedValue: well) }
 
@@ -30,6 +44,15 @@ struct RentalItemsView: View {
             HStack {
                 Text("Rentals for \(well.name)").font(.title3).bold()
                 Spacer()
+
+                // View mode picker
+                Picker("View", selection: $viewMode) {
+                    ForEach(RentalViewMode.allCases, id: \.self) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 120)
 
                 // Category filter
                 Picker("Category", selection: $selectedCategory) {
@@ -41,7 +64,9 @@ struct RentalItemsView: View {
                 .frame(width: 160)
 
                 Toggle("Active Only", isOn: $showOnlyActive)
+                    #if os(macOS)
                     .toggleStyle(.checkbox)
+                    #endif
 
                 Menu {
                     Button("New Rental", systemImage: "plus") { addRental() }
@@ -49,51 +74,21 @@ struct RentalItemsView: View {
                     Divider()
                     Button("Transfer Selected", systemImage: "arrow.right.circle") { showTransferSheet = true }
                         .disabled(selection == nil)
+                    Divider()
+                    Button("On Location Report", systemImage: "doc.text") { showOnLocationReport = true }
+                        .disabled(onLocationRentals.isEmpty)
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
                 .menuStyle(.borderlessButton)
             }
 
-            // Card list
-            List(selection: $selection) {
-                ForEach(filteredRentals) { r in
-                    RentalCard(rental: r, selected: selection?.id == r.id, allEquipment: allEquipment) { selection = r }
-                        .listRowSeparator(.hidden)
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            Button("Edit Details", systemImage: "square.and.pencil") { openEditor(r) }
-                            if r.equipment == nil {
-                                Button("Link to Equipment", systemImage: "link") {
-                                    selection = r
-                                    showEquipmentPicker = true
-                                }
-                            } else {
-                                Button("Unlink Equipment", systemImage: "link.badge.minus") {
-                                    r.equipment = nil
-                                    try? modelContext.save()
-                                }
-                            }
-                            Divider()
-                            statusMenu(for: r)
-                            Divider()
-                            Button("Transfer to Well", systemImage: "arrow.right.circle") {
-                                selection = r
-                                showTransferSheet = true
-                            }
-                            Button("Copy Summary", systemImage: "doc.on.doc") { copySummary(r) }
-                            Button("Copy Well + Rental", systemImage: "doc.on.clipboard") { copyWellPlusRental(r) }
-                            Divider()
-                            Button(role: .destructive) { delete(r) } label: { Label("Delete", systemImage: "trash") }
-                        }
-                }
-                .onDelete { idx in
-                    let items = idx.map { filteredRentals[$0] }
-                    items.forEach(delete)
-                }
+            // List or Card view
+            if viewMode == .list {
+                rentalListView
+            } else {
+                rentalCardView
             }
-            .listStyle(.inset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Footer
             HStack {
@@ -121,6 +116,7 @@ struct RentalItemsView: View {
         .navigationTitle("Rentals")
         .sheet(item: $editingRental) { rental in
             RentalDetailEditor(rental: rental, allEquipment: allEquipment)
+                .id(rental.id) // Force view recreation when editing different rental
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 #if os(macOS)
                 .frame(minWidth: 720, minHeight: 600)
@@ -137,6 +133,11 @@ struct RentalItemsView: View {
         .sheet(isPresented: $showAddFromRegistry) {
             AddFromRegistrySheet(well: well, allEquipment: allEquipment.filter { $0.isActive })
         }
+        #if os(macOS)
+        .sheet(isPresented: $showOnLocationReport) {
+            RentalsOnLocationReportPreview(well: well, rentals: onLocationRentals)
+        }
+        #endif
     }
 
     private var filteredRentals: [RentalItem] {
@@ -159,6 +160,227 @@ struct RentalItemsView: View {
             if asd != bsd { return asd > bsd }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
+    }
+
+    /// Rentals currently on location (for report)
+    private var onLocationRentals: [RentalItem] {
+        (well.rentals ?? []).filter { $0.onLocation && !$0.invoiced }
+            .sorted { a, b in
+                let asd = a.startDate ?? .distantPast
+                let bsd = b.startDate ?? .distantPast
+                if asd != bsd { return asd < bsd }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+    }
+
+    // MARK: - Grouped Rentals for List View
+
+    private struct CategoryGroup: Identifiable {
+        var id: String { category?.id.uuidString ?? "uncategorized" }
+        let category: RentalCategory?
+        var active: [RentalItem]      // Used/running, on location, not invoiced
+        var standby: [RentalItem]     // On location but not used yet
+        var shipped: [RentalItem]     // Shipped out (not on location), not invoiced
+        var invoiced: [RentalItem]    // Completed/invoiced
+
+        var totalCount: Int { active.count + standby.count + shipped.count + invoiced.count }
+    }
+
+    private var groupedRentals: [CategoryGroup] {
+        var categoryBuckets: [UUID?: [RentalItem]] = [:]
+        for rental in filteredRentals {
+            let catId = rental.category?.id
+            categoryBuckets[catId, default: []].append(rental)
+        }
+
+        var groups: [CategoryGroup] = []
+
+        // Sort categories by name
+        let categoryIds = Set(categoryBuckets.keys)
+        let sortedCats: [RentalCategory] = categoryIds.compactMap { catId -> RentalCategory? in
+            guard let catId = catId else { return nil }
+            return categories.first { $0.id == catId }
+        }.sorted { $0.name < $1.name }
+
+        for cat in sortedCats {
+            let rentals = categoryBuckets[cat.id] ?? []
+            let active = rentals.filter { $0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let standby = rentals.filter { !$0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let shipped = rentals.filter { !$0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let invoiced = rentals.filter { $0.invoiced }.sorted { $0.name < $1.name }
+            groups.append(CategoryGroup(category: cat, active: active, standby: standby, shipped: shipped, invoiced: invoiced))
+        }
+
+        // Uncategorized
+        if let uncategorized = categoryBuckets[nil], !uncategorized.isEmpty {
+            let active = uncategorized.filter { $0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let standby = uncategorized.filter { !$0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let shipped = uncategorized.filter { !$0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let invoiced = uncategorized.filter { $0.invoiced }.sorted { $0.name < $1.name }
+            groups.append(CategoryGroup(category: nil, active: active, standby: standby, shipped: shipped, invoiced: invoiced))
+        }
+
+        return groups
+    }
+
+    // MARK: - List View
+
+    private var rentalListView: some View {
+        List(selection: $selection) {
+            ForEach(groupedRentals) { group in
+                Section {
+                    // Active rentals
+                    if !group.active.isEmpty {
+                        DisclosureGroup {
+                            ForEach(group.active) { rental in
+                                RentalListRow(rental: rental)
+                                    .tag(rental)
+                                    .contextMenu { rentalContextMenu(for: rental) }
+                            }
+                        } label: {
+                            Label("\(group.active.count) Active", systemImage: "play.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        }
+                    }
+
+                    // Standby rentals
+                    if !group.standby.isEmpty {
+                        DisclosureGroup {
+                            ForEach(group.standby) { rental in
+                                RentalListRow(rental: rental)
+                                    .tag(rental)
+                                    .contextMenu { rentalContextMenu(for: rental) }
+                            }
+                        } label: {
+                            Label("\(group.standby.count) Standby", systemImage: "pause.circle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                        }
+                    }
+
+                    // Shipped rentals (off location, awaiting invoice)
+                    if !group.shipped.isEmpty {
+                        DisclosureGroup {
+                            ForEach(group.shipped) { rental in
+                                RentalListRow(rental: rental)
+                                    .tag(rental)
+                                    .contextMenu { rentalContextMenu(for: rental) }
+                            }
+                        } label: {
+                            Label("\(group.shipped.count) Shipped", systemImage: "shippingbox.fill")
+                                .foregroundStyle(.blue)
+                                .font(.caption)
+                        }
+                    }
+
+                    // Invoiced rentals
+                    if !group.invoiced.isEmpty {
+                        DisclosureGroup {
+                            ForEach(group.invoiced) { rental in
+                                RentalListRow(rental: rental)
+                                    .tag(rental)
+                                    .contextMenu { rentalContextMenu(for: rental) }
+                            }
+                        } label: {
+                            Label("\(group.invoiced.count) Invoiced", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        if let category = group.category {
+                            Label(category.name, systemImage: category.icon)
+                        } else {
+                            Label("Uncategorized", systemImage: "questionmark.folder")
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        // Status summary
+                        HStack(spacing: 8) {
+                            if group.active.count > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "play.circle.fill")
+                                        .foregroundStyle(.green)
+                                    Text("\(group.active.count)")
+                                }
+                            }
+                            if group.standby.count > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "pause.circle.fill")
+                                        .foregroundStyle(.orange)
+                                    Text("\(group.standby.count)")
+                                }
+                            }
+                            if group.shipped.count > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "shippingbox.fill")
+                                        .foregroundStyle(.blue)
+                                    Text("\(group.shipped.count)")
+                                }
+                            }
+                            if group.invoiced.count > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(group.invoiced.count)")
+                                }
+                            }
+                        }
+                        .font(.caption2)
+                    }
+                }
+            }
+        }
+        .listStyle(.inset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Card View
+
+    private var rentalCardView: some View {
+        List(selection: $selection) {
+            ForEach(filteredRentals) { r in
+                RentalCard(rental: r, selected: selection?.id == r.id, allEquipment: allEquipment) { selection = r }
+                    .listRowSeparator(.hidden)
+                    .contentShape(Rectangle())
+                    .contextMenu { rentalContextMenu(for: r) }
+            }
+            .onDelete { idx in
+                let items = idx.map { filteredRentals[$0] }
+                items.forEach(delete)
+            }
+        }
+        .listStyle(.inset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func rentalContextMenu(for r: RentalItem) -> some View {
+        Button("Edit Details", systemImage: "square.and.pencil") { openEditor(r) }
+        if r.equipment == nil {
+            Button("Link to Equipment", systemImage: "link") {
+                selection = r
+                showEquipmentPicker = true
+            }
+        } else {
+            Button("Unlink Equipment", systemImage: "link.badge.minus") {
+                r.equipment = nil
+                try? modelContext.save()
+            }
+        }
+        Divider()
+        statusMenu(for: r)
+        Divider()
+        Button("Transfer to Well", systemImage: "arrow.right.circle") {
+            selection = r
+            showTransferSheet = true
+        }
+        Button("Copy Summary", systemImage: "doc.on.doc") { copySummary(r) }
+        Button("Copy Well + Rental", systemImage: "doc.on.clipboard") { copyWellPlusRental(r) }
+        Divider()
+        Button(role: .destructive) { delete(r) } label: { Label("Delete", systemImage: "trash") }
     }
 
     @ViewBuilder
@@ -196,7 +418,16 @@ struct RentalItemsView: View {
     }
 
     private func openEditor(_ r: RentalItem) {
-        editingRental = r
+        // Ensure clean state transition for sheet
+        if editingRental != nil {
+            editingRental = nil
+            // Small delay to allow sheet to dismiss before presenting new one
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                editingRental = r
+            }
+        } else {
+            editingRental = r
+        }
     }
 
     private func copySummary(_ r: RentalItem) {
@@ -257,6 +488,119 @@ struct RentalItemsView: View {
         if !parts.isEmpty { lines.append("Days: \(parts.joined(separator: "; ")) (total: \(total))") } else { lines.append("Days: (total: \(total))") }
         if r.status != .notRun { lines.append("Status: \(r.status.rawValue)") }
         return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - List Row
+private struct RentalListRow: View {
+    let rental: RentalItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Category icon
+            Image(systemName: rental.category?.icon ?? "shippingbox")
+                .font(.title2)
+                .foregroundStyle(rental.invoiced ? Color.secondary : Color.blue)
+                .frame(width: 30)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(rental.displayName)
+                        .fontWeight(.medium)
+                    if !rental.issueNotes.isEmpty {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                    }
+                    if !rental.onLocation && !rental.invoiced {
+                        Text("SHIPPED")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.2))
+                            .foregroundStyle(.blue)
+                            .cornerRadius(4)
+                    } else if rental.used && rental.onLocation && !rental.invoiced {
+                        Text("ACTIVE")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundStyle(.green)
+                            .cornerRadius(4)
+                    }
+                    if rental.wasTransferred {
+                        Image(systemName: "arrow.right.circle")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                    }
+                }
+                HStack(spacing: 8) {
+                    if let sn = rental.serialNumber, !sn.isEmpty {
+                        Text("SN: \(sn)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let vendor = rental.vendor {
+                        Text(vendor.companyName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let equipment = rental.equipment {
+                        HStack(spacing: 2) {
+                            Image(systemName: "link")
+                            Text(equipment.serialNumber)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Status
+            HStack(spacing: 4) {
+                Image(systemName: rental.status.icon)
+                    .foregroundStyle(rental.status.color)
+                Text(rental.status.rawValue)
+            }
+            .font(.caption)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(rental.status.color.opacity(0.15))
+            .cornerRadius(4)
+
+            // Date range
+            VStack(alignment: .trailing, spacing: 2) {
+                if let start = rental.startDate {
+                    Text(start, style: .date)
+                        .font(.caption)
+                }
+                if rental.used {
+                    Text("\(rental.totalDays) days")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 80, alignment: .trailing)
+
+            // Cost
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(String(format: "$%.2f", rental.totalCost))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .bold()
+                if rental.costPerDay > 0 {
+                    Text("$\(Int(rental.costPerDay))/day")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 70, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+        .opacity(rental.invoiced ? 0.6 : 1)
     }
 }
 
@@ -384,7 +728,11 @@ private struct RentalCard: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("On Loc").font(.caption).foregroundStyle(.secondary)
-                    Toggle("", isOn: $rental.onLocation).labelsHidden()
+                    Toggle("", isOn: $rental.onLocation)
+                        .labelsHidden()
+                        .onChange(of: rental.onLocation) { _, newValue in
+                            syncEquipmentLocation(onLocation: newValue)
+                        }
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Invoiced").font(.caption).foregroundStyle(.secondary)
@@ -459,6 +807,19 @@ private struct RentalCard: View {
             day = next
         }
         rental.usageDates = days
+        try? modelContext.save()
+    }
+
+    private func syncEquipmentLocation(onLocation: Bool) {
+        guard let equipment = rental.equipment else { return }
+        if onLocation {
+            // Coming back on location - set to onLocation or inUse based on whether rental is active
+            equipment.locationStatus = rental.used ? .inUse : .onLocation
+        } else {
+            // Shipped out - set to withVendor
+            equipment.locationStatus = .withVendor
+        }
+        equipment.touch()
         try? modelContext.save()
     }
 
@@ -919,7 +1280,11 @@ struct RentalDetailEditor: View {
                         }
                         HStack(spacing: 12) {
                             Text("On Location").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
-                            Toggle("", isOn: $rental.onLocation).labelsHidden()
+                            Toggle("", isOn: $rental.onLocation)
+                                .labelsHidden()
+                                .onChange(of: rental.onLocation) { _, newValue in
+                                    syncEquipmentLocation(onLocation: newValue)
+                                }
                         }
                         HStack(spacing: 12) {
                             Text("Invoiced").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
@@ -941,27 +1306,25 @@ struct RentalDetailEditor: View {
 
                 GroupBox("Usage Days") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Adjusting Start/End updates this list automatically. You can still add/remove days.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
-                            Button { addToday() } label: { Label("Add Today", systemImage: "calendar.badge.plus") }
-                            Button { clearUsage() } label: { Label("Clear", systemImage: "trash") }
-                            Spacer()
-                            Text("Total days: \(rental.totalDays)")
-                        }
-                        .controlSize(.small)
-
-                        let dates = rental.usageDates.sorted()
-                        if dates.isEmpty {
-                            Text("No specific usage days. Using Start/End.")
+                        HStack {
+                            Text("Tap days on the calendar to toggle them.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        } else {
-                            UsageChipsView(dates: dates, onRemove: { d in
-                                rental.toggleUsage(on: d)
-                            })
+                            Spacer()
+                            Text("\(rental.totalDays) days selected")
+                                .font(.caption)
+                                .bold()
                         }
+
+                        UsageCalendarView(selectedDates: $rental.usageDates)
+
+                        HStack(spacing: 8) {
+                            Button { addToday() } label: { Label("Add Today", systemImage: "calendar.badge.plus") }
+                            Button { clearUsage() } label: { Label("Clear All", systemImage: "trash") }
+                            Spacer()
+                            Button { selectWeekdays() } label: { Label("Select Weekdays", systemImage: "calendar") }
+                        }
+                        .controlSize(.small)
                     }
                 }
 
@@ -1031,6 +1394,28 @@ struct RentalDetailEditor: View {
 
     private func addToday() { rental.toggleUsage(on: Date()); try? modelContext.save() }
     private func clearUsage() { rental.usageDates = []; try? modelContext.save() }
+    private func selectWeekdays() {
+        // Select all weekdays in the current date range (or current month if no range)
+        let cal = Calendar.current
+        let startDate = rental.startDate ?? cal.startOfDay(for: Date())
+        let endDate = rental.endDate ?? cal.date(byAdding: .month, value: 1, to: startDate) ?? startDate
+
+        var days: [Date] = []
+        var day = cal.startOfDay(for: min(startDate, endDate))
+        let end = cal.startOfDay(for: max(startDate, endDate))
+
+        while day <= end {
+            let weekday = cal.component(.weekday, from: day)
+            // Weekdays are 2-6 (Mon-Fri), 1 is Sunday, 7 is Saturday
+            if weekday >= 2 && weekday <= 6 {
+                days.append(day)
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        rental.usageDates = days
+        try? modelContext.save()
+    }
     private func addAdditionalCost() {
         let amount = Double(newCostAmount.replacingOccurrences(of: ",", with: "")) ?? 0
         guard !newCostDesc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || amount != 0 else { return }
@@ -1053,6 +1438,19 @@ struct RentalDetailEditor: View {
             day = next
         }
         rental.usageDates = days
+        try? modelContext.save()
+    }
+
+    private func syncEquipmentLocation(onLocation: Bool) {
+        guard let equipment = rental.equipment else { return }
+        if onLocation {
+            // Coming back on location - set to onLocation or inUse based on whether rental is active
+            equipment.locationStatus = rental.used ? .inUse : .onLocation
+        } else {
+            // Shipped out - set to withVendor
+            equipment.locationStatus = .withVendor
+        }
+        equipment.touch()
         try? modelContext.save()
     }
 
@@ -1153,6 +1551,152 @@ struct RentalDetailEditor: View {
                     .padding(.horizontal, 6)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color.gray.opacity(0.12)))
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Usage Calendar View
+private struct UsageCalendarView: View {
+    @Binding var selectedDates: [Date]
+    @State private var displayedMonth: Date = Date()
+
+    private let calendar = Calendar.current
+    private let weekdaySymbols = Calendar.current.veryShortWeekdaySymbols
+
+    private var monthYearString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: displayedMonth)
+    }
+
+    private var daysInMonth: [Date?] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: displayedMonth) else {
+            return []
+        }
+
+        var days: [Date?] = []
+        let firstDayOfMonth = monthInterval.start
+        let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end)!
+
+        // Add nil for days before the first of the month
+        let firstWeekday = calendar.component(.weekday, from: firstDayOfMonth)
+        for _ in 1..<firstWeekday {
+            days.append(nil)
+        }
+
+        // Add all days in the month
+        var day = firstDayOfMonth
+        while day <= lastDayOfMonth {
+            days.append(day)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+
+        return days
+    }
+
+    private func isSelected(_ date: Date) -> Bool {
+        let startOfDay = calendar.startOfDay(for: date)
+        return selectedDates.contains { calendar.isDate($0, inSameDayAs: startOfDay) }
+    }
+
+    private func toggleDate(_ date: Date) {
+        let startOfDay = calendar.startOfDay(for: date)
+        if let index = selectedDates.firstIndex(where: { calendar.isDate($0, inSameDayAs: startOfDay) }) {
+            selectedDates.remove(at: index)
+        } else {
+            selectedDates.append(startOfDay)
+        }
+    }
+
+    private func isToday(_ date: Date) -> Bool {
+        calendar.isDateInToday(date)
+    }
+
+    private func isWeekend(_ date: Date) -> Bool {
+        let weekday = calendar.component(.weekday, from: date)
+        return weekday == 1 || weekday == 7
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            // Month navigation
+            HStack {
+                Button {
+                    if let prev = calendar.date(byAdding: .month, value: -1, to: displayedMonth) {
+                        displayedMonth = prev
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+
+                Spacer()
+                Text(monthYearString)
+                    .font(.headline)
+                Spacer()
+
+                Button {
+                    if let next = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
+                        displayedMonth = next
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            // Weekday headers
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
+                ForEach(weekdaySymbols, id: \.self) { symbol in
+                    Text(symbol)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            // Calendar grid
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
+                ForEach(Array(daysInMonth.enumerated()), id: \.offset) { _, date in
+                    if let date = date {
+                        Button {
+                            toggleDate(date)
+                        } label: {
+                            Text("\(calendar.component(.day, from: date))")
+                                .font(.caption)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(isSelected(date) ? Color.blue : Color.clear)
+                                )
+                                .foregroundStyle(
+                                    isSelected(date) ? .white :
+                                    isToday(date) ? .blue :
+                                    isWeekend(date) ? .secondary : .primary
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(isToday(date) ? Color.blue : Color.clear, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 28)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.1)))
+        .onAppear {
+            // Start displaying the month of the first selected date, or current month
+            if let firstDate = selectedDates.sorted().first {
+                displayedMonth = firstDate
             }
         }
     }

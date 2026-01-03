@@ -574,10 +574,19 @@ struct WellsDashboardView: View {
     }
 
     private var allTasks: [WellTask] {
-        // Include tasks from selected wells and their pads
+        // Include tasks from selected wells and their pads, deduplicated
         let wellTasks = selectedWells.flatMap { $0.tasks ?? [] }
         let padTasks = selectedPads.flatMap { $0.padTasks }
-        return wellTasks + padTasks
+
+        // Deduplicate by ID (a task assigned to both a well and pad would appear twice otherwise)
+        var seenIDs = Set<UUID>()
+        var uniqueTasks: [WellTask] = []
+        for task in wellTasks + padTasks {
+            if seenIDs.insert(task.id).inserted {
+                uniqueTasks.append(task)
+            }
+        }
+        return uniqueTasks
     }
 
     private var filteredTasks: [WellTask] {
@@ -608,10 +617,19 @@ struct WellsDashboardView: View {
     }
 
     private var allNotes: [HandoverNote] {
-        // Include notes from selected wells and their pads
+        // Include notes from selected wells and their pads, deduplicated
         let wellNotes = selectedWells.flatMap { $0.notes ?? [] }
         let padNotes = selectedPads.flatMap { $0.padNotes }
-        return wellNotes + padNotes
+
+        // Deduplicate by ID (a note assigned to both a well and pad would appear twice otherwise)
+        var seenIDs = Set<UUID>()
+        var uniqueNotes: [HandoverNote] = []
+        for note in wellNotes + padNotes {
+            if seenIDs.insert(note.id).inserted {
+                uniqueNotes.append(note)
+            }
+        }
+        return uniqueNotes
     }
 
     private var filteredNotes: [HandoverNote] {

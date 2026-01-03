@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 
+#if os(macOS)
 struct RentalEquipmentListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
@@ -24,6 +25,7 @@ struct RentalEquipmentListView: View {
     @State private var showingEditSheet = false
     @State private var equipmentToEdit: RentalEquipment?
     @State private var filterActiveOnly = false
+    @State private var showingOnLocationReport = false
 
     private var filteredEquipment: [RentalEquipment] {
         var result = allEquipment
@@ -47,6 +49,12 @@ struct RentalEquipmentListView: View {
         return result
     }
 
+    /// Equipment currently in use or on location (for report)
+    private var onLocationEquipment: [RentalEquipment] {
+        allEquipment.filter { $0.locationStatus == .inUse || $0.locationStatus == .onLocation }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     var body: some View {
         HSplitView {
             // Equipment list
@@ -62,6 +70,7 @@ struct RentalEquipmentListView: View {
                 EquipmentDetailView(equipment: equipment, onLogIssue: {
                     showingIssueSheet = true
                 })
+                .id(equipment.id) // Force view recreation when selection changes
                 .frame(minWidth: 350)
             } else {
                 emptyDetailView
@@ -90,6 +99,11 @@ struct RentalEquipmentListView: View {
                 }
             }
         }
+        #if os(macOS)
+        .sheet(isPresented: $showingOnLocationReport) {
+            EquipmentOnLocationReportPreview(equipment: onLocationEquipment)
+        }
+        #endif
     }
 
     private var toolbar: some View {
@@ -99,6 +113,10 @@ struct RentalEquipmentListView: View {
                     .font(.title3)
                     .bold()
                 Spacer()
+                Button("On Location Report", systemImage: "doc.text") {
+                    showingOnLocationReport = true
+                }
+                .disabled(onLocationEquipment.isEmpty)
                 Button("Categories", systemImage: "folder") {
                     showingCategoryManager = true
                 }
@@ -797,8 +815,9 @@ private struct IssueLogSheet: View {
         .frame(width: 450)
     }
 }
+#endif // os(macOS)
 
-#if DEBUG
+#if DEBUG && os(macOS)
 #Preview {
     RentalEquipmentListView()
         .modelContainer(for: [RentalEquipment.self, RentalCategory.self, Vendor.self], inMemory: true)

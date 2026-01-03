@@ -590,7 +590,9 @@ struct DirectionalDashboardView: View {
                         Text("Apply current BR/TR")
                             .font(.caption)
                     }
+                    #if os(macOS)
                     .toggleStyle(.checkbox)
+                    #endif
 
                     Divider()
                         .frame(height: 20)

@@ -413,25 +413,28 @@ private struct SurveyRowEditable: View {
     var onDelete: () -> Void
     var onChange: (SurveyField) -> Void
 
+    private enum Field: Hashable { case md, inc, azi, tvd, vs, ns, ew, dls, subsea, build, turn }
+    @FocusState private var focusedField: Field?
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             TextField("MD", value: $station.md, format: .number)
                 .frame(width: 90, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .onChange(of: station.md) { onChange(.md) }
+                .focused($focusedField, equals: .md)
 
             TextField("Incl", value: $station.inc, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .onChange(of: station.inc) { onChange(.inc) }
+                .focused($focusedField, equals: .inc)
 
             TextField("Azm", value: $station.azi, format: .number)
                 .frame(width: 80, alignment: .leading)
                 .textFieldStyle(.roundedBorder)
                 .monospacedDigit()
-                .onChange(of: station.azi) { onChange(.azi) }
+                .focused($focusedField, equals: .azi)
 
             TextField("TVD", value: $station.tvd, format: .number)
                 .frame(width: 90, alignment: .leading)
@@ -477,6 +480,15 @@ private struct SurveyRowEditable: View {
             Button("Delete", role: .destructive, action: onDelete)
                 .buttonStyle(.borderless)
                 .controlSize(.small)
+        }
+        .onChange(of: focusedField) { oldField, _ in
+            // Trigger recalculation when focus leaves MD, Inc, or Azi fields
+            switch oldField {
+            case .md: onChange(.md)
+            case .inc: onChange(.inc)
+            case .azi: onChange(.azi)
+            default: break
+            }
         }
     }
 }

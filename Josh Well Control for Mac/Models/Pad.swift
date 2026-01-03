@@ -81,19 +81,15 @@ import SwiftData
 extension Pad {
     func createTask(title: String, description: String = "", priority: TaskPriority = .medium, dueDate: Date? = nil, author: String = "", context: ModelContext) -> WellTask {
         let task = WellTask(title: title, description: description, priority: priority, dueDate: dueDate, author: author)
-        task.pad = self
-        if tasks == nil { tasks = [] }
-        tasks?.append(task)
         context.insert(task)
+        task.pad = self  // SwiftData automatically manages the inverse relationship
         return task
     }
 
     func createNote(title: String, content: String = "", category: NoteCategory = .general, author: String = "", isPinned: Bool = false, context: ModelContext) -> HandoverNote {
         let note = HandoverNote(title: title, content: content, category: category, author: author, isPinned: isPinned)
-        note.pad = self
-        if notes == nil { notes = [] }
-        notes?.append(note)
         context.insert(note)
+        note.pad = self  // SwiftData automatically manages the inverse relationship
         return note
     }
 }

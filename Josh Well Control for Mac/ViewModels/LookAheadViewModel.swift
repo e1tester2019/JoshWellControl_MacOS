@@ -71,7 +71,6 @@ class LookAheadViewModel {
 
         // 2. Set the new task's sequence order
         task.sequenceOrder = position
-        task.schedule = schedule
 
         // 3. Calculate start time from previous task (or schedule start)
         if position == 0 {
@@ -80,10 +79,9 @@ class LookAheadViewModel {
             task.startTime = previousTask.endTime
         }
 
-        // 4. Insert into schedule
-        if schedule.tasks == nil { schedule.tasks = [] }
-        schedule.tasks?.append(task)
+        // 4. Insert into context and set relationship (SwiftData manages inverse automatically)
         context.insert(task)
+        task.schedule = schedule
 
         // 5. Cascade times for all subsequent tasks
         cascadeTimesFromPosition(position + 1, context: context)

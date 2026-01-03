@@ -175,12 +175,13 @@ class HandoverExportService {
             drawText("Pad: \(padName)", at: CGPoint(x: margin, y: yPosition), font: headingFont)
             yPosition -= 30
 
-            // Render pad-level tasks and notes first (if this is an actual pad)
+            // Render pad-only tasks and notes (items assigned to pad but NOT to any well)
             if let pad = pad {
-                // Filter pad tasks by date
+                // Filter pad tasks: only those assigned to pad but not to a well
                 if options.includeTasks {
                     var padTasks = pad.padTasks.filter { task in
-                        task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate
+                        task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate &&
+                        task.well == nil  // Only show if not assigned to a specific well
                     }
                     if !options.includeCompleted {
                         padTasks = padTasks.filter { $0.status != .completed && $0.status != .cancelled }
@@ -233,10 +234,11 @@ class HandoverExportService {
                     }
                 }
 
-                // Filter pad notes by date
+                // Filter pad notes: only those assigned to pad but not to a well
                 if options.includeNotes {
                     let padNotes = pad.padNotes.filter { note in
-                        note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate
+                        note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate &&
+                        note.well == nil  // Only show if not assigned to a specific well
                     }.sorted { $0.isPinned && !$1.isPinned }
 
                     if !padNotes.isEmpty {
@@ -291,7 +293,7 @@ class HandoverExportService {
                 drawText(well.name, at: CGPoint(x: margin + 10, y: yPosition), font: subheadingFont)
                 yPosition -= 18
 
-                // Filter tasks by date
+                // Filter tasks by date (all tasks assigned to this well)
                 if options.includeTasks {
                     var tasks = (well.tasks ?? []).filter { task in
                         task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate
@@ -347,7 +349,7 @@ class HandoverExportService {
                     }
                 }
 
-                // Filter notes by date
+                // Filter notes by date (all notes assigned to this well)
                 if options.includeNotes {
                     let notes = (well.notes ?? []).filter { note in
                         note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate

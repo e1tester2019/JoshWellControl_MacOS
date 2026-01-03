@@ -12,8 +12,11 @@ struct TaskEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    let well: Well?
-    let pad: Pad?
+    @Query(sort: \Pad.name) private var allPads: [Pad]
+    @Query(sort: \Well.name) private var allWells: [Well]
+
+    let initialWell: Well?
+    let initialPad: Pad?
     let task: WellTask?
 
     @State private var title: String = ""
@@ -23,24 +26,42 @@ struct TaskEditorView: View {
     @State private var hasDueDate: Bool = false
     @State private var dueDate: Date = Date()
     @State private var author: String = ""
+    @State private var selectedWell: Well?
+    @State private var selectedPad: Pad?
+    @State private var isSaving = false
 
     private var isEditing: Bool { task != nil }
 
-    private var ownerName: String {
-        if let well = well { return well.name }
-        if let pad = pad { return "\(pad.name) (Pad)" }
-        return "Unknown"
+    private var wellsForSelectedPad: [Well] {
+        if let pad = selectedPad {
+            return (pad.wells ?? []).sorted { $0.name < $1.name }
+        }
+        return allWells
     }
 
     init(well: Well, task: WellTask?) {
-        self.well = well
-        self.pad = nil
+        self.initialWell = well
+        self.initialPad = nil
         self.task = task
     }
 
     init(pad: Pad, task: WellTask?) {
-        self.well = nil
-        self.pad = pad
+        self.initialWell = nil
+        self.initialPad = pad
+        self.task = task
+    }
+
+    /// Initialize for creating a new task without a pre-selected well/pad
+    init() {
+        self.initialWell = nil
+        self.initialPad = nil
+        self.task = nil
+    }
+
+    /// Initialize for editing an existing task
+    init(task: WellTask) {
+        self.initialWell = task.well
+        self.initialPad = task.pad
         self.task = task
     }
 
@@ -107,17 +128,24 @@ struct TaskEditorView: View {
 
                     if hasDueDate {
                         DatePicker("Due Date", selection: $dueDate, displayedComponents: [.date])
-                            .datePickerStyle(.graphical)
                     }
                 }
 
-                Section {
-                    HStack {
-                        Text(pad != nil ? "Pad:" : "Well:")
-                        Spacer()
-                        Text(ownerName)
-                            .foregroundStyle(.secondary)
+                Section("Assignment") {
+                    Picker("Pad", selection: $selectedPad) {
+                        Text("None").tag(nil as Pad?)
+                        ForEach(allPads) { pad in
+                            Text(pad.name).tag(pad as Pad?)
+                        }
                     }
+
+                    Picker("Well", selection: $selectedWell) {
+                        Text("None").tag(nil as Well?)
+                        ForEach(wellsForSelectedPad) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+                    .disabled(selectedPad == nil && allPads.count > 0)
                 }
             }
             .formStyle(.grouped)
@@ -154,6 +182,19 @@ struct TaskEditorView: View {
                     hasDueDate = true
                     dueDate = due
                 }
+                selectedWell = task.well
+                selectedPad = task.pad ?? task.well?.pad
+            } else {
+                selectedWell = initialWell
+                selectedPad = initialPad ?? initialWell?.pad
+            }
+        }
+        .onChange(of: selectedPad) { _, newPad in
+            // Reset well selection if it doesn't belong to the new pad
+            if let newPad = newPad, let well = selectedWell {
+                if well.pad?.id != newPad.id {
+                    selectedWell = nil
+                }
             }
         }
     }
@@ -168,6 +209,12 @@ struct TaskEditorView: View {
     }
 
     private func saveTask() {
+        guard !isSaving else { return }
+        isSaving = true
+
+        // Immediately reset the manager flag to prevent any re-triggering
+        QuickNoteManager.shared.showTaskEditor = false
+
         if let task = task {
             // Update existing
             task.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,28 +223,22 @@ struct TaskEditorView: View {
             task.status = status
             task.dueDate = hasDueDate ? dueDate : nil
             task.author = author
-        } else if let well = well {
-            // Create new task for well
-            let newTask = well.createTask(
+            // Update assignment
+            task.well = selectedWell
+            task.pad = selectedPad
+        } else {
+            // Create new task
+            let newTask = WellTask(
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 description: taskDescription,
                 priority: priority,
+                status: status,
                 dueDate: hasDueDate ? dueDate : nil,
-                author: author,
-                context: modelContext
+                author: author
             )
-            newTask.status = status
-        } else if let pad = pad {
-            // Create new task for pad
-            let newTask = pad.createTask(
-                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                description: taskDescription,
-                priority: priority,
-                dueDate: hasDueDate ? dueDate : nil,
-                author: author,
-                context: modelContext
-            )
-            newTask.status = status
+            modelContext.insert(newTask)
+            newTask.well = selectedWell
+            newTask.pad = selectedPad
         }
 
         try? modelContext.save()
@@ -206,12 +247,6 @@ struct TaskEditorView: View {
 
     private func deleteTask() {
         if let task = task {
-            if let well = well {
-                well.tasks?.removeAll { $0.id == task.id }
-            }
-            if let pad = pad {
-                pad.tasks?.removeAll { $0.id == task.id }
-            }
             modelContext.delete(task)
             try? modelContext.save()
         }

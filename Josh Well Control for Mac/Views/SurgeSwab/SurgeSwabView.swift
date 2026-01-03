@@ -238,7 +238,9 @@ struct SurgeSwabView: View {
                 labeledField("Clinging Constant") {
                     HStack(spacing: 8) {
                         Toggle("Auto", isOn: $useAutoClinging)
+                            #if os(macOS)
                             .toggleStyle(.checkbox)
+                            #endif
                             .onChange(of: useAutoClinging) { _, _ in compute() }
 
                         if !useAutoClinging {
