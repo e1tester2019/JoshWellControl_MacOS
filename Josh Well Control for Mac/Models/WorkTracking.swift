@@ -67,10 +67,18 @@ final class WorkDay {
 
     // Override rates for this specific day (nil = use client defaults)
     var dayRateOverride: Double?
+    var customRateReason: String = ""
 
     // Mileage driven this work period (km)
-    var mileage: Double = 0
-    var mileageDescription: String = ""
+    var mileageToLocation: Double = 0
+    var mileageFromLocation: Double = 0
+    var mileageInField: Double = 0
+    var mileageCommute: Double = 0
+
+    /// Total mileage for this work period
+    var totalMileage: Double {
+        mileageToLocation + mileageFromLocation + mileageInField + mileageCommute
+    }
 
     var createdAt: Date = Date.now
 
@@ -237,6 +245,9 @@ final class InvoiceLineItem {
     // For mileage items
     var mileageDescription: String = ""
 
+    // For custom rate items
+    var customRateReason: String = ""
+
     @Relationship(deleteRule: .nullify) var invoice: Invoice?
     @Relationship(deleteRule: .nullify) var workDays: [WorkDay]?
     @Relationship(deleteRule: .nullify) var well: Well?
@@ -254,7 +265,11 @@ final class InvoiceLineItem {
     var descriptionText: String {
         switch itemType {
         case .dayRate:
-            return "Drilling Supervisor Day Rate"
+            if customRateReason.isEmpty {
+                return "Drilling Supervisor Day Rate"
+            } else {
+                return "Drilling Supervisor Day Rate - \(customRateReason)"
+            }
         case .mileage:
             if mileageDescription.isEmpty {
                 return "Mileage"

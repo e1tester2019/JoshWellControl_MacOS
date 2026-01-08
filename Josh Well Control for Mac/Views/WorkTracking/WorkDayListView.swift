@@ -186,6 +186,16 @@ struct WorkDayListView: View {
                                     .onTapGesture {
                                         selectedWorkDay = workDay
                                     }
+                                    .contextMenu {
+                                        Button("Edit") {
+                                            selectedWorkDay = workDay
+                                        }
+                                        Divider()
+                                        Button("Delete", role: .destructive) {
+                                            modelContext.delete(workDay)
+                                            try? modelContext.save()
+                                        }
+                                    }
                             }
                             .onDelete { indexSet in
                                 deleteWorkDays(at: indexSet, in: monthKey)
@@ -287,15 +297,10 @@ struct WorkDayRow: View {
                 Text(workDay.totalEarnings, format: .currency(code: "CAD"))
                     .fontWeight(.semibold)
 
-                if workDay.mileage > 0 {
-                    HStack(spacing: 4) {
-                        Text("\(Int(workDay.mileage)) km")
-                        if !workDay.mileageDescription.isEmpty {
-                            Text("(\(workDay.mileageDescription))")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if workDay.totalMileage > 0 {
+                    Text("\(Int(workDay.totalMileage)) km")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if workDay.isPaid {
@@ -331,15 +336,19 @@ struct WorkDayEditorView: View {
     @State private var notes = ""
     @State private var dayRateOverride: Double?
     @State private var useCustomRate = false
+    @State private var customRateReason: String = ""
     @State private var rigNameOverride = ""
     @State private var costCodeOverride = ""
     @State private var useCustomRig = false
     @State private var useCustomCostCode = false
-    @State private var mileage: Double = 0
-    @State private var mileageDescription: String = ""
+    @State private var mileageToLocation: Double = 0
+    @State private var mileageFromLocation: Double = 0
+    @State private var mileageInField: Double = 0
+    @State private var mileageCommute: Double = 0
     @State private var manuallyMarkedInvoiced: Bool = false
     @State private var manuallyMarkedPaid: Bool = false
     @State private var manualPaidDate: Date = Date.now
+    @State private var showDeleteConfirmation: Bool = false
 
     private var dayCount: Int {
         let calendar = Calendar.current
@@ -354,6 +363,10 @@ struct WorkDayEditorView: View {
             return rate
         }
         return selectedClient?.dayRate ?? 1625.00
+    }
+
+    private var totalMileage: Double {
+        mileageToLocation + mileageFromLocation + mileageInField + mileageCommute
     }
 
     var body: some View {
@@ -423,6 +436,8 @@ struct WorkDayEditorView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .multilineTextAlignment(.trailing)
                         }
+
+                        TextField("Reason for custom rate (appears on invoice)", text: $customRateReason)
                     } else if let client = selectedClient {
                         HStack {
                             Text("Client Rate")
@@ -443,27 +458,65 @@ struct WorkDayEditorView: View {
 
                 Section("Mileage") {
                     HStack {
-                        Text("Kilometers")
+                        Text("To Location")
                         Spacer()
-                        TextField("km", value: $mileage, format: .number)
+                        TextField("km", value: $mileageToLocation, format: .number)
                             .frame(width: 80)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                         Text("km")
                     }
 
-                    TextField("Description (e.g., To location, From location)", text: $mileageDescription)
+                    HStack {
+                        Text("From Location")
+                        Spacer()
+                        TextField("km", value: $mileageFromLocation, format: .number)
+                            .frame(width: 80)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                        Text("km")
+                    }
 
-                    if let client = selectedClient, mileage > 0 {
-                        let cappedMileage = min(mileage, client.maxMileage)
+                    HStack {
+                        Text("In Field")
+                        Spacer()
+                        TextField("km", value: $mileageInField, format: .number)
+                            .frame(width: 80)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                        Text("km")
+                    }
+
+                    HStack {
+                        Text("Commute")
+                        Spacer()
+                        TextField("km", value: $mileageCommute, format: .number)
+                            .frame(width: 80)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                        Text("km")
+                    }
+
+                    if let client = selectedClient, totalMileage > 0 {
+                        Divider()
+
+                        HStack {
+                            Text("Total")
+                                .fontWeight(.medium)
+                            Spacer()
+                            Text("\(Int(totalMileage)) km")
+                                .fontWeight(.medium)
+                        }
+
+                        let cappedMileage = min(totalMileage, client.maxMileage)
                         HStack {
                             Text("Mileage cost")
                             Spacer()
                             Text(cappedMileage * client.mileageRate, format: .currency(code: "CAD"))
                                 .foregroundStyle(.secondary)
                         }
-                        if mileage > client.maxMileage {
-                            Text("Capped at \(Int(client.maxMileage)) km max")
+                        if totalMileage > client.maxMileage {
+                            Text("Capped at \(Int(client.maxMileage)) km total")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
@@ -504,6 +557,14 @@ struct WorkDayEditorView: View {
                         }
                     }
                 }
+
+                if workDay != nil {
+                    Section {
+                        Button("Delete Work Day", role: .destructive) {
+                            showDeleteConfirmation = true
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(workDay == nil ? "Add Work Period" : "Edit Work Period")
@@ -517,6 +578,22 @@ struct WorkDayEditorView: View {
                 }
             }
             .onAppear { loadWorkDay() }
+            .confirmationDialog(
+                "Delete Work Day",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let wd = workDay {
+                        modelContext.delete(wd)
+                        try? modelContext.save()
+                    }
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Are you sure you want to delete this work day? This action cannot be undone.")
+            }
         }
         .frame(minWidth: 450, minHeight: 550)
     }
@@ -530,12 +607,15 @@ struct WorkDayEditorView: View {
         notes = wd.notes
         dayRateOverride = wd.dayRateOverride
         useCustomRate = wd.dayRateOverride != nil
+        customRateReason = wd.customRateReason
         rigNameOverride = wd.rigNameOverride ?? ""
         costCodeOverride = wd.costCodeOverride ?? ""
         useCustomRig = wd.rigNameOverride != nil
         useCustomCostCode = wd.costCodeOverride != nil
-        mileage = wd.mileage
-        mileageDescription = wd.mileageDescription
+        mileageToLocation = wd.mileageToLocation
+        mileageFromLocation = wd.mileageFromLocation
+        mileageInField = wd.mileageInField
+        mileageCommute = wd.mileageCommute
         manuallyMarkedInvoiced = wd.manuallyMarkedInvoiced
         manuallyMarkedPaid = wd.manuallyMarkedPaid
         manualPaidDate = wd.manualPaidDate ?? Date.now
@@ -549,10 +629,13 @@ struct WorkDayEditorView: View {
         wd.client = selectedClient
         wd.notes = notes
         wd.dayRateOverride = useCustomRate ? dayRateOverride : nil
+        wd.customRateReason = useCustomRate ? customRateReason : ""
         wd.rigNameOverride = useCustomRig && !rigNameOverride.isEmpty ? rigNameOverride : nil
         wd.costCodeOverride = useCustomCostCode && !costCodeOverride.isEmpty ? costCodeOverride : nil
-        wd.mileage = mileage
-        wd.mileageDescription = mileageDescription
+        wd.mileageToLocation = mileageToLocation
+        wd.mileageFromLocation = mileageFromLocation
+        wd.mileageInField = mileageInField
+        wd.mileageCommute = mileageCommute
         wd.manuallyMarkedInvoiced = manuallyMarkedInvoiced
         wd.manuallyMarkedPaid = manuallyMarkedPaid
         wd.manualPaidDate = manuallyMarkedPaid ? manualPaidDate : nil

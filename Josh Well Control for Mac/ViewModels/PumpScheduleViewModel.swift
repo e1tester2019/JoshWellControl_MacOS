@@ -396,7 +396,9 @@ class PumpScheduleViewModel {
             let v = max(0.0, p.volume_m3)
             guard v > 1e-12 else { continue }
 
-            let L = geom.lengthForStringVolume_m(0.0, v)
+            // Calculate length starting from currentTop, not 0.0
+            // This correctly handles tapered strings where capacity varies with depth
+            let L = geom.lengthForStringVolume_m(currentTop, v)
             guard L > 1e-12 else { continue }
 
             let bottom = min(currentTop + L, bitMD)

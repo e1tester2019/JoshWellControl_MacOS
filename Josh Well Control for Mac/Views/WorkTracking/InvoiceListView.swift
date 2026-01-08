@@ -12,7 +12,7 @@ struct InvoiceListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Invoice.invoiceNumber, order: .reverse) private var invoices: [Invoice]
     @Query(sort: \Client.companyName) private var clients: [Client]
-    @Query(filter: #Predicate<WorkDay> { $0.lineItem == nil }, sort: \WorkDay.startDate) private var uninvoicedWorkDays: [WorkDay]
+    @Query(filter: #Predicate<WorkDay> { $0.lineItem == nil && $0.manuallyMarkedInvoiced == false }, sort: \WorkDay.startDate) private var uninvoicedWorkDays: [WorkDay]
 
     @State private var showingCreateInvoice = false
     @State private var selectedInvoice: Invoice?
@@ -172,7 +172,7 @@ struct InvoiceCreatorView: View {
     @Environment(\.dismiss) private var dismiss
 
     @Query(sort: \Client.companyName) private var clients: [Client]
-    @Query(filter: #Predicate<WorkDay> { $0.lineItem == nil }, sort: \WorkDay.startDate) private var uninvoicedWorkDays: [WorkDay]
+    @Query(filter: #Predicate<WorkDay> { $0.lineItem == nil && $0.manuallyMarkedInvoiced == false }, sort: \WorkDay.startDate) private var uninvoicedWorkDays: [WorkDay]
 
     @State private var selectedClient: Client?
     @State private var selectedWorkDays: Set<UUID> = []
@@ -195,8 +195,17 @@ struct InvoiceCreatorView: View {
 
     private var totalMileage: Double {
         guard let client = selectedClient else { return 0 }
-        // Cap each day's mileage at client max, then sum
-        return selectedWorkDayObjects.reduce(0) { $0 + min($1.mileage, client.maxMileage) }
+        // Cap each day's total mileage at client max, then sum
+        return selectedWorkDayObjects.reduce(0) { $0 + min($1.totalMileage, client.maxMileage) }
+    }
+
+    // Mileage totals by type (before cap)
+    private var mileageByType: (toLocation: Double, fromLocation: Double, inField: Double, commute: Double) {
+        let toLocation = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageToLocation }
+        let fromLocation = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageFromLocation }
+        let inField = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageInField }
+        let commute = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageCommute }
+        return (toLocation, fromLocation, inField, commute)
     }
 
     var body: some View {
@@ -282,25 +291,40 @@ struct InvoiceCreatorView: View {
                     }
 
                     if totalMileage > 0 {
-                        Section("Mileage (\(selectedWorkDayObjects.filter { $0.mileage > 0 }.count) entries)") {
+                        Section("Mileage Summary") {
                             if let client = selectedClient {
-                                let daysOverCap = selectedWorkDayObjects.filter { $0.mileage > client.maxMileage }.count
+                                let mileage = mileageByType
+                                let daysOverCap = selectedWorkDayObjects.filter { $0.totalMileage > client.maxMileage }.count
 
-                                ForEach(selectedWorkDayObjects.filter { $0.mileage > 0 }.sorted { $0.startDate < $1.startDate }) { wd in
-                                    let cappedKm = min(wd.mileage, client.maxMileage)
+                                if mileage.toLocation > 0 {
                                     HStack {
-                                        VStack(alignment: .leading) {
-                                            if wd.mileageDescription.isEmpty {
-                                                Text("Mileage")
-                                            } else {
-                                                Text(wd.mileageDescription)
-                                            }
-                                            Text(wd.dateRangeString)
-                                                .font(.caption)
-                                                .foregroundStyle(.tertiary)
-                                        }
+                                        Text("To Location")
                                         Spacer()
-                                        Text("\(Int(cappedKm)) km")
+                                        Text("\(Int(mileage.toLocation)) km")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                if mileage.fromLocation > 0 {
+                                    HStack {
+                                        Text("From Location")
+                                        Spacer()
+                                        Text("\(Int(mileage.fromLocation)) km")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                if mileage.inField > 0 {
+                                    HStack {
+                                        Text("In Field")
+                                        Spacer()
+                                        Text("\(Int(mileage.inField)) km")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                if mileage.commute > 0 {
+                                    HStack {
+                                        Text("Commute")
+                                        Spacer()
+                                        Text("\(Int(mileage.commute)) km")
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -323,7 +347,7 @@ struct InvoiceCreatorView: View {
                                 }
 
                                 if daysOverCap > 0 {
-                                    Text("\(daysOverCap) entry capped at \(Int(client.maxMileage)) km max")
+                                    Text("\(daysOverCap) work period(s) capped at \(Int(client.maxMileage)) km max")
                                         .font(.caption)
                                         .foregroundStyle(.orange)
                                 }
@@ -363,19 +387,39 @@ struct InvoiceCreatorView: View {
             let mileageTotal = totalMileage * client.mileageRate
             let subtotal = dayRateTotal + mileageTotal
             let gst = subtotal * 0.05
+            let mileage = mileageByType
 
             VStack(alignment: .leading, spacing: 8) {
-                // Individual mileage entries
-                ForEach(selectedWorkDayObjects.filter { $0.mileage > 0 }.sorted { $0.startDate < $1.startDate }) { wd in
-                    let cappedKm = min(wd.mileage, client.maxMileage)
+                // Mileage by type
+                if mileage.toLocation > 0 {
                     HStack {
-                        if wd.mileageDescription.isEmpty {
-                            Text("Mileage (\(Int(cappedKm)) km)")
-                        } else {
-                            Text("\(wd.mileageDescription) (\(Int(cappedKm)) km)")
-                        }
+                        Text("Mileage - To Location (\(Int(mileage.toLocation)) km)")
                         Spacer()
-                        Text(cappedKm * client.mileageRate, format: .currency(code: "CAD"))
+                        Text(mileage.toLocation * client.mileageRate, format: .currency(code: "CAD"))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if mileage.fromLocation > 0 {
+                    HStack {
+                        Text("Mileage - From Location (\(Int(mileage.fromLocation)) km)")
+                        Spacer()
+                        Text(mileage.fromLocation * client.mileageRate, format: .currency(code: "CAD"))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if mileage.inField > 0 {
+                    HStack {
+                        Text("Mileage - In Field (\(Int(mileage.inField)) km)")
+                        Spacer()
+                        Text(mileage.inField * client.mileageRate, format: .currency(code: "CAD"))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if mileage.commute > 0 {
+                    HStack {
+                        Text("Mileage - Commute (\(Int(mileage.commute)) km)")
+                        Spacer()
+                        Text(mileage.commute * client.mileageRate, format: .currency(code: "CAD"))
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -435,8 +479,9 @@ struct InvoiceCreatorView: View {
         invoice.date = invoiceDate
 
         // Store total mileage on invoice for reference
-        invoice.mileageToLocation = totalMileage
-        invoice.mileageFromLocation = 0
+        let mileage = mileageByType
+        invoice.mileageToLocation = mileage.toLocation
+        invoice.mileageFromLocation = mileage.fromLocation
 
         modelContext.insert(invoice)
 
@@ -444,43 +489,50 @@ struct InvoiceCreatorView: View {
 
         var sortOrder = 0
 
-        // Group work days by well for day rate line items
-        let workDaysByWell = Dictionary(grouping: selectedWorkDayObjects) { $0.well?.id }
+        // Group work days by well, rate, AND reason for day rate line items
+        // This ensures different rates or reasons get separate line items
+        struct WellRateKey: Hashable {
+            let wellID: UUID?
+            let rate: Double
+            let reason: String
+        }
+        let workDaysByWellAndRate = Dictionary(grouping: selectedWorkDayObjects) { wd in
+            WellRateKey(wellID: wd.well?.id, rate: wd.effectiveDayRate, reason: wd.customRateReason)
+        }
 
-        // Add individual mileage line items for each work day with mileage
-        for workDay in selectedWorkDayObjects.sorted(by: { $0.startDate < $1.startDate }) {
-            guard workDay.mileage > 0 else { continue }
+        // Add mileage line items by type
+        let mileageTypes: [(description: String, km: Double)] = [
+            ("To Location", mileage.toLocation),
+            ("From Location", mileage.fromLocation),
+            ("In Field", mileage.inField),
+            ("Commute", mileage.commute)
+        ]
 
-            let cappedMileage = min(workDay.mileage, client.maxMileage)
-            let mileageItem = InvoiceLineItem(itemType: .mileage, quantity: Int(cappedMileage), unitPrice: client.mileageRate)
-            mileageItem.mileageDescription = workDay.mileageDescription
+        for (description, km) in mileageTypes {
+            guard km > 0 else { continue }
+
+            let mileageItem = InvoiceLineItem(itemType: .mileage, quantity: Int(km), unitPrice: client.mileageRate)
+            mileageItem.mileageDescription = description
             mileageItem.sortOrder = sortOrder
             sortOrder += 1
-
-            if let well = workDay.well {
-                mileageItem.wellName = well.name
-                mileageItem.afeNumber = well.afeNumber ?? ""
-                mileageItem.rigName = well.rigName ?? ""
-                mileageItem.costCode = workDay.effectiveCostCode
-                mileageItem.well = well
-            }
 
             mileageItem.invoice = invoice
             invoice.lineItems?.append(mileageItem)
             modelContext.insert(mileageItem)
         }
 
-        // Add day rate line items grouped by well
-        for (_, wellWorkDays) in workDaysByWell {
-            guard let firstWorkDay = wellWorkDays.first else { continue }
+        // Add day rate line items grouped by well and rate
+        for (key, groupedWorkDays) in workDaysByWellAndRate {
+            guard let firstWorkDay = groupedWorkDays.first else { continue }
 
-            let totalDays = wellWorkDays.reduce(0) { $0 + $1.dayCount }
-            let totalEarnings = wellWorkDays.reduce(0.0) { $0 + $1.totalEarnings }
-            let avgRate = totalEarnings / Double(totalDays)
+            let totalDays = groupedWorkDays.reduce(0) { $0 + $1.dayCount }
 
-            let dayRateItem = InvoiceLineItem(itemType: .dayRate, quantity: totalDays, unitPrice: avgRate)
+            let dayRateItem = InvoiceLineItem(itemType: .dayRate, quantity: totalDays, unitPrice: key.rate)
             dayRateItem.sortOrder = sortOrder
             sortOrder += 1
+
+            // Copy custom rate reason if present (all days in group have same rate/reason)
+            dayRateItem.customRateReason = firstWorkDay.customRateReason
 
             if let well = firstWorkDay.well {
                 dayRateItem.wellName = well.name
@@ -496,7 +548,7 @@ struct InvoiceCreatorView: View {
 
             // Link work days to this line item
             if dayRateItem.workDays == nil { dayRateItem.workDays = [] }
-            for wd in wellWorkDays {
+            for wd in groupedWorkDays {
                 wd.lineItem = dayRateItem
                 dayRateItem.workDays?.append(wd)
             }
@@ -540,15 +592,10 @@ struct WorkDaySelectionRow: View {
                 VStack(alignment: .trailing) {
                     Text(workDay.totalEarnings, format: .currency(code: "CAD"))
                         .foregroundStyle(.secondary)
-                    if workDay.mileage > 0 {
-                        HStack(spacing: 4) {
-                            Text("\(Int(workDay.mileage)) km")
-                            if !workDay.mileageDescription.isEmpty {
-                                Text("(\(workDay.mileageDescription))")
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    if workDay.totalMileage > 0 {
+                        Text("\(Int(workDay.totalMileage)) km")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }

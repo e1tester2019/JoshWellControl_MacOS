@@ -37,6 +37,7 @@ struct WellDashboardView: View {
     @State private var selectedTask: WellTask?
     @State private var selectedLookAheadTask: LookAheadTask?
     @State private var showingAddLookAheadTask = false
+    @State private var showingCloseOutSheet = false
 
     private var pageBackgroundColor: Color {
         #if os(macOS)
@@ -44,6 +45,11 @@ struct WellDashboardView: View {
         #else
         Color(.systemGroupedBackground)
         #endif
+    }
+
+    /// Equipment currently on this well (in use or on location)
+    private var equipmentOnWell: [RentalEquipment] {
+        allEquipment.filter { $0.currentLocationName == well.name && ($0.locationStatus == .inUse || $0.locationStatus == .onLocation) }
     }
 
     var body: some View {
@@ -151,6 +157,13 @@ struct WellDashboardView: View {
                 preselectedWell: well
             )
         }
+        .sheet(isPresented: $showingCloseOutSheet) {
+            CloseOutWellSheet(
+                sourceWell: well,
+                equipment: equipmentOnWell,
+                allWells: allWells
+            )
+        }
     }
 
     // MARK: - Header
@@ -174,6 +187,22 @@ struct WellDashboardView: View {
 
             // Action buttons
             HStack(spacing: 8) {
+                // Close Out Well button
+                if !equipmentOnWell.isEmpty {
+                    Button {
+                        showingCloseOutSheet = true
+                    } label: {
+                        Label("Close Out (\(equipmentOnWell.count))", systemImage: "arrow.right.square")
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.purple.opacity(0.2))
+                            .foregroundStyle(.purple)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Move all equipment to another location")
+                }
+
                 Button(action: { well.isFavorite.toggle(); try? modelContext.save() }) {
                     Label("Favorite", systemImage: well.isFavorite ? "star.fill" : "star")
                 }
@@ -1260,6 +1289,178 @@ struct LookAheadTaskDashboardRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Close Out Well Sheet
+
+struct CloseOutWellSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let sourceWell: Well
+    let equipment: [RentalEquipment]
+    let allWells: [Well]
+
+    @State private var destinationType: DestinationType = .well
+    @State private var selectedWell: Well?
+    @State private var createMaterialTransfer = true
+
+    enum DestinationType: String, CaseIterable {
+        case well = "Another Well"
+        case vendor = "Back to Vendors"
+    }
+
+    private var otherWells: [Well] {
+        allWells.filter { $0.id != sourceWell.id }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Close Out Well")
+                        .font(.headline)
+                    Text("Move \(equipment.count) equipment items from \(sourceWell.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+            .padding()
+
+            Divider()
+
+            Form {
+                Section("Destination") {
+                    Picker("Move to", selection: $destinationType) {
+                        ForEach(DestinationType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if destinationType == .well {
+                        Picker("Select Well", selection: $selectedWell) {
+                            Text("Select a well...").tag(nil as Well?)
+                            ForEach(otherWells) { well in
+                                Text(well.name).tag(well as Well?)
+                            }
+                        }
+
+                        if otherWells.isEmpty {
+                            Text("No other wells available")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    } else {
+                        Text("Equipment will be returned to their respective vendors")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+
+                Section("Options") {
+                    Toggle("Create Material Transfer record", isOn: $createMaterialTransfer)
+                }
+
+                Section("Equipment to Move (\(equipment.count) items)") {
+                    ForEach(equipment) { eq in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(eq.displayName)
+                                    .font(.callout)
+                                if let vendor = eq.vendor {
+                                    Text(vendor.companyName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: eq.locationStatus.icon)
+                                .foregroundStyle(eq.locationStatus.color)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            // Footer
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    if destinationType == .well, let well = selectedWell {
+                        Label("Moving to: \(well.name)", systemImage: "arrow.right")
+                            .font(.caption)
+                    } else if destinationType == .vendor {
+                        Label("Returning to vendors", systemImage: "building.2")
+                            .font(.caption)
+                    }
+                }
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Close Out Well") {
+                    performCloseOut()
+                }
+                .disabled(destinationType == .well && selectedWell == nil)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 500, height: 550)
+    }
+
+    private func performCloseOut() {
+        let destinationName: String
+
+        switch destinationType {
+        case .well:
+            guard let well = selectedWell else { return }
+            destinationName = well.name
+
+            // Move all equipment to new well
+            for eq in equipment {
+                eq.locationStatus = .onLocation
+                eq.currentLocationName = well.name
+                eq.touch()
+            }
+
+        case .vendor:
+            destinationName = "Vendors"
+
+            // Return all equipment to their vendors
+            for eq in equipment {
+                eq.backhaul()
+            }
+        }
+
+        // Create material transfer record if requested
+        if createMaterialTransfer {
+            let transfer = sourceWell.createTransfer(context: modelContext)
+            transfer.destinationName = destinationName
+            transfer.date = .now
+
+            // Add items to transfer
+            for eq in equipment {
+                let item = MaterialTransferItem(descriptionText: eq.name)
+                item.equipment = eq
+                item.serialNumber = eq.serialNumber
+                item.isRentalEquipment = true
+                item.quantity = 1
+                item.transfer = transfer
+                if transfer.items == nil { transfer.items = [] }
+                transfer.items?.append(item)
+                modelContext.insert(item)
+            }
+        }
+
+        try? modelContext.save()
+        dismiss()
     }
 }
 

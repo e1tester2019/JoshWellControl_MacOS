@@ -26,6 +26,11 @@ struct RentalEquipmentListView: View {
     @State private var equipmentToEdit: RentalEquipment?
     @State private var filterActiveOnly = false
     @State private var showingOnLocationReport = false
+    @State private var showingImportSheet = false
+    @State private var importText = ""
+    @State private var selectedEquipmentIDs: Set<UUID> = []
+    @State private var showingBulkEditSheet = false
+    @State private var showingSendToLocationSheet = false
 
     private var filteredEquipment: [RentalEquipment] {
         var result = allEquipment
@@ -53,6 +58,11 @@ struct RentalEquipmentListView: View {
     private var onLocationEquipment: [RentalEquipment] {
         allEquipment.filter { $0.locationStatus == .inUse || $0.locationStatus == .onLocation }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Selected equipment for bulk operations
+    private var selectedEquipmentObjects: [RentalEquipment] {
+        allEquipment.filter { selectedEquipmentIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -103,6 +113,35 @@ struct RentalEquipmentListView: View {
         .sheet(isPresented: $showingOnLocationReport) {
             EquipmentOnLocationReportPreview(equipment: onLocationEquipment)
         }
+        .sheet(isPresented: $showingImportSheet) {
+            EquipmentImportSheet(
+                initialText: importText,
+                categories: categories,
+                vendors: vendors,
+                existingEquipment: allEquipment
+            ) {
+                showingImportSheet = false
+                importText = ""
+            }
+        }
+        .sheet(isPresented: $showingBulkEditSheet) {
+            BulkEquipmentEditSheet(
+                equipment: selectedEquipmentObjects,
+                categories: categories,
+                vendors: vendors
+            ) {
+                showingBulkEditSheet = false
+                selectedEquipmentIDs.removeAll()
+            }
+        }
+        .sheet(isPresented: $showingSendToLocationSheet) {
+            SendToLocationSheet(
+                equipment: selectedEquipmentObjects
+            ) {
+                showingSendToLocationSheet = false
+                selectedEquipmentIDs.removeAll()
+            }
+        }
         #endif
     }
 
@@ -112,7 +151,66 @@ struct RentalEquipmentListView: View {
                 Text("Equipment Registry")
                     .font(.title3)
                     .bold()
+
+                // Selection indicator
+                if !selectedEquipmentIDs.isEmpty {
+                    Text("\(selectedEquipmentIDs.count) selected")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .cornerRadius(4)
+
+                    Button("Clear") {
+                        selectedEquipmentIDs.removeAll()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
                 Spacer()
+
+                // Bulk actions (when items selected)
+                if !selectedEquipmentIDs.isEmpty {
+                    Button("Bulk Edit", systemImage: "pencil") {
+                        showingBulkEditSheet = true
+                    }
+                    Button("Send to Location", systemImage: "arrow.right.circle") {
+                        showingSendToLocationSheet = true
+                    }
+
+                    Divider()
+                        .frame(height: 20)
+                }
+
+                // Import/Export Menu
+                Menu {
+                    Button("Import from File...", systemImage: "doc.badge.arrow.up") {
+                        if let text = EquipmentImportService.shared.importFromFile() {
+                            importText = text
+                            showingImportSheet = true
+                        }
+                    }
+                    Button("Paste from Clipboard", systemImage: "doc.on.clipboard") {
+                        if let text = EquipmentImportService.shared.getClipboardText() {
+                            importText = text
+                            showingImportSheet = true
+                        }
+                    }
+                    Divider()
+                    Button("Download Template...", systemImage: "arrow.down.doc") {
+                        EquipmentImportService.shared.saveTemplate()
+                    }
+                    Button("Export All Equipment...", systemImage: "arrow.up.doc") {
+                        EquipmentImportService.shared.exportToFile(allEquipment)
+                    }
+                } label: {
+                    Label("Import/Export", systemImage: "square.and.arrow.up.on.square")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
                 Button("On Location Report", systemImage: "doc.text") {
                     showingOnLocationReport = true
                 }
@@ -347,29 +445,54 @@ struct RentalEquipmentListView: View {
 
     @ViewBuilder
     private func equipmentRow(for equipment: RentalEquipment) -> some View {
-        EquipmentRow(equipment: equipment)
-            .tag(equipment)
-            .contextMenu {
-                Button("Edit", systemImage: "pencil") {
-                    equipmentToEdit = equipment
-                    showingEditSheet = true
+        HStack(spacing: 8) {
+            // Selection checkbox
+            Button {
+                if selectedEquipmentIDs.contains(equipment.id) {
+                    selectedEquipmentIDs.remove(equipment.id)
+                } else {
+                    selectedEquipmentIDs.insert(equipment.id)
                 }
-                Button("Log Issue", systemImage: "exclamationmark.triangle") {
-                    selectedEquipment = equipment
-                    showingIssueSheet = true
-                }
-                Divider()
-                Button(equipment.isActive ? "Deactivate" : "Activate",
-                       systemImage: equipment.isActive ? "xmark.circle" : "checkmark.circle") {
-                    equipment.isActive.toggle()
-                    equipment.touch()
-                    try? modelContext.save()
-                }
-                Button("Delete", systemImage: "trash", role: .destructive) {
-                    deleteEquipment(equipment)
-                }
-                .disabled(equipment.wellsUsedCount > 0)
+            } label: {
+                Image(systemName: selectedEquipmentIDs.contains(equipment.id) ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(selectedEquipmentIDs.contains(equipment.id) ? Color.accentColor : Color.secondary)
             }
+            .buttonStyle(.plain)
+
+            EquipmentRow(equipment: equipment)
+        }
+        .tag(equipment)
+        .contextMenu {
+            Button("Edit", systemImage: "pencil") {
+                equipmentToEdit = equipment
+                showingEditSheet = true
+            }
+            Button("Log Issue", systemImage: "exclamationmark.triangle") {
+                selectedEquipment = equipment
+                showingIssueSheet = true
+            }
+            Divider()
+            if !selectedEquipmentIDs.contains(equipment.id) {
+                Button("Select", systemImage: "checkmark.square") {
+                    selectedEquipmentIDs.insert(equipment.id)
+                }
+            } else {
+                Button("Deselect", systemImage: "square") {
+                    selectedEquipmentIDs.remove(equipment.id)
+                }
+            }
+            Divider()
+            Button(equipment.isActive ? "Deactivate" : "Activate",
+                   systemImage: equipment.isActive ? "xmark.circle" : "checkmark.circle") {
+                equipment.isActive.toggle()
+                equipment.touch()
+                try? modelContext.save()
+            }
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                deleteEquipment(equipment)
+            }
+            .disabled(equipment.wellsUsedCount > 0)
+        }
     }
 
     private var emptyDetailView: some View {
@@ -813,6 +936,608 @@ private struct IssueLogSheet: View {
         }
         .padding()
         .frame(width: 450)
+    }
+}
+// MARK: - Bulk Equipment Edit Sheet
+
+private struct BulkEquipmentEditSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let equipment: [RentalEquipment]
+    let categories: [RentalCategory]
+    let vendors: [Vendor]
+    let onComplete: () -> Void
+
+    @State private var assignVendor = false
+    @State private var selectedVendor: Vendor?
+    @State private var assignCategory = false
+    @State private var selectedCategory: RentalCategory?
+    @State private var setActiveStatus = false
+    @State private var activeStatus = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Bulk Edit \(equipment.count) Items")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { onComplete() }
+            }
+            .padding()
+
+            Divider()
+
+            Form {
+                Section("Assign Vendor") {
+                    Toggle("Set vendor for all items", isOn: $assignVendor)
+
+                    if assignVendor {
+                        Picker("Vendor", selection: $selectedVendor) {
+                            Text("None").tag(nil as Vendor?)
+                            ForEach(vendors) { vendor in
+                                Text(vendor.companyName).tag(vendor as Vendor?)
+                            }
+                        }
+                    }
+                }
+
+                Section("Assign Category") {
+                    Toggle("Set category for all items", isOn: $assignCategory)
+
+                    if assignCategory {
+                        Picker("Category", selection: $selectedCategory) {
+                            Text("None").tag(nil as RentalCategory?)
+                            ForEach(categories) { cat in
+                                Label(cat.name, systemImage: cat.icon).tag(cat as RentalCategory?)
+                            }
+                        }
+                    }
+                }
+
+                Section("Status") {
+                    Toggle("Set active status for all items", isOn: $setActiveStatus)
+
+                    if setActiveStatus {
+                        Picker("Status", selection: $activeStatus) {
+                            Text("Active").tag(true)
+                            Text("Inactive").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
+                Section("Preview") {
+                    Text("\(equipment.count) items will be updated")
+                        .foregroundStyle(.secondary)
+
+                    ForEach(equipment.prefix(5)) { eq in
+                        HStack {
+                            Text(eq.displayName)
+                                .font(.caption)
+                            Spacer()
+                            if assignVendor {
+                                Text(selectedVendor?.companyName ?? "No vendor")
+                                    .font(.caption2)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                    if equipment.count > 5 {
+                        Text("+ \(equipment.count - 5) more...")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            // Footer
+            HStack {
+                Spacer()
+                Button("Apply Changes") {
+                    applyChanges()
+                }
+                .disabled(!assignVendor && !assignCategory && !setActiveStatus)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 450, height: 550)
+    }
+
+    private func applyChanges() {
+        for eq in equipment {
+            if assignVendor {
+                eq.vendor = selectedVendor
+            }
+            if assignCategory {
+                eq.category = selectedCategory
+            }
+            if setActiveStatus {
+                eq.isActive = activeStatus
+            }
+            eq.touch()
+        }
+        try? modelContext.save()
+        onComplete()
+    }
+}
+
+// MARK: - Send to Location Sheet
+
+private struct SendToLocationSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Well.name) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
+
+    let equipment: [RentalEquipment]
+    let onComplete: () -> Void
+
+    @State private var destinationType: DestinationType = .well
+    @State private var selectedWell: Well?
+    @State private var selectedPad: Pad?
+    @State private var locationStatus: EquipmentLocation = .onLocation
+
+    enum DestinationType: String, CaseIterable {
+        case well = "Well"
+        case pad = "Pad"
+        case vendor = "Back to Vendor"
+    }
+
+    private var destinationName: String {
+        switch destinationType {
+        case .well: return selectedWell?.name ?? ""
+        case .pad: return selectedPad?.name ?? ""
+        case .vendor: return "Vendor"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Send \(equipment.count) Items to Location")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { onComplete() }
+            }
+            .padding()
+
+            Divider()
+
+            Form {
+                Section("Destination") {
+                    Picker("Send to", selection: $destinationType) {
+                        ForEach(DestinationType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    switch destinationType {
+                    case .well:
+                        Picker("Well", selection: $selectedWell) {
+                            Text("Select a well...").tag(nil as Well?)
+                            ForEach(wells) { well in
+                                Text(well.name).tag(well as Well?)
+                            }
+                        }
+                    case .pad:
+                        Picker("Pad", selection: $selectedPad) {
+                            Text("Select a pad...").tag(nil as Pad?)
+                            ForEach(pads) { pad in
+                                Text(pad.name).tag(pad as Pad?)
+                            }
+                        }
+                    case .vendor:
+                        Text("Equipment will be marked as 'With Vendor'")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if destinationType != .vendor {
+                    Section("Status at Location") {
+                        Picker("Status", selection: $locationStatus) {
+                            Label("In Use", systemImage: EquipmentLocation.inUse.icon)
+                                .tag(EquipmentLocation.inUse)
+                            Label("On Location (Standby)", systemImage: EquipmentLocation.onLocation.icon)
+                                .tag(EquipmentLocation.onLocation)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
+                Section("Equipment to Send") {
+                    ForEach(equipment) { eq in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(eq.displayName)
+                                    .font(.caption)
+                                if let vendor = eq.vendor {
+                                    Text(vendor.companyName)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: eq.locationStatus.icon)
+                                .foregroundStyle(eq.locationStatus.color)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            // Footer
+            HStack {
+                Spacer()
+                Button("Send to Location") {
+                    sendToLocation()
+                }
+                .disabled(destinationType == .well && selectedWell == nil ||
+                         destinationType == .pad && selectedPad == nil)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 500, height: 550)
+    }
+
+    private func sendToLocation() {
+        for eq in equipment {
+            switch destinationType {
+            case .well:
+                if let well = selectedWell {
+                    eq.locationStatus = locationStatus
+                    eq.currentLocationName = well.name
+                }
+            case .pad:
+                if let pad = selectedPad {
+                    eq.locationStatus = locationStatus
+                    eq.currentLocationName = pad.name
+                }
+            case .vendor:
+                eq.backhaul()
+            }
+            eq.touch()
+        }
+        try? modelContext.save()
+        onComplete()
+    }
+}
+
+// MARK: - Equipment Import Sheet
+
+private struct EquipmentImportSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let initialText: String
+    let categories: [RentalCategory]
+    let vendors: [Vendor]
+    let existingEquipment: [RentalEquipment]
+    let onComplete: () -> Void
+
+    @State private var csvText: String = ""
+    @State private var parsedItems: [EquipmentImportService.ParsedEquipment] = []
+    @State private var skipDuplicates = true
+    @State private var importResult: EquipmentImportService.ImportResult?
+    @State private var showingResult = false
+
+    private var validCount: Int {
+        parsedItems.filter { $0.isValid }.count
+    }
+
+    private var errorCount: Int {
+        parsedItems.filter { !$0.isValid }.count
+    }
+
+    private var warningCount: Int {
+        parsedItems.filter { $0.isValid && $0.hasWarnings }.count
+    }
+
+    private var duplicateCount: Int {
+        let existingSerials = Set(existingEquipment.map { $0.serialNumber.lowercased() })
+        return parsedItems.filter { existingSerials.contains($0.serialNumber.lowercased()) }.count
+    }
+
+    private var unmatchedVendors: [String] {
+        Array(Set(parsedItems.filter { $0.vendorNotFound }.map { $0.vendorName })).sorted()
+    }
+
+    private var unmatchedCategories: [String] {
+        Array(Set(parsedItems.filter { $0.categoryNotFound }.map { $0.categoryName })).sorted()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Import Equipment")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") {
+                    onComplete()
+                }
+            }
+            .padding()
+
+            Divider()
+
+            HSplitView {
+                // Left: CSV Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("CSV Data")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $csvText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 200)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+
+                    HStack {
+                        Button("Parse") {
+                            parseCSV()
+                        }
+                        .disabled(csvText.isEmpty)
+
+                        Button("Paste from Clipboard", systemImage: "doc.on.clipboard") {
+                            if let text = EquipmentImportService.shared.getClipboardText() {
+                                csvText = text
+                                parseCSV()
+                            }
+                        }
+
+                        Spacer()
+
+                        Button("Clear") {
+                            csvText = ""
+                            parsedItems = []
+                        }
+                    }
+                }
+                .padding()
+                .frame(minWidth: 350)
+
+                // Right: Preview
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Preview")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if !parsedItems.isEmpty {
+                            Text("\(validCount) valid")
+                                .foregroundStyle(.green)
+                            if warningCount > 0 {
+                                Text("• \(warningCount) warnings")
+                                    .foregroundStyle(.yellow)
+                            }
+                            if errorCount > 0 {
+                                Text("• \(errorCount) errors")
+                                    .foregroundStyle(.red)
+                            }
+                            if duplicateCount > 0 {
+                                Text("• \(duplicateCount) duplicates")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+
+                    // Unmatched vendors/categories warning
+                    if !unmatchedVendors.isEmpty || !unmatchedCategories.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if !unmatchedVendors.isEmpty {
+                                HStack(alignment: .top) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.yellow)
+                                    VStack(alignment: .leading) {
+                                        Text("Vendors not found:")
+                                            .fontWeight(.medium)
+                                        Text(unmatchedVendors.joined(separator: ", "))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.caption)
+                            }
+                            if !unmatchedCategories.isEmpty {
+                                HStack(alignment: .top) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.yellow)
+                                    VStack(alignment: .leading) {
+                                        Text("Categories not found:")
+                                            .fontWeight(.medium)
+                                        Text(unmatchedCategories.joined(separator: ", "))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.caption)
+                            }
+                            Text("Items will import without vendor/category. Use bulk edit after import to assign.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(8)
+                        .background(Color.yellow.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+
+                    if parsedItems.isEmpty {
+                        VStack {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            Text("Paste CSV data and click Parse")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        List {
+                            ForEach(parsedItems) { item in
+                                ImportPreviewRow(item: item)
+                            }
+                        }
+                        .listStyle(.inset)
+                    }
+                }
+                .padding()
+                .frame(minWidth: 400)
+            }
+
+            Divider()
+
+            // Footer
+            HStack {
+                Toggle("Skip duplicates (same serial number)", isOn: $skipDuplicates)
+                    .toggleStyle(.checkbox)
+
+                Spacer()
+
+                if let result = importResult {
+                    HStack(spacing: 12) {
+                        if result.imported > 0 {
+                            Label("\(result.imported) imported", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        if result.skipped > 0 {
+                            Label("\(result.skipped) skipped", systemImage: "minus.circle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.caption)
+                }
+
+                Button("Import \(validCount) Items") {
+                    performImport()
+                }
+                .disabled(validCount == 0)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 900, height: 600)
+        .onAppear {
+            csvText = initialText
+            if !initialText.isEmpty {
+                parseCSV()
+            }
+        }
+        .alert("Import Complete", isPresented: $showingResult) {
+            Button("Done") {
+                onComplete()
+            }
+        } message: {
+            if let result = importResult {
+                Text("Imported \(result.imported) items. \(result.skipped) skipped.")
+            }
+        }
+    }
+
+    private func parseCSV() {
+        parsedItems = EquipmentImportService.shared.parseCSV(csvText, categories: categories, vendors: vendors)
+    }
+
+    private func performImport() {
+        let validItems = parsedItems.filter { $0.isValid }
+        importResult = EquipmentImportService.shared.importEquipment(
+            validItems,
+            into: modelContext,
+            categories: categories,
+            vendors: vendors,
+            existingEquipment: existingEquipment,
+            skipDuplicates: skipDuplicates
+        )
+        showingResult = true
+    }
+}
+
+private struct ImportPreviewRow: View {
+    let item: EquipmentImportService.ParsedEquipment
+
+    private var statusIcon: String {
+        if !item.isValid { return "exclamationmark.triangle.fill" }
+        if item.hasWarnings { return "exclamationmark.circle.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var statusColor: Color {
+        if !item.isValid { return .red }
+        if item.hasWarnings { return .yellow }
+        return .green
+    }
+
+    var body: some View {
+        HStack {
+            Image(systemName: statusIcon)
+                .foregroundStyle(statusColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(item.name)
+                        .fontWeight(.medium)
+                    if !item.serialNumber.isEmpty {
+                        Text("SN: \(item.serialNumber)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    if !item.categoryName.isEmpty {
+                        HStack(spacing: 2) {
+                            Text(item.categoryName)
+                            if item.categoryNotFound {
+                                Image(systemName: "questionmark.circle")
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(item.categoryNotFound ? Color.yellow.opacity(0.1) : Color.blue.opacity(0.1))
+                        .cornerRadius(4)
+                    }
+                    if !item.vendorName.isEmpty {
+                        HStack(spacing: 2) {
+                            Text(item.vendorName)
+                            if item.vendorNotFound {
+                                Image(systemName: "questionmark.circle")
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(item.vendorNotFound ? .yellow : .secondary)
+                    }
+                }
+
+                if let error = item.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Spacer()
+
+            if !item.model.isEmpty {
+                Text(item.model)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 4)
+        .opacity(item.isValid ? 1 : 0.7)
     }
 }
 #endif // os(macOS)

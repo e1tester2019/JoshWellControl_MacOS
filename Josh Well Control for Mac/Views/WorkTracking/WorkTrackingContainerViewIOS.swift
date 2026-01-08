@@ -392,9 +392,9 @@ struct WorkDayDetailViewIOS: View {
 
             Section("Mileage") {
                 HStack {
-                    Text("Distance")
+                    Text("To Location")
                     Spacer()
-                    TextField("km", value: $workDay.mileage, format: .number)
+                    TextField("km", value: $workDay.mileageToLocation, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 100)
@@ -402,7 +402,48 @@ struct WorkDayDetailViewIOS: View {
                         .foregroundStyle(.secondary)
                 }
 
-                TextField("Description", text: $workDay.mileageDescription)
+                HStack {
+                    Text("From Location")
+                    Spacer()
+                    TextField("km", value: $workDay.mileageFromLocation, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                    Text("km")
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text("In Field")
+                    Spacer()
+                    TextField("km", value: $workDay.mileageInField, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                    Text("km")
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text("Commute")
+                    Spacer()
+                    TextField("km", value: $workDay.mileageCommute, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                    Text("km")
+                        .foregroundStyle(.secondary)
+                }
+
+                if workDay.totalMileage > 0 {
+                    HStack {
+                        Text("Total")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text("\(Int(workDay.totalMileage)) km")
+                            .fontWeight(.medium)
+                    }
+                }
             }
 
             Section("Notes") {
