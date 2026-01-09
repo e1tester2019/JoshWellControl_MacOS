@@ -115,7 +115,7 @@ struct RentalEquipmentListView: View {
         }
         .sheet(isPresented: $showingImportSheet) {
             EquipmentImportSheet(
-                initialText: importText,
+                csvText: $importText,
                 categories: categories,
                 vendors: vendors,
                 existingEquipment: allEquipment
@@ -1219,13 +1219,12 @@ private struct EquipmentImportSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    let initialText: String
+    @Binding var csvText: String
     let categories: [RentalCategory]
     let vendors: [Vendor]
     let existingEquipment: [RentalEquipment]
     let onComplete: () -> Void
 
-    @State private var csvText: String = ""
     @State private var parsedItems: [EquipmentImportService.ParsedEquipment] = []
     @State private var skipDuplicates = true
     @State private var importResult: EquipmentImportService.ImportResult?
@@ -1306,6 +1305,7 @@ private struct EquipmentImportSheet: View {
                             parsedItems = []
                         }
                     }
+
                 }
                 .padding()
                 .frame(minWidth: 350)
@@ -1428,8 +1428,8 @@ private struct EquipmentImportSheet: View {
         }
         .frame(width: 900, height: 600)
         .onAppear {
-            csvText = initialText
-            if !initialText.isEmpty {
+            // Parse on appear if we have text
+            if !csvText.isEmpty {
                 parseCSV()
             }
         }

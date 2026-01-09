@@ -202,6 +202,24 @@ class EquipmentImportService {
 
     /// Split CSV text into lines (handling quoted newlines)
     private func parseCSVLines(_ text: String) -> [String] {
+        // First, try simple split - works for CSVs without quoted newlines
+        let simpleLines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        // Check if any line has unbalanced quotes (indicating quoted newlines)
+        var hasQuotedNewlines = false
+        for line in simpleLines {
+            let quoteCount = line.filter { $0 == "\"" }.count
+            if quoteCount % 2 != 0 {
+                hasQuotedNewlines = true
+                break
+            }
+        }
+
+        if !hasQuotedNewlines {
+            return simpleLines
+        }
+
+        // Complex case - handle quoted newlines manually
         var lines: [String] = []
         var currentLine = ""
         var inQuotes = false
@@ -210,7 +228,7 @@ class EquipmentImportService {
             if char == "\"" {
                 inQuotes.toggle()
                 currentLine.append(char)
-            } else if (char == "\n" || char == "\r") && !inQuotes {
+            } else if char.isNewline && !inQuotes {
                 if !currentLine.isEmpty {
                     lines.append(currentLine)
                     currentLine = ""
