@@ -554,6 +554,20 @@ struct MaterialTransferEditorView: View {
             item.serialNumber = r.serialNumber
             item.accountCode = transfer.accountCode
             item.transfer = transfer
+
+            // Populate receiver address from equipment's vendor
+            if let vendor = r.equipment?.vendor {
+                // Use shipping address if available, otherwise primary address
+                if let address = vendor.shippingAddress ?? vendor.primaryAddress {
+                    item.receiverAddress = "\(vendor.companyName)\n\(address.formattedAddressMultiLine)"
+                    item.receiverPhone = address.phone.isEmpty ? vendor.phone : address.phone
+                } else if !vendor.address.isEmpty {
+                    // Fall back to legacy address field
+                    item.receiverAddress = "\(vendor.companyName)\n\(vendor.address)"
+                    item.receiverPhone = vendor.phone
+                }
+            }
+
             if transfer.items == nil { transfer.items = [] }
             transfer.items?.append(item)
             modelContext.insert(item)

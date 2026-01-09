@@ -139,19 +139,21 @@ class MaterialTransferPDFGenerator {
         weightFormatter.numberStyle = .decimal
         weightFormatter.maximumFractionDigits = 1
 
-        // Group items by destination
+        // Group items by receiver address (preserving order of first appearance)
         let items = transfer.items ?? []
-        var itemsByDestination: [String: [MaterialTransferItem]] = [:]
+        var addressOrder: [String] = []
+        var itemsByAddress: [String: [MaterialTransferItem]] = [:]
 
         for item in items {
-            let dest = item.vendorOrTo ?? transfer.destinationName ?? "Unspecified"
-            if itemsByDestination[dest] == nil {
-                itemsByDestination[dest] = []
+            let addr = (item.receiverAddress?.isEmpty == false) ? item.receiverAddress! : "(No Receiver Address)"
+            if itemsByAddress[addr] == nil {
+                addressOrder.append(addr)
+                itemsByAddress[addr] = []
             }
-            itemsByDestination[dest]?.append(item)
+            itemsByAddress[addr]?.append(item)
         }
 
-        let sortedDestinations = itemsByDestination.keys.sorted()
+        let sortedDestinations = addressOrder  // Use insertion order, not alphabetical
 
         // Start first page
         startPage()
@@ -252,9 +254,9 @@ class MaterialTransferPDFGenerator {
         var grandTotalWeight: Double = 0
         var grandTotalValue: Double = 0
 
-        // Process each destination group
+        // Process each address group
         for (destIndex, destination) in sortedDestinations.enumerated() {
-            let destItems = itemsByDestination[destination] ?? []
+            let destItems = itemsByAddress[destination] ?? []
 
             // Check if we need a new page for destination header
             _ = checkPageBreak(neededHeight: 100)

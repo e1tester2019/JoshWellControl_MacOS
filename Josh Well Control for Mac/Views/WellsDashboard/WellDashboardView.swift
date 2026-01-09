@@ -67,6 +67,7 @@ struct WellDashboardView: View {
                     VStack(spacing: 16) {
                         projectsSection
                         rentalsSection
+                        equipmentOnLocationSection
                         lookAheadSection
                     }
                     .frame(maxWidth: .infinity)
@@ -84,6 +85,7 @@ struct WellDashboardView: View {
                 projectsSection
                 workDaysSection
                 rentalsSection
+                equipmentOnLocationSection
                 transfersSection
                 lookAheadSection
                 notesSection
@@ -549,6 +551,77 @@ struct WellDashboardView: View {
                 }
                 .buttonStyle(.borderless)
                 .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - Equipment on Location Section
+
+    private var equipmentOnLocationSection: some View {
+        WellSection(title: "Equipment on Location", icon: "shippingbox", subtitle: "\(equipmentOnWell.count) item(s)") {
+            VStack(alignment: .leading, spacing: 8) {
+                if !equipmentOnWell.isEmpty {
+                    VStack(spacing: 0) {
+                        // Header row
+                        HStack {
+                            Text("Name").fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading)
+                            Text("Serial").fontWeight(.medium).frame(width: 100, alignment: .leading)
+                            Text("Vendor").fontWeight(.medium).frame(width: 100, alignment: .leading)
+                            Text("Status").fontWeight(.medium).frame(width: 70, alignment: .center)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 4)
+
+                        Divider()
+
+                        ForEach(equipmentOnWell.sorted { $0.name < $1.name }) { equipment in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(equipment.name)
+                                    if let category = equipment.category {
+                                        Text(category.name)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text(equipment.serialNumber)
+                                    .font(.caption)
+                                    .frame(width: 100, alignment: .leading)
+
+                                Text(equipment.vendor?.companyName ?? "—")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 100, alignment: .leading)
+
+                                HStack(spacing: 4) {
+                                    Image(systemName: equipment.locationStatus.icon)
+                                        .foregroundStyle(equipment.locationStatus.color)
+                                    Text(equipment.locationStatus == .inUse ? "In Use" : "Standby")
+                                        .font(.caption2)
+                                }
+                                .frame(width: 70, alignment: .center)
+                            }
+                            .font(.callout)
+                            .padding(.vertical, 6)
+
+                            if equipment.id != equipmentOnWell.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+
+                    Text("Use 'Add from Registry' in Rentals to start tracking usage")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                } else {
+                    Text("No equipment on location")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
             }
         }
     }
