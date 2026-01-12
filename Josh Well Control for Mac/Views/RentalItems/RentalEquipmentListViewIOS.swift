@@ -439,6 +439,7 @@ private struct UsageHistoryRowIOS: View {
 private struct EquipmentEditorViewIOS: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Well.name) private var wells: [Well]
     let equipment: RentalEquipment?
     let categories: [RentalCategory]
     let vendors: [Vendor]
@@ -452,6 +453,7 @@ private struct EquipmentEditorViewIOS: View {
     @State private var selectedVendor: Vendor?
     @State private var locationStatus: EquipmentLocation = .withVendor
     @State private var locationName = ""
+    @State private var selectedWell: Well?
 
     private var isEditing: Bool { equipment != nil }
 
@@ -490,14 +492,26 @@ private struct EquipmentEditorViewIOS: View {
                     }
                 }
 
-                TextField("Location Name", text: $locationName)
+                if locationStatus == .onLocation {
+                    Picker("Location", selection: $selectedWell) {
+                        Text("Select a well...").tag(nil as Well?)
+                        ForEach(wells) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+                } else {
+                    TextField("Location Name", text: $locationName)
+                }
 
                 HStack {
                     Image(systemName: locationStatus.icon)
                         .foregroundStyle(locationStatus.color)
                     Text(locationStatus.rawValue)
                         .foregroundStyle(.secondary)
-                    if !locationName.isEmpty {
+                    if locationStatus == .onLocation, let well = selectedWell {
+                        Text("• \(well.name)")
+                            .foregroundStyle(.tertiary)
+                    } else if !locationName.isEmpty {
                         Text("• \(locationName)")
                             .foregroundStyle(.tertiary)
                     }
@@ -528,6 +542,10 @@ private struct EquipmentEditorViewIOS: View {
                 selectedVendor = eq.vendor
                 locationStatus = eq.locationStatus
                 locationName = eq.currentLocationName
+                // Try to match existing location name to a well
+                if eq.locationStatus == .onLocation {
+                    selectedWell = wells.first { $0.name == eq.currentLocationName }
+                }
             }
         }
     }
@@ -541,7 +559,7 @@ private struct EquipmentEditorViewIOS: View {
         eq.category = selectedCategory
         eq.vendor = selectedVendor
         eq.locationStatus = locationStatus
-        eq.currentLocationName = locationName
+        eq.currentLocationName = locationStatus == .onLocation ? (selectedWell?.name ?? "") : locationName
         eq.touch()
         onSave(eq)
         dismiss()

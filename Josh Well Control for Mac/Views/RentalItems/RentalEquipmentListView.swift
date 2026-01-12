@@ -762,6 +762,7 @@ private struct UsageHistoryRow: View {
 
 private struct EquipmentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Well.name) private var wells: [Well]
     let equipment: RentalEquipment?
     let categories: [RentalCategory]
     let vendors: [Vendor]
@@ -775,6 +776,7 @@ private struct EquipmentEditorSheet: View {
     @State private var selectedVendor: Vendor?
     @State private var locationStatus: EquipmentLocation = .withVendor
     @State private var locationName = ""
+    @State private var selectedWell: Well?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -814,15 +816,27 @@ private struct EquipmentEditorSheet: View {
                     }
                     .pickerStyle(.segmented)
 
-                    TextField("Location", text: $locationName)
-                        .textFieldStyle(.roundedBorder)
+                    if locationStatus == .onLocation {
+                        Picker("Location", selection: $selectedWell) {
+                            Text("Select a well...").tag(nil as Well?)
+                            ForEach(wells) { well in
+                                Text(well.name).tag(well as Well?)
+                            }
+                        }
+                    } else {
+                        TextField("Location", text: $locationName)
+                            .textFieldStyle(.roundedBorder)
+                    }
 
                     HStack {
                         Image(systemName: locationStatus.icon)
                             .foregroundStyle(locationStatus.color)
                         Text(locationStatus.rawValue)
                             .foregroundStyle(.secondary)
-                        if !locationName.isEmpty {
+                        if locationStatus == .onLocation, let well = selectedWell {
+                            Text("• \(well.name)")
+                                .foregroundStyle(.tertiary)
+                        } else if !locationName.isEmpty {
                             Text("• \(locationName)")
                                 .foregroundStyle(.tertiary)
                         }
@@ -843,7 +857,7 @@ private struct EquipmentEditorSheet: View {
                     eq.category = selectedCategory
                     eq.vendor = selectedVendor
                     eq.locationStatus = locationStatus
-                    eq.currentLocationName = locationName
+                    eq.currentLocationName = locationStatus == .onLocation ? (selectedWell?.name ?? "") : locationName
                     eq.touch()
                     onSave(eq)
                     dismiss()
@@ -864,6 +878,10 @@ private struct EquipmentEditorSheet: View {
                 selectedVendor = eq.vendor
                 locationStatus = eq.locationStatus
                 locationName = eq.currentLocationName
+                // Try to match existing location name to a well
+                if eq.locationStatus == .onLocation {
+                    selectedWell = wells.first { $0.name == eq.currentLocationName }
+                }
             }
         }
     }
