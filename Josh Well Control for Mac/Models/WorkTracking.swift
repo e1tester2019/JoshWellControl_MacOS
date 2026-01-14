@@ -36,6 +36,7 @@ final class Client {
     @Relationship(deleteRule: .nullify, inverse: \Invoice.client) var invoices: [Invoice]?
     @Relationship(deleteRule: .nullify, inverse: \Expense.client) var expenses: [Expense]?
     @Relationship(deleteRule: .nullify, inverse: \MileageLog.client) var mileageLogs: [MileageLog]?
+    @Relationship(deleteRule: .nullify, inverse: \ShiftEntry.client) var shiftEntries: [ShiftEntry]?
 
     init(companyName: String = "", contactName: String = "", dayRate: Double = 1625.00, mileageRate: Double = 1.15) {
         self.companyName = companyName
@@ -85,6 +86,7 @@ final class WorkDay {
     @Relationship(deleteRule: .nullify) var well: Well?
     @Relationship(deleteRule: .nullify) var client: Client?
     @Relationship(deleteRule: .nullify, inverse: \InvoiceLineItem.workDays) var lineItem: InvoiceLineItem?
+    @Relationship(deleteRule: .nullify, inverse: \ShiftEntry.workDay) var shiftEntry: ShiftEntry?
 
     // Custom rig name and cost code per work day (overrides well defaults)
     var rigNameOverride: String?

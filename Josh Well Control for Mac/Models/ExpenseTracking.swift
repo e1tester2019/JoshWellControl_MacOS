@@ -90,6 +90,7 @@ enum TripTrackingMode: String, Codable, CaseIterable {
     case manual = "Manual"
     case pointToPoint = "Point-to-Point"
     case activeTracking = "Active Tracking"
+    case routeBased = "Route-Based"
 }
 
 // MARK: - Expense
@@ -284,6 +285,17 @@ final class MileageLog {
 
     // Map snapshot for PDF export
     @Attribute(.externalStorage) var mapSnapshotData: Data?
+
+    // Route-based tracking fields
+    var wasRouteCalculated: Bool = false
+    var calculatedDistance: Double?  // km from MKDirections (may differ from distance field)
+    var expectedTravelTime: TimeInterval?
+
+    // Destination info (for route-based trips)
+    var destinationName: String?
+    var destinationLatitude: Double?
+    var destinationLongitude: Double?
+    var destinationSourceRaw: String?  // Encoded DestinationSource
 
     // Optional links
     @Relationship(deleteRule: .nullify) var client: Client?

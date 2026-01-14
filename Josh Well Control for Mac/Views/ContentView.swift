@@ -44,11 +44,12 @@ struct ContentView: View {
     @State private var editingTransfer: MaterialTransfer?
 
     private enum Pane: String, CaseIterable, Identifiable {
-        case handover, padDashboard, wellDashboard, dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
+        case handover, shiftCalendar, padDashboard, wellDashboard, dashboard, drillString, annulus, volumes, surveys, mudCheck, mixingCalc, pressureWindow, pumpSchedule, pump, swabbing, trip, rentals, transfers
         var id: String { rawValue }
         var title: String {
             switch self {
             case .handover: return "Handover"
+            case .shiftCalendar: return "Shift Calendar"
             case .padDashboard: return "Pad Dashboard"
             case .wellDashboard: return "Well Dashboard"
             case .dashboard: return "Project Dashboard"
@@ -129,6 +130,8 @@ struct ContentView: View {
                         switch selectedSection {
                         case .handover:
                             WellsDashboardView()
+                        case .shiftCalendar:
+                            ShiftCalendarView()
                         case .padDashboard:
                             if let pad = project.well?.pad {
                                 PadDashboardView(pad: pad)
@@ -645,6 +648,7 @@ private extension ContentView {
     private func icon(for pane: Pane) -> String {
         switch pane {
         case .handover: return "list.clipboard"
+        case .shiftCalendar: return "calendar"
         case .padDashboard: return "map"
         case .wellDashboard: return "building.2"
         case .dashboard: return "speedometer"

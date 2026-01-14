@@ -516,6 +516,8 @@ struct iPadDetailView: View {
                     AllMaterialTransfersViewIOS()
                 case .equipmentRegistry:
                     RentalEquipmentListViewIOS()
+                case .shiftCalendar:
+                    ShiftCalendarViewIOS()
                 case .workDays:
                     WorkTrackingContainerViewIOS()
 

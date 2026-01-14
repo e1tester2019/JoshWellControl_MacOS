@@ -544,7 +544,7 @@ private class PDFContext {
             .foregroundColor: MTColor.gray
         ]
 
-        var infoY = y - 15
+        let infoY = y - 15
         let colWidth = contentWidth / 3
         var colIndex = 0
         var rowY = infoY

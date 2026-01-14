@@ -365,6 +365,9 @@ struct MileageLogEditorView: View {
 
     @Query(sort: \Client.companyName) private var clients: [Client]
     @Query(sort: \Well.name) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
+
+    @StateObject private var geocodingService = GeocodingRouteService.shared
 
     let log: MileageLog?
 
@@ -378,12 +381,32 @@ struct MileageLogEditorView: View {
     @State private var selectedWell: Well?
     @State private var notes = ""
 
+    // Route calculation state
+    @State private var isCalculatingRoute = false
+    @State private var calculatedRoute: RouteCalculationResult?
+    @State private var routeError: String?
+    @State private var startCoordinate: CLLocationCoordinate2D?
+    @State private var endCoordinate: CLLocationCoordinate2D?
+    @State private var mapPosition: MapCameraPosition = .automatic
+
+    // Quick destination selection
+    @State private var showingWellPicker = false
+    @State private var showingClientPicker = false
+
     private var effectiveDistance: Double {
         isRoundTrip ? distance * 2 : distance
     }
 
     private var estimatedDeduction: Double {
         MileageSummary.calculateDeduction(totalKm: effectiveDistance)
+    }
+
+    private var padsWithCoordinates: [Pad] {
+        pads.filter { $0.latitude != nil && $0.longitude != nil }
+    }
+
+    private var clientsWithAddresses: [Client] {
+        clients.filter { !$0.address.isEmpty }
     }
 
     var body: some View {
@@ -394,9 +417,85 @@ struct MileageLogEditorView: View {
                         .environment(\.locale, Locale(identifier: "en_GB"))
 
                     TextField("Purpose (e.g., Client meeting, Site visit)", text: $purpose)
+                }
 
-                    TextField("Start Location", text: $startLocation)
-                    TextField("End Location", text: $endLocation)
+                Section {
+                    // Start location
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Start Location")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Enter address or location", text: $startLocation)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    // End location with quick picks
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("End Location")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if !padsWithCoordinates.isEmpty {
+                                Menu {
+                                    ForEach(padsWithCoordinates) { pad in
+                                        Button(pad.name) {
+                                            selectPadAsDestination(pad)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Well/Pad", systemImage: "mappin")
+                                        .font(.caption)
+                                }
+                                .menuStyle(.borderlessButton)
+                            }
+                            if !clientsWithAddresses.isEmpty {
+                                Menu {
+                                    ForEach(clientsWithAddresses) { client in
+                                        Button(client.companyName) {
+                                            selectClientAsDestination(client)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Client", systemImage: "building.2")
+                                        .font(.caption)
+                                }
+                                .menuStyle(.borderlessButton)
+                            }
+                        }
+                        TextField("Enter address or location", text: $endLocation)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    // Calculate route button
+                    HStack {
+                        Button {
+                            calculateRoute()
+                        } label: {
+                            HStack {
+                                if isCalculatingRoute {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "map")
+                                }
+                                Text("Calculate Driving Distance")
+                            }
+                        }
+                        .disabled(startLocation.isEmpty || endLocation.isEmpty || isCalculatingRoute)
+
+                        Spacer()
+
+                        if let error = routeError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } header: {
+                    Text("Locations")
+                } footer: {
+                    Text("Enter addresses and click Calculate to get the driving distance, or enter distance manually below.")
                 }
 
                 Section("Distance") {
@@ -408,6 +507,22 @@ struct MileageLogEditorView: View {
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                         Text("km")
+                    }
+
+                    if calculatedRoute != nil {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Distance calculated from route")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let route = calculatedRoute, route.expectedTravelTime > 0 {
+                                Spacer()
+                                Text("~\(route.formattedTravelTime) drive")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
 
                     Toggle("Round trip", isOn: $isRoundTrip)
@@ -450,12 +565,35 @@ struct MileageLogEditorView: View {
                         .frame(minHeight: 60)
                 }
 
-                // Map section - show if we have GPS coordinates
-                if let log = log, log.hasGPSData {
+                // Map section - show calculated route or existing GPS data
+                if calculatedRoute != nil || (log != nil && log!.hasGPSData) {
                     Section("Route Map") {
-                        MileageMapView(mileageLog: log)
+                        if let route = calculatedRoute {
+                            Map(position: $mapPosition) {
+                                if let points = route.polylinePoints, points.count >= 2 {
+                                    MapPolyline(coordinates: points)
+                                        .stroke(.blue, lineWidth: 4)
+                                }
+                                Annotation("Start", coordinate: route.startCoordinate) {
+                                    ZStack {
+                                        Circle().fill(.green).frame(width: 20, height: 20)
+                                        Circle().fill(.white).frame(width: 8, height: 8)
+                                    }
+                                }
+                                Annotation("End", coordinate: route.endCoordinate) {
+                                    ZStack {
+                                        Circle().fill(.red).frame(width: 20, height: 20)
+                                        Circle().fill(.white).frame(width: 8, height: 8)
+                                    }
+                                }
+                            }
                             .frame(height: 250)
                             .cornerRadius(8)
+                        } else if let log = log, log.hasGPSData {
+                            MileageMapView(mileageLog: log)
+                                .frame(height: 250)
+                                .cornerRadius(8)
+                        }
                     }
                 }
             }
@@ -472,7 +610,7 @@ struct MileageLogEditorView: View {
             }
             .onAppear { loadLog() }
         }
-        .frame(minWidth: 450, minHeight: 550)
+        .frame(minWidth: 500, minHeight: 650)
     }
 
     private func loadLog() {
@@ -488,6 +626,96 @@ struct MileageLogEditorView: View {
         notes = log.notes
     }
 
+    private func selectPadAsDestination(_ pad: Pad) {
+        guard let lat = pad.latitude, let lon = pad.longitude else { return }
+        endLocation = pad.name
+        endCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+
+        // Find and select the well if this pad has one
+        if let well = wells.first(where: { $0.pad?.id == pad.id }) {
+            selectedWell = well
+        }
+
+        // Auto-calculate if start location is set
+        if !startLocation.isEmpty {
+            calculateRoute()
+        }
+    }
+
+    private func selectClientAsDestination(_ client: Client) {
+        let address = client.address
+        if !address.isEmpty {
+            endLocation = "\(client.companyName) - \(address)"
+            selectedClient = client
+            // Will geocode when calculating route
+        }
+
+        // Auto-calculate if start location is set
+        if !startLocation.isEmpty {
+            calculateRoute()
+        }
+    }
+
+    private func calculateRoute() {
+        isCalculatingRoute = true
+        routeError = nil
+
+        Task {
+            do {
+                // Geocode start if needed
+                let startCoord: CLLocationCoordinate2D
+                if let existing = startCoordinate {
+                    startCoord = existing
+                } else {
+                    startCoord = try await geocodingService.geocodeAddress(startLocation)
+                    await MainActor.run { startCoordinate = startCoord }
+                }
+
+                // Geocode end if needed
+                let endCoord: CLLocationCoordinate2D
+                if let existing = endCoordinate {
+                    endCoord = existing
+                } else {
+                    endCoord = try await geocodingService.geocodeAddress(endLocation)
+                    await MainActor.run { endCoordinate = endCoord }
+                }
+
+                // Calculate route
+                let route = try await geocodingService.calculateRoute(from: startCoord, to: endCoord)
+
+                await MainActor.run {
+                    calculatedRoute = route
+                    distance = route.distanceKm
+                    fitMapToRoute(route)
+                    isCalculatingRoute = false
+                }
+            } catch {
+                await MainActor.run {
+                    routeError = error.localizedDescription
+                    isCalculatingRoute = false
+                }
+            }
+        }
+    }
+
+    private func fitMapToRoute(_ route: RouteCalculationResult) {
+        let start = route.startCoordinate
+        let end = route.endCoordinate
+
+        let centerLat = (start.latitude + end.latitude) / 2
+        let centerLon = (start.longitude + end.longitude) / 2
+        let latDelta = abs(start.latitude - end.latitude) * 1.5
+        let lonDelta = abs(start.longitude - end.longitude) * 1.5
+
+        mapPosition = .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon),
+            span: MKCoordinateSpan(
+                latitudeDelta: max(latDelta, 0.02),
+                longitudeDelta: max(lonDelta, 0.02)
+            )
+        ))
+    }
+
     private func save() {
         let entry = log ?? MileageLog()
         entry.date = date
@@ -499,6 +727,26 @@ struct MileageLogEditorView: View {
         entry.client = selectedClient
         entry.well = selectedWell
         entry.notes = notes
+
+        // Save coordinates if we have them
+        if let startCoord = startCoordinate {
+            entry.startLatitude = startCoord.latitude
+            entry.startLongitude = startCoord.longitude
+        }
+        if let endCoord = endCoordinate {
+            entry.endLatitude = endCoord.latitude
+            entry.endLongitude = endCoord.longitude
+        }
+
+        // Mark as route-calculated if we used the geocoding service
+        if calculatedRoute != nil {
+            entry.wasRouteCalculated = true
+            entry.calculatedDistance = calculatedRoute?.distanceKm
+            entry.expectedTravelTime = calculatedRoute?.expectedTravelTime
+            entry.trackingMode = .routeBased
+        } else {
+            entry.trackingMode = .manual
+        }
 
         if log == nil {
             modelContext.insert(entry)

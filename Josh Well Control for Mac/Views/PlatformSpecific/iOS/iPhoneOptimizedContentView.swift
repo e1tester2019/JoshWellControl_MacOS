@@ -387,6 +387,12 @@ struct iPhoneOptimizedContentView: View {
         List {
             Section("Work & Invoicing") {
                 NavigationLink {
+                    ShiftCalendarViewIOS()
+                } label: {
+                    Label("Shift Calendar", systemImage: "calendar")
+                }
+
+                NavigationLink {
                     WorkTrackingContainerViewIOS()
                 } label: {
                     Label("Work Tracking", systemImage: "calendar.badge.clock")

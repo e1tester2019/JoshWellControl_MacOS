@@ -56,6 +56,7 @@ struct InvoiceListView: View {
                             .onTapGesture {
                                 selectedInvoice = invoice
                             }
+                            .id(invoice.id)  // Ensure proper refresh on data change
                     }
                     .onDelete(perform: deleteInvoices)
                 }
@@ -206,6 +207,19 @@ struct InvoiceCreatorView: View {
         let inField = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageInField }
         let commute = selectedWorkDayObjects.reduce(0) { $0 + $1.mileageCommute }
         return (toLocation, fromLocation, inField, commute)
+    }
+
+    // Mileage grouped by well with breakdown by type
+    private var mileageByWell: [(wellName: String, wellID: UUID?, toLocation: Double, fromLocation: Double, inField: Double, commute: Double)] {
+        let grouped = Dictionary(grouping: selectedWorkDayObjects) { $0.well?.id }
+        return grouped.map { (wellID, workDays) in
+            let wellName = workDays.first?.well?.name ?? "No Well Assigned"
+            let toLocation = workDays.reduce(0) { $0 + $1.mileageToLocation }
+            let fromLocation = workDays.reduce(0) { $0 + $1.mileageFromLocation }
+            let inField = workDays.reduce(0) { $0 + $1.mileageInField }
+            let commute = workDays.reduce(0) { $0 + $1.mileageCommute }
+            return (wellName, wellID, toLocation, fromLocation, inField, commute)
+        }.sorted { $0.wellName < $1.wellName }
     }
 
     var body: some View {
@@ -387,39 +401,62 @@ struct InvoiceCreatorView: View {
             let mileageTotal = totalMileage * client.mileageRate
             let subtotal = dayRateTotal + mileageTotal
             let gst = subtotal * 0.05
-            let mileage = mileageByType
 
             VStack(alignment: .leading, spacing: 8) {
-                // Mileage by type
-                if mileage.toLocation > 0 {
-                    HStack {
-                        Text("Mileage - To Location (\(Int(mileage.toLocation)) km)")
-                        Spacer()
-                        Text(mileage.toLocation * client.mileageRate, format: .currency(code: "CAD"))
+                // Mileage by well with breakdown
+                ForEach(mileageByWell, id: \.wellID) { wellMileage in
+                    let wellTotal = wellMileage.toLocation + wellMileage.fromLocation + wellMileage.inField + wellMileage.commute
+                    if wellTotal > 0 {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(wellMileage.wellName)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+
+                            if wellMileage.toLocation > 0 {
+                                HStack {
+                                    Text("  To Location: \(Int(wellMileage.toLocation)) km")
+                                    Spacer()
+                                    Text(wellMileage.toLocation * client.mileageRate, format: .currency(code: "CAD"))
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            if wellMileage.fromLocation > 0 {
+                                HStack {
+                                    Text("  From Location: \(Int(wellMileage.fromLocation)) km")
+                                    Spacer()
+                                    Text(wellMileage.fromLocation * client.mileageRate, format: .currency(code: "CAD"))
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            if wellMileage.inField > 0 {
+                                HStack {
+                                    Text("  In Field: \(Int(wellMileage.inField)) km")
+                                    Spacer()
+                                    Text(wellMileage.inField * client.mileageRate, format: .currency(code: "CAD"))
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            if wellMileage.commute > 0 {
+                                HStack {
+                                    Text("  Commute: \(Int(wellMileage.commute)) km")
+                                    Spacer()
+                                    Text(wellMileage.commute * client.mileageRate, format: .currency(code: "CAD"))
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .foregroundStyle(.secondary)
                 }
-                if mileage.fromLocation > 0 {
+
+                // Show total mileage summary
+                if totalMileage > 0 {
                     HStack {
-                        Text("Mileage - From Location (\(Int(mileage.fromLocation)) km)")
+                        Text("Total Mileage: \(Int(totalMileage)) km")
+                            .fontWeight(.medium)
                         Spacer()
-                        Text(mileage.fromLocation * client.mileageRate, format: .currency(code: "CAD"))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                if mileage.inField > 0 {
-                    HStack {
-                        Text("Mileage - In Field (\(Int(mileage.inField)) km)")
-                        Spacer()
-                        Text(mileage.inField * client.mileageRate, format: .currency(code: "CAD"))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                if mileage.commute > 0 {
-                    HStack {
-                        Text("Mileage - Commute (\(Int(mileage.commute)) km)")
-                        Spacer()
-                        Text(mileage.commute * client.mileageRate, format: .currency(code: "CAD"))
+                        Text(totalMileage * client.mileageRate, format: .currency(code: "CAD"))
+                            .fontWeight(.medium)
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -500,25 +537,48 @@ struct InvoiceCreatorView: View {
             WellRateKey(wellID: wd.well?.id, rate: wd.effectiveDayRate, reason: wd.customRateReason)
         }
 
-        // Add mileage line items by type
-        let mileageTypes: [(description: String, km: Double)] = [
-            ("To Location", mileage.toLocation),
-            ("From Location", mileage.fromLocation),
-            ("In Field", mileage.inField),
-            ("Commute", mileage.commute)
-        ]
+        // Add mileage line items grouped by well (same structure as day rates)
+        let workDaysByWell = Dictionary(grouping: selectedWorkDayObjects) { $0.well?.id }
 
-        for (description, km) in mileageTypes {
-            guard km > 0 else { continue }
+        for (_, wellWorkDays) in workDaysByWell {
+            guard let firstWorkDay = wellWorkDays.first else { continue }
+            let well = firstWorkDay.well
 
-            let mileageItem = InvoiceLineItem(itemType: .mileage, quantity: Int(km), unitPrice: client.mileageRate)
-            mileageItem.mileageDescription = description
-            mileageItem.sortOrder = sortOrder
-            sortOrder += 1
+            // Calculate mileage totals for this well
+            let toLocation = wellWorkDays.reduce(0) { $0 + $1.mileageToLocation }
+            let fromLocation = wellWorkDays.reduce(0) { $0 + $1.mileageFromLocation }
+            let inField = wellWorkDays.reduce(0) { $0 + $1.mileageInField }
+            let commute = wellWorkDays.reduce(0) { $0 + $1.mileageCommute }
 
-            mileageItem.invoice = invoice
-            invoice.lineItems?.append(mileageItem)
-            modelContext.insert(mileageItem)
+            // Create line items for each mileage type for this well
+            let mileageTypes: [(description: String, km: Double)] = [
+                ("To Location", toLocation),
+                ("From Location", fromLocation),
+                ("In Field", inField),
+                ("Commute", commute)
+            ]
+
+            for (typeDescription, km) in mileageTypes {
+                guard km > 0 else { continue }
+
+                let mileageItem = InvoiceLineItem(itemType: .mileage, quantity: Int(km), unitPrice: client.mileageRate)
+                mileageItem.mileageDescription = typeDescription
+                mileageItem.sortOrder = sortOrder
+                sortOrder += 1
+
+                // Add well info including AFE and cost code (same as day rates)
+                if let well = well {
+                    mileageItem.wellName = well.name
+                    mileageItem.afeNumber = well.afeNumber ?? ""
+                    mileageItem.rigName = well.rigName ?? ""
+                    mileageItem.costCode = firstWorkDay.effectiveCostCode
+                    mileageItem.well = well
+                }
+
+                mileageItem.invoice = invoice
+                invoice.lineItems?.append(mileageItem)
+                modelContext.insert(mileageItem)
+            }
         }
 
         // Add day rate line items grouped by well and rate
@@ -555,7 +615,11 @@ struct InvoiceCreatorView: View {
         }
 
         try? modelContext.save()
-        dismiss()
+
+        // Dismiss with animation to help SwiftUI update the list properly
+        withAnimation {
+            dismiss()
+        }
     }
 }
 

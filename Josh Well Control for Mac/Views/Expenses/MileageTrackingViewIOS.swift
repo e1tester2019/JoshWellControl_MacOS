@@ -17,10 +17,13 @@ struct MileageLogViewIOS: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \MileageLog.date, order: .reverse) private var logs: [MileageLog]
     @StateObject private var locationService = LocationTrackingService.shared
+    @StateObject private var persistenceService = TripPersistenceService.shared
 
     @State private var showingAddSheet = false
     @State private var showingActiveTracking = false
     @State private var showingPointToPoint = false
+    @State private var showingRouteBased = false
+    @State private var showingTripRecovery = false
     @State private var selectedLog: MileageLog?
 
     var body: some View {
@@ -50,6 +53,19 @@ struct MileageLogViewIOS: View {
                     .disabled(locationService.isTracking)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+
+                    // Route-Based button
+                    Button {
+                        showingRouteBased = true
+                    } label: {
+                        Label("Route-Based Trip", systemImage: "map")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.purple)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                     HStack {
                         Button {
@@ -136,6 +152,12 @@ struct MileageLogViewIOS: View {
                         }
                         .disabled(locationService.isTracking)
 
+                        Button {
+                            showingRouteBased = true
+                        } label: {
+                            Label("Route-Based Trip", systemImage: "map")
+                        }
+
                         Divider()
 
                         Button {
@@ -160,8 +182,26 @@ struct MileageLogViewIOS: View {
             .sheet(item: $selectedLog) { log in
                 MileageDetailViewIOS(log: log)
             }
+            .sheet(isPresented: $showingRouteBased) {
+                RouteBasedTripViewIOS()
+            }
+            .sheet(isPresented: $showingTripRecovery) {
+                if let state = persistenceService.incompleteTripState {
+                    TripRecoverySheet(
+                        persistedState: state,
+                        onResume: {
+                            // Resume active tracking with persisted state
+                            showingActiveTracking = true
+                        },
+                        onDiscard: {
+                            persistenceService.clearTripState()
+                        }
+                    )
+                }
+            }
             .onAppear {
                 requestLocationPermissionIfNeeded()
+                checkForIncompleteTrip()
             }
         }
     }
@@ -169,6 +209,12 @@ struct MileageLogViewIOS: View {
     private func requestLocationPermissionIfNeeded() {
         if locationService.authorizationStatus == .notDetermined {
             locationService.requestWhenInUseAuthorization()
+        }
+    }
+
+    private func checkForIncompleteTrip() {
+        if persistenceService.hasIncompleteTrip {
+            showingTripRecovery = true
         }
     }
 
@@ -350,6 +396,7 @@ struct MileageLogRowView: View {
         case .manual: return "square.and.pencil"
         case .pointToPoint: return "mappin.and.ellipse"
         case .activeTracking: return "location.fill"
+        case .routeBased: return "map"
         }
     }
 
@@ -358,6 +405,7 @@ struct MileageLogRowView: View {
         case .manual: return .gray
         case .pointToPoint: return .orange
         case .activeTracking: return .blue
+        case .routeBased: return .purple
         }
     }
 }
@@ -1128,6 +1176,7 @@ struct MileageDetailViewIOS: View {
         case .manual: return "square.and.pencil"
         case .pointToPoint: return "mappin.and.ellipse"
         case .activeTracking: return "location.fill"
+        case .routeBased: return "map"
         }
     }
 }
@@ -1261,6 +1310,16 @@ struct MileageEditorViewIOS: View {
     @State private var notes: String
     @State private var isRoundTrip: Bool
 
+    // Route calculation
+    @StateObject private var geocodingService = GeocodingRouteService.shared
+    @State private var isCalculatingRoute = false
+    @State private var calculatedRoute: RouteCalculationResult?
+    @State private var routeError: String?
+    @State private var showingStartPicker = false
+    @State private var showingEndPicker = false
+    @State private var startDestination: ResolvedDestination?
+    @State private var endDestination: ResolvedDestination?
+
     init(log: MileageLog?) {
         self.log = log
         _date = State(initialValue: log?.date ?? Date())
@@ -1293,10 +1352,70 @@ struct MileageEditorViewIOS: View {
                 }
 
                 Section {
-                    TextField("Start Location", text: $startLocation)
-                    TextField("End Location", text: $endLocation)
+                    // Start location with picker button
+                    HStack {
+                        TextField("Start Location", text: $startLocation)
+                        Button {
+                            showingStartPicker = true
+                        } label: {
+                            Image(systemName: "mappin.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    // End location with picker button
+                    HStack {
+                        TextField("End Location", text: $endLocation)
+                        Button {
+                            showingEndPicker = true
+                        } label: {
+                            Image(systemName: "mappin.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    // Calculate route button
+                    if startDestination != nil && endDestination != nil {
+                        Button {
+                            calculateRoute()
+                        } label: {
+                            HStack {
+                                if isCalculatingRoute {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "map")
+                                }
+                                Text("Calculate Distance")
+                            }
+                        }
+                        .disabled(isCalculatingRoute)
+                    }
+
+                    // Route result
+                    if let route = calculatedRoute {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Calculated: \(route.formattedDistance)")
+                            if route.expectedTravelTime > 0 {
+                                Text("(\(route.formattedTravelTime))")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                    }
+
+                    // Error message
+                    if let error = routeError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 } header: {
                     Text("Locations")
+                } footer: {
+                    Text("Tap the pin icon to select from wells or clients")
                 }
 
                 Section {
@@ -1323,6 +1442,58 @@ struct MileageEditorViewIOS: View {
                     .disabled(distance <= 0)
                 }
             }
+            .sheet(isPresented: $showingStartPicker) {
+                DestinationPickerView(
+                    selectedDestination: $startDestination,
+                    onSelect: { dest in
+                        startDestination = dest
+                        startLocation = dest.name
+                    }
+                )
+            }
+            .sheet(isPresented: $showingEndPicker) {
+                DestinationPickerView(
+                    selectedDestination: $endDestination,
+                    onSelect: { dest in
+                        endDestination = dest
+                        endLocation = dest.name
+                    }
+                )
+            }
+        }
+    }
+
+    private func calculateRoute() {
+        guard let start = startDestination, let end = endDestination else { return }
+
+        isCalculatingRoute = true
+        routeError = nil
+
+        Task {
+            do {
+                let route = try await geocodingService.calculateRoute(
+                    from: start.coordinate,
+                    to: end.coordinate
+                )
+                await MainActor.run {
+                    calculatedRoute = route
+                    distance = route.distanceKm
+                }
+            } catch {
+                await MainActor.run {
+                    routeError = error.localizedDescription
+                    // Fall back to straight-line distance
+                    let straightLine = geocodingService.calculateStraightLineDistance(
+                        from: start.coordinate,
+                        to: end.coordinate
+                    )
+                    distance = straightLine / 1000
+                    routeError = "Using straight-line distance (route unavailable)"
+                }
+            }
+            await MainActor.run {
+                isCalculatingRoute = false
+            }
         }
     }
 
@@ -1343,6 +1514,23 @@ struct MileageEditorViewIOS: View {
         entry.purpose = purpose
         entry.notes = notes
         entry.isRoundTrip = isRoundTrip
+
+        // Save coordinates if we have them
+        if let start = startDestination {
+            entry.startLatitude = start.coordinate.latitude
+            entry.startLongitude = start.coordinate.longitude
+        }
+        if let end = endDestination {
+            entry.endLatitude = end.coordinate.latitude
+            entry.endLongitude = end.coordinate.longitude
+        }
+
+        // Save route calculation data
+        if let route = calculatedRoute {
+            entry.wasRouteCalculated = true
+            entry.calculatedDistance = route.distanceKm
+            entry.expectedTravelTime = route.expectedTravelTime
+        }
 
         try? modelContext.save()
         dismiss()

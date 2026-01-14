@@ -286,7 +286,7 @@ struct MacOSSidebarView: View {
     private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
 
     // Business sections
-    private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
+    private let incomeViews: [ViewSelection] = [.shiftCalendar, .workDays, .invoices, .clients]
     private let expenseViews: [ViewSelection] = [.expenses, .mileage]
     private let payrollViews: [ViewSelection] = [.payroll, .employees]
     private let dividendViews: [ViewSelection] = [.dividends, .shareholders]
@@ -506,6 +506,9 @@ struct MacOSDetailView: View {
             }
 
         // Business views (no project required)
+        case .shiftCalendar:
+            ShiftCalendarView()
+                .toolbar { businessSettingsToolbar }
         case .workDays:
             WorkDayListView()
                 .toolbar { businessSettingsToolbar }

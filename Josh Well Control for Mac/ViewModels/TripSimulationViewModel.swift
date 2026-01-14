@@ -199,30 +199,25 @@ extension TripSimulationView {
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
 
-      // Run simulation on background thread with progress updates
-      Task.detached { [weak self] in
+      // Run simulation - NumericalTripModel is @MainActor so we run on main actor
+      Task { @MainActor [weak self] in
+        guard let self else { return }
         let model = NumericalTripModel()
         let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
-          Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.progressValue = progress.progress
-            self.progressMessage = progress.message
-            self.progressPhase = progress.phase
-          }
+          self.progressValue = progress.progress
+          self.progressMessage = progress.message
+          self.progressPhase = progress.phase
         }
 
-        await MainActor.run { [weak self] in
-          guard let self else { return }
-          self.steps = results
-          self.selectedIndex = results.isEmpty ? nil : 0
-          self.stepSlider = 0
-          self.isRunning = false
-          self.progressMessage = "Complete"
+        self.steps = results
+        self.selectedIndex = results.isEmpty ? nil : 0
+        self.stepSlider = 0
+        self.isRunning = false
+        self.progressMessage = "Complete"
 
-          // Store the calculated pit gain from the initial step (for display/comparison)
-          if let firstStep = results.first {
-            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
-          }
+        // Store the calculated pit gain from the initial step (for display/comparison)
+        if let firstStep = results.first {
+          self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
         }
       }
     }
@@ -591,30 +586,25 @@ extension TripSimulationViewIOS {
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
 
-      // Run simulation on background thread with progress updates
-      Task.detached { [weak self] in
+      // Run simulation - NumericalTripModel is @MainActor so we run on main actor
+      Task { @MainActor [weak self] in
+        guard let self else { return }
         let model = NumericalTripModel()
         let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
-          Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.progressValue = progress.progress
-            self.progressMessage = progress.message
-            self.progressPhase = progress.phase
-          }
+          self.progressValue = progress.progress
+          self.progressMessage = progress.message
+          self.progressPhase = progress.phase
         }
 
-        await MainActor.run { [weak self] in
-          guard let self else { return }
-          self.steps = results
-          self.selectedIndex = results.isEmpty ? nil : 0
-          self.stepSlider = 0
-          self.isRunning = false
-          self.progressMessage = "Complete"
+        self.steps = results
+        self.selectedIndex = results.isEmpty ? nil : 0
+        self.stepSlider = 0
+        self.isRunning = false
+        self.progressMessage = "Complete"
 
-          // Store the calculated pit gain from the initial step
-          if let firstStep = results.first {
-            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
-          }
+        // Store the calculated pit gain from the initial step
+        if let firstStep = results.first {
+          self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
         }
       }
     }

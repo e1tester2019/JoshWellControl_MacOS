@@ -49,6 +49,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case equipmentRegistry
 
     // Business - Income
+    case shiftCalendar
     case workDays
     case invoices
     case clients
@@ -75,7 +76,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     /// Whether this view requires PIN unlock to access
     var requiresBusinessUnlock: Bool {
         switch self {
-        case .workDays, .invoices, .clients, .expenses, .mileage,
+        case .shiftCalendar, .workDays, .invoices, .clients, .expenses, .mileage,
              .payroll, .employees, .dividends, .shareholders, .companyStatement,
              .expenseReport, .payrollReport:
             return true
@@ -122,7 +123,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .simulation
         case .lookAheadScheduler, .vendors, .jobCodes:
             return .operations
-        case .workDays, .invoices, .clients:
+        case .shiftCalendar, .workDays, .invoices, .clients:
             return .income
         case .expenses, .mileage:
             return .expensesCat
@@ -171,6 +172,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
         case .equipmentRegistry: return "Equipment Registry"
+        case .shiftCalendar: return "Shift Calendar"
         case .workDays: return "Work Days"
         case .invoices: return "Invoices"
         case .clients: return "Clients"
@@ -216,6 +218,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
         case .equipmentRegistry: return "shippingbox.fill"
+        case .shiftCalendar: return "calendar.badge.clock"
         case .workDays: return "calendar"
         case .invoices: return "doc.text"
         case .clients: return "person.2"
@@ -309,6 +312,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Material transfer management"
         case .equipmentRegistry:
             return "Track rental equipment across wells with issue logging"
+        case .shiftCalendar:
+            return "Shift rotation tracking with auto work day creation and end-of-shift reminders"
         case .workDays:
             return "Track work days for clients"
         case .invoices:

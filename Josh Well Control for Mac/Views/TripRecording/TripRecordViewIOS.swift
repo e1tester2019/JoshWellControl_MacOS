@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 
 #if os(iOS)
 struct TripRecordViewIOS: View {

@@ -52,6 +52,9 @@ final class Well {
     @Relationship(deleteRule: .nullify, inverse: \LookAheadTask.well) var lookAheadTasks: [LookAheadTask]?
     @Relationship(deleteRule: .nullify, inverse: \LookAheadSchedule.well) var lookAheadSchedules: [LookAheadSchedule]?
 
+    // Shift Calendar
+    @Relationship(deleteRule: .nullify, inverse: \ShiftEntry.well) var shiftEntries: [ShiftEntry]?
+
     // Directional Planning
     @Relationship(deleteRule: .cascade, inverse: \DirectionalPlan.well) var directionalPlans: [DirectionalPlan]?
 

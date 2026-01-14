@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum JobCodeCategory: String, Codable, CaseIterable {
     case drilling = "Drilling"
@@ -34,6 +35,75 @@ enum JobCodeCategory: String, Codable, CaseIterable {
         case .other: return "ellipsis.circle"
         }
     }
+
+    /// Default color hex for this category
+    var defaultColorHex: String {
+        switch self {
+        case .drilling: return "#3B82F6"    // Blue
+        case .casing: return "#8B5CF6"      // Purple
+        case .cementing: return "#6B7280"   // Gray
+        case .tripping: return "#F59E0B"    // Amber
+        case .testing: return "#10B981"     // Emerald
+        case .logging: return "#06B6D4"     // Cyan
+        case .completions: return "#22C55E" // Green
+        case .rigMove: return "#EF4444"     // Red
+        case .maintenance: return "#F97316" // Orange
+        case .other: return "#64748B"       // Slate
+        }
+    }
+
+    var defaultColor: Color {
+        Color(hex: defaultColorHex) ?? .blue
+    }
+}
+
+/// Preset colors for job codes
+enum JobCodeColor: String, CaseIterable, Identifiable {
+    case blue = "#3B82F6"
+    case purple = "#8B5CF6"
+    case pink = "#EC4899"
+    case red = "#EF4444"
+    case orange = "#F97316"
+    case amber = "#F59E0B"
+    case yellow = "#EAB308"
+    case lime = "#84CC16"
+    case green = "#22C55E"
+    case emerald = "#10B981"
+    case teal = "#14B8A6"
+    case cyan = "#06B6D4"
+    case sky = "#0EA5E9"
+    case indigo = "#6366F1"
+    case violet = "#7C3AED"
+    case slate = "#64748B"
+    case gray = "#6B7280"
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        case .pink: return "Pink"
+        case .red: return "Red"
+        case .orange: return "Orange"
+        case .amber: return "Amber"
+        case .yellow: return "Yellow"
+        case .lime: return "Lime"
+        case .green: return "Green"
+        case .emerald: return "Emerald"
+        case .teal: return "Teal"
+        case .cyan: return "Cyan"
+        case .sky: return "Sky"
+        case .indigo: return "Indigo"
+        case .violet: return "Violet"
+        case .slate: return "Slate"
+        case .gray: return "Gray"
+        }
+    }
+
+    var color: Color {
+        Color(hex: rawValue) ?? .blue
+    }
 }
 
 @Model
@@ -42,6 +112,7 @@ final class JobCode {
     var code: String = ""
     var name: String = ""
     var categoryRaw: String = JobCodeCategory.other.rawValue
+    var colorHex: String?  // Custom color, falls back to category default if nil
     var notes: String = ""
 
     // Duration statistics (learned from completed tasks)
@@ -81,6 +152,14 @@ final class JobCode {
             categoryRaw = newValue.rawValue
             updatedAt = .now
         }
+    }
+
+    /// The color for this job code (custom or category default)
+    var color: Color {
+        if let hex = colorHex, let customColor = Color(hex: hex) {
+            return customColor
+        }
+        return category.defaultColor
     }
 
     var displayName: String {

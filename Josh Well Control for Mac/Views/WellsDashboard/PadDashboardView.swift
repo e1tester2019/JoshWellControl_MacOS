@@ -7,6 +7,8 @@
 
 import SwiftUI
 import SwiftData
+import CoreLocation
+import Combine
 
 struct PadDashboardView: View {
     @Environment(\.modelContext) private var modelContext
@@ -27,6 +29,9 @@ struct PadDashboardView: View {
     @State private var showingAddWell = false
     @State private var showingNewPad = false
     @State private var showingDeleteConfirmation = false
+
+    // GPS capture state
+    @StateObject private var locationHelper = PadLocationHelper()
 
     // Navigation states for items that open in sheets
     @State private var selectedWellForSheet: Well?  // Fallback when onSelectWell is nil
@@ -285,18 +290,43 @@ struct PadDashboardView: View {
                                 .textFieldStyle(.roundedBorder)
                         }
                     }
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            Text("Latitude").foregroundStyle(.secondary)
-                            TextField("Latitude", value: $pad.latitude, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .monospacedDigit()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("Latitude").foregroundStyle(.secondary)
+                                TextField("Latitude", value: $pad.latitude, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Longitude").foregroundStyle(.secondary)
+                                TextField("Longitude", value: $pad.longitude, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .monospacedDigit()
+                            }
                         }
-                        GridRow {
-                            Text("Longitude").foregroundStyle(.secondary)
-                            TextField("Longitude", value: $pad.longitude, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .monospacedDigit()
+
+                        // GPS capture button
+                        Button {
+                            captureCurrentLocation()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if locationHelper.isCapturing {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "location.fill")
+                                }
+                                Text("Get Current Location")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(locationHelper.isCapturing || pad.isLocked)
+
+                        if let error = locationHelper.error {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
                         }
                     }
                     Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
@@ -341,6 +371,31 @@ struct PadDashboardView: View {
                     }
                 }
                 .allowsHitTesting(!pad.isLocked)
+
+                // GPS capture button (iOS)
+                Button {
+                    captureCurrentLocation()
+                } label: {
+                    HStack(spacing: 4) {
+                        if locationHelper.isCapturing {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "location.fill")
+                        }
+                        Text("Get Current Location")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(locationHelper.isCapturing || pad.isLocked)
+                .padding(.top, 8)
+
+                if let error = locationHelper.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 #endif
 
                 // Directions - multi-line
@@ -783,6 +838,16 @@ struct PadDashboardView: View {
         case .medium: return .blue
         case .high: return .orange
         case .critical: return .red
+        }
+    }
+
+    // MARK: - Location Capture
+
+    private func captureCurrentLocation() {
+        locationHelper.captureLocation { latitude, longitude in
+            pad.latitude = latitude
+            pad.longitude = longitude
+            try? modelContext.save()
         }
     }
 }
@@ -1319,5 +1384,95 @@ private struct PadWorkDayRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Pad Location Helper
+
+/// Helper class for capturing GPS location for pads (works on both macOS and iOS)
+@MainActor
+class PadLocationHelper: NSObject, ObservableObject, CLLocationManagerDelegate {
+    @Published var isCapturing = false
+    @Published var error: String?
+
+    private let locationManager = CLLocationManager()
+    private var completion: ((Double, Double) -> Void)?
+
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    func captureLocation(completion: @escaping (Double, Double) -> Void) {
+        self.completion = completion
+        self.error = nil
+        self.isCapturing = true
+
+        // Check authorization
+        let status = locationManager.authorizationStatus
+        switch status {
+        case .notDetermined:
+            #if os(iOS)
+            locationManager.requestWhenInUseAuthorization()
+            #else
+            // macOS uses requestAlwaysAuthorization for location services
+            // But for one-time capture, we can just request location
+            locationManager.requestLocation()
+            #endif
+        case .restricted, .denied:
+            self.isCapturing = false
+            self.error = "Location access denied. Enable in System Settings."
+        #if os(iOS)
+        case .authorizedWhenInUse, .authorizedAlways:
+            locationManager.requestLocation()
+        #else
+        case .authorizedAlways:
+            locationManager.requestLocation()
+        #endif
+        @unknown default:
+            self.isCapturing = false
+            self.error = "Unknown authorization status"
+        }
+    }
+
+    // MARK: - CLLocationManagerDelegate
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+
+        Task { @MainActor in
+            self.isCapturing = false
+            self.completion?(location.coordinate.latitude, location.coordinate.longitude)
+            self.completion = nil
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.isCapturing = false
+            self.error = error.localizedDescription
+            self.completion = nil
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            let status = manager.authorizationStatus
+            #if os(iOS)
+            let isAuthorized = status == .authorizedWhenInUse || status == .authorizedAlways
+            #else
+            let isAuthorized = status == .authorizedAlways
+            #endif
+
+            if isAuthorized {
+                if self.isCapturing {
+                    manager.requestLocation()
+                }
+            } else if status == .denied || status == .restricted {
+                self.isCapturing = false
+                self.error = "Location access denied"
+            }
+        }
     }
 }

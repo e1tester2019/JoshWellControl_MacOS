@@ -21,7 +21,8 @@ enum AppContainer {
     // v10: Added fillMudID to TripInSimulation for mud color persistence
     // v11: Added DirectionalPlan, DirectionalPlanStation, DirectionalLimits for directional drilling features
     // v12: Added equipment registry and enhanced rentals (RentalCategory, RentalEquipment, RentalEquipmentIssue, VendorContact, VendorAddress)
-    private static let schemaVersion = 12
+    // v13: Added ShiftEntry for shift calendar feature
+    private static let schemaVersion = 13
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     /// Tracks whether the app is running in a degraded state (in-memory only)
@@ -147,7 +148,9 @@ enum AppContainer {
             RentalEquipment.self,
             RentalEquipmentIssue.self,
             VendorContact.self,
-            VendorAddress.self
+            VendorAddress.self,
+            // Shift Calendar
+            ShiftEntry.self
         ]
         let fullSchema = Schema(models)
 

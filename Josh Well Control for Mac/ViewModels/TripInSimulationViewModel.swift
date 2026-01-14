@@ -377,7 +377,7 @@ class TripInSimulationViewModel {
             let wellboreID_m = sectionAtDepth?.innerDiameter_m ?? 0.2159
 
             // Calculate annular capacity (wellbore minus pipe)
-            let annulusCapacity_m3pm = max(0.001, Double.pi / 4.0 * (wellboreID_m * wellboreID_m - pipeOD_m * pipeOD_m))
+            _ = max(0.001, Double.pi / 4.0 * (wellboreID_m * wellboreID_m - pipeOD_m * pipeOD_m))
 
             // Calculate displaced pocket layers for this step
             // As pipe enters, layers expand (same volume in narrower annulus = taller)

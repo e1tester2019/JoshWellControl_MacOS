@@ -98,6 +98,11 @@ class LocationTrackingService: NSObject, ObservableObject {
     // Single location capture continuation
     private var singleLocationContinuation: CheckedContinuation<CLLocation, Error>?
 
+    // Trip persistence
+    private let persistenceService = TripPersistenceService.shared
+    private var lastPersistPointCount = 0
+    private var tripPurpose: String = ""
+
     // MARK: - Init
     private override init() {
         super.init()
@@ -166,12 +171,19 @@ class LocationTrackingService: NSObject, ObservableObject {
 
     /// Start continuous GPS tracking for a trip
     func startActiveTracking() {
+        startActiveTracking(purpose: "")
+    }
+
+    /// Start continuous GPS tracking with a purpose
+    func startActiveTracking(purpose: String) {
         guard !isTracking else { return }
 
         isTracking = true
         tripStartTime = Date()
         routePoints = []
         trackingError = nil
+        tripPurpose = purpose
+        lastPersistPointCount = 0
 
         locationManager.desiredAccuracy = desiredAccuracy
         locationManager.distanceFilter = distanceFilter
@@ -186,6 +198,15 @@ class LocationTrackingService: NSObject, ObservableObject {
         }
 
         activeTrip = ActiveTripData(startTime: tripStartTime!)
+
+        // Persist initial state for recovery
+        let state = PersistedTripState(
+            startTime: tripStartTime!,
+            trackingModeRaw: TripTrackingMode.activeTracking.rawValue,
+            purpose: purpose,
+            routePointCount: 0
+        )
+        persistenceService.saveTripState(state)
     }
 
     /// Stop tracking and return the trip result
@@ -213,7 +234,58 @@ class LocationTrackingService: NSObject, ObservableObject {
         )
 
         activeTrip = nil
+
+        // Clear persisted state on successful completion
+        persistenceService.clearTripState()
+
         return result
+    }
+
+    // MARK: - Trip Recovery
+
+    /// Check if there's a persisted trip that can be recovered
+    func hasPersistedTrip() -> Bool {
+        persistenceService.hasIncompleteTrip
+    }
+
+    /// Get the persisted trip state (for display in recovery UI)
+    func getPersistedTripState() -> PersistedTripState? {
+        persistenceService.loadTripState()
+    }
+
+    /// Restore tracking from persisted state
+    func restoreFromPersistedState() {
+        guard let state = persistenceService.loadTripState() else { return }
+
+        // Only restore if it was active tracking
+        guard state.trackingModeRaw == TripTrackingMode.activeTracking.rawValue else { return }
+
+        isTracking = true
+        tripStartTime = state.startTime
+        tripPurpose = state.purpose
+        routePoints = persistenceService.loadRoutePointsAsCLLocations()
+        lastPersistPointCount = routePoints.count
+        trackingError = nil
+
+        locationManager.desiredAccuracy = desiredAccuracy
+        locationManager.distanceFilter = distanceFilter
+
+        // Start location updates
+        locationManager.startUpdatingLocation()
+
+        // Enable background updates if we have Always authorization
+        if canTrackInBackground {
+            locationManager.allowsBackgroundLocationUpdates = true
+            locationManager.showsBackgroundLocationIndicator = true
+        }
+
+        activeTrip = ActiveTripData(startTime: tripStartTime!)
+        updateActiveTrip()
+    }
+
+    /// Clear persisted trip without completing it
+    func clearPersistedTrip() {
+        persistenceService.clearTripState()
     }
 
     // MARK: - Battery Optimization
@@ -265,12 +337,25 @@ class LocationTrackingService: NSObject, ObservableObject {
                 if distance >= distanceFilter {
                     routePoints.append(location)
                     updateActiveTrip()
+                    persistRoutePointsIfNeeded()
                 }
             } else {
                 // First point
                 routePoints.append(location)
                 updateActiveTrip()
+                persistRoutePointsIfNeeded()
             }
+        }
+    }
+
+    private func persistRoutePointsIfNeeded() {
+        // Persist every 10 points or when time-based check triggers
+        let shouldPersist = (routePoints.count - lastPersistPointCount >= 10) ||
+                           persistenceService.shouldSaveRoutePoints()
+
+        if shouldPersist {
+            persistenceService.forceSaveRoutePoints(from: routePoints)
+            lastPersistPointCount = routePoints.count
         }
     }
 

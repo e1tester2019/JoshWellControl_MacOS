@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 
 struct NoteEditorView: View {
     @Environment(\.modelContext) private var modelContext
