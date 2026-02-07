@@ -45,7 +45,8 @@ class AccountantExportService {
     }
 
     #if os(macOS)
-    func exportPackage(data: ExportData, to url: URL) throws {
+    @MainActor
+    func exportPackage(data: ExportData, to url: URL) async throws {
         let fileManager = FileManager.default
 
         // Create temp directory
@@ -64,50 +65,63 @@ class AccountantExportService {
         try fileManager.createDirectory(at: invoicesDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: mileageDir, withIntermediateDirectories: true)
 
+        // Yield to allow UI to update
+        await Task.yield()
+
         // Generate mileage detail pages and map images
         var mileageLinks: [UUID: String] = [:] // Map log ID to detail page filename
-        let semaphore = DispatchSemaphore(value: 0)
-        var mapGenerationError: Error?
 
-        Task {
-            do {
-                for (index, log) in data.mileageLogs.enumerated() {
-                    let tripNumber = index + 1
-                    let detailFilename = "trip_\(tripNumber).html"
-                    mileageLinks[log.id] = detailFilename
+        // Process mileage logs with rate limiting for MapKit stability
+        let logsWithGPS = data.mileageLogs.filter { $0.hasGPSData }
+        let totalWithGPS = logsWithGPS.count
 
-                    // Generate map image if GPS data available
-                    var mapFilename: String? = nil
-                    if log.hasGPSData {
-                        do {
-                            let mapData = try await MapSnapshotServiceMacOS.shared.generateJPEGData(
-                                for: log,
-                                options: .large
-                            )
-                            mapFilename = "trip_\(tripNumber)_map.jpg"
-                            let mapFile = mileageDir.appendingPathComponent(mapFilename!)
-                            try mapData.write(to: mapFile)
-                        } catch {
-                            // Continue without map if generation fails
-                            print("Map generation failed for trip \(tripNumber): \(error)")
-                        }
+        for (index, log) in data.mileageLogs.enumerated() {
+            let tripNumber = index + 1
+            let detailFilename = "trip_\(tripNumber).html"
+            mileageLinks[log.id] = detailFilename
+
+            // Generate map image if GPS data available
+            var mapFilename: String? = nil
+            if log.hasGPSData {
+                do {
+                    // Add delay between map generations to prevent MapKit crashes
+                    if index > 0 && totalWithGPS > 1 {
+                        try await Task.sleep(nanoseconds: 150_000_000) // 150ms delay
                     }
 
-                    // Generate detail HTML page
-                    let detailHTML = self.generateMileageDetailHTML(log: log, tripNumber: tripNumber, mapFilename: mapFilename)
-                    let detailFile = mileageDir.appendingPathComponent(detailFilename)
-                    try detailHTML.write(to: detailFile, atomically: true, encoding: .utf8)
-                }
-            } catch {
-                mapGenerationError = error
-            }
-            semaphore.signal()
-        }
-        semaphore.wait()
+                    let mapData = try await MapSnapshotServiceMacOS.shared.generateJPEGData(
+                        for: log,
+                        options: .large
+                    )
 
-        if let error = mapGenerationError {
-            throw error
+                    // Small yield after map generation
+                    await Task.yield()
+
+                    mapFilename = "trip_\(tripNumber)_map.jpg"
+                    let mapFile = mileageDir.appendingPathComponent(mapFilename!)
+                    try mapData.write(to: mapFile)
+                } catch {
+                    // Map generation failed, continue without map
+                }
+            }
+
+            // Generate detail HTML page
+            let detailHTML = self.generateMileageDetailHTML(log: log, tripNumber: tripNumber, mapFilename: mapFilename)
+            let detailFile = mileageDir.appendingPathComponent(detailFilename)
+            try detailHTML.write(to: detailFile, atomically: true, encoding: .utf8)
+
+            // Yield periodically to prevent blocking
+            if index % 5 == 0 {
+                await Task.yield()
+            }
         }
+
+        // Delay to let MapKit clean up its resources before we proceed
+        if totalWithGPS > 0 {
+            try await Task.sleep(nanoseconds: 250_000_000) // 250ms
+        }
+
+        await Task.yield()
 
         // Generate and save HTML report
         let html = generateHTML(data: data, mileageLinks: mileageLinks)
@@ -118,6 +132,8 @@ class AccountantExportService {
         let css = generateCSS()
         let cssFile = tempDir.appendingPathComponent("styles.css")
         try css.write(to: cssFile, atomically: true, encoding: .utf8)
+
+        await Task.yield()
 
         // Export receipts - MUST be sorted by date to match HTML generation
         var receiptIndex = 1
@@ -136,6 +152,8 @@ class AccountantExportService {
             }
         }
 
+        await Task.yield()
+
         // Export invoice PDFs
         for invoice in data.invoices {
             if let pdfData = InvoicePDFGenerator.shared.generatePDF(for: invoice) {
@@ -143,6 +161,7 @@ class AccountantExportService {
                 let invoiceFile = invoicesDir.appendingPathComponent(filename)
                 try pdfData.write(to: invoiceFile)
             }
+            await Task.yield()
         }
 
         // Create ZIP archive using system zip command

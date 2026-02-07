@@ -23,6 +23,34 @@ struct ShiftDaySummaryView: View {
     @Query private var expenses: [Expense]
     @Query private var mileageLogs: [MileageLog]
 
+    // State for note/task editors using item-based sheets to avoid race conditions
+    @State private var noteEditorMode: NoteEditorMode?
+    @State private var taskEditorMode: TaskEditorMode?
+
+    private enum NoteEditorMode: Identifiable {
+        case new(Date)
+        case edit(HandoverNote)
+
+        var id: String {
+            switch self {
+            case .new(let date): return "new-\(date.timeIntervalSince1970)"
+            case .edit(let note): return note.id.uuidString
+            }
+        }
+    }
+
+    private enum TaskEditorMode: Identifiable {
+        case new(Date)
+        case edit(WellTask)
+
+        var id: String {
+            switch self {
+            case .new(let date): return "new-\(date.timeIntervalSince1970)"
+            case .edit(let task): return task.id.uuidString
+            }
+        }
+    }
+
     private let calendar = Calendar.current
 
     init(selectedDate: Date, onEditShift: @escaping () -> Void, onSelectTask: ((LookAheadTask) -> Void)? = nil) {
@@ -147,6 +175,22 @@ struct ShiftDaySummaryView: View {
         #if os(macOS)
         .background(Color(NSColor.controlBackgroundColor))
         #endif
+        .sheet(item: $noteEditorMode) { mode in
+            switch mode {
+            case .new(let date):
+                NoteEditorView(forDate: date)
+            case .edit(let note):
+                NoteEditorView(note: note)
+            }
+        }
+        .sheet(item: $taskEditorMode) { mode in
+            switch mode {
+            case .new(let date):
+                TaskEditorView(forDate: date)
+            case .edit(let task):
+                TaskEditorView(task: task)
+            }
+        }
     }
 
     // MARK: - Shift Header Section
@@ -306,6 +350,12 @@ struct ShiftDaySummaryView: View {
                 Text("\(notesForDay.count)")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                Button(action: { addNewNote() }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
             }
 
             if notesForDay.isEmpty {
@@ -317,7 +367,7 @@ struct ShiftDaySummaryView: View {
 
                     Spacer()
 
-                    Button(action: { /* TODO: Create new note */ }) {
+                    Button(action: { addNewNote() }) {
                         Label("Add Note", systemImage: "plus")
                             .font(.caption)
                     }
@@ -325,21 +375,31 @@ struct ShiftDaySummaryView: View {
                 }
             } else {
                 ForEach(notesForDay) { note in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Circle()
-                                .fill(Color.orange)
-                                .frame(width: 6, height: 6)
-                            Text(note.title)
-                                .fontWeight(.medium)
-                                .lineLimit(1)
+                    Button(action: { editNote(note) }) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 6, height: 6)
+                                Text(note.title)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Text(note.content)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
                         }
-                        Text(note.content)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
+                        .padding(8)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(6)
                     }
-                    .font(.callout)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -363,29 +423,58 @@ struct ShiftDaySummaryView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+
+                Button(action: { addNewWellTask() }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.green)
+                }
+                .buttonStyle(.plain)
             }
 
             if tasksForDay.isEmpty {
-                Text("No tasks for this day")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .italic()
+                HStack {
+                    Text("No tasks for this day")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .italic()
+
+                    Spacer()
+
+                    Button(action: { addNewWellTask() }) {
+                        Label("Add Task", systemImage: "plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                }
             } else {
                 ForEach(tasksForDay) { task in
-                    HStack {
-                        Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(task.status == .completed ? .green : .gray)
-                        Text(task.title)
-                            .strikethrough(task.status == .completed)
-                            .lineLimit(1)
-                        Spacer()
-                        if task.isOverdue {
-                            Text("Overdue")
-                                .font(.caption2)
-                                .foregroundColor(.red)
+                    Button(action: { editWellTask(task) }) {
+                        HStack {
+                            Button(action: { toggleTaskStatus(task) }) {
+                                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(task.status == .completed ? .green : .gray)
+                            }
+                            .buttonStyle(.plain)
+
+                            Text(task.title)
+                                .strikethrough(task.status == .completed)
+                                .lineLimit(1)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if task.isOverdue {
+                                Text("Overdue")
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
+                        .padding(8)
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(6)
                     }
-                    .font(.callout)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -645,5 +734,30 @@ struct ShiftDaySummaryView: View {
 
         // Select the new task for editing
         onSelectTask?(newTask)
+    }
+
+    private func addNewNote() {
+        noteEditorMode = .new(selectedDate)
+    }
+
+    private func editNote(_ note: HandoverNote) {
+        noteEditorMode = .edit(note)
+    }
+
+    private func addNewWellTask() {
+        taskEditorMode = .new(selectedDate)
+    }
+
+    private func editWellTask(_ task: WellTask) {
+        taskEditorMode = .edit(task)
+    }
+
+    private func toggleTaskStatus(_ task: WellTask) {
+        if task.status == .completed {
+            task.status = .pending
+        } else {
+            task.status = .completed
+        }
+        try? modelContext.save()
     }
 }

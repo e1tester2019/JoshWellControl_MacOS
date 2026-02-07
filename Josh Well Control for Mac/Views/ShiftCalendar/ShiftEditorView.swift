@@ -16,10 +16,20 @@ struct ShiftEditorView: View {
 
     @Query(sort: \Client.companyName) private var clients: [Client]
     @Query(filter: #Predicate<Well> { !$0.isArchived }, sort: \Well.name) private var wells: [Well]
+    @Query(sort: \Pad.name) private var pads: [Pad]
 
     @State private var shiftType: ShiftType = .off
     @State private var selectedClient: Client?
+    @State private var selectedPad: Pad?
     @State private var selectedWell: Well?
+
+    /// Wells filtered by selected pad
+    private var filteredWells: [Well] {
+        if let pad = selectedPad {
+            return wells.filter { $0.pad?.id == pad.id }
+        }
+        return wells
+    }
     @State private var notes: String = ""
 
     // Mileage fields
@@ -107,15 +117,40 @@ struct ShiftEditorView: View {
                                 .frame(width: 200)
                             }
 
+                            formRow(label: "Pad") {
+                                Picker("", selection: $selectedPad) {
+                                    Text("All Pads").tag(nil as Pad?)
+                                    ForEach(pads) { pad in
+                                        Text(pad.name).tag(pad as Pad?)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 200)
+                                .onChange(of: selectedPad) { _, newPad in
+                                    // Clear well selection if it's not in the new pad
+                                    if let well = selectedWell, let pad = newPad {
+                                        if well.pad?.id != pad.id {
+                                            selectedWell = nil
+                                        }
+                                    }
+                                }
+                            }
+
                             formRow(label: "Well") {
                                 Picker("", selection: $selectedWell) {
                                     Text("None").tag(nil as Well?)
-                                    ForEach(wells) { well in
+                                    ForEach(filteredWells) { well in
                                         Text(well.name).tag(well as Well?)
                                     }
                                 }
                                 .labelsHidden()
                                 .frame(width: 200)
+                            }
+
+                            if filteredWells.isEmpty && selectedPad != nil {
+                                Text("No wells on this pad")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
 
                             if selectedClient == nil {
@@ -316,11 +351,31 @@ struct ShiftEditorView: View {
                         }
                     }
 
+                    Picker("Pad", selection: $selectedPad) {
+                        Text("All Pads").tag(nil as Pad?)
+                        ForEach(pads) { pad in
+                            Text(pad.name).tag(pad as Pad?)
+                        }
+                    }
+                    .onChange(of: selectedPad) { _, newPad in
+                        if let well = selectedWell, let pad = newPad {
+                            if well.pad?.id != pad.id {
+                                selectedWell = nil
+                            }
+                        }
+                    }
+
                     Picker("Well", selection: $selectedWell) {
                         Text("None").tag(nil as Well?)
-                        ForEach(wells) { well in
+                        ForEach(filteredWells) { well in
                             Text(well.name).tag(well as Well?)
                         }
+                    }
+
+                    if filteredWells.isEmpty && selectedPad != nil {
+                        Text("No wells on this pad")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
                     if selectedClient == nil {
@@ -492,6 +547,7 @@ struct ShiftEditorView: View {
             shiftType = entry.shiftType
             selectedClient = entry.client
             selectedWell = entry.well
+            selectedPad = entry.well?.pad  // Set pad from existing well
             notes = entry.notes
 
             // Load mileage from associated WorkDay if exists

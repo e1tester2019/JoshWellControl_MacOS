@@ -22,6 +22,7 @@ struct RentalItemsView: View {
     @State private var showEquipmentPicker = false
     @State private var showAddFromRegistry = false
     @State private var showOnLocationReport = false
+    @State private var showBulkTransferSheet = false
     @State private var viewMode: RentalViewMode = .list
 
     enum RentalViewMode: String, CaseIterable {
@@ -74,6 +75,8 @@ struct RentalItemsView: View {
                     Divider()
                     Button("Transfer Selected", systemImage: "arrow.right.circle") { showTransferSheet = true }
                         .disabled(selection == nil)
+                    Button("Bulk Transfer Active/Standby", systemImage: "arrow.right.circle.fill") { showBulkTransferSheet = true }
+                        .disabled(activeAndStandbyRentals.isEmpty)
                     Divider()
                     Button("On Location Report", systemImage: "doc.text") { showOnLocationReport = true }
                         .disabled(onLocationRentals.isEmpty)
@@ -138,6 +141,13 @@ struct RentalItemsView: View {
             RentalsOnLocationReportPreview(well: well, rentals: onLocationRentals)
         }
         #endif
+        .sheet(isPresented: $showBulkTransferSheet) {
+            BulkTransferRentalSheet(
+                rentals: activeAndStandbyRentals,
+                currentWell: well,
+                allWells: allWells.filter { $0.id != well.id }
+            )
+        }
     }
 
     private var filteredRentals: [RentalItem] {
@@ -169,6 +179,16 @@ struct RentalItemsView: View {
                 let asd = a.startDate ?? .distantPast
                 let bsd = b.startDate ?? .distantPast
                 if asd != bsd { return asd < bsd }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+    }
+
+    /// Rentals that are active (used & on location) or standby (on location but not used yet)
+    private var activeAndStandbyRentals: [RentalItem] {
+        (well.rentals ?? []).filter { $0.onLocation && !$0.invoiced }
+            .sorted { a, b in
+                // Sort active first, then standby
+                if a.used != b.used { return a.used }
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
     }
@@ -987,6 +1007,245 @@ private struct TransferRentalSheet: View {
 
         try? modelContext.save()
         dismiss()
+    }
+}
+
+// MARK: - Bulk Transfer Sheet
+private struct BulkTransferRentalSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let rentals: [RentalItem]
+    let currentWell: Well
+    let allWells: [Well]
+
+    @State private var selectedRentals: Set<UUID> = []
+    @State private var selectedWell: Well?
+    @State private var keepOnCurrentWell = true
+    @State private var errorMessage: String?
+    @State private var isTransferring = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header info
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Bulk Transfer from \(currentWell.name)")
+                            .font(.headline)
+                        Text("\(selectedRentals.count) of \(rentals.count) items selected")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Select All") {
+                        selectedRentals = Set(rentals.map { $0.id })
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Select None") {
+                        selectedRentals.removeAll()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+
+                Divider()
+
+                // Rental list with checkboxes
+                List {
+                    Section("Active") {
+                        ForEach(rentals.filter { $0.used }) { rental in
+                            BulkTransferRow(rental: rental, isSelected: selectedRentals.contains(rental.id)) {
+                                toggleSelection(rental)
+                            }
+                        }
+                    }
+
+                    Section("Standby") {
+                        ForEach(rentals.filter { !$0.used }) { rental in
+                            BulkTransferRow(rental: rental, isSelected: selectedRentals.contains(rental.id)) {
+                                toggleSelection(rental)
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+
+                Divider()
+
+                // Transfer options
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("Destination Well", selection: $selectedWell) {
+                        Text("Select a well...").tag(nil as Well?)
+                        ForEach(allWells) { well in
+                            Text(well.name).tag(well as Well?)
+                        }
+                    }
+
+                    Toggle("Keep on current well (mark as invoiced)", isOn: $keepOnCurrentWell)
+                        .help("If enabled, the current rentals will be marked as invoiced. Otherwise, they will be removed.")
+
+                    if let error = errorMessage {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(error)
+                                .foregroundStyle(.red)
+                        }
+                        .font(.caption)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Bulk Transfer")
+            #if os(macOS)
+            .frame(width: 600, height: 550)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Transfer \(selectedRentals.count) Items") {
+                        performBulkTransfer()
+                    }
+                    .disabled(selectedWell == nil || selectedRentals.isEmpty || isTransferring)
+                }
+            }
+            .onAppear {
+                // Pre-select all rentals
+                selectedRentals = Set(rentals.map { $0.id })
+            }
+        }
+    }
+
+    private func toggleSelection(_ rental: RentalItem) {
+        if selectedRentals.contains(rental.id) {
+            selectedRentals.remove(rental.id)
+        } else {
+            selectedRentals.insert(rental.id)
+        }
+    }
+
+    private func performBulkTransfer() {
+        guard let destinationWell = selectedWell else { return }
+        isTransferring = true
+        errorMessage = nil
+
+        let rentalsToTransfer = rentals.filter { selectedRentals.contains($0.id) }
+
+        // Check for conflicts
+        for rental in rentalsToTransfer {
+            if let equipment = rental.equipment {
+                if let error = equipment.canTransfer(to: destinationWell) {
+                    errorMessage = "Cannot transfer \(rental.displayName): \(error)"
+                    isTransferring = false
+                    return
+                }
+            }
+        }
+
+        // Perform transfers
+        for rental in rentalsToTransfer {
+            // Create new rental on destination well
+            let newRental = rental.createTransferCopy(to: destinationWell)
+            if destinationWell.rentals == nil { destinationWell.rentals = [] }
+            destinationWell.rentals?.append(newRental)
+            modelContext.insert(newRental)
+
+            // Handle current rental
+            if keepOnCurrentWell {
+                rental.invoiced = true
+                rental.used = true
+                rental.onLocation = false
+            } else {
+                // Remove from current well
+                if let i = (currentWell.rentals ?? []).firstIndex(where: { $0.id == rental.id }) {
+                    currentWell.rentals?.remove(at: i)
+                }
+                modelContext.delete(rental)
+            }
+        }
+
+        try? modelContext.save()
+        isTransferring = false
+        dismiss()
+    }
+}
+
+// MARK: - Bulk Transfer Row
+private struct BulkTransferRow: View {
+    let rental: RentalItem
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Checkbox
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? .blue : .secondary)
+                .font(.title3)
+
+            // Category icon
+            Image(systemName: rental.category?.icon ?? "shippingbox")
+                .foregroundStyle(.blue)
+                .frame(width: 24)
+
+            // Details
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(rental.displayName)
+                        .fontWeight(.medium)
+                    if rental.used {
+                        Text("ACTIVE")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundStyle(.green)
+                            .cornerRadius(4)
+                    } else {
+                        Text("STANDBY")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.2))
+                            .foregroundStyle(.orange)
+                            .cornerRadius(4)
+                    }
+                }
+                HStack(spacing: 8) {
+                    if let sn = rental.serialNumber, !sn.isEmpty {
+                        Text("SN: \(sn)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let vendor = rental.vendor {
+                        Text(vendor.companyName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Days & Cost
+            VStack(alignment: .trailing, spacing: 2) {
+                if rental.used {
+                    Text("\(rental.totalDays) days")
+                        .font(.caption)
+                }
+                Text(String(format: "$%.2f", rental.totalCost))
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onToggle()
+        }
     }
 }
 

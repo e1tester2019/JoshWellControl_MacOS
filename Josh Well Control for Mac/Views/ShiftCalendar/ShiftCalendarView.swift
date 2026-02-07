@@ -15,12 +15,14 @@ import SwiftData
 
 enum CalendarViewMode: String, CaseIterable {
     case month = "Month"
+    case timeline = "Timeline"
     case week = "Week"
     case day = "Day"
 
     var icon: String {
         switch self {
         case .month: return "calendar"
+        case .timeline: return "slider.horizontal.3"
         case .week: return "calendar.day.timeline.left"
         case .day: return "sun.max"
         }
@@ -60,6 +62,15 @@ struct ShiftCalendarView: View {
                 case .month:
                     MonthCalendarView(
                         displayedMonth: displayedMonth,
+                        selectedDate: $selectedDate,
+                        selectedTask: $selectedTask,
+                        showingEditor: $showingEditor,
+                        lookAheadTasks: lookAheadTasks,
+                        shiftTypeForDate: shiftType(for:),
+                        hasWorkDayForDate: hasWorkDay(for:)
+                    )
+                case .timeline:
+                    TimelineCalendarView(
                         selectedDate: $selectedDate,
                         selectedTask: $selectedTask,
                         showingEditor: $showingEditor,
@@ -151,7 +162,7 @@ struct ShiftCalendarView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 200)
+            .frame(width: 280)
 
             Spacer().frame(width: 16)
 
@@ -176,6 +187,14 @@ struct ShiftCalendarView: View {
         case .month:
             formatter.dateFormat = "MMMM yyyy"
             return formatter.string(from: displayedMonth)
+        case .timeline:
+            let endDate = calendar.date(byAdding: .day, value: 6, to: selectedDate) ?? selectedDate
+            formatter.dateFormat = "MMM d"
+            let startStr = formatter.string(from: selectedDate)
+            let endStr = formatter.string(from: endDate)
+            formatter.dateFormat = "yyyy"
+            let yearStr = formatter.string(from: endDate)
+            return "\(startStr) - \(endStr), \(yearStr)"
         case .week:
             let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: selectedDate)) ?? selectedDate
             let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? selectedDate
@@ -197,6 +216,10 @@ struct ShiftCalendarView: View {
             if let newDate = calendar.date(byAdding: .month, value: -1, to: displayedMonth) {
                 displayedMonth = newDate
             }
+        case .timeline:
+            if let newDate = calendar.date(byAdding: .day, value: -7, to: selectedDate) {
+                selectedDate = newDate
+            }
         case .week:
             if let newDate = calendar.date(byAdding: .weekOfYear, value: -1, to: selectedDate) {
                 selectedDate = newDate
@@ -213,6 +236,10 @@ struct ShiftCalendarView: View {
         case .month:
             if let newDate = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
                 displayedMonth = newDate
+            }
+        case .timeline:
+            if let newDate = calendar.date(byAdding: .day, value: 7, to: selectedDate) {
+                selectedDate = newDate
             }
         case .week:
             if let newDate = calendar.date(byAdding: .weekOfYear, value: 1, to: selectedDate) {
@@ -410,6 +437,323 @@ private struct MonthCalendarView: View {
         }
 
         return result
+    }
+}
+
+// MARK: - Timeline Calendar View
+
+private struct TimelineCalendarView: View {
+    @Binding var selectedDate: Date
+    @Binding var selectedTask: LookAheadTask?
+    @Binding var showingEditor: Bool
+    let lookAheadTasks: [LookAheadTask]
+    let shiftTypeForDate: (Date) -> ShiftType
+    let hasWorkDayForDate: (Date) -> Bool
+
+    private let calendar = Calendar.current
+    private let dayColumnWidth: CGFloat = 120
+    private let rowHeight: CGFloat = 36
+
+    // Visible days (7 days starting from selectedDate)
+    private var visibleDays: [Date] {
+        (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: selectedDate)) }
+    }
+
+    // Tasks that overlap with the visible range
+    private var visibleTasks: [LookAheadTask] {
+        guard let rangeStart = visibleDays.first,
+              let rangeEnd = visibleDays.last else { return [] }
+        let rangeEndOfDay = calendar.startOfDay(for: rangeEnd).addingTimeInterval(24 * 60 * 60 - 1)
+
+        return lookAheadTasks.filter { task in
+            task.status != .cancelled &&
+            task.startTime <= rangeEndOfDay &&
+            task.endTime >= rangeStart
+        }.sorted { $0.startTime < $1.startTime }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Day headers with navigation hints
+            HStack(spacing: 0) {
+                // Left scroll indicator
+                Button(action: scrollLeft) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                        .frame(width: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Previous 7 days")
+
+                // Day columns header
+                ForEach(visibleDays, id: \.self) { day in
+                    TimelineDayHeader(
+                        date: day,
+                        isToday: calendar.isDateInToday(day),
+                        shiftType: shiftTypeForDate(day),
+                        hasWorkDay: hasWorkDayForDate(day)
+                    )
+                    .frame(width: dayColumnWidth)
+                    .onTapGesture(count: 2) {
+                        selectedDate = day
+                        showingEditor = true
+                    }
+                }
+
+                // Right scroll indicator
+                Button(action: scrollRight) {
+                    Image(systemName: "chevron.right")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                        .frame(width: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Next 7 days")
+            }
+            .padding(.vertical, 8)
+            .background(Color(NSColor.controlBackgroundColor))
+
+            Divider()
+
+            // Task rows
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    if visibleTasks.isEmpty {
+                        ContentUnavailableView {
+                            Label("No Tasks", systemImage: "calendar.badge.checkmark")
+                        } description: {
+                            Text("No tasks scheduled for this period")
+                        }
+                        .frame(height: 200)
+                    } else {
+                        ForEach(visibleTasks, id: \.id) { task in
+                            TimelineTaskRow(
+                                task: task,
+                                visibleDays: visibleDays,
+                                dayColumnWidth: dayColumnWidth,
+                                isSelected: selectedTask?.id == task.id,
+                                onTap: { selectedTask = task }
+                            )
+                            .frame(height: rowHeight)
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.leading, 30) // Align with day columns (accounting for left button)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 50)
+                .onEnded { value in
+                    if value.translation.width > 50 {
+                        scrollLeft()
+                    } else if value.translation.width < -50 {
+                        scrollRight()
+                    }
+                }
+        )
+    }
+
+    private func scrollLeft() {
+        if let newDate = calendar.date(byAdding: .day, value: -1, to: selectedDate) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedDate = newDate
+            }
+        }
+    }
+
+    private func scrollRight() {
+        if let newDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedDate = newDate
+            }
+        }
+    }
+}
+
+// MARK: - Timeline Day Header
+
+private struct TimelineDayHeader: View {
+    let date: Date
+    let isToday: Bool
+    let shiftType: ShiftType
+    let hasWorkDay: Bool
+
+    private let calendar = Calendar.current
+
+    var body: some View {
+        VStack(spacing: 4) {
+            // Day of week
+            Text(dayOfWeek)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Day number
+            Text("\(calendar.component(.day, from: date))")
+                .font(.system(size: 16, weight: isToday ? .bold : .medium))
+                .foregroundColor(isToday ? .white : .primary)
+                .frame(width: 28, height: 28)
+                .background(isToday ? Color.accentColor : Color.clear)
+                .clipShape(Circle())
+
+            // Shift badge
+            HStack(spacing: 2) {
+                Text(shiftType.displayName.prefix(1))
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.white)
+                if hasWorkDay {
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.system(size: 7))
+                        .foregroundColor(.white)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(shiftColor)
+            .cornerRadius(4)
+        }
+    }
+
+    private var dayOfWeek: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
+
+    private var shiftColor: Color {
+        switch shiftType {
+        case .day: return Color.blue.opacity(0.8)
+        case .night: return Color.purple.opacity(0.8)
+        case .off: return Color.gray.opacity(0.5)
+        }
+    }
+}
+
+// MARK: - Timeline Task Row
+
+private struct TimelineTaskRow: View {
+    let task: LookAheadTask
+    let visibleDays: [Date]
+    let dayColumnWidth: CGFloat
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    private let calendar = Calendar.current
+
+    var body: some View {
+        GeometryReader { geometry in
+            let totalWidth = CGFloat(visibleDays.count) * dayColumnWidth
+            let (startOffset, barWidth) = calculateBarPosition(totalWidth: totalWidth)
+
+            ZStack(alignment: .leading) {
+                // Background grid lines for each day
+                HStack(spacing: 0) {
+                    ForEach(0..<visibleDays.count, id: \.self) { index in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(width: dayColumnWidth)
+                            .overlay(alignment: .leading) {
+                                if index > 0 {
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.1))
+                                        .frame(width: 1)
+                                }
+                            }
+                    }
+                }
+
+                // Task bar
+                HStack(spacing: 4) {
+                    // Status indicator
+                    Circle()
+                        .fill(taskColor)
+                        .frame(width: 8, height: 8)
+
+                    // Task name
+                    Text(task.name)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+
+                    // Job code if available
+                    if let jobCode = task.jobCode {
+                        Text(jobCode.code)
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(jobCode.color.opacity(0.3))
+                            .cornerRadius(3)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    // Duration
+                    Text(formatDuration(task.estimatedDuration_min))
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(width: max(barWidth, 80))
+                .background(taskColor.opacity(isSelected ? 0.4 : 0.2))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSelected ? taskColor : taskColor.opacity(0.5), lineWidth: isSelected ? 2 : 1)
+                )
+                .offset(x: startOffset)
+                .onTapGesture {
+                    onTap()
+                }
+            }
+        }
+    }
+
+    private func calculateBarPosition(totalWidth: CGFloat) -> (offset: CGFloat, width: CGFloat) {
+        guard let firstDay = visibleDays.first,
+              let lastDay = visibleDays.last else {
+            return (0, dayColumnWidth)
+        }
+
+        let rangeStart = calendar.startOfDay(for: firstDay)
+        let rangeEnd = calendar.startOfDay(for: lastDay).addingTimeInterval(24 * 60 * 60)
+        let totalSeconds = rangeEnd.timeIntervalSince(rangeStart)
+
+        // Calculate task position relative to visible range
+        let taskStart = max(task.startTime, rangeStart)
+        let taskEnd = min(task.endTime, rangeEnd)
+
+        let startOffset = taskStart.timeIntervalSince(rangeStart) / totalSeconds * Double(totalWidth)
+        let endOffset = taskEnd.timeIntervalSince(rangeStart) / totalSeconds * Double(totalWidth)
+        let barWidth = endOffset - startOffset
+
+        return (CGFloat(startOffset), CGFloat(barWidth))
+    }
+
+    private func formatDuration(_ minutes: Double) -> String {
+        let hours = Int(minutes) / 60
+        let mins = Int(minutes) % 60
+        if hours > 0 {
+            return "\(hours)h \(mins)m"
+        }
+        return "\(mins)m"
+    }
+
+    private var taskColor: Color {
+        if let jobCode = task.jobCode {
+            return jobCode.color
+        }
+        return statusColor(for: task.status)
+    }
+
+    private func statusColor(for status: LookAheadTaskStatus) -> Color {
+        switch status {
+        case .scheduled: return .blue
+        case .inProgress: return .orange
+        case .completed: return .green
+        case .delayed: return .red
+        case .cancelled: return .gray
+        }
     }
 }
 
@@ -956,13 +1300,21 @@ private struct ResizableWeekTaskBlock: View {
 
         let topOffset = CGFloat(startMinutes) / 60 * hourHeight
         let baseHeight = max(minimumHeight, CGFloat(baseDurationMinutes) / 60 * hourHeight)
-        let currentHeight = max(minimumHeight, baseHeight + dragOffset)
+
+        // Calculate maximum height (can't extend past end of day)
+        let maxHeightForDay = CGFloat((24 * 60 - startMinutes) / 60) * hourHeight
+        let clampedDragOffset = min(dragOffset, maxHeightForDay - baseHeight)
+        let currentHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
+
+        // Calculate max duration (task can't extend past midnight of display day)
+        let maxDurationForDay = dayEnd.timeIntervalSince(task.startTime) / 60
 
         // Calculate snapped duration for display (computed, not stored)
         let snappedDuration: Double = {
-            let newHeight = max(minimumHeight, baseHeight + dragOffset)
+            let newHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
             let rawDuration = calculateRawDuration(from: newHeight, baseHeight: baseHeight)
-            return max(minimumDuration, round(rawDuration / snapInterval) * snapInterval)
+            let capped = min(rawDuration, maxDurationForDay)
+            return max(minimumDuration, round(capped / snapInterval) * snapInterval)
         }()
 
         let color = taskColor(for: task)
@@ -1013,9 +1365,12 @@ private struct ResizableWeekTaskBlock: View {
                             state = value.translation.height
                         }
                         .onEnded { value in
-                            let finalHeight = max(minimumHeight, baseHeight + value.translation.height)
-                            let newDuration = calculateNewTotalDuration(from: finalHeight, baseHeight: baseHeight)
-                            onResizeEnded(max(minimumDuration, newDuration))
+                            let clampedOffset = min(value.translation.height, maxHeightForDay - baseHeight)
+                            let finalHeight = max(minimumHeight, min(baseHeight + clampedOffset, maxHeightForDay))
+                            let rawDuration = calculateNewTotalDuration(from: finalHeight, baseHeight: baseHeight)
+                            // Cap duration so task can't extend past end of display day
+                            let cappedDuration = min(rawDuration, maxDurationForDay)
+                            onResizeEnded(max(minimumDuration, cappedDuration))
                         }
                 )
                 #if os(macOS)
@@ -1120,13 +1475,21 @@ private struct ResizableTaskBlock: View {
 
         let topOffset = CGFloat(startMinutes) / 60 * hourHeight
         let baseHeight = max(minimumHeight, CGFloat(baseDurationMinutes) / 60 * hourHeight)
-        let currentHeight = max(minimumHeight, baseHeight + dragOffset)
+
+        // Calculate maximum height (can't extend past end of day)
+        let maxHeightForDay = CGFloat((24 * 60 - startMinutes) / 60) * hourHeight
+        let clampedDragOffset = min(dragOffset, maxHeightForDay - baseHeight)
+        let currentHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
+
+        // Calculate max duration (task can't extend past midnight of display day)
+        let maxDurationForDay = dayEnd.timeIntervalSince(task.startTime) / 60
 
         // Calculate snapped duration for display (computed, not stored)
         let snappedDuration: Double = {
-            let newHeight = max(minimumHeight, baseHeight + dragOffset)
+            let newHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
             let rawDuration = Double(newHeight / hourHeight * 60)
-            return max(minimumDuration, round(rawDuration / snapInterval) * snapInterval)
+            let capped = min(rawDuration, maxDurationForDay)
+            return max(minimumDuration, round(capped / snapInterval) * snapInterval)
         }()
 
         let color = taskColor(for: task)
@@ -1208,9 +1571,12 @@ private struct ResizableTaskBlock: View {
                         state = value.translation.height
                     }
                     .onEnded { value in
-                        let newHeight = max(minimumHeight, baseHeight + value.translation.height)
+                        let clampedOffset = min(value.translation.height, maxHeightForDay - baseHeight)
+                        let newHeight = max(minimumHeight, min(baseHeight + clampedOffset, maxHeightForDay))
                         let rawDuration = Double(newHeight / hourHeight * 60)
-                        let finalDuration = max(minimumDuration, round(rawDuration / snapInterval) * snapInterval)
+                        // Cap duration so task can't extend past end of display day
+                        let cappedDuration = min(rawDuration, maxDurationForDay)
+                        let finalDuration = max(minimumDuration, round(cappedDuration / snapInterval) * snapInterval)
                         onResizeEnded(finalDuration)
                     }
             )

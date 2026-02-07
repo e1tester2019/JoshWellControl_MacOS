@@ -19,6 +19,7 @@ struct NoteEditorView: View {
     let initialWell: Well?
     let initialPad: Pad?
     let note: HandoverNote?
+    let noteDate: Date?  // Date to assign to new notes (for schedule view)
 
     @State private var title: String = ""
     @State private var content: String = ""
@@ -27,6 +28,7 @@ struct NoteEditorView: View {
     @State private var isPinned: Bool = false
     @State private var selectedWell: Well?
     @State private var selectedPad: Pad?
+    @State private var createdDate: Date = Date()
     @State private var isSaving = false
 
     private var isEditing: Bool { note != nil }
@@ -42,12 +44,14 @@ struct NoteEditorView: View {
         self.initialWell = well
         self.initialPad = nil
         self.note = note
+        self.noteDate = nil
     }
 
     init(pad: Pad, note: HandoverNote?) {
         self.initialWell = nil
         self.initialPad = pad
         self.note = note
+        self.noteDate = nil
     }
 
     /// Initialize for creating a new note without a pre-selected well/pad
@@ -55,6 +59,15 @@ struct NoteEditorView: View {
         self.initialWell = nil
         self.initialPad = nil
         self.note = nil
+        self.noteDate = nil
+    }
+
+    /// Initialize for creating a new note for a specific date (from schedule view)
+    init(forDate date: Date) {
+        self.initialWell = nil
+        self.initialPad = nil
+        self.note = nil
+        self.noteDate = date
     }
 
     /// Initialize for editing an existing note
@@ -62,6 +75,7 @@ struct NoteEditorView: View {
         self.initialWell = note.well
         self.initialPad = note.pad
         self.note = note
+        self.noteDate = nil
     }
 
     var body: some View {
@@ -133,14 +147,12 @@ struct NoteEditorView: View {
                         }
                     }
                     .disabled(selectedPad == nil && allPads.count > 0)
+                }
+
+                Section("Date") {
+                    DatePicker("Created", selection: $createdDate, displayedComponents: [.date, .hourAndMinute])
 
                     if let note = note {
-                        HStack {
-                            Text("Created:")
-                            Spacer()
-                            Text(note.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .foregroundStyle(.secondary)
-                        }
                         HStack {
                             Text("Last Updated:")
                             Spacer()
@@ -182,9 +194,12 @@ struct NoteEditorView: View {
                 isPinned = note.isPinned
                 selectedWell = note.well
                 selectedPad = note.pad ?? note.well?.pad
+                createdDate = note.createdAt
             } else {
                 selectedWell = initialWell
                 selectedPad = initialPad ?? initialWell?.pad
+                // Use noteDate if provided (from schedule view), otherwise use current time
+                createdDate = noteDate ?? Date()
             }
         }
         .onChange(of: selectedPad) { _, newPad in
@@ -224,6 +239,8 @@ struct NoteEditorView: View {
             note.category = category
             note.author = author
             note.isPinned = isPinned
+            // Update the created date (allows backdating)
+            note.createdAt = createdDate
             // Update assignment
             note.well = selectedWell
             note.pad = selectedPad
@@ -236,6 +253,8 @@ struct NoteEditorView: View {
                 author: author,
                 isPinned: isPinned
             )
+            // Use the selected created date
+            newNote.createdAt = createdDate
             modelContext.insert(newNote)
             newNote.well = selectedWell
             newNote.pad = selectedPad

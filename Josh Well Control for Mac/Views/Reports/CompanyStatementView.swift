@@ -582,15 +582,15 @@ struct CompanyStatementView: View {
 
         panel.begin { response in
             if response == .OK, let url = panel.url {
-                DispatchQueue.global(qos: .userInitiated).async {
+                Task {
                     do {
-                        try AccountantExportService.shared.exportPackage(data: exportData, to: url)
-                        DispatchQueue.main.async {
+                        try await AccountantExportService.shared.exportPackage(data: exportData, to: url)
+                        await MainActor.run {
                             isExporting = false
                             NSWorkspace.shared.activateFileViewerSelecting([url])
                         }
                     } catch {
-                        DispatchQueue.main.async {
+                        await MainActor.run {
                             isExporting = false
                             exportError = error.localizedDescription
                             showingExportError = true

@@ -18,6 +18,7 @@ struct TaskEditorView: View {
     let initialWell: Well?
     let initialPad: Pad?
     let task: WellTask?
+    let taskDate: Date?  // Date to assign to new tasks (for schedule view)
 
     @State private var title: String = ""
     @State private var taskDescription: String = ""
@@ -43,12 +44,14 @@ struct TaskEditorView: View {
         self.initialWell = well
         self.initialPad = nil
         self.task = task
+        self.taskDate = nil
     }
 
     init(pad: Pad, task: WellTask?) {
         self.initialWell = nil
         self.initialPad = pad
         self.task = task
+        self.taskDate = nil
     }
 
     /// Initialize for creating a new task without a pre-selected well/pad
@@ -56,6 +59,15 @@ struct TaskEditorView: View {
         self.initialWell = nil
         self.initialPad = nil
         self.task = nil
+        self.taskDate = nil
+    }
+
+    /// Initialize for creating a new task for a specific date (from schedule view)
+    init(forDate date: Date) {
+        self.initialWell = nil
+        self.initialPad = nil
+        self.task = nil
+        self.taskDate = date
     }
 
     /// Initialize for editing an existing task
@@ -63,6 +75,7 @@ struct TaskEditorView: View {
         self.initialWell = task.well
         self.initialPad = task.pad
         self.task = task
+        self.taskDate = nil
     }
 
     var body: some View {
@@ -187,6 +200,11 @@ struct TaskEditorView: View {
             } else {
                 selectedWell = initialWell
                 selectedPad = initialPad ?? initialWell?.pad
+                // If a specific date was provided (from schedule view), pre-set the due date
+                if let taskDate = taskDate {
+                    hasDueDate = true
+                    dueDate = taskDate
+                }
             }
         }
         .onChange(of: selectedPad) { _, newPad in

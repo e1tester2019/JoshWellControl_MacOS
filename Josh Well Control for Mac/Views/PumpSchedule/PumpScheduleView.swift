@@ -14,9 +14,18 @@ struct PumpScheduleView: View {
     @Bindable var project: ProjectState
     @State private var viewModel = PumpScheduleViewModel()
 
+    // Export state
+    @State private var showingExportErrorAlert = false
+    @State private var exportErrorMessage = ""
+
     var body: some View {
         VStack(spacing: 12) {
-            PumpScheduleHeaderView(viewModel: viewModel, project: project)
+            HStack {
+                PumpScheduleHeaderView(viewModel: viewModel, project: project)
+                Spacer()
+                Button("Export HTML Report") { exportHTMLReport() }
+                    .disabled(viewModel.stages.isEmpty)
+            }
             PumpScheduleStageInfoView(viewModel: viewModel, project: project)
 
             HStack(alignment: .top, spacing: 12) {
@@ -44,6 +53,11 @@ struct PumpScheduleView: View {
             viewModel.bootstrap(project: newProject, context: modelContext)
         }
         .navigationTitle("Pump Schedule")
+        .alert("Export Error", isPresented: $showingExportErrorAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(exportErrorMessage)
+        }
     }
 
     private var maxDepth: Double {
@@ -56,6 +70,215 @@ struct PumpScheduleView: View {
     init(project: ProjectState, viewModel: PumpScheduleViewModel = PumpScheduleViewModel()) {
         self._project = Bindable(project)
         self._viewModel = State(initialValue: viewModel)
+    }
+
+    // MARK: - Export HTML Report
+
+    private func exportHTMLReport() {
+        guard !viewModel.stages.isEmpty else {
+            exportErrorMessage = "Build stages first before exporting."
+            showingExportErrorAlert = true
+            return
+        }
+
+        let reportData = buildReportData()
+        let htmlContent = PumpScheduleHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "PumpSchedule").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let defaultName = "PumpSchedule_\(wellName)_\(dateStr).html"
+
+        Task {
+            let success = await FileService.shared.saveTextFile(
+                text: htmlContent,
+                defaultName: defaultName,
+                allowedFileTypes: ["html"]
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to save HTML report."
+                    showingExportErrorAlert = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Build Report Data
+
+    private func buildReportData() -> PumpScheduleReportData {
+        let bitMD = maxDepth
+        let controlMD = viewModel.controlDepthMode == .bit ? bitMD : viewModel.controlMD_m
+
+        // Build geometry sections
+        let drillStringSections: [PDFSectionData] = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ds in
+            let id = ds.innerDiameter_m
+            let od = ds.outerDiameter_m
+            let capacity = .pi * (id * id) / 4.0
+            let displacement = .pi * (od * od - id * id) / 4.0
+            return PDFSectionData(
+                name: ds.name,
+                topMD: ds.topDepth_m,
+                bottomMD: ds.bottomDepth_m,
+                length: ds.length_m,
+                innerDiameter: id,
+                outerDiameter: od,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: displacement,
+                totalVolume: capacity * ds.length_m
+            )
+        }
+
+        let drillStringSorted = (project.drillString ?? []).sorted { $0.topDepth_m < $1.topDepth_m }
+        func pipeODAtDepth(_ md: Double) -> Double {
+            for ds in drillStringSorted {
+                if ds.topDepth_m <= md && md <= ds.bottomDepth_m {
+                    return ds.outerDiameter_m
+                }
+            }
+            return 0.0
+        }
+
+        let annulusSections: [PDFSectionData] = (project.annulus ?? []).sorted { $0.topDepth_m < $1.topDepth_m }.map { ann in
+            let holeID = ann.innerDiameter_m
+            let midDepth = (ann.topDepth_m + ann.bottomDepth_m) / 2.0
+            let pipeOD = pipeODAtDepth(midDepth)
+            let capacity = .pi * (holeID * holeID - pipeOD * pipeOD) / 4.0
+            return PDFSectionData(
+                name: ann.name,
+                topMD: ann.topDepth_m,
+                bottomMD: ann.bottomDepth_m,
+                length: ann.length_m,
+                innerDiameter: holeID,
+                outerDiameter: pipeOD,
+                capacity_m3_per_m: capacity,
+                displacement_m3_per_m: 0,
+                totalVolume: capacity * ann.length_m
+            )
+        }
+
+        // Build stage definitions
+        let stageDefs: [PumpScheduleReportData.StageDef] = viewModel.stages.map { stage in
+            PumpScheduleReportData.StageDef(
+                name: stage.name,
+                mudName: stage.mud?.name ?? "Unknown",
+                mudDensity: stage.mud?.density_kgm3 ?? 1000,
+                volume_m3: stage.totalVolume_m3,
+                colorHex: colorToHex(stage.color)
+            )
+        }
+
+        // Build snapshots by iterating through stages and progress
+        var snapshots: [PumpScheduleReportData.StageSnapshot] = []
+
+        // Save current state
+        let savedStageIndex = viewModel.stageIndex
+        let savedProgress = viewModel.progress
+
+        // Generate snapshots: for each stage, sample at 0%, 25%, 50%, 75%, 100%
+        var cumulativeVolume: Double = 0
+
+        for stageIdx in 0..<viewModel.stages.count {
+            let stage = viewModel.stages[stageIdx]
+            let progressSteps: [Double] = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+            for prog in progressSteps {
+                viewModel.stageIndex = stageIdx
+                viewModel.progress = prog
+
+                let pumpedThisStage = prog * stage.totalVolume_m3
+                let cumVolume = cumulativeVolume + pumpedThisStage
+
+                // Get current hydraulics
+                let h = viewModel.hydraulicsForCurrent(project: project)
+
+                // Get current stack visualization
+                let stacks = viewModel.stacksFor(project: project, stageIndex: stageIdx, pumpedV: pumpedThisStage)
+
+                // Convert segments to fluid layers
+                let stringLayers = stacks.string.map { seg in
+                    PumpScheduleReportData.StageSnapshot.FluidLayer(
+                        topMD: seg.top,
+                        bottomMD: seg.bottom,
+                        mudName: seg.mud?.name ?? "Unknown",
+                        density_kgm3: seg.mud?.density_kgm3 ?? 1000,
+                        colorHex: colorToHex(seg.color)
+                    )
+                }
+
+                let annulusLayers = stacks.annulus.map { seg in
+                    PumpScheduleReportData.StageSnapshot.FluidLayer(
+                        topMD: seg.top,
+                        bottomMD: seg.bottom,
+                        mudName: seg.mud?.name ?? "Unknown",
+                        density_kgm3: seg.mud?.density_kgm3 ?? 1000,
+                        colorHex: colorToHex(seg.color)
+                    )
+                }
+
+                let snapshot = PumpScheduleReportData.StageSnapshot(
+                    stageName: stage.name,
+                    stageIndex: stageIdx,
+                    progress: prog,
+                    pumpedVolume_m3: pumpedThisStage,
+                    totalStageVolume_m3: stage.totalVolume_m3,
+                    cumulativePumpedVolume_m3: cumVolume,
+                    ecd_kgm3: h.ecd_kgm3,
+                    bhp_kPa: h.bhp_kPa,
+                    sbp_kPa: h.sbp_kPa,
+                    tcp_kPa: h.tcp_kPa,
+                    annulusFriction_kPa: h.annulusFriction_kPa,
+                    stringFriction_kPa: h.stringFriction_kPa,
+                    stringLayers: stringLayers,
+                    annulusLayers: annulusLayers
+                )
+
+                snapshots.append(snapshot)
+            }
+
+            cumulativeVolume += stage.totalVolume_m3
+        }
+
+        // Restore original state
+        viewModel.stageIndex = savedStageIndex
+        viewModel.progress = savedProgress
+
+        return PumpScheduleReportData(
+            wellName: project.well?.name ?? "Unknown Well",
+            projectName: project.name,
+            generatedDate: Date(),
+            bitMD: bitMD,
+            controlMD: controlMD,
+            pumpRate_m3permin: viewModel.pumpRate_m3permin,
+            mpdEnabled: viewModel.mpdEnabled,
+            targetEMD_kgm3: viewModel.targetEMD_kgm3,
+            activeMudName: project.activeMud?.name ?? "Active Mud",
+            activeMudDensity: project.activeMud?.density_kgm3 ?? 1260,
+            snapshots: snapshots,
+            stages: stageDefs,
+            drillStringSections: drillStringSections,
+            annulusSections: annulusSections
+        )
+    }
+
+    private func colorToHex(_ color: Color) -> String {
+        #if os(macOS)
+        let nsColor = NSColor(color)
+        guard let rgbColor = nsColor.usingColorSpace(.deviceRGB) else {
+            return "#888888"
+        }
+        let r = Int(rgbColor.redComponent * 255)
+        let g = Int(rgbColor.greenComponent * 255)
+        let b = Int(rgbColor.blueComponent * 255)
+        return String(format: "#%02X%02X%02X", r, g, b)
+        #else
+        let uiColor = UIColor(color)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        #endif
     }
 }
 

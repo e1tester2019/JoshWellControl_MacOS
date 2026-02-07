@@ -273,137 +273,169 @@ struct MacOSOptimizedContentView: View {
 
 // MARK: - macOS Sidebar
 
+enum SidebarMode: String, CaseIterable {
+    case field = "Field"
+    case business = "Business"
+}
+
 struct MacOSSidebarView: View {
     @Binding var selectedView: ViewSelection
     let selectedProject: ProjectState?
     @Binding var searchText: String
     let isBusinessUnlocked: Bool
 
+    @AppStorage("sidebarMode") private var sidebarMode: SidebarMode = .field
+
+    // Field sections
+    private let dashboardViews: [ViewSelection] = [.handover, .padDashboard, .wellDashboard, .dashboard]
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys, .directionalPlanning]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking]
-    private let schedulingViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
+    private let schedulingViews: [ViewSelection] = [.shiftCalendar, .lookAheadScheduler, .vendors, .jobCodes]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
 
     // Business sections
-    private let incomeViews: [ViewSelection] = [.shiftCalendar, .workDays, .invoices, .clients]
+    private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
     private let expenseViews: [ViewSelection] = [.expenses, .mileage]
     private let payrollViews: [ViewSelection] = [.payroll, .employees]
     private let dividendViews: [ViewSelection] = [.dividends, .shareholders]
     private let reportViews: [ViewSelection] = [.companyStatement, .expenseReport, .payrollReport]
 
     var body: some View {
-        List(selection: $selectedView) {
-            // Dashboards
-            Section("Dashboards") {
-                NavigationLink(value: ViewSelection.handover) {
-                    Label(ViewSelection.handover.title, systemImage: ViewSelection.handover.icon)
-                }
-                NavigationLink(value: ViewSelection.padDashboard) {
-                    Label(ViewSelection.padDashboard.title, systemImage: ViewSelection.padDashboard.icon)
-                }
-                NavigationLink(value: ViewSelection.wellDashboard) {
-                    Label(ViewSelection.wellDashboard.title, systemImage: ViewSelection.wellDashboard.icon)
-                }
-                NavigationLink(value: ViewSelection.dashboard) {
-                    Label(ViewSelection.dashboard.title, systemImage: ViewSelection.dashboard.icon)
+        VStack(spacing: 0) {
+            // Mode Toggle
+            Picker("Mode", selection: $sidebarMode) {
+                ForEach(SidebarMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
                 }
             }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
-            // Well Geometry
-            Section("Well Geometry") {
-                ForEach(geometryViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
+            Divider()
+
+            List(selection: $selectedView) {
+                if sidebarMode == .field {
+                    fieldSections
+                } else {
+                    businessSections
                 }
             }
+            .listStyle(.sidebar)
+            .searchable(text: $searchText, prompt: "Search features...")
+        }
+        .navigationTitle(sidebarMode == .field ? "Field" : "Business")
+    }
 
-            // Fluids & Mud
-            Section("Fluids & Mud") {
-                ForEach(fluidViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
-                }
-            }
+    // MARK: - Field Sections
 
-            // Analysis & Simulation
-            Section("Analysis & Simulation") {
-                ForEach(analysisViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
+    @ViewBuilder
+    private var fieldSections: some View {
+        // Dashboards
+        Section("Dashboards") {
+            ForEach(dashboardViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
                 }
-            }
-
-            // Scheduling
-            Section("Scheduling") {
-                ForEach(schedulingViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
-                }
-            }
-
-            // Operations
-            Section("Operations") {
-                ForEach(operationsViews, id: \.self) { view in
-                    NavigationLink(value: view) {
-                        Label(view.title, systemImage: view.icon)
-                    }
-                }
-            }
-
-            // Business - Income
-            Section("Income") {
-                ForEach(incomeViews, id: \.self) { view in
-                    businessNavLink(for: view)
-                }
-            }
-
-            // Business - Expenses
-            Section("Expenses") {
-                ForEach(expenseViews, id: \.self) { view in
-                    businessNavLink(for: view)
-                }
-            }
-
-            // Business - Payroll
-            Section("Payroll") {
-                ForEach(payrollViews, id: \.self) { view in
-                    businessNavLink(for: view)
-                }
-            }
-
-            // Business - Dividends
-            Section("Dividends") {
-                ForEach(dividendViews, id: \.self) { view in
-                    businessNavLink(for: view)
-                }
-            }
-
-            // Business - Reports
-            Section("Reports") {
-                ForEach(reportViews, id: \.self) { view in
-                    businessNavLink(for: view)
-                }
-            }
-
-            // Quick Stats at bottom
-            if let project = selectedProject {
-                Section("Quick Stats") {
-                    MacOSQuickStatRow(label: "Surveys", value: "\((project.surveys ?? []).count)")
-                    MacOSQuickStatRow(label: "Drill String", value: "\((project.drillString ?? []).count)")
-                    MacOSQuickStatRow(label: "Annulus", value: "\((project.annulus ?? []).count)")
-                    MacOSQuickStatRow(label: "Muds", value: "\((project.muds ?? []).count)")
-                }
-                .font(.caption)
             }
         }
-        .listStyle(.sidebar)
-        .searchable(text: $searchText, prompt: "Search features...")
-        .navigationTitle("Features")
+
+        // Well Geometry
+        Section("Well Geometry") {
+            ForEach(geometryViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                }
+            }
+        }
+
+        // Fluids & Mud
+        Section("Fluids & Mud") {
+            ForEach(fluidViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                }
+            }
+        }
+
+        // Analysis & Simulation
+        Section("Analysis & Simulation") {
+            ForEach(analysisViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                }
+            }
+        }
+
+        // Scheduling
+        Section("Scheduling") {
+            ForEach(schedulingViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                }
+            }
+        }
+
+        // Operations
+        Section("Operations") {
+            ForEach(operationsViews, id: \.self) { view in
+                NavigationLink(value: view) {
+                    Label(view.title, systemImage: view.icon)
+                }
+            }
+        }
+
+        // Quick Stats at bottom
+        if let project = selectedProject {
+            Section("Quick Stats") {
+                MacOSQuickStatRow(label: "Surveys", value: "\((project.surveys ?? []).count)")
+                MacOSQuickStatRow(label: "Drill String", value: "\((project.drillString ?? []).count)")
+                MacOSQuickStatRow(label: "Annulus", value: "\((project.annulus ?? []).count)")
+                MacOSQuickStatRow(label: "Muds", value: "\((project.muds ?? []).count)")
+            }
+            .font(.caption)
+        }
+    }
+
+    // MARK: - Business Sections
+
+    @ViewBuilder
+    private var businessSections: some View {
+        // Income
+        Section("Income") {
+            ForEach(incomeViews, id: \.self) { view in
+                businessNavLink(for: view)
+            }
+        }
+
+        // Expenses
+        Section("Expenses") {
+            ForEach(expenseViews, id: \.self) { view in
+                businessNavLink(for: view)
+            }
+        }
+
+        // Payroll
+        Section("Payroll") {
+            ForEach(payrollViews, id: \.self) { view in
+                businessNavLink(for: view)
+            }
+        }
+
+        // Dividends
+        Section("Dividends") {
+            ForEach(dividendViews, id: \.self) { view in
+                businessNavLink(for: view)
+            }
+        }
+
+        // Reports
+        Section("Reports") {
+            ForEach(reportViews, id: \.self) { view in
+                businessNavLink(for: view)
+            }
+        }
     }
 
     @ViewBuilder
