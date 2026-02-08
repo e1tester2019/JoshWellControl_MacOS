@@ -57,6 +57,11 @@ final class Well {
 
     // Directional Planning
     @Relationship(deleteRule: .cascade, inverse: \DirectionalPlan.well) var directionalPlans: [DirectionalPlan]?
+    @Relationship(deleteRule: .cascade, inverse: \FormationTop.well) var formationTops: [FormationTop]?
+
+    // Trip Simulations (frozen, self-contained)
+    @Relationship(deleteRule: .nullify, inverse: \TripSimulation.well) var tripSimulations: [TripSimulation]?
+    @Relationship(deleteRule: .nullify, inverse: \TripInSimulation.well) var tripInSimulations: [TripInSimulation]?
 
     init(name: String = "New Well", uwi: String? = nil, afeNumber: String? = nil, requisitioner: String? = nil) {
         self.name = name
@@ -67,6 +72,12 @@ final class Well {
 }
 
 extension Well {
+    // MARK: - Formation helpers
+
+    var sortedFormationTops: [FormationTop] {
+        (formationTops ?? []).sorted { $0.tvdTop_m < $1.tvdTop_m }
+    }
+
     // MARK: - Task helpers
 
     var pendingTasks: [WellTask] {

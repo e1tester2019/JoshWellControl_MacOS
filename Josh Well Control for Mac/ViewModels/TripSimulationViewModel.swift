@@ -58,6 +58,9 @@ extension TripSimulationView {
     var colorByComposition: Bool = false
     var showDetails: Bool = false
 
+    // TVD source selection - use directional plan instead of surveys for projection
+    var useDirectionalPlanForTVD: Bool = false
+
     // Results / selection
     var steps: [TripStep] = []
     var selectedIndex: Int? = nil
@@ -68,6 +71,138 @@ extension TripSimulationView {
     var progressValue: Double = 0.0  // 0.0 to 1.0
     var progressMessage: String = ""
     var progressPhase: NumericalTripModel.TripProgress.Phase = .initializing
+
+    // MARK: - Circulation State
+
+    var pumpQueue: [CirculationService.PumpOperation] = []
+    var selectedCirculateMudID: UUID?
+    var circulateVolume_m3: Double = 5.0
+    var pumpOutput_m3perStroke: Double = 0.01
+    var circulateOutSchedule: [CirculationService.CirculateOutStep] = []
+    var previewPocketLayers: [TripLayerSnapshot] = []
+    var previewESDAtControl: Double = 0
+    var previewRequiredSABP: Double = 0
+    var circulationHistory: [CirculationService.CirculationRecord] = []
+
+    /// Source description when imported from another operation
+    var importedStateDescription: String?
+
+    var totalQueueVolume_m3: Double {
+      pumpQueue.reduce(0) { $0 + $1.volume_m3 }
+    }
+
+    func addToPumpQueue(mud: MudProperties, volume_m3: Double) {
+      let operation = CirculationService.PumpOperation(
+        mudID: mud.id,
+        mudName: mud.name,
+        mudDensity_kgpm3: mud.density_kgm3,
+        mudColorR: mud.colorR,
+        mudColorG: mud.colorG,
+        mudColorB: mud.colorB,
+        volume_m3: volume_m3
+      )
+      pumpQueue.append(operation)
+    }
+
+    func removeFromPumpQueue(at index: Int) {
+      guard index >= 0 && index < pumpQueue.count else { return }
+      pumpQueue.remove(at: index)
+    }
+
+    func clearPumpQueue() {
+      pumpQueue.removeAll()
+      previewPocketLayers = []
+      circulateOutSchedule = []
+      previewESDAtControl = 0
+      previewRequiredSABP = 0
+    }
+
+    /// Preview circulation at the currently selected step.
+    /// Models fluid flowing DOWN the drill string and UP the annulus.
+    func previewPumpQueue(project: ProjectState) {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else { return }
+      guard !pumpQueue.isEmpty else { return }
+
+      let step = steps[idx]
+
+      // Convert LayerRow layers to TripLayerSnapshot
+      let pocketSnapshots = step.layersPocket.map { TripLayerSnapshot(from: $0) }
+      let stringSnapshots = step.layersString.map { TripLayerSnapshot(from: $0) }
+
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: step.bitMD_m,
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
+      )
+
+      let result = CirculationService.previewPumpQueue(
+        pocketLayers: pocketSnapshots,
+        stringLayers: stringSnapshots,
+        bitMD: step.bitMD_m,
+        controlMD: shoeMD_m,
+        targetESD_kgpm3: targetESDAtTD_kgpm3,
+        geom: geom,
+        tvdSampler: tvdSampler,
+        pumpQueue: pumpQueue,
+        pumpOutput_m3perStroke: pumpOutput_m3perStroke,
+        activeMudDensity_kgpm3: project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
+      )
+
+      circulateOutSchedule = result.schedule
+      previewPocketLayers = result.resultLayersPocket
+      previewESDAtControl = result.ESDAtControl
+      previewRequiredSABP = result.requiredSABP
+    }
+
+    /// Commit circulation and re-run simulation from current depth
+    func commitCirculation(project: ProjectState) {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else { return }
+      guard !previewPocketLayers.isEmpty else { return }
+      guard !pumpQueue.isEmpty else { return }
+
+      let currentStep = steps[idx]
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+
+      // Calculate ESD before
+      let pocketSnapshots = currentStep.layersPocket.map { TripLayerSnapshot(from: $0) }
+      let esdBefore = CirculationService.calculateESDFromLayers(
+        layers: pocketSnapshots,
+        atDepthMD: shoeMD_m,
+        tvdSampler: tvdSampler
+      )
+
+      // Record the circulation
+      let record = CirculationService.CirculationRecord(
+        timestamp: Date(),
+        atBitMD_m: currentStep.bitMD_m,
+        operations: pumpQueue,
+        ESDBeforeAtControl_kgpm3: esdBefore,
+        ESDAfterAtControl_kgpm3: previewESDAtControl,
+        SABPRequired_kPa: previewRequiredSABP
+      )
+      circulationHistory.append(record)
+
+      // Clear queue and preview
+      let savedPreviewLayers = previewPocketLayers
+      pumpQueue.removeAll()
+      previewPocketLayers = []
+      circulateOutSchedule = []
+
+      // Truncate steps at current position - we'll re-run from here
+      let savedBitMD = currentStep.bitMD_m
+      steps = Array(steps.prefix(idx + 1))
+
+      // Re-run from current depth to end with updated fluid state
+      // The simulation will use the project's current final layers, but we need to
+      // run from the current bit position
+      let savedStartBitMD = startBitMD_m
+      startBitMD_m = savedBitMD
+      runSimulation(project: project)
+      // Note: runSimulation is async - steps will be updated when it completes
+      // Restore original start for display purposes
+      startBitMD_m = savedStartBitMD
+    }
 
     func bootstrap(from project: ProjectState) {
       if let maxMD = (project.finalLayers ?? []).map({ $0.bottomMD_m }).max() {
@@ -105,7 +240,7 @@ extension TripSimulationView {
 
     /// Computes the steel displacement volume for the trip range and stores it
     func computeDisplacementVolume(project: ProjectState) {
-      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,
@@ -136,8 +271,8 @@ extension TripSimulationView {
       progressMessage = "Initializing..."
       progressPhase = .initializing
 
-      // Create sendable TVD sampler from surveys (avoid capturing @MainActor project)
-      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      // Create sendable TVD sampler from surveys + directional plan for projection
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
 
       let geom = ProjectGeometryService(
         project: project,
@@ -199,25 +334,29 @@ extension TripSimulationView {
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
 
-      // Run simulation - NumericalTripModel is @MainActor so we run on main actor
-      Task { @MainActor [weak self] in
-        guard let self else { return }
+      // Run simulation on a background thread to keep UI responsive
+      Task.detached { [weak self] in
         let model = NumericalTripModel()
         let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
-          self.progressValue = progress.progress
-          self.progressMessage = progress.message
-          self.progressPhase = progress.phase
+          Task { @MainActor [weak self] in
+            self?.progressValue = progress.progress
+            self?.progressMessage = progress.message
+            self?.progressPhase = progress.phase
+          }
         }
 
-        self.steps = results
-        self.selectedIndex = results.isEmpty ? nil : 0
-        self.stepSlider = 0
-        self.isRunning = false
-        self.progressMessage = "Complete"
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.steps = results
+          self.selectedIndex = results.isEmpty ? nil : 0
+          self.stepSlider = 0
+          self.isRunning = false
+          self.progressMessage = "Complete"
 
-        // Store the calculated pit gain from the initial step (for display/comparison)
-        if let firstStep = results.first {
-          self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          // Store the calculated pit gain from the initial step (for display/comparison)
+          if let firstStep = results.first {
+            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          }
         }
       }
     }
@@ -328,7 +467,14 @@ extension TripSimulationView {
           simulation.finalPocketLayers = lastStep.layersPocket.map { TripLayerSnapshot(from: $0) }
       }
 
-      // Link to project
+      // Freeze inputs for data integrity - ensures simulation remains valid if project changes
+      simulation.freezeInputs(from: project, backfillMud: backfillMud, activeMud: project.activeMud)
+
+      // Clear step layer data to reduce storage (layers can be recomputed from frozen inputs)
+      // Keep only final pocket layers for Trip-In import
+      simulation.clearStepLayerData()
+
+      // Link to project (for backwards compatibility) and to well
       if project.tripSimulations == nil { project.tripSimulations = [] }
       project.tripSimulations?.append(simulation)
       project.touchUpdated()
@@ -421,6 +567,33 @@ extension TripSimulationView {
       context.delete(simulation)
       try? context.save()
     }
+
+    // MARK: - Wellbore State Export
+
+    /// Export the wellbore state at the currently selected step for handoff to Trip In or Pump Schedule.
+    func wellboreStateAtSelectedStep() -> WellboreStateSnapshot? {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else { return nil }
+      let step = steps[idx]
+      return WellboreStateSnapshot(
+        bitMD_m: step.bitMD_m,
+        bitTVD_m: step.bitTVD_m,
+        layersPocket: step.layersPocket.map { TripLayerSnapshot(from: $0) },
+        layersAnnulus: step.layersAnnulus.map { TripLayerSnapshot(from: $0) },
+        layersString: step.layersString.map { TripLayerSnapshot(from: $0) },
+        SABP_kPa: step.SABP_kPa,
+        ESDAtControl_kgpm3: step.ESDatTD_kgpm3,
+        sourceDescription: "Trip Out at \(Int(step.bitMD_m))m MD",
+        timestamp: .now
+      )
+    }
+
+    /// Import wellbore state from another operation (e.g., Trip In handoff)
+    func importFromWellboreState(_ state: WellboreStateSnapshot, project: ProjectState) {
+      importedStateDescription = state.sourceDescription
+      startBitMD_m = state.bitMD_m
+      // Keep existing endMD_m (user's end depth target)
+      targetESDAtTD_kgpm3 = state.ESDAtControl_kgpm3
+    }
   }
 }
 
@@ -467,6 +640,9 @@ extension TripSimulationViewIOS {
     var colorByComposition: Bool = false
     var showDetails: Bool = false
 
+    // TVD source selection - use directional plan instead of surveys for projection
+    var useDirectionalPlanForTVD: Bool = false
+
     // Results / selection
     var steps: [TripStep] = []
     var selectedIndex: Int? = nil
@@ -507,7 +683,7 @@ extension TripSimulationViewIOS {
     }
 
     func computeDisplacementVolume(project: ProjectState) {
-      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
       let geom = ProjectGeometryService(
         project: project,
         currentStringBottomMD: startBitMD_m,
@@ -528,8 +704,8 @@ extension TripSimulationViewIOS {
       progressMessage = "Initializing..."
       progressPhase = .initializing
 
-      // Create sendable TVD sampler from surveys (avoid capturing @MainActor project)
-      let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+      // Create sendable TVD sampler from surveys + directional plan for projection
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
 
       let geom = ProjectGeometryService(
         project: project,
@@ -586,25 +762,29 @@ extension TripSimulationViewIOS {
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
 
-      // Run simulation - NumericalTripModel is @MainActor so we run on main actor
-      Task { @MainActor [weak self] in
-        guard let self else { return }
+      // Run simulation on a background thread to keep UI responsive
+      Task.detached { [weak self] in
         let model = NumericalTripModel()
         let results = model.run(input, geom: geom, projectSnapshot: projectSnapshot) { progress in
-          self.progressValue = progress.progress
-          self.progressMessage = progress.message
-          self.progressPhase = progress.phase
+          Task { @MainActor [weak self] in
+            self?.progressValue = progress.progress
+            self?.progressMessage = progress.message
+            self?.progressPhase = progress.phase
+          }
         }
 
-        self.steps = results
-        self.selectedIndex = results.isEmpty ? nil : 0
-        self.stepSlider = 0
-        self.isRunning = false
-        self.progressMessage = "Complete"
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.steps = results
+          self.selectedIndex = results.isEmpty ? nil : 0
+          self.stepSlider = 0
+          self.isRunning = false
+          self.progressMessage = "Complete"
 
-        // Store the calculated pit gain from the initial step
-        if let firstStep = results.first {
-          self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          // Store the calculated pit gain from the initial step
+          if let firstStep = results.first {
+            self.calculatedInitialPitGain_m3 = firstStep.cumulativePitGain_m3
+          }
         }
       }
     }
@@ -715,7 +895,14 @@ extension TripSimulationViewIOS {
           simulation.finalPocketLayers = lastStep.layersPocket.map { TripLayerSnapshot(from: $0) }
       }
 
-      // Link to project
+      // Freeze inputs for data integrity - ensures simulation remains valid if project changes
+      simulation.freezeInputs(from: project, backfillMud: backfillMud, activeMud: project.activeMud)
+
+      // Clear step layer data to reduce storage (layers can be recomputed from frozen inputs)
+      // Keep only final pocket layers for Trip-In import
+      simulation.clearStepLayerData()
+
+      // Link to project (for backwards compatibility) and to well
       if project.tripSimulations == nil { project.tripSimulations = [] }
       project.tripSimulations?.append(simulation)
       project.touchUpdated()
@@ -807,6 +994,25 @@ extension TripSimulationViewIOS {
     func deleteSimulation(_ simulation: TripSimulation, context: ModelContext) {
       context.delete(simulation)
       try? context.save()
+    }
+
+    // MARK: - Wellbore State Export
+
+    /// Export the wellbore state at the currently selected step for handoff to Trip In or Pump Schedule.
+    func wellboreStateAtSelectedStep() -> WellboreStateSnapshot? {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else { return nil }
+      let step = steps[idx]
+      return WellboreStateSnapshot(
+        bitMD_m: step.bitMD_m,
+        bitTVD_m: step.bitTVD_m,
+        layersPocket: step.layersPocket.map { TripLayerSnapshot(from: $0) },
+        layersAnnulus: step.layersAnnulus.map { TripLayerSnapshot(from: $0) },
+        layersString: step.layersString.map { TripLayerSnapshot(from: $0) },
+        SABP_kPa: step.SABP_kPa,
+        ESDAtControl_kgpm3: step.ESDatTD_kgpm3,
+        sourceDescription: "Trip Out at \(Int(step.bitMD_m))m MD",
+        timestamp: .now
+      )
     }
   }
 }

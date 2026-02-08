@@ -36,6 +36,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case tripTracker
     case tripRecord
     case mpdTracking
+    case superSimulation
     case directionalPlanning
 
     // Operations - Look Ahead
@@ -119,7 +120,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing, .surgeSwab:
             return .operations
-        case .pumpSchedule, .cementJob, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking:
+        case .pumpSchedule, .cementJob, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking, .superSimulation:
             return .simulation
         case .lookAheadScheduler, .vendors, .jobCodes:
             return .operations
@@ -162,6 +163,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .surgeSwab: return "Surge/Swab"
         case .tripSimulation: return "Trip Simulation"
         case .tripInSimulation: return "Trip In"
+        case .superSimulation: return "Super Simulation"
         case .tripTracker: return "Trip Tracker"
         case .tripRecord: return "Trip Recording"
         case .mpdTracking: return "MPD Tracking"
@@ -208,6 +210,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .surgeSwab: return "arrow.up.arrow.down"
         case .tripSimulation: return "play.circle.fill"
         case .tripInSimulation: return "arrow.down.circle.fill"
+        case .superSimulation: return "bolt.circle.fill"
         case .tripTracker: return "figure.walk.circle.fill"
         case .tripRecord: return "list.bullet.clipboard"
         case .mpdTracking: return "gauge.with.needle.fill"
@@ -292,6 +295,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Trip simulation and modeling"
         case .tripInSimulation:
             return "Simulate running pipe into well with floated casing support"
+        case .superSimulation:
+            return "Chain trip and circulation operations with continuous wellbore state tracking"
         case .tripTracker:
             return "Process-based step-by-step trip tracking"
         case .tripRecord:

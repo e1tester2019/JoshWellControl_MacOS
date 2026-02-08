@@ -36,6 +36,9 @@ struct TripInSimulationView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
 
+    /// Optional closure to navigate to another view (e.g., Trip Out). Provided by parent content view.
+    var navigateToView: ((ViewSelection) -> Void)?
+
     @Query private var allTripSimulations: [TripSimulation]
     @Query private var allTripInSimulations: [TripInSimulation]
     @Query private var allTripTracks: [TripTrack]
@@ -65,15 +68,34 @@ struct TripInSimulationView: View {
     @State private var simulationToRename: TripInSimulation?
     @State private var renameText = ""
 
-    init(project: ProjectState) {
+    // Batch delete state
+    @State private var selectedSimulationsForDelete: Set<TripInSimulation.ID> = []
+    @State private var isEditingSimulations = false
+
+    // Frozen inputs viewer state
+    @State private var showingFrozenInputs = false
+    @State private var frozenInputsSimulation: TripInSimulation?
+
+    // Circulate out schedule state
+    @State private var showingCirculateOutSchedule = false
+
+    // Pump Schedule sheet state
+    @State private var showingPumpScheduleSheet = false
+    @State private var pumpScheduleVM = PumpScheduleViewModel()
+
+    // Circulation detail popover
+    @State private var circulationPopoverStepID: UUID?
+
+    init(project: ProjectState, navigateToView: ((ViewSelection) -> Void)? = nil) {
         self.project = project
+        self.navigateToView = navigateToView
         // Initialize viewModel from cache
         _viewModel = State(initialValue: TripInViewModelCache.get(for: project.id))
     }
 
-    // TVD sampler for depth conversions
+    // TVD sampler for depth conversions - preferPlan uses directional plan for projection
     private var tvdSampler: TvdSampler {
-        TvdSampler(stations: project.surveys ?? [])
+        TvdSampler(project: project, preferPlan: viewModel.useDirectionalPlanForTVD)
     }
 
     // Selected fill mud (for color in visualization)
@@ -90,8 +112,13 @@ struct TripInSimulationView: View {
         }
         .padding(12)
         .onAppear {
+            // Check for pending wellbore state handoff from Trip Out
+            if let state = OperationHandoffService.shared.pendingTripInState {
+                OperationHandoffService.shared.pendingTripInState = nil
+                viewModel.importFromWellboreState(state, project: project)
+            }
             // Only bootstrap if viewModel is fresh (no loaded simulation and no steps)
-            if viewModel.currentSimulation == nil && viewModel.steps.isEmpty {
+            else if viewModel.currentSimulation == nil && viewModel.steps.isEmpty {
                 viewModel.bootstrap(from: project)
             }
         }
@@ -102,6 +129,17 @@ struct TripInSimulationView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveError ?? "Unknown error")
+        }
+        .sheet(isPresented: $showingFrozenInputs) {
+            if let sim = frozenInputsSimulation {
+                FrozenInputsDetailViewTripIn(simulation: sim, currentProject: project)
+            }
+        }
+        .sheet(isPresented: $showingCirculateOutSchedule) {
+            circulateOutScheduleSheet
+        }
+        .sheet(isPresented: $showingPumpScheduleSheet) {
+            pumpScheduleSheet
         }
     }
 
@@ -141,6 +179,20 @@ struct TripInSimulationView: View {
                     .controlSize(.small)
             }
 
+            // TVD Source toggle
+            HStack(spacing: 4) {
+                Text("TVD:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: $viewModel.useDirectionalPlanForTVD) {
+                    Text("Surveys").tag(false)
+                    Text("Dir Plan").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 130)
+            }
+            .help("Choose whether to use actual surveys or directional plan for TVD calculations")
+
             Divider().frame(height: 24)
 
             // Actions
@@ -158,10 +210,94 @@ struct TripInSimulationView: View {
                 Button("Export", systemImage: "doc.richtext") {
                     exportHTMLReport()
                 }
+
+                Button("Circulate", systemImage: "arrow.up.arrow.down.circle") {
+                    showingCirculateOutSchedule = true
+                }
+                .help("Pump fluids and track ESD/SABP changes")
+
+                Button("Pump Schedule", systemImage: "chart.bar.doc.horizontal") {
+                    openPumpScheduleSheet()
+                }
+                .help("Open full pump schedule simulation with current wellbore state")
+
+                Divider()
+                    .frame(height: 16)
+
+                Button("Trip Out from Here", systemImage: "arrow.up.to.line") {
+                    handoffToTripOut()
+                }
+                .help("Switch to Trip Out simulation from the current depth")
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    // MARK: - Pump Schedule Sheet
+
+    private func openPumpScheduleSheet() {
+        guard let state = viewModel.wellboreStateAtSelectedStep() else { return }
+        pumpScheduleVM = PumpScheduleViewModel()
+        pumpScheduleVM.bootstrapFromWellboreState(state, project: project, context: modelContext)
+        showingPumpScheduleSheet = true
+    }
+
+    private var pumpScheduleSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Pump Schedule")
+                    .font(.headline)
+                Spacer()
+                Button("Apply & Return") {
+                    applyPumpScheduleState()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Cancel") {
+                    showingPumpScheduleSheet = false
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+
+            Divider()
+
+            PumpScheduleView(project: project, viewModel: pumpScheduleVM)
+        }
+        .frame(minWidth: 1100, minHeight: 700)
+    }
+
+    private func applyPumpScheduleState() {
+        guard let exported = pumpScheduleVM.exportWellboreState(project: project) else {
+            showingPumpScheduleSheet = false
+            return
+        }
+        let idx = viewModel.selectedIndex
+        guard idx >= 0 && idx < viewModel.steps.count else {
+            showingPumpScheduleSheet = false
+            return
+        }
+
+        // Update the selected step's layers with the pump schedule result
+        viewModel.steps[idx].layersPocket = exported.layersPocket
+        viewModel.steps[idx].layersAnnulus = exported.layersAnnulus
+        viewModel.steps[idx].layersString = exported.layersString
+
+        // Recalculate subsequent steps from this point
+        viewModel.recalculateStepsFrom(stepIndex: idx + 1, project: project)
+
+        showingPumpScheduleSheet = false
+    }
+
+    // MARK: - Operations Handoff
+
+    /// Hand off the current wellbore state to Trip Out simulation
+    private func handoffToTripOut() {
+        guard let state = viewModel.wellboreStateAtSelectedStep() else { return }
+        OperationHandoffService.shared.pendingTripOutState = state
+        if let navigate = navigateToView {
+            navigate(.tripSimulation)
+        }
     }
 
     private func exportHTMLReport() {
@@ -267,8 +403,12 @@ struct TripInSimulationView: View {
                 step: 1
             )
             .frame(width: 150)
-            .onChange(of: viewModel.stepSlider) { _, _ in
-                viewModel.updateFromSlider()
+            .onChange(of: viewModel.stepSlider) { _, newValue in
+                let newIndex = Int(newValue.rounded())
+                // Only update if different to avoid feedback loop
+                if newIndex != viewModel.selectedIndex && newIndex >= 0 && newIndex < viewModel.steps.count {
+                    viewModel.selectedIndex = newIndex
+                }
             }
         }
     }
@@ -609,7 +749,10 @@ struct TripInSimulationView: View {
             set: { newID in
                 if let id = newID, let idx = viewModel.steps.firstIndex(where: { $0.id == id }) {
                     viewModel.selectedIndex = idx
-                    viewModel.syncSliderToSelection()
+                    // Only sync slider if the value is different to avoid feedback loop
+                    if Int(viewModel.stepSlider.rounded()) != idx {
+                        viewModel.stepSlider = Double(idx)
+                    }
                 }
             }
         )
@@ -626,6 +769,7 @@ struct TripInSimulationView: View {
             annPlusChokeColumn
             hpStrColumn
             deltaPColumn
+            circulationColumn
         }
         .tableStyle(.bordered)
     }
@@ -713,45 +857,225 @@ struct TripInSimulationView: View {
         .width(65)
     }
 
+    /// Helper to find circulation records matching a step's bit depth
+    private func circulationRecords(for step: TripInSimulationViewModel.TripInStep) -> [CirculationService.CirculationRecord] {
+        viewModel.circulationHistory.filter { abs($0.atBitMD_m - step.bitMD_m) < 1.0 }
+    }
+
+    private var circulationColumn: some TableColumnContent<TripInSimulationViewModel.TripInStep, Never> {
+        TableColumn("Circ") { (step: TripInSimulationViewModel.TripInStep) in
+            let records = circulationRecords(for: step)
+            if !records.isEmpty {
+                Button {
+                    circulationPopoverStepID = step.id
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down.circle.fill")
+                        .foregroundStyle(.cyan)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: Binding(
+                    get: { circulationPopoverStepID == step.id },
+                    set: { if !$0 { circulationPopoverStepID = nil } }
+                )) {
+                    circulationPopoverContent(records: records, bitMD: step.bitMD_m)
+                }
+            }
+        }
+        .width(35)
+    }
+
+    // MARK: - Circulation Popover
+
+    private func circulationPopoverContent(records: [CirculationService.CirculationRecord], bitMD: Double) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Circulation @ \(Int(bitMD))m")
+                .font(.headline)
+
+            ForEach(records) { record in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(record.timestamp.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+
+                    ForEach(Array(record.operations.enumerated()), id: \.element.id) { idx, op in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color(red: op.mudColorR, green: op.mudColorG, blue: op.mudColorB))
+                                .frame(width: 10, height: 10)
+                            Text("\(idx + 1). \(op.mudName)")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.1f m³", op.volume_m3))
+                                .font(.caption)
+                                .monospacedDigit()
+                            Text(String(format: "(%.0f bbl)", op.volume_m3 * 6.28981))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                        GridRow {
+                            Text("ESD Before:")
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.0f kg/m³", record.ESDBeforeAtControl_kgpm3))
+                        }
+                        GridRow {
+                            Text("ESD After:")
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.0f kg/m³", record.ESDAfterAtControl_kgpm3))
+                                .foregroundStyle(record.ESDAfterAtControl_kgpm3 < viewModel.targetESD_kgpm3 ? .orange : .green)
+                        }
+                        if record.SABPRequired_kPa > 0 {
+                            GridRow {
+                                Text("SABP Required:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0f kPa", record.SABPRequired_kPa))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 280)
+    }
+
     // MARK: - Saved Simulations List
 
     private var savedSimulationsList: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Saved Simulations")
+            // Header with edit button
+            HStack {
+                Text("Saved Simulations")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(isEditingSimulations ? "Done" : "Edit") {
+                    isEditingSimulations.toggle()
+                    if !isEditingSimulations {
+                        selectedSimulationsForDelete.removeAll()
+                    }
+                }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-
-            List(savedTripInSimulations, selection: Binding(
-                get: { viewModel.currentSimulation?.id },
-                set: { newID in
-                    if let id = newID, let sim = savedTripInSimulations.first(where: { $0.id == id }) {
-                        viewModel.loadSimulation(sim)
-                    }
-                }
-            )) { simulation in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(simulation.name)
-                        .font(.caption)
-                    Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .tag(simulation.id)
-                .contextMenu {
-                    Button("Rename...", systemImage: "pencil") {
-                        simulationToRename = simulation
-                        renameText = simulation.name
-                        showingRenameDialog = true
-                    }
-                    Divider()
-                    Button("Delete", systemImage: "trash", role: .destructive) {
-                        deleteSimulation(simulation)
-                    }
-                }
+                .buttonStyle(.borderless)
             }
-            .listStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+
+            if isEditingSimulations {
+                // Multi-select mode
+                List(selection: $selectedSimulationsForDelete) {
+                    ForEach(savedTripInSimulations) { simulation in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(simulation.name)
+                                .font(.caption)
+                            Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if selectedSimulationsForDelete.contains(simulation.id) {
+                                selectedSimulationsForDelete.remove(simulation.id)
+                            } else {
+                                selectedSimulationsForDelete.insert(simulation.id)
+                            }
+                        }
+                        .tag(simulation.id)
+                    }
+                }
+                .listStyle(.sidebar)
+
+                // Delete controls
+                HStack(spacing: 8) {
+                    Button("All") {
+                        selectedSimulationsForDelete = Set(savedTripInSimulations.map { $0.id })
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+
+                    Button("None") {
+                        selectedSimulationsForDelete.removeAll()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+
+                    Spacer()
+
+                    Button {
+                        deleteSelectedSimulations()
+                    } label: {
+                        Label("\(selectedSimulationsForDelete.count)", systemImage: "trash")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(selectedSimulationsForDelete.isEmpty)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+            } else {
+                // Normal single-select mode
+                List(savedTripInSimulations, selection: Binding(
+                    get: { viewModel.currentSimulation?.id },
+                    set: { newID in
+                        if let id = newID, let sim = savedTripInSimulations.first(where: { $0.id == id }) {
+                            viewModel.loadSimulation(sim)
+                        }
+                    }
+                )) { simulation in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(simulation.name)
+                                .font(.caption)
+                            HStack(spacing: 4) {
+                                Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                if simulation.hasFrozenInputs {
+                                    Image(systemName: "snowflake")
+                                        .font(.caption2)
+                                        .foregroundStyle(.blue)
+                                        .help("Has frozen inputs")
+                                }
+                            }
+                        }
+                        Spacer()
+                        // Staleness indicator
+                        if simulation.isStale(comparedTo: project) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .help("Geometry has changed since simulation")
+                        }
+                    }
+                    .tag(simulation.id)
+                    .contextMenu {
+                        Button("Rename...", systemImage: "pencil") {
+                            simulationToRename = simulation
+                            renameText = simulation.name
+                            showingRenameDialog = true
+                        }
+                        Button {
+                            frozenInputsSimulation = simulation
+                            showingFrozenInputs = true
+                        } label: {
+                            Label("View Frozen Inputs", systemImage: "snowflake")
+                        }
+                        Divider()
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            deleteSimulation(simulation)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
         }
         .alert("Rename Simulation", isPresented: $showingRenameDialog) {
             TextField("Name", text: $renameText)
@@ -771,14 +1095,17 @@ struct TripInSimulationView: View {
         }
     }
 
-    private func deleteSimulation(_ simulation: TripInSimulation) {
-        // If this is the currently loaded simulation, clear the view
-        if viewModel.currentSimulation?.id == simulation.id {
-            viewModel.currentSimulation = nil
-            viewModel.steps = []
+    private func deleteSelectedSimulations() {
+        let toDelete = savedTripInSimulations.filter { selectedSimulationsForDelete.contains($0.id) }
+        for sim in toDelete {
+            viewModel.deleteSimulation(sim, context: modelContext)
         }
-        modelContext.delete(simulation)
-        try? modelContext.save()
+        selectedSimulationsForDelete.removeAll()
+        isEditingSimulations = false
+    }
+
+    private func deleteSimulation(_ simulation: TripInSimulation) {
+        viewModel.deleteSimulation(simulation, context: modelContext)
     }
 
     // MARK: - Source Picker
@@ -1206,6 +1533,323 @@ struct TripInSimulationView: View {
             }
         }
         .padding(.top, 4)
+    }
+
+    // MARK: - Circulate Sheet (Interactive Pump Queue)
+
+    private var circulateOutScheduleSheet: some View {
+        NavigationStack {
+            HSplitView {
+                // Left: Pump queue builder
+                VStack(alignment: .leading, spacing: 0) {
+                    // Current state
+                    GroupBox("Current State") {
+                        if let step = viewModel.selectedStep {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                GridRow {
+                                    Text("Bit Depth:")
+                                        .foregroundStyle(.secondary)
+                                    Text("\(Int(step.bitMD_m))m")
+                                        .fontWeight(.medium)
+                                }
+                                GridRow {
+                                    Text("ESD @ Control:")
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kg/m³", step.ESDAtControl_kgpm3))
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(step.ESDAtControl_kgpm3 < viewModel.targetESD_kgpm3 ? .orange : .primary)
+                                }
+                                GridRow {
+                                    Text("Required SABP:")
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kPa", step.requiredChokePressure_kPa))
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(step.requiredChokePressure_kPa > 0 ? .orange : .green)
+                                }
+                            }
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+
+                    Divider().padding(.vertical, 8)
+
+                    // Add to queue
+                    GroupBox("Add Pump Operation") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("Fluid", selection: $viewModel.selectedCirculateMudID) {
+                                Text("Select Mud...").tag(nil as UUID?)
+                                ForEach(project.muds ?? []) { mud in
+                                    HStack {
+                                        Circle()
+                                            .fill(Color(red: mud.colorR, green: mud.colorG, blue: mud.colorB))
+                                            .frame(width: 10, height: 10)
+                                        Text("\(mud.name) - \(String(format: "%.0f", mud.density_kgm3)) kg/m³")
+                                    }
+                                    .tag(mud.id as UUID?)
+                                }
+                            }
+
+                            HStack {
+                                Text("Volume:")
+                                TextField("", value: $viewModel.circulateVolume_m3, format: .number.precision(.fractionLength(1)))
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 60)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                                Text("(\(String(format: "%.0f", viewModel.circulateVolume_m3 * 6.28981)) bbl)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Button("Add to Queue", systemImage: "plus.circle") {
+                                if let mudID = viewModel.selectedCirculateMudID,
+                                   let mud = (project.muds ?? []).first(where: { $0.id == mudID }) {
+                                    viewModel.addToPumpQueue(mud: mud, volume_m3: viewModel.circulateVolume_m3)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(viewModel.selectedCirculateMudID == nil || viewModel.circulateVolume_m3 <= 0)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+
+                    Divider().padding(.vertical, 8)
+
+                    // Pump queue
+                    GroupBox("Pump Queue (\(viewModel.pumpQueue.count) operations)") {
+                        if viewModel.pumpQueue.isEmpty {
+                            Text("No operations queued")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 8)
+                        } else {
+                            VStack(spacing: 4) {
+                                ForEach(Array(viewModel.pumpQueue.enumerated()), id: \.element.id) { index, operation in
+                                    HStack {
+                                        Circle()
+                                            .fill(Color(red: operation.mudColorR, green: operation.mudColorG, blue: operation.mudColorB))
+                                            .frame(width: 10, height: 10)
+                                        Text("\(index + 1).")
+                                            .foregroundStyle(.secondary)
+                                        Text(operation.mudName)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(String(format: "%.1f m³", operation.volume_m3))
+                                            .monospacedDigit()
+                                        Button {
+                                            viewModel.removeFromPumpQueue(at: index)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .font(.caption)
+                                }
+
+                                Divider()
+
+                                HStack {
+                                    Text("Total:")
+                                        .fontWeight(.medium)
+                                    Spacer()
+                                    Text(String(format: "%.1f m³ (%.0f bbl)", viewModel.totalQueueVolume_m3, viewModel.totalQueueVolume_m3 * 6.28981))
+                                        .monospacedDigit()
+                                        .fontWeight(.medium)
+                                }
+                                .font(.caption)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 8)
+
+                    Spacer()
+
+                    // Preview result
+                    if !viewModel.previewPocketLayers.isEmpty {
+                        GroupBox("After Circulation") {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                GridRow {
+                                    Text("ESD @ Control:")
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kg/m³", viewModel.previewESDAtControl))
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(viewModel.previewESDAtControl < viewModel.targetESD_kgpm3 ? .orange : .green)
+                                }
+                                GridRow {
+                                    Text("Required SABP:")
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kPa", viewModel.previewRequiredSABP))
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(viewModel.previewRequiredSABP > 0 ? .orange : .green)
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.horizontal, 8)
+                    }
+
+                    // Actions
+                    HStack {
+                        Button("Clear Queue") {
+                            viewModel.clearPumpQueue()
+                        }
+                        .disabled(viewModel.pumpQueue.isEmpty)
+
+                        Spacer()
+
+                        Button("Preview") {
+                            viewModel.previewPumpQueue(
+                                fromStepIndex: viewModel.selectedIndex,
+                                project: project
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(viewModel.pumpQueue.isEmpty)
+
+                        Button("Commit") {
+                            viewModel.commitPumpQueue(
+                                fromStepIndex: viewModel.selectedIndex,
+                                project: project
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(viewModel.previewPocketLayers.isEmpty)
+                    }
+                    .padding(8)
+                }
+                .frame(width: 280)
+
+                // Right: Schedule table
+                VStack(spacing: 0) {
+                    // Pump settings
+                    HStack {
+                        Text("Pump Output:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $viewModel.pumpOutput_m3perStroke, format: .number.precision(.fractionLength(4)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("m³/stroke")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        if !viewModel.circulateOutSchedule.isEmpty {
+                            Button("Copy to Clipboard", systemImage: "doc.on.clipboard") {
+                                copyScheduleToClipboard()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                    Divider()
+
+                    if viewModel.circulateOutSchedule.isEmpty {
+                        ContentUnavailableView(
+                            "No Preview",
+                            systemImage: "arrow.up.arrow.down.circle",
+                            description: Text("Add fluids to the queue and click Preview to see the pressure schedule")
+                        )
+                    } else {
+                        // Schedule table
+                        Table(viewModel.circulateOutSchedule) {
+                            TableColumn("Vol (m³)") { step in
+                                Text(String(format: "%.1f", step.volumePumped_m3))
+                                    .monospacedDigit()
+                            }
+                            .width(55)
+
+                            TableColumn("Strokes") { step in
+                                Text(String(format: "%.0f", step.strokesAtPumpOutput))
+                                    .monospacedDigit()
+                            }
+                            .width(55)
+
+                            TableColumn("ESD") { step in
+                                Text(String(format: "%.0f", step.ESDAtControl_kgpm3))
+                                    .monospacedDigit()
+                                    .foregroundStyle(step.ESDAtControl_kgpm3 < viewModel.targetESD_kgpm3 ? .orange : .primary)
+                            }
+                            .width(50)
+
+                            TableColumn("SABP") { step in
+                                Text(String(format: "%.0f", step.requiredSABP_kPa))
+                                    .monospacedDigit()
+                                    .fontWeight(step.requiredSABP_kPa > 0 ? .semibold : .regular)
+                                    .foregroundStyle(step.requiredSABP_kPa > 0 ? .orange : .secondary)
+                            }
+                            .width(50)
+
+                            TableColumn("Δ SABP") { step in
+                                if step.deltaSABP_kPa != 0 {
+                                    Text(String(format: "%+.0f", step.deltaSABP_kPa))
+                                        .monospacedDigit()
+                                        .foregroundStyle(step.deltaSABP_kPa > 0 ? .red : .green)
+                                } else {
+                                    Text("-")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .width(50)
+
+                            TableColumn("Notes") { step in
+                                Text(step.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tableStyle(.bordered)
+                    }
+                }
+            }
+            .navigationTitle("Circulate at Depth")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        showingCirculateOutSchedule = false
+                    }
+                }
+            }
+        }
+        .frame(width: 850, height: 550)
+    }
+
+    private func copyScheduleToClipboard() {
+        var text = "CIRCULATE OUT PRESSURE SCHEDULE\n"
+        text += "================================\n"
+        text += "Bit Depth: \(Int(viewModel.selectedStep?.bitMD_m ?? 0))m\n"
+        text += "Control Depth: \(Int(viewModel.controlMD_m))m\n"
+        text += "Target ESD: \(Int(viewModel.targetESD_kgpm3)) kg/m³\n"
+        text += "Base Mud: \(Int(viewModel.baseMudDensity_kgpm3)) kg/m³\n"
+        text += "Pump Output: \(String(format: "%.4f", viewModel.pumpOutput_m3perStroke)) m³/stroke\n\n"
+
+        text += String(format: "%-10s %-10s %-10s %-12s %-12s %-10s %-12s %s\n",
+                       "Vol(m³)", "Vol(bbl)", "Strokes", "ESD@Ctrl", "Req.SABP", "ΔSABP", "Cum.ΔSABP", "Notes")
+        text += String(repeating: "-", count: 100) + "\n"
+
+        for step in viewModel.circulateOutSchedule {
+            let deltaStr = step.deltaSABP_kPa != 0 ? String(format: "%+.0f", step.deltaSABP_kPa) : "-"
+            text += String(format: "%-10.1f %-10.0f %-10.0f %-12.0f %-12.0f %-10s %-12.0f %s\n",
+                           step.volumePumped_m3,
+                           step.volumePumped_bbl,
+                           step.strokesAtPumpOutput,
+                           step.ESDAtControl_kgpm3,
+                           step.requiredSABP_kPa,
+                           deltaStr,
+                           step.cumulativeDeltaSABP_kPa,
+                           step.description)
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 #endif // os(macOS)

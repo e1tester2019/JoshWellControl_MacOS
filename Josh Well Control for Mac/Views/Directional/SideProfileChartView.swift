@@ -14,8 +14,22 @@ struct SideProfileChartView: View {
     let limits: DirectionalLimits
     let vsAzimuth: Double  // Effective VS azimuth (from plan or project)
     let bitProjection: BitProjection?  // Optional bit projection to display
+    let formations: [FormationTop]
+    let showFormations: Bool
     @Binding var hoveredMD: Double?
     var onHover: (Double?) -> Void
+
+    // Palette for formation line colors
+    private static let formationPalette: [Color] = [
+        .brown, .purple, .cyan, .pink, .mint, .indigo, .teal, .orange
+    ]
+
+    private func formationColor(for index: Int, formation: FormationTop) -> Color {
+        if let hex = formation.colorHex, let c = Color(hex: hex) {
+            return c
+        }
+        return Self.formationPalette[index % Self.formationPalette.count]
+    }
 
     // Zoom and pan state
     @State private var scale: CGFloat = 1.0
@@ -206,6 +220,46 @@ struct SideProfileChartView: View {
             if !planStations.isEmpty || !variances.isEmpty {
                 let ranges = adjustedRanges
                 Chart {
+                    // Formation lines (behind everything else)
+                    if showFormations {
+                        ForEach(Array(formations.enumerated()), id: \.element.id) { index, formation in
+                            // Dip angle is from vertical: 90° = horizontal, 0° = vertical
+                            // Slope from horizontal = tan(90° - dipAngle)
+                            let slopeRad = (90.0 - formation.dipAngle_deg) * .pi / 180.0
+                            let tanSlope = tan(slopeRad)
+                            let color = formationColor(for: index, formation: formation)
+                            let seriesID = "Fm_\(formation.id.uuidString)"
+
+                            // Use multiple points so the line clips correctly at all zoom levels
+                            ForEach(0..<11, id: \.self) { i in
+                                let vs = ranges.vsMin + (ranges.vsMax - ranges.vsMin) * Double(i) / 10.0
+                                let tvd = formation.tvdTop_m + vs * tanSlope
+                                LineMark(
+                                    x: .value("VS", vs),
+                                    y: .value("TVD", -tvd),
+                                    series: .value("Series", seriesID)
+                                )
+                                .foregroundStyle(color.opacity(0.6))
+                                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [8, 4]))
+                            }
+
+                            // Label at right edge
+                            let labelTVD = formation.tvdTop_m + ranges.vsMax * tanSlope
+                            let dipFromHoriz = 90.0 - formation.dipAngle_deg
+                            PointMark(
+                                x: .value("VS", ranges.vsMax),
+                                y: .value("TVD", -labelTVD)
+                            )
+                            .foregroundStyle(.clear)
+                            .symbolSize(1)
+                            .annotation(position: .topTrailing, spacing: 2) {
+                                Text("\(formation.name)\(abs(dipFromHoriz) > 0.05 ? String(format: " %.1f°", dipFromHoriz) : "")")
+                                    .font(.caption2)
+                                    .foregroundStyle(color)
+                            }
+                        }
+                    }
+
                     // Plan trajectory (green dashed line)
                     // Negate TVD to flip axis (depth increases downward)
                     ForEach(Array(planStations.enumerated()), id: \.offset) { index, station in

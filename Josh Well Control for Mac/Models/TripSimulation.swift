@@ -121,17 +121,47 @@ final class TripSimulation {
         }
     }
 
+    // MARK: - Frozen Inputs (self-contained simulation state)
+
+    /// Compressed JSON of FrozenSimulationInputs - captures drill string, annulus, muds, surveys
+    /// at the time the simulation was run, ensuring results remain valid regardless of project changes
+    var frozenInputsData: Data?
+
+    /// Hash of inputs when simulation was created (for quick staleness check)
+    var inputStateHash: String?
+
+    /// Whether this simulation has frozen inputs (for backwards compatibility)
+    @Transient var hasFrozenInputs: Bool {
+        frozenInputsData != nil
+    }
+
+    /// Decoded frozen inputs
+    @Transient var frozenInputs: FrozenSimulationInputs? {
+        get {
+            guard let data = frozenInputsData else { return nil }
+            return FrozenSimulationInputs.fromCompressedData(data)
+        }
+        set {
+            frozenInputsData = newValue?.toCompressedData()
+            inputStateHash = newValue?.inputHash
+        }
+    }
+
     // MARK: - Relationships
 
     /// Steps for this simulation
     @Relationship(deleteRule: .cascade, inverse: \TripSimulationStep.simulation)
     var steps: [TripSimulationStep]?
 
-    /// Back-reference to the owning project
+    /// Back-reference to the owning project (kept for backwards compatibility and navigation)
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
-    /// Reference to the backfill mud used
+    /// Reference to the Well this simulation belongs to
+    @Relationship(deleteRule: .nullify)
+    var well: Well?
+
+    /// Reference to the backfill mud used (kept for backwards compatibility, prefer frozen inputs)
     @Relationship(deleteRule: .nullify)
     var backfillMud: MudProperties?
 
@@ -173,6 +203,7 @@ final class TripSimulation {
         useObservedPitGain: Bool = false,
         observedInitialPitGain_m3: Double = 0,
         project: ProjectState? = nil,
+        well: Well? = nil,
         backfillMud: MudProperties? = nil
     ) {
         self.name = name
@@ -193,6 +224,7 @@ final class TripSimulation {
         self.useObservedPitGain = useObservedPitGain
         self.observedInitialPitGain_m3 = observedInitialPitGain_m3
         self.project = project
+        self.well = well
         self.backfillMud = backfillMud
     }
 
@@ -220,6 +252,61 @@ final class TripSimulation {
         }
 
         updatedAt = .now
+    }
+
+    // MARK: - Frozen Input Management
+
+    /// Freeze the current project state into this simulation
+    /// Call this when saving the simulation to ensure results remain valid
+    @MainActor
+    func freezeInputs(from project: ProjectState, backfillMud: MudProperties?, activeMud: MudProperties?) {
+        let frozen = FrozenSimulationInputs(from: project, backfillMud: backfillMud, activeMud: activeMud)
+        self.frozenInputs = frozen
+        self.well = project.well
+    }
+
+    /// Check if the simulation is stale (inputs have changed since simulation was run)
+    @MainActor
+    func isStale(comparedTo project: ProjectState) -> Bool {
+        guard let frozen = frozenInputs else {
+            // No frozen inputs = legacy simulation, consider stale
+            return true
+        }
+        return frozen.isStale(comparedTo: project, backfillMud: backfillMud, activeMud: project.activeMud)
+    }
+
+    /// Get list of changes between frozen inputs and current state
+    @MainActor
+    func getChanges(comparedTo project: ProjectState) -> [String] {
+        guard let frozen = frozenInputs else {
+            return ["No frozen inputs (legacy simulation)"]
+        }
+        return frozen.changes(comparedTo: project, backfillMud: backfillMud, activeMud: project.activeMud)
+    }
+
+    /// Create a TvdSampler from frozen inputs (for re-running simulation)
+    func makeTvdSamplerFromFrozenInputs() -> TvdSampler? {
+        frozenInputs?.makeTvdSampler()
+    }
+
+    /// Clear step layer data to reduce storage (keeps scalar results)
+    /// Preserves the final step's pocket layers which are needed for Trip-In simulation import
+    func clearStepLayerData() {
+        guard let allSteps = steps, !allSteps.isEmpty else { return }
+
+        // Find the final step (highest stepIndex - end of trip-out)
+        let finalStepIndex = allSteps.max(by: { $0.stepIndex < $1.stepIndex })?.stepIndex
+
+        for step in allSteps {
+            // Clear annulus and string layers for all steps
+            step.layersAnnulusData = nil
+            step.layersStringData = nil
+
+            // Keep pocket layers only for the final step (needed for Trip-In import)
+            if step.stepIndex != finalStepIndex {
+                step.layersPocketData = nil
+            }
+        }
     }
 }
 

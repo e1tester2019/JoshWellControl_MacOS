@@ -110,23 +110,126 @@ struct Trajectory3DView: View {
     }
 
     private var pathSlider: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.up")
-                .foregroundStyle(.secondary)
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.up")
+                    .foregroundStyle(.secondary)
 
-            Slider(value: $pathPosition, in: 0...1) {
-                Text("Position")
+                Slider(value: $pathPosition, in: 0...1) {
+                    Text("Position")
+                }
+
+                Image(systemName: "arrow.down")
+                    .foregroundStyle(.secondary)
+
+                Text("MD: \(Int(currentMD))m")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .frame(width: 80)
             }
+            .padding(.horizontal, 8)
 
-            Image(systemName: "arrow.down")
-                .foregroundStyle(.secondary)
-
-            Text("MD: \(Int(currentMD))m")
-                .font(.caption)
-                .monospacedDigit()
-                .frame(width: 80)
+            // Station info at current position
+            stationInfoAtPosition
         }
-        .padding(.horizontal, 8)
+    }
+
+    private var stationInfoAtPosition: some View {
+        Group {
+            switch followPathType {
+            case .survey:
+                if let info = interpolatedSurveyInfo {
+                    HStack(spacing: 16) {
+                        Label("Survey", systemImage: "location.fill")
+                            .foregroundStyle(.blue)
+                        Text("MD: \(String(format: "%.1f", info.md))m")
+                        Text("TVD: \(String(format: "%.1f", info.tvd))m")
+                        Text("Inc: \(String(format: "%.2f", info.inc))°")
+                        Text("Azi: \(String(format: "%.2f", info.azi))°")
+                        Text("NS: \(String(format: "%.1f", info.ns))m")
+                        Text("EW: \(String(format: "%.1f", info.ew))m")
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.1)))
+                }
+            case .plan:
+                if let info = interpolatedPlanInfo {
+                    HStack(spacing: 16) {
+                        Label("Plan", systemImage: "map.fill")
+                            .foregroundStyle(.green)
+                        Text("MD: \(String(format: "%.1f", info.md))m")
+                        Text("TVD: \(String(format: "%.1f", info.tvd))m")
+                        Text("Inc: \(String(format: "%.2f", info.inc))°")
+                        Text("Azi: \(String(format: "%.2f", info.azi))°")
+                        Text("NS: \(String(format: "%.1f", info.ns))m")
+                        Text("EW: \(String(format: "%.1f", info.ew))m")
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.green.opacity(0.1)))
+                }
+            }
+        }
+    }
+
+    private struct StationInfo {
+        let md: Double
+        let tvd: Double
+        let inc: Double
+        let azi: Double
+        let ns: Double
+        let ew: Double
+    }
+
+    private var interpolatedSurveyInfo: StationInfo? {
+        guard variances.count >= 2 else { return nil }
+
+        let totalSegments = variances.count - 1
+        let exactIndex = pathPosition * Double(totalSegments)
+        let lowerIndex = min(Int(exactIndex), totalSegments - 1)
+        let upperIndex = min(lowerIndex + 1, totalSegments)
+        let t = exactIndex - Double(lowerIndex)
+
+        let v1 = variances[lowerIndex]
+        let v2 = variances[upperIndex]
+
+        return StationInfo(
+            md: v1.surveyMD + t * (v2.surveyMD - v1.surveyMD),
+            tvd: v1.surveyTVD + t * (v2.surveyTVD - v1.surveyTVD),
+            inc: v1.surveyInc + t * (v2.surveyInc - v1.surveyInc),
+            azi: v1.surveyAzi + t * (v2.surveyAzi - v1.surveyAzi),
+            ns: v1.surveyNS + t * (v2.surveyNS - v1.surveyNS),
+            ew: v1.surveyEW + t * (v2.surveyEW - v1.surveyEW)
+        )
+    }
+
+    private var interpolatedPlanInfo: StationInfo? {
+        guard planStations.count >= 2 else { return nil }
+
+        let totalSegments = planStations.count - 1
+        let exactIndex = pathPosition * Double(totalSegments)
+        let lowerIndex = min(Int(exactIndex), totalSegments - 1)
+        let upperIndex = min(lowerIndex + 1, totalSegments)
+        let t = exactIndex - Double(lowerIndex)
+
+        let s1 = planStations[lowerIndex]
+        let s2 = planStations[upperIndex]
+
+        return StationInfo(
+            md: s1.md + t * (s2.md - s1.md),
+            tvd: s1.tvd + t * (s2.tvd - s1.tvd),
+            inc: s1.inc + t * (s2.inc - s1.inc),
+            azi: s1.azi + t * (s2.azi - s1.azi),
+            ns: s1.ns_m + t * (s2.ns_m - s1.ns_m),
+            ew: s1.ew_m + t * (s2.ew_m - s1.ew_m)
+        )
     }
 
     // MARK: - Hover Info

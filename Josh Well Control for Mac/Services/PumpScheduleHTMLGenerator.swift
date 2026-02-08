@@ -201,6 +201,9 @@ class PumpScheduleHTMLGenerator {
                     </div>
                 </section>
 
+                <!-- Final Spotted Fluids -->
+                \(generateFinalSpottedFluidsSection(data))
+
                 <!-- Interactive Wellbore Visualization -->
                 <section class="card">
                     <h2>Interactive Well Snapshot</h2>
@@ -469,6 +472,78 @@ class PumpScheduleHTMLGenerator {
         }
 
         .metric-unit {
+            font-size: 0.7rem;
+            color: var(--text-light);
+        }
+
+        /* Final Spotted Fluids */
+        .fluids-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .fluids-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .fluids-column h3 {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .fluid-layer {
+            display: flex;
+            align-items: flex-start;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .fluid-layer:last-child {
+            border-bottom: none;
+        }
+
+        .fluid-swatch {
+            width: 16px;
+            height: 40px;
+            border-radius: 3px;
+            margin-right: 12px;
+            flex-shrink: 0;
+            border: 1px solid rgba(0,0,0,0.15);
+        }
+
+        .fluid-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .fluid-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 2px;
+        }
+
+        .fluid-details {
+            font-size: 0.75rem;
+            color: var(--text-light);
+        }
+
+        .fluid-metrics {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .fluid-volume {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .fluid-capacity {
             font-size: 0.7rem;
             color: var(--text-light);
         }
@@ -1235,6 +1310,106 @@ class PumpScheduleHTMLGenerator {
             """
         }
         return html
+    }
+
+    private func generateFinalSpottedFluidsSection(_ data: PumpScheduleReportData) -> String {
+        // Get the final snapshot layers
+        guard let finalSnapshot = data.snapshots.last else {
+            return ""
+        }
+
+        let stringLayers = finalSnapshot.stringLayers
+        let annulusLayers = finalSnapshot.annulusLayers
+
+        // Calculate total volumes for each side
+        var totalStringVolume: Double = 0
+        var totalAnnulusVolume: Double = 0
+
+        func layerVolume(layer: PumpScheduleReportData.StageSnapshot.FluidLayer, sections: [PDFSectionData]) -> (volume: Double, avgCapacity: Double) {
+            var vol: Double = 0
+            var totalLen: Double = 0
+            for section in sections {
+                let overlapTop = max(layer.topMD, section.topMD)
+                let overlapBot = min(layer.bottomMD, section.bottomMD)
+                if overlapBot > overlapTop {
+                    let len = overlapBot - overlapTop
+                    vol += len * section.capacity_m3_per_m
+                    totalLen += len
+                }
+            }
+            let avgCap = totalLen > 0 ? vol / totalLen : 0
+            return (vol, avgCap)
+        }
+
+        var stringHTML = ""
+        for layer in stringLayers {
+            let (vol, avgCap) = layerVolume(layer: layer, sections: data.drillStringSections)
+            totalStringVolume += vol
+            stringHTML += """
+            <div class="fluid-layer">
+                <div class="fluid-swatch" style="background-color: \(layer.colorHex);"></div>
+                <div class="fluid-info">
+                    <div class="fluid-name">\(escapeHTML(layer.mudName))</div>
+                    <div class="fluid-details">\(String(format: "%.0f", layer.topMD))–\(String(format: "%.0f", layer.bottomMD)) m  •  ρ=\(String(format: "%.0f", layer.density_kgm3)) kg/m³</div>
+                </div>
+                <div class="fluid-metrics">
+                    <div class="fluid-volume">\(String(format: "%.5f", vol)) m³</div>
+                    <div class="fluid-capacity">\(String(format: "%.5f", avgCap)) m³/m</div>
+                </div>
+            </div>
+            """
+        }
+
+        var annulusHTML = ""
+        for layer in annulusLayers {
+            let (vol, avgCap) = layerVolume(layer: layer, sections: data.annulusSections)
+            totalAnnulusVolume += vol
+            annulusHTML += """
+            <div class="fluid-layer">
+                <div class="fluid-swatch" style="background-color: \(layer.colorHex);"></div>
+                <div class="fluid-info">
+                    <div class="fluid-name">\(escapeHTML(layer.mudName))</div>
+                    <div class="fluid-details">\(String(format: "%.0f", layer.topMD))–\(String(format: "%.0f", layer.bottomMD)) m  •  ρ=\(String(format: "%.0f", layer.density_kgm3)) kg/m³</div>
+                </div>
+                <div class="fluid-metrics">
+                    <div class="fluid-volume">\(String(format: "%.5f", vol)) m³</div>
+                    <div class="fluid-capacity">\(String(format: "%.5f", avgCap)) m³/m</div>
+                </div>
+            </div>
+            """
+        }
+
+        return """
+        <section class="card">
+            <h2>Final Spotted Fluids</h2>
+            <div class="fluids-grid">
+                <div class="fluids-column">
+                    <h3>String layers</h3>
+                    \(stringHTML)
+                    <div class="fluid-layer" style="background: var(--bg-color); border-radius: 4px; padding: 8px 0; margin-top: 8px;">
+                        <div class="fluid-info">
+                            <div class="fluid-name" style="color: var(--text-light);">Total String Volume</div>
+                        </div>
+                        <div class="fluid-metrics">
+                            <div class="fluid-volume">\(String(format: "%.5f", totalStringVolume)) m³</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="fluids-column">
+                    <h3>Annulus layers</h3>
+                    \(annulusHTML)
+                    <div class="fluid-layer" style="background: var(--bg-color); border-radius: 4px; padding: 8px 0; margin-top: 8px;">
+                        <div class="fluid-info">
+                            <div class="fluid-name" style="color: var(--text-light);">Total Annulus Volume</div>
+                        </div>
+                        <div class="fluid-metrics">
+                            <div class="fluid-volume">\(String(format: "%.5f", totalAnnulusVolume)) m³</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        """
     }
 
     private func generateDrillStringTable(_ sections: [PDFSectionData], totalCapacity: Double, totalDisplacement: Double) -> String {

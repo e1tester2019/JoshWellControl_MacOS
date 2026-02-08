@@ -776,7 +776,7 @@ struct TripSimulationViewIOS: View {
             )
         }
 
-        let reportData = TripSimulationReportData(
+        var reportData = TripSimulationReportData(
             wellName: project.well?.name ?? "Unknown Well",
             projectName: project.name,
             generatedDate: Date(),
@@ -797,6 +797,23 @@ struct TripSimulationViewIOS: View {
             annulusSections: annulusSections,
             steps: viewmodel.steps
         )
+
+        // Add final fluid layers from Mud Placement view
+        if let finalLayers = project.finalLayers {
+            reportData.finalFluidLayers = finalLayers.map { layer in
+                FinalFluidLayerData(
+                    name: layer.name,
+                    placement: layer.placement,
+                    topMD: layer.topMD_m,
+                    bottomMD: layer.bottomMD_m,
+                    density_kgm3: layer.density_kgm3,
+                    colorR: layer.colorR,
+                    colorG: layer.colorG,
+                    colorB: layer.colorB,
+                    colorA: layer.colorA
+                )
+            }
+        }
 
         let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
         let dateFormatter = DateFormatter()
@@ -892,7 +909,7 @@ struct TripSimulationViewIOS: View {
             )
         }
 
-        let reportData = TripSimulationReportData(
+        var reportData = TripSimulationReportData(
             wellName: project.well?.name ?? "Unknown Well",
             projectName: project.name,
             generatedDate: Date(),
@@ -913,6 +930,23 @@ struct TripSimulationViewIOS: View {
             annulusSections: annulusSections,
             steps: viewmodel.steps
         )
+
+        // Add final fluid layers from Mud Placement view
+        if let finalLayers = project.finalLayers {
+            reportData.finalFluidLayers = finalLayers.map { layer in
+                FinalFluidLayerData(
+                    name: layer.name,
+                    placement: layer.placement,
+                    topMD: layer.topMD_m,
+                    bottomMD: layer.bottomMD_m,
+                    density_kgm3: layer.density_kgm3,
+                    colorR: layer.colorR,
+                    colorG: layer.colorG,
+                    colorB: layer.colorB,
+                    colorA: layer.colorA
+                )
+            }
+        }
 
         let htmlContent = TripSimulationHTMLGenerator.shared.generateHTML(for: reportData)
 

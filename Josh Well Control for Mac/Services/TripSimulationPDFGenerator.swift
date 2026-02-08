@@ -28,6 +28,19 @@ struct PDFSectionData {
     let totalVolume: Double
 }
 
+/// Final fluid layer data for reports (from Mud Placement)
+struct FinalFluidLayerData {
+    let name: String
+    let placement: Placement  // .annulus, .string, or .both
+    let topMD: Double
+    let bottomMD: Double
+    let density_kgm3: Double
+    let colorR: Double
+    let colorG: Double
+    let colorB: Double
+    let colorA: Double
+}
+
 /// Input data for generating a trip simulation PDF report
 struct TripSimulationReportData {
     let wellName: String
@@ -63,6 +76,9 @@ struct TripSimulationReportData {
     // Geometry data
     let drillStringSections: [PDFSectionData]
     let annulusSections: [PDFSectionData]
+
+    // Final fluid layers from Mud Placement (for Final Spotted Fluids section)
+    var finalFluidLayers: [FinalFluidLayerData] = []
 
     // Results
     let steps: [NumericalTripModel.TripStep]

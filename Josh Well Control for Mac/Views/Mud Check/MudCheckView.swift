@@ -15,9 +15,8 @@ struct MudCheckView: View {
     @State private var selection: MudProperties? = nil
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
+        HStack(spacing: 0) {
+            // Editor on left
             Group {
                 if let mud = selection {
                     MudEditor(mud: mud)
@@ -26,9 +25,16 @@ struct MudCheckView: View {
                     placeholder
                 }
             }
-            .navigationTitle("Mud Check")
-            .toolbar { toolbar }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            // Mud list on right
+            sidebar
+                .frame(width: 280)
         }
+        .navigationTitle("Mud Check")
+        .toolbar { toolbar }
         .onAppear { attachInitialSelection() }
         .onChange(of: project) { _, _ in
             selection = nil
@@ -89,8 +95,6 @@ struct MudCheckView: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
         }
-        .navigationTitle("Muds")
-        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
     }
 
     private var placeholder: some View {

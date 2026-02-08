@@ -31,6 +31,9 @@ struct TripSimulationView: View {
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
 
+    /// Optional closure to navigate to another view (e.g., Trip In). Provided by parent content view.
+    var navigateToView: ((ViewSelection) -> Void)?
+
     // Query saved simulations for this project
     @Query private var allSimulations: [TripSimulation]
     private var savedSimulations: [TripSimulation] {
@@ -45,7 +48,28 @@ struct TripSimulationView: View {
     @State private var showingSaveDialog = false
     @State private var saveSimulationName = ""
     @State private var selectedSavedSimulation: TripSimulation?
+    @State private var selectedSimulationsForDelete: Set<TripSimulation.ID> = []
+    @State private var isEditingSimulations = false
 
+    // Frozen inputs viewer state
+    @State private var showingFrozenInputs = false
+    @State private var frozenInputsSimulation: TripSimulation?
+
+    // Circulation sheet state
+    @State private var showingCirculationSheet = false
+
+    // Pump Schedule sheet state
+    @State private var showingPumpScheduleSheet = false
+    @State private var pumpScheduleVM = PumpScheduleViewModel()
+
+    // Trip Optimizer state
+    @State private var showingOptimizer = false
+    @State private var optimizerSurfaceSlugVolume: Double = 2.0
+    @State private var optimizerSurfaceSlugDensity: Double = 2100
+    @State private var optimizerSecondSlugDensity: Double? = nil  // nil = use calculated
+    @State private var optimizerManualHeelMD: Double? = nil
+    @State private var optimizerObservedSlugDrop: Double? = nil
+    @State private var optimizerResult: TripOptimizerResult? = nil
 
     // MARK: - Body
     var body: some View {
@@ -55,7 +79,15 @@ struct TripSimulationView: View {
             content
         }
         .padding(12)
-        .onAppear { viewmodel.bootstrap(from: project) }
+        .onAppear {
+            // Check for pending wellbore state handoff from Trip In
+            if let state = OperationHandoffService.shared.pendingTripOutState {
+                OperationHandoffService.shared.pendingTripOutState = nil
+                viewmodel.importFromWellboreState(state, project: project)
+            } else {
+                viewmodel.bootstrap(from: project)
+            }
+        }
         .onChange(of: project) { _, newProject in
             viewmodel.bootstrap(from: newProject)
         }
@@ -64,6 +96,11 @@ struct TripSimulationView: View {
         }
         .alert("Export Error", isPresented: $showingExportErrorAlert, actions: { Button("OK", role: .cancel) {} }) {
             Text(exportErrorMessage)
+        }
+        .sheet(isPresented: $showingFrozenInputs) {
+            if let sim = frozenInputsSimulation {
+                FrozenInputsDetailView(simulation: sim, currentProject: project)
+            }
         }
     }
 
@@ -246,6 +283,20 @@ struct TripSimulationView: View {
                 Toggle("Colors", isOn: $viewmodel.colorByComposition)
                     .controlSize(.small)
 
+                // TVD Source toggle
+                HStack(spacing: 4) {
+                    Text("TVD:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $viewmodel.useDirectionalPlanForTVD) {
+                        Text("Surveys").tag(false)
+                        Text("Dir Plan").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 130)
+                }
+                .help("Choose whether to use actual surveys or directional plan for TVD calculations")
+
                 if !viewmodel.steps.isEmpty {
                     HStack(spacing: 4) {
                         Text("Depth:")
@@ -273,6 +324,16 @@ struct TripSimulationView: View {
                 Toggle("Details", isOn: $viewmodel.showDetails)
                     .toggleStyle(.switch)
                     .controlSize(.small)
+
+                // Optimizer button
+                Button {
+                    showingOptimizer = true
+                } label: {
+                    Label("Optimizer", systemImage: "function")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Calculate optimal slug and backfill densities")
 
                 if viewmodel.isRunning {
                     HStack(spacing: 4) {
@@ -311,11 +372,597 @@ struct TripSimulationView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+                // Operations handoff buttons
+                if !viewmodel.steps.isEmpty && viewmodel.selectedIndex != nil {
+                    Divider()
+                        .frame(height: 16)
+
+                    Button {
+                        showingCirculationSheet = true
+                    } label: {
+                        Label("Circulate Here", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Circulate fluids at the current bit depth")
+
+                    Button {
+                        openPumpScheduleSheet()
+                    } label: {
+                        Label("Pump Schedule", systemImage: "chart.bar.doc.horizontal")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Open full pump schedule simulation with current wellbore state")
+
+                    Button {
+                        handoffToTripIn()
+                    } label: {
+                        Label("Trip In from Here", systemImage: "arrow.down.to.line")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Start a Trip In simulation from the current depth using this wellbore state")
+                }
             }
         }
         .sheet(isPresented: $showingSaveDialog) {
             saveSimulationSheet
         }
+        .sheet(isPresented: $showingOptimizer) {
+            tripOptimizerSheet
+        }
+        .sheet(isPresented: $showingPumpScheduleSheet) {
+            pumpScheduleSheet
+        }
+        .sheet(isPresented: $showingCirculationSheet) {
+            circulationSheet
+        }
+    }
+
+    // MARK: - Trip Optimizer Sheet
+    private var tripOptimizerSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Image(systemName: "function")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+                Text("Trip Optimizer")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showingOptimizer = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Text("Calculate kill mud density for annulus based on slug densities")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            // Inputs
+            GroupBox("Inputs") {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Target ESD:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text(String(format: "%.0f kg/m³", viewmodel.targetESDAtTD_kgpm3))
+                                .monospacedDigit()
+                            Text("(from simulation)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GridRow {
+                        Text("Surface Slug Vol:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField("", value: $optimizerSurfaceSlugVolume, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                            Text("m³")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GridRow {
+                        Text("Surface Slug ρ:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            TextField("", value: $optimizerSurfaceSlugDensity, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                            Text("kg/m³")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GridRow {
+                        Text("2nd Slug ρ:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            if let density = optimizerSecondSlugDensity {
+                                TextField("", value: Binding(
+                                    get: { density },
+                                    set: { optimizerSecondSlugDensity = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                Text("kg/m³")
+                                    .foregroundStyle(.secondary)
+                                Button("Auto") {
+                                    optimizerSecondSlugDensity = nil
+                                }
+                                .buttonStyle(.borderless)
+                            } else {
+                                Text("Auto-calculate")
+                                    .foregroundStyle(.blue)
+                                Button("Manual") {
+                                    optimizerSecondSlugDensity = 1920
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+
+                    // Show formula when auto-calculating
+                    if optimizerSecondSlugDensity == nil {
+                        GridRow {
+                            Text("")
+                            Text("= 2×ESD - Active + Crack/TVD")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    GridRow {
+                        Text("Heel Depth:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            if let heelMD = optimizerManualHeelMD {
+                                TextField("", value: Binding(
+                                    get: { heelMD },
+                                    set: { optimizerManualHeelMD = $0 }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                Text("m MD")
+                                    .foregroundStyle(.secondary)
+                                Button("Auto") {
+                                    optimizerManualHeelMD = nil
+                                }
+                                .buttonStyle(.borderless)
+                            } else {
+                                Text("Auto-detect (first 90°)")
+                                    .foregroundStyle(.blue)
+                                Button("Manual") {
+                                    optimizerManualHeelMD = viewmodel.startBitMD_m * 0.5
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+
+                    GridRow {
+                        Text("Slug Drop:")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            if let slugDrop = optimizerObservedSlugDrop {
+                                TextField("", value: Binding(
+                                    get: { slugDrop },
+                                    set: { optimizerObservedSlugDrop = $0 }
+                                ), format: .number.precision(.fractionLength(2)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                                Button("Estimate") {
+                                    optimizerObservedSlugDrop = nil
+                                }
+                                .buttonStyle(.borderless)
+                            } else {
+                                Text("Estimated")
+                                    .foregroundStyle(.orange)
+                                Button("From Sim") {
+                                    optimizerObservedSlugDrop = 3.29  // Default, user should update
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate button
+            Button {
+                runOptimizer()
+            } label: {
+                Label("Calculate Kill Mud Density", systemImage: "sparkles")
+            }
+            .buttonStyle(.borderedProminent)
+
+            // Results
+            if let result = optimizerResult {
+                Divider()
+
+                ScrollView {
+                    GroupBox("Results") {
+                        VStack(alignment: .leading, spacing: 12) {
+                        // All mud densities and volumes in a row
+                        HStack(alignment: .top, spacing: 16) {
+                            // Kill Mud
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Circle().fill(.green).frame(width: 10, height: 10)
+                                    Text("Kill Mud")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(String(format: "%.0f", result.killMudDensity_kgm3))
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(result.killMudDensity_kgm3 < 1000 ? .orange : .green)
+                                Text(String(format: "%.2f m³", result.killMudVolume_m3))
+                                    .font(.caption)
+                                    .monospacedDigit()
+                            }
+                            .frame(minWidth: 80)
+
+                            // Surface Slug
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Circle().fill(.orange).frame(width: 10, height: 10)
+                                    Text("Surface Slug")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(String(format: "%.0f", result.surfaceSlugDensity_kgm3))
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.orange)
+                                Text(String(format: "%.2f m³", result.surfaceSlugVolume_m3))
+                                    .font(.caption)
+                                    .monospacedDigit()
+                            }
+                            .frame(minWidth: 80)
+
+                            // Active Mud (if present)
+                            if result.activeMudHeight_m > 0.1 {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 4) {
+                                        Circle().fill(.cyan).frame(width: 10, height: 10)
+                                        Text("Active Mud")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(String(format: "%.0f", result.baseMudDensity_kgm3))
+                                        .font(.title)
+                                        .fontWeight(.bold)
+                                        .foregroundStyle(.cyan)
+                                    Text(String(format: "%.2f m³", result.activeMudVolume_m3))
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                }
+                                .frame(minWidth: 80)
+                            }
+
+                            // 2nd Slug
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Circle().fill(.blue).frame(width: 10, height: 10)
+                                    Text("2nd Slug")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(String(format: "%.0f", result.secondSlugDensity_kgm3))
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.blue)
+                                Text(String(format: "%.2f m³", result.secondSlugVolume_m3))
+                                    .font(.caption)
+                                    .monospacedDigit()
+                            }
+                            .frame(minWidth: 80)
+
+                            // Original Mud
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Circle().fill(.gray).frame(width: 10, height: 10)
+                                    Text("Original")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(String(format: "%.0f", result.baseMudDensity_kgm3))
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.gray)
+                                Text("to control")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(minWidth: 80)
+
+                            Spacer()
+                        }
+
+                        Divider()
+
+                        // Annulus layers visualization with pressure
+                        Text("Annulus Layers (from surface)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        let g = 0.00981  // kPa per m per kg/m³
+                        let killMudPressure = result.killMudDensity_kgm3 * g * result.killMudHeight_m
+                        let surfaceSlugPressure = result.surfaceSlugDensity_kgm3 * g * result.surfaceSlugHeight_m
+                        let activeMudPressure = result.baseMudDensity_kgm3 * g * result.activeMudHeight_m
+                        let secondSlugPressure = result.secondSlugDensity_kgm3 * g * result.secondSlugHeight_m
+                        let originalMudPressure = result.baseMudDensity_kgm3 * g * result.originalMudHeight_m
+                        let totalHeight = result.killMudHeight_m + result.surfaceSlugHeight_m + result.activeMudHeight_m + result.secondSlugHeight_m + result.originalMudHeight_m
+                        let totalPressure = killMudPressure + surfaceSlugPressure + activeMudPressure + secondSlugPressure + originalMudPressure
+                        let calculatedESD = totalPressure / (g * result.controlTVD_m)
+
+                        Grid(alignment: .trailing, horizontalSpacing: 8, verticalSpacing: 6) {
+                            // Header
+                            GridRow {
+                                Text("")
+                                Text("Layer").fontWeight(.medium)
+                                Text("Density").fontWeight(.medium)
+                                Text("Height").fontWeight(.medium)
+                                Text("Pressure").fontWeight(.medium)
+                            }
+                            .foregroundStyle(.secondary)
+
+                            Divider().gridCellColumns(5)
+
+                            GridRow {
+                                Circle().fill(.green).frame(width: 8, height: 8)
+                                Text("Kill Mud").frame(maxWidth: .infinity, alignment: .leading)
+                                Text(String(format: "%.0f", result.killMudDensity_kgm3))
+                                Text(String(format: "%.1f", result.killMudHeight_m))
+                                Text(String(format: "%.0f", killMudPressure))
+                            }
+                            GridRow {
+                                Circle().fill(.orange).frame(width: 8, height: 8)
+                                Text("Surface Slug").frame(maxWidth: .infinity, alignment: .leading)
+                                Text(String(format: "%.0f", result.surfaceSlugDensity_kgm3))
+                                Text(String(format: "%.1f", result.surfaceSlugHeight_m))
+                                Text(String(format: "%.0f", surfaceSlugPressure))
+                            }
+                            if result.activeMudHeight_m > 0.1 {
+                                GridRow {
+                                    Circle().fill(.cyan).frame(width: 8, height: 8)
+                                    Text("Active Mud").frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(String(format: "%.0f", result.baseMudDensity_kgm3))
+                                    Text(String(format: "%.1f", result.activeMudHeight_m))
+                                    Text(String(format: "%.0f", activeMudPressure))
+                                }
+                            }
+                            GridRow {
+                                Circle().fill(.blue).frame(width: 8, height: 8)
+                                Text("2nd Slug @ Heel").frame(maxWidth: .infinity, alignment: .leading)
+                                Text(String(format: "%.0f", result.secondSlugDensity_kgm3))
+                                Text(String(format: "%.1f", result.secondSlugHeight_m))
+                                Text(String(format: "%.0f", secondSlugPressure))
+                            }
+                            GridRow {
+                                Circle().fill(.gray).frame(width: 8, height: 8)
+                                Text("Original Mud").frame(maxWidth: .infinity, alignment: .leading)
+                                Text(String(format: "%.0f", result.baseMudDensity_kgm3))
+                                Text(String(format: "%.1f", result.originalMudHeight_m))
+                                Text(String(format: "%.0f", originalMudPressure))
+                            }
+
+                            Divider().gridCellColumns(5)
+
+                            // Totals row
+                            GridRow {
+                                Text("")
+                                Text("Total").fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
+                                Text("")
+                                Text(String(format: "%.1f m", totalHeight)).fontWeight(.semibold)
+                                Text(String(format: "%.0f kPa", totalPressure)).fontWeight(.semibold)
+                            }
+
+                            // ESD verification
+                            GridRow {
+                                Text("")
+                                Text("→ ESD @ Control").frame(maxWidth: .infinity, alignment: .leading)
+                                Text("")
+                                Text(String(format: "%.1f m TVD", result.controlTVD_m))
+                                Text(String(format: "%.0f kg/m³", calculatedESD))
+                                    .foregroundStyle(abs(calculatedESD - viewmodel.targetESDAtTD_kgpm3) < 1 ? .green : .orange)
+                            }
+                        }
+                        .font(.caption)
+                        .monospacedDigit()
+
+                        Divider()
+
+                        // Details
+                        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                            GridRow {
+                                Text("Heel Depth (90°):")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0f m MD (%.0f m TVD)", result.heelMD_m, result.heelTVD_m))
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("2nd Slug Bottom (Heel):")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0f m TVD", result.sixtyDegTVD_m))
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("2nd Slug Density:")
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%.0f kg/m³", result.secondSlugDensity_kgm3))
+                                        .monospacedDigit()
+                                    if result.secondSlugDensityWasCalculated {
+                                        Text("(calc)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                            if result.secondSlugDensityWasCalculated {
+                                GridRow {
+                                    Text("")
+                                    Text("= 2×\(Int(viewmodel.targetESDAtTD_kgpm3)) - \(Int(result.baseMudDensity_kgm3)) + \(Int(viewmodel.crackFloat_kPa))/\(Int(result.heelTVD_m))/0.00981")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            GridRow {
+                                Text("2nd Slug Volume:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", result.secondSlugVolume_m3))
+                                    .monospacedDigit()
+                            }
+                            if result.activeMudHeight_m > 0.1 {
+                                GridRow {
+                                    Text("Active Mud Volume:")
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.2f m³", result.activeMudVolume_m3))
+                                        .monospacedDigit()
+                                }
+                            }
+                            GridRow {
+                                Text("Slug Drop:")
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%.2f m³", result.slugDropVolume_m3))
+                                        .monospacedDigit()
+                                    if abs(result.slugDropVolume_m3 - result.slugDropCalculated_m3) > 0.01 {
+                                        Text("(calc: \(String(format: "%.2f", result.slugDropCalculated_m3)))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+                            // Slug drop calculation breakdown
+                            GridRow {
+                                Text("  Effective ESD:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0f kg/m³ (target + crack)", result.effectiveESD_kgm3))
+                                    .monospacedDigit()
+                                    .font(.caption2)
+                            }
+                            GridRow {
+                                Text("  Surface slug:")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(String(format: "MD=%.1fm, TVD=%.1fm",
+                                        result.surfaceSlugMDLength_m,
+                                        result.surfaceSlugTVDHeight_m))
+                                    Text(String(format: "Δρ=%.0f × %.1f / %.0f = %.2fm",
+                                        result.surfaceSlugDensity_kgm3 - result.effectiveESD_kgm3,
+                                        result.surfaceSlugTVDHeight_m,
+                                        result.effectiveESD_kgm3,
+                                        result.surfaceSlugDropHeight_m))
+                                }
+                                .monospacedDigit()
+                                .font(.caption2)
+                            }
+                            GridRow {
+                                Text("  2nd slug:")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(String(format: "MD=%.1fm, TVD=%.1fm",
+                                        result.secondSlugMDLength_m,
+                                        result.secondSlugTVDHeight_m))
+                                    Text(String(format: "Δρ=%.0f × %.1f / %.0f = %.2fm",
+                                        result.secondSlugDensity_kgm3 - result.effectiveESD_kgm3,
+                                        result.secondSlugTVDHeight_m,
+                                        result.effectiveESD_kgm3,
+                                        result.secondSlugDropHeight_m))
+                                }
+                                .monospacedDigit()
+                                .font(.caption2)
+                            }
+                            GridRow {
+                                Text("Steel Displacement:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f m³", result.totalSteelDisplacement_m3))
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Control TVD:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0f m", result.controlTVD_m))
+                                    .monospacedDigit()
+                            }
+                            GridRow {
+                                Text("Annulus Capacity:")
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.4f m³/m", result.annulusCapacity_m3_per_m))
+                                    .monospacedDigit()
+                            }
+                        }
+                        .font(.caption)
+
+                        // Warnings
+                        if !result.warnings.isEmpty {
+                            Divider()
+                            ForEach(result.warnings, id: \.self) { warning in
+                                HStack {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.yellow)
+                                    Text(warning)
+                                }
+                                .font(.caption)
+                            }
+                        }
+                    }
+                }
+
+                // Note about manual setup
+                HStack {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.blue)
+                    Text("Use these values to set up your mud properties and simulation inputs manually.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+                }  // ScrollView
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(minWidth: 650, minHeight: optimizerResult != nil ? 850 : 400)
+    }
+
+    private func runOptimizer() {
+        let input = TripOptimizerInput(
+            targetESD_kgm3: viewmodel.targetESDAtTD_kgpm3,
+            surfaceSlugVolume_m3: optimizerSurfaceSlugVolume,
+            surfaceSlugDensity_kgm3: optimizerSurfaceSlugDensity,
+            secondSlugDensity_kgm3: optimizerSecondSlugDensity,  // nil = auto-calculate
+            baseMudDensity_kgm3: project.activeMud?.density_kgm3 ?? viewmodel.baseMudDensity_kgpm3,
+            crackFloat_kPa: viewmodel.crackFloat_kPa,
+            startBitMD_m: viewmodel.startBitMD_m,
+            controlMD_m: viewmodel.shoeMD_m,
+            manualHeelMD_m: optimizerManualHeelMD,
+            observedSlugDrop_m3: optimizerObservedSlugDrop
+        )
+
+        optimizerResult = TripOptimizer.calculate(
+            input: input,
+            project: project,
+            tvdSampler: tvdSampler
+        )
     }
 
     // MARK: - Save Simulation Sheet
@@ -359,6 +1006,276 @@ struct TripSimulationView: View {
                 }
             }
         )
+    }
+
+    // MARK: - Operations Handoff
+
+    /// Hand off the current wellbore state to Trip In simulation
+    private func handoffToTripIn() {
+        guard let state = viewmodel.wellboreStateAtSelectedStep() else { return }
+        OperationHandoffService.shared.pendingTripInState = state
+        if let navigate = navigateToView {
+            navigate(.tripInSimulation)
+        }
+    }
+
+    // MARK: - Pump Schedule Sheet
+
+    private func openPumpScheduleSheet() {
+        guard let state = viewmodel.wellboreStateAtSelectedStep() else { return }
+        pumpScheduleVM = PumpScheduleViewModel()
+        pumpScheduleVM.bootstrapFromWellboreState(state, project: project, context: modelContext)
+        showingPumpScheduleSheet = true
+    }
+
+    private var pumpScheduleSheet: some View {
+        VStack(spacing: 0) {
+            // Action bar
+            HStack {
+                Text("Pump Schedule")
+                    .font(.headline)
+                Spacer()
+                Button("Apply & Return") {
+                    applyPumpScheduleState()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Cancel") {
+                    showingPumpScheduleSheet = false
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+
+            Divider()
+
+            PumpScheduleView(project: project, viewModel: pumpScheduleVM)
+        }
+        .frame(minWidth: 1100, minHeight: 700)
+    }
+
+    private func applyPumpScheduleState() {
+        guard let exported = pumpScheduleVM.exportWellboreState(project: project) else {
+            showingPumpScheduleSheet = false
+            return
+        }
+        guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else {
+            showingPumpScheduleSheet = false
+            return
+        }
+
+        // Update the selected step's layers with the pump schedule result
+        viewmodel.steps[idx].layersPocket = exported.layersPocket.map { $0.toLayerRow() }
+        viewmodel.steps[idx].layersAnnulus = exported.layersAnnulus.map { $0.toLayerRow() }
+        viewmodel.steps[idx].layersString = exported.layersString.map { $0.toLayerRow() }
+
+        showingPumpScheduleSheet = false
+    }
+
+    // MARK: - Circulation Sheet
+
+    private var circulationSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+                Text("Circulate at \(circulationBitDepthLabel)m MD")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    viewmodel.clearPumpQueue()
+                    showingCirculationSheet = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Text("Queue pump operations to circulate fluids at the current bit depth")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Provenance banner
+            if let desc = viewmodel.importedStateDescription {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.blue)
+                    Text(desc)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(6)
+                .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            Divider()
+
+            HStack(alignment: .top, spacing: 16) {
+                // Left: Pump queue builder
+                VStack(alignment: .leading, spacing: 8) {
+                    GroupBox("Add to Queue") {
+                        VStack(spacing: 6) {
+                            // Mud picker
+                            Picker("Mud", selection: $viewmodel.selectedCirculateMudID) {
+                                Text("Select...").tag(UUID?.none)
+                                ForEach(project.muds ?? [], id: \.id) { mud in
+                                    HStack {
+                                        Circle()
+                                            .fill(Color(red: mud.colorR, green: mud.colorG, blue: mud.colorB))
+                                            .frame(width: 10, height: 10)
+                                        Text("\(mud.name) (\(Int(mud.density_kgm3)) kg/m\u{00B3})")
+                                    }
+                                    .tag(UUID?.some(mud.id))
+                                }
+                            }
+                            .pickerStyle(.menu)
+
+                            HStack {
+                                Text("Volume:")
+                                    .foregroundStyle(.secondary)
+                                TextField("", value: $viewmodel.circulateVolume_m3, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 60)
+                                Text("m\u{00B3}")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Button("Add to Queue") {
+                                guard let mudID = viewmodel.selectedCirculateMudID,
+                                      let mud = (project.muds ?? []).first(where: { $0.id == mudID }) else { return }
+                                viewmodel.addToPumpQueue(mud: mud, volume_m3: viewmodel.circulateVolume_m3)
+                                viewmodel.previewPumpQueue(project: project)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(viewmodel.selectedCirculateMudID == nil)
+                        }
+                    }
+
+                    // Queue list
+                    if !viewmodel.pumpQueue.isEmpty {
+                        GroupBox("Pump Queue (\(String(format: "%.1f", viewmodel.totalQueueVolume_m3)) m\u{00B3})") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(Array(viewmodel.pumpQueue.enumerated()), id: \.element.id) { index, op in
+                                    HStack {
+                                        Circle()
+                                            .fill(Color(red: op.mudColorR, green: op.mudColorG, blue: op.mudColorB))
+                                            .frame(width: 8, height: 8)
+                                        Text("\(op.mudName)")
+                                            .font(.caption)
+                                        Spacer()
+                                        Text("\(String(format: "%.1f", op.volume_m3)) m\u{00B3}")
+                                            .font(.caption)
+                                            .monospacedDigit()
+                                        Button {
+                                            viewmodel.removeFromPumpQueue(at: index)
+                                            viewmodel.previewPumpQueue(project: project)
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .font(.caption2)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundStyle(.red)
+                                    }
+                                }
+
+                                Button("Clear All") {
+                                    viewmodel.clearPumpQueue()
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+                .frame(width: 260)
+
+                // Right: Preview and schedule
+                VStack(alignment: .leading, spacing: 8) {
+                    // Preview metrics
+                    if viewmodel.previewESDAtControl > 0 {
+                        GroupBox("Preview") {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                GridRow {
+                                    Text("ESD at Control:").foregroundStyle(.secondary).font(.caption)
+                                    Text(String(format: "%.1f kg/m\u{00B3}", viewmodel.previewESDAtControl))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                GridRow {
+                                    Text("Required SABP:").foregroundStyle(.secondary).font(.caption)
+                                    Text(String(format: "%.0f kPa", viewmodel.previewRequiredSABP))
+                                        .font(.caption).monospacedDigit()
+                                }
+                            }
+                        }
+                    }
+
+                    // Schedule table
+                    if !viewmodel.circulateOutSchedule.isEmpty {
+                        GroupBox("Pressure Schedule") {
+                            Table(viewmodel.circulateOutSchedule) {
+                                TableColumn("Vol m\u{00B3}") { step in
+                                    Text(String(format: "%.1f", step.volumePumped_m3))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("Vol bbl") { step in
+                                    Text(String(format: "%.1f", step.volumePumped_bbl))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("Strokes") { step in
+                                    Text(String(format: "%.0f", step.strokesAtPumpOutput))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("ESD") { step in
+                                    Text(String(format: "%.1f", step.ESDAtControl_kgpm3))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("SABP kPa") { step in
+                                    Text(String(format: "%.0f", step.requiredSABP_kPa))
+                                        .font(.caption).monospacedDigit()
+                                }
+                                .width(min: 60, ideal: 70)
+                                TableColumn("Description") { step in
+                                    Text(step.description)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                                .width(min: 120, ideal: 200)
+                            }
+                            .frame(minHeight: 150)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Action buttons
+                    HStack {
+                        Spacer()
+                        Button("Cancel") {
+                            viewmodel.clearPumpQueue()
+                            showingCirculationSheet = false
+                        }
+                        .keyboardShortcut(.cancelAction)
+
+                        Button("Commit & Re-run") {
+                            viewmodel.commitCirculation(project: project)
+                            showingCirculationSheet = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(viewmodel.pumpQueue.isEmpty)
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 750, minHeight: 500)
     }
 
     // MARK: - Export PDF Report
@@ -426,7 +1343,7 @@ struct TripSimulationView: View {
             )
         }
 
-        let reportData = TripSimulationReportData(
+        var reportData = TripSimulationReportData(
             wellName: project.well?.name ?? "Unknown Well",
             projectName: project.name,
             generatedDate: Date(),
@@ -447,6 +1364,23 @@ struct TripSimulationView: View {
             annulusSections: annulusSections,
             steps: viewmodel.steps
         )
+
+        // Add final fluid layers from Mud Placement view
+        if let finalLayers = project.finalLayers {
+            reportData.finalFluidLayers = finalLayers.map { layer in
+                FinalFluidLayerData(
+                    name: layer.name,
+                    placement: layer.placement,
+                    topMD: layer.topMD_m,
+                    bottomMD: layer.bottomMD_m,
+                    density_kgm3: layer.density_kgm3,
+                    colorR: layer.colorR,
+                    colorG: layer.colorG,
+                    colorB: layer.colorB,
+                    colorA: layer.colorA
+                )
+            }
+        }
 
         let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
         let dateFormatter = DateFormatter()
@@ -623,6 +1557,23 @@ struct TripSimulationView: View {
             }
         }
 
+        // Add final fluid layers from Mud Placement view
+        if let finalLayers = project.finalLayers {
+            reportData.finalFluidLayers = finalLayers.map { layer in
+                FinalFluidLayerData(
+                    name: layer.name,
+                    placement: layer.placement,
+                    topMD: layer.topMD_m,
+                    bottomMD: layer.bottomMD_m,
+                    density_kgm3: layer.density_kgm3,
+                    colorR: layer.colorR,
+                    colorG: layer.colorG,
+                    colorB: layer.colorB,
+                    colorA: layer.colorA
+                )
+            }
+        }
+
         return reportData
     }
 
@@ -652,7 +1603,30 @@ struct TripSimulationView: View {
     }
 
     private var content: some View {
-        GeometryReader { geo in
+        VStack(spacing: 0) {
+            // Provenance banner
+            if let desc = viewmodel.importedStateDescription {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .foregroundStyle(.blue)
+                    Text("Continuing from: \(desc)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        viewmodel.importedStateDescription = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(.blue.opacity(0.06))
+            }
+
+            GeometryReader { geo in
             HStack(spacing: 12) {
                 // SAVED SIMULATIONS SIDEBAR
                 if !savedSimulations.isEmpty {
@@ -697,46 +1671,149 @@ struct TripSimulationView: View {
                 .frame(maxHeight: .infinity)
             }
         }
+        } // VStack (provenance banner + content)
     }
 
     // MARK: - Saved Simulations List
     private var savedSimulationsList: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Saved Simulations")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
-
-            List(selection: $selectedSavedSimulation) {
-                ForEach(savedSimulations) { sim in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(sim.name)
-                            .font(.callout)
-                            .lineLimit(1)
-                        Text(sim.createdAt, style: .date)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+            // Header with edit button
+            HStack {
+                Text("Saved Simulations")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(isEditingSimulations ? "Done" : "Edit") {
+                    isEditingSimulations.toggle()
+                    if !isEditingSimulations {
+                        selectedSimulationsForDelete.removeAll()
                     }
-                    .tag(sim)
-                    .contextMenu {
-                        Button("Load") {
-                            viewmodel.loadSimulation(sim, project: project)
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+
+            if isEditingSimulations {
+                // Multi-select mode
+                List(selection: $selectedSimulationsForDelete) {
+                    ForEach(savedSimulations) { sim in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sim.name)
+                                .font(.callout)
+                                .lineLimit(1)
+                            Text(sim.createdAt, style: .date)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            viewmodel.deleteSimulation(sim, context: modelContext)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if selectedSimulationsForDelete.contains(sim.id) {
+                                selectedSimulationsForDelete.remove(sim.id)
+                            } else {
+                                selectedSimulationsForDelete.insert(sim.id)
+                            }
+                        }
+                        .tag(sim.id)
+                    }
+                }
+                .listStyle(.sidebar)
+
+                // Delete controls
+                HStack(spacing: 8) {
+                    Button("All") {
+                        selectedSimulationsForDelete = Set(savedSimulations.map { $0.id })
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+
+                    Button("None") {
+                        selectedSimulationsForDelete.removeAll()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+
+                    Spacer()
+
+                    Button {
+                        deleteSelectedSimulations()
+                    } label: {
+                        Label("\(selectedSimulationsForDelete.count)", systemImage: "trash")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(selectedSimulationsForDelete.isEmpty)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+            } else {
+                // Normal single-select mode
+                List(selection: $selectedSavedSimulation) {
+                    ForEach(savedSimulations) { sim in
+                        HStack(spacing: 6) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sim.name)
+                                    .font(.callout)
+                                    .lineLimit(1)
+                                HStack(spacing: 4) {
+                                    Text(sim.createdAt, style: .date)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    if sim.hasFrozenInputs {
+                                        Image(systemName: "snowflake")
+                                            .font(.caption2)
+                                            .foregroundStyle(.blue)
+                                            .help("Has frozen inputs")
+                                    }
+                                }
+                            }
+                            Spacer()
+                            // Staleness indicator
+                            if sim.isStale(comparedTo: project) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .help("Geometry has changed since simulation")
+                            }
+                        }
+                        .tag(sim)
+                        .contextMenu {
+                            Button("Load") {
+                                viewmodel.loadSimulation(sim, project: project)
+                            }
+                            Button {
+                                frozenInputsSimulation = sim
+                                showingFrozenInputs = true
+                            } label: {
+                                Label("View Frozen Inputs", systemImage: "snowflake")
+                            }
+                            Divider()
+                            Button("Delete", role: .destructive) {
+                                viewmodel.deleteSimulation(sim, context: modelContext)
+                            }
                         }
                     }
                 }
-            }
-            .listStyle(.sidebar)
-            .onChange(of: selectedSavedSimulation) { _, newSim in
-                if let sim = newSim {
-                    viewmodel.loadSimulation(sim, project: project)
+                .listStyle(.sidebar)
+                .onChange(of: selectedSavedSimulation) { _, newSim in
+                    if let sim = newSim {
+                        viewmodel.loadSimulation(sim, project: project)
+                    }
                 }
             }
         }
+    }
+
+    private func deleteSelectedSimulations() {
+        let toDelete = savedSimulations.filter { selectedSimulationsForDelete.contains($0.id) }
+        for sim in toDelete {
+            viewmodel.deleteSimulation(sim, context: modelContext)
+        }
+        selectedSimulationsForDelete.removeAll()
+        isEditingSimulations = false
     }
 
     // MARK: - Selection helpers
@@ -814,7 +1891,22 @@ struct TripSimulationView: View {
             .width(min: 70, ideal: 85, max: 100)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
+        .contextMenu {
+            Button("Re-run") { viewmodel.runSimulation(project: project) }
+
+            if viewmodel.selectedIndex != nil {
+                Divider()
+                Button("Circulate Here") {
+                    showingCirculationSheet = true
+                }
+                Button("Pump Schedule") {
+                    openPumpScheduleSheet()
+                }
+                Button("Trip In from Here") {
+                    handoffToTripIn()
+                }
+            }
+        }
     }
 
     // MARK: - Visualization
@@ -880,7 +1972,7 @@ struct TripSimulationView: View {
                             for i in 0...tickCount {
                                 let md = Double(i) / Double(tickCount) * globalMaxMD
                                 let yy = yGlobal(md)
-                                let tvd = project.tvd(of: md)
+                                let tvd = tvdSampler.tvd(of: md)
                                 ctx.fill(Path(CGRect(x: size.width - 10, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
                                 ctx.draw(Text(String(format: "%.0f", md)), at: CGPoint(x: size.width - 12, y: yy - 6), anchor: .trailing)
                                 ctx.fill(Path(CGRect(x: 0, y: yy - 0.5, width: 10, height: 1)), with: .color(.secondary))
@@ -901,7 +1993,7 @@ struct TripSimulationView: View {
         let s = viewmodel.steps[idx]
         let rawControlMD = max(0.0, viewmodel.shoeMD_m)
         let clampedControlMD = min(rawControlMD, controlMDLimit)
-        let controlTVD = project.tvd(of: clampedControlMD)
+        let controlTVD = tvdSampler.tvd(of: clampedControlMD)
         let bitTVD = s.bitTVD_m
         var pressure_kPa: Double = s.SABP_kPa
 
@@ -1134,7 +2226,7 @@ struct TripSimulationView: View {
         let candidates = [annMax, dsMax].filter { $0 > 0 }
         let limit = candidates.min() ?? 0
         let controlMD = min(controlMDRaw, limit)
-        let controlTVD = project.tvd(of: controlMD)
+        let controlTVD = tvdSampler.tvd(of: controlMD)
         let bitTVD = s.bitTVD_m
         let eps = 1e-9
         var pressure_kPa: Double = s.SABP_kPa
@@ -1239,20 +2331,31 @@ struct TripSimulationView: View {
         )
     }
 
+    /// TvdSampler that respects the toggle selection
+    private var tvdSampler: TvdSampler {
+        TvdSampler(project: project, preferPlan: viewmodel.useDirectionalPlanForTVD)
+    }
+
     /// TVD at the control depth
     private var controlTVD: Double {
         let controlMD = min(max(0, viewmodel.shoeMD_m), controlMDLimit)
-        return project.tvd(of: controlMD)
+        return tvdSampler.tvd(of: controlMD)
+    }
+
+    /// Bit depth label for circulation sheet header
+    private var circulationBitDepthLabel: String {
+        guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else { return "?" }
+        return String(Int(viewmodel.steps[idx].bitMD_m))
     }
 
     /// TVD at the start depth
     private var startTVD: Double {
-        project.tvd(of: viewmodel.startBitMD_m)
+        tvdSampler.tvd(of: viewmodel.startBitMD_m)
     }
 
     /// TVD at the end depth
     private var endTVD: Double {
-        project.tvd(of: viewmodel.endMD_m)
+        tvdSampler.tvd(of: viewmodel.endMD_m)
     }
 
     private var tripSpeedBinding: Binding<Double> {

@@ -198,12 +198,13 @@ struct RentalItemsView: View {
     private struct CategoryGroup: Identifiable {
         var id: String { category?.id.uuidString ?? "uncategorized" }
         let category: RentalCategory?
-        var active: [RentalItem]      // Used/running, on location, not invoiced
-        var standby: [RentalItem]     // On location but not used yet
-        var shipped: [RentalItem]     // Shipped out (not on location), not invoiced
-        var invoiced: [RentalItem]    // Completed/invoiced
+        var active: [RentalItem]          // Used/running, on location, not invoiced
+        var standby: [RentalItem]         // On location but not used yet
+        var awaitingReturn: [RentalItem]  // Done using, awaiting backhaul/return
+        var shipped: [RentalItem]         // Shipped out (not on location), not invoiced
+        var invoiced: [RentalItem]        // Completed/invoiced
 
-        var totalCount: Int { active.count + standby.count + shipped.count + invoiced.count }
+        var totalCount: Int { active.count + standby.count + awaitingReturn.count + shipped.count + invoiced.count }
     }
 
     private var groupedRentals: [CategoryGroup] {
@@ -224,20 +225,22 @@ struct RentalItemsView: View {
 
         for cat in sortedCats {
             let rentals = categoryBuckets[cat.id] ?? []
-            let active = rentals.filter { $0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
-            let standby = rentals.filter { !$0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
-            let shipped = rentals.filter { !$0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let active = rentals.filter { $0.used && $0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
+            let standby = rentals.filter { !$0.used && $0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
+            let awaitingReturn = rentals.filter { $0.status == .awaitingReturn && !$0.invoiced }.sorted { $0.name < $1.name }
+            let shipped = rentals.filter { !$0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
             let invoiced = rentals.filter { $0.invoiced }.sorted { $0.name < $1.name }
-            groups.append(CategoryGroup(category: cat, active: active, standby: standby, shipped: shipped, invoiced: invoiced))
+            groups.append(CategoryGroup(category: cat, active: active, standby: standby, awaitingReturn: awaitingReturn, shipped: shipped, invoiced: invoiced))
         }
 
         // Uncategorized
         if let uncategorized = categoryBuckets[nil], !uncategorized.isEmpty {
-            let active = uncategorized.filter { $0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
-            let standby = uncategorized.filter { !$0.used && $0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
-            let shipped = uncategorized.filter { !$0.onLocation && !$0.invoiced }.sorted { $0.name < $1.name }
+            let active = uncategorized.filter { $0.used && $0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
+            let standby = uncategorized.filter { !$0.used && $0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
+            let awaitingReturn = uncategorized.filter { $0.status == .awaitingReturn && !$0.invoiced }.sorted { $0.name < $1.name }
+            let shipped = uncategorized.filter { !$0.onLocation && !$0.invoiced && $0.status != .awaitingReturn }.sorted { $0.name < $1.name }
             let invoiced = uncategorized.filter { $0.invoiced }.sorted { $0.name < $1.name }
-            groups.append(CategoryGroup(category: nil, active: active, standby: standby, shipped: shipped, invoiced: invoiced))
+            groups.append(CategoryGroup(category: nil, active: active, standby: standby, awaitingReturn: awaitingReturn, shipped: shipped, invoiced: invoiced))
         }
 
         return groups
@@ -275,6 +278,21 @@ struct RentalItemsView: View {
                         } label: {
                             Label("\(group.standby.count) Standby", systemImage: "pause.circle.fill")
                                 .foregroundStyle(.orange)
+                                .font(.caption)
+                        }
+                    }
+
+                    // Awaiting Return rentals (done using, waiting for backhaul)
+                    if !group.awaitingReturn.isEmpty {
+                        DisclosureGroup {
+                            ForEach(group.awaitingReturn) { rental in
+                                RentalListRow(rental: rental)
+                                    .tag(rental)
+                                    .contextMenu { rentalContextMenu(for: rental) }
+                            }
+                        } label: {
+                            Label("\(group.awaitingReturn.count) Awaiting Return", systemImage: "shippingbox.and.arrow.backward.fill")
+                                .foregroundStyle(.purple)
                                 .font(.caption)
                         }
                     }
@@ -331,6 +349,13 @@ struct RentalItemsView: View {
                                     Image(systemName: "pause.circle.fill")
                                         .foregroundStyle(.orange)
                                     Text("\(group.standby.count)")
+                                }
+                            }
+                            if group.awaitingReturn.count > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "shippingbox.and.arrow.backward.fill")
+                                        .foregroundStyle(.purple)
+                                    Text("\(group.awaitingReturn.count)")
                                 }
                             }
                             if group.shipped.count > 0 {

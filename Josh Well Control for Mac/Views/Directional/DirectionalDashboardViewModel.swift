@@ -175,6 +175,10 @@ class DirectionalDashboardViewModel {
     var showingLimitsSheet: Bool = false
     var importError: String?
 
+    // Formation overlay
+    var showingFormationImporter: Bool = false
+    var formationImportError: String?
+
     // MARK: - Initialization
 
     func attach(project: ProjectState, context: ModelContext) {
@@ -581,6 +585,125 @@ class DirectionalDashboardViewModel {
             return (30.0, last.inc, last.azi)  // Default 30m, hold angle
         }
         return (30.0, 0, 0)
+    }
+
+    // MARK: - Formation Management
+
+    var formations: [FormationTop] {
+        well?.sortedFormationTops ?? []
+    }
+
+    func addFormation(name: String, tvd: Double, dip: Double) {
+        guard let well = well, let context = modelContext else { return }
+        let formation = FormationTop(
+            name: name,
+            tvdTop_m: tvd,
+            dipAngle_deg: dip,
+            sortOrder: formations.count
+        )
+        context.insert(formation)
+        formation.well = well
+        try? context.save()
+    }
+
+    func deleteFormation(_ formation: FormationTop) {
+        guard let context = modelContext else { return }
+        context.delete(formation)
+        try? context.save()
+    }
+
+    func handleFormationImport(_ result: Result<[URL], Error>) {
+        guard let well = well, let context = modelContext else { return }
+
+        switch result {
+        case .failure(let error):
+            formationImportError = error.localizedDescription
+
+        case .success(let urls):
+            guard let url = urls.first else { return }
+
+            let didStartAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            do {
+                let data = try Data(contentsOf: url)
+                guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+                    throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unable to decode file."])
+                }
+
+                let parsed = try Self.parseFormationCSV(text)
+                let startOrder = formations.count
+
+                for (index, entry) in parsed.enumerated() {
+                    let formation = FormationTop(
+                        name: entry.name,
+                        tvdTop_m: entry.tvd,
+                        dipAngle_deg: entry.dip,
+                        sortOrder: startOrder + index
+                    )
+                    context.insert(formation)
+                    formation.well = well
+                }
+
+                try context.save()
+            } catch {
+                formationImportError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Parse a CSV string into formation entries. Auto-detects headers and delimiters.
+    static func parseFormationCSV(_ text: String) throws -> [(name: String, tvd: Double, dip: Double)] {
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard lines.count >= 2 else {
+            throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "CSV must have a header row and at least one data row."])
+        }
+
+        // Detect delimiter (tab vs comma)
+        let delimiter: Character = lines[0].contains("\t") ? "\t" : ","
+
+        let headers = lines[0].split(separator: delimiter).map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+
+        // Find column indices
+        let nameIdx = headers.firstIndex(where: { $0.contains("formation") || $0.contains("name") || $0.contains("zone") })
+        let tvdIdx = headers.firstIndex(where: { $0.contains("tvd") || $0.contains("top") || $0.contains("depth") })
+        let dipIdx = headers.firstIndex(where: { $0.contains("dip") || $0.contains("angle") })
+
+        guard let nameCol = nameIdx, let tvdCol = tvdIdx else {
+            throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "Could not find 'Formation/Name' and 'TVD/Top/Depth' columns in header."])
+        }
+
+        var results: [(name: String, tvd: Double, dip: Double)] = []
+
+        for line in lines.dropFirst() {
+            let cols = line.split(separator: delimiter, omittingEmptySubsequences: false).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard cols.count > max(nameCol, tvdCol) else { continue }
+
+            let name = cols[nameCol]
+            guard let tvd = Double(cols[tvdCol]) else { continue }
+            let dip: Double
+            if let dipCol = dipIdx, cols.count > dipCol, let d = Double(cols[dipCol]) {
+                dip = d
+            } else {
+                dip = 0
+            }
+
+            results.append((name: name, tvd: tvd, dip: dip))
+        }
+
+        guard !results.isEmpty else {
+            throw NSError(domain: "Import", code: 0, userInfo: [NSLocalizedDescriptionKey: "No valid formation rows found in CSV."])
+        }
+
+        return results
     }
 
     // MARK: - Hover Coordination

@@ -42,6 +42,8 @@ struct DirectionalDashboardView: View {
     @State private var vm = DirectionalDashboardViewModel()
     @State private var chartViewMode: ChartViewMode = .all
     @State private var engine3D: Engine3D = .sceneKit
+    @State private var showFormations: Bool = true
+    @State private var showFormationTable: Bool = false
 
     var body: some View {
         ScrollView {
@@ -51,6 +53,8 @@ struct DirectionalDashboardView: View {
 
                 if vm.selectedPlan != nil {
                     chartsSection
+                    formationsSection
+                    planStationsTableSection
                     scenarioSurveySection
                     bitProjectionSection
                     DirectionalVarianceTableView(
@@ -92,6 +96,19 @@ struct DirectionalDashboardView: View {
             Button("OK") { vm.importError = nil }
         } message: {
             Text(vm.importError ?? "Unknown error")
+        }
+        .fileImporter(
+            isPresented: $vm.showingFormationImporter,
+            allowedContentTypes: [.commaSeparatedText, .plainText, .utf8PlainText],
+            allowsMultipleSelection: false
+        ) { result in
+            vm.handleFormationImport(result)
+        }
+        .alert("Formation Import Error",
+               isPresented: Binding(get: { vm.formationImportError != nil }, set: { if !$0 { vm.formationImportError = nil } })) {
+            Button("OK") { vm.formationImportError = nil }
+        } message: {
+            Text(vm.formationImportError ?? "Unknown error")
         }
     }
 
@@ -932,6 +949,8 @@ struct DirectionalDashboardView: View {
                     limits: vm.limits,
                     vsAzimuth: vm.effectiveVsAzimuth,
                     bitProjection: vm.bitProjection,
+                    formations: vm.formations,
+                    showFormations: showFormations,
                     hoveredMD: $vm.hoveredMD,
                     onHover: { vm.setHoveredMD($0) }
                 )
@@ -1005,6 +1024,291 @@ struct DirectionalDashboardView: View {
         .frame(minHeight: minHeight)
     }
     #endif
+
+    // MARK: - Formations Section
+
+    @State private var newFormationName: String = ""
+    @State private var newFormationTVD: Double = 0
+    @State private var newFormationDip: Double = 90
+
+    private var formationsSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                if showFormationTable {
+                    if vm.formations.isEmpty {
+                        Text("No formations. Add one below or import from CSV.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Header row
+                        HStack(spacing: 0) {
+                            Text("Formation")
+                                .frame(width: 140, alignment: .leading)
+                            Text("TVD Top (m)")
+                                .frame(width: 90, alignment: .trailing)
+                            Text("Dip (°)")
+                                .frame(width: 70, alignment: .trailing)
+                            Spacer()
+                            Text("")
+                                .frame(width: 30)
+                        }
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+
+                        Divider()
+
+                        ForEach(Array(vm.formations.enumerated()), id: \.element.id) { index, formation in
+                            formationRow(index: index, formation: formation)
+                        }
+                    }
+
+                    Divider()
+
+                    // Add new formation row
+                    HStack(spacing: 8) {
+                        TextField("Name", text: $newFormationName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 130)
+                            .font(.caption)
+
+                        HStack(spacing: 2) {
+                            Text("TVD:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            NumericTextField(placeholder: "m", value: $newFormationTVD, fractionDigits: 1)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                .font(.caption)
+                                .monospacedDigit()
+                        }
+
+                        HStack(spacing: 2) {
+                            Text("Dip:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            NumericTextField(placeholder: "°", value: $newFormationDip, fractionDigits: 1)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 60)
+                                .font(.caption)
+                                .monospacedDigit()
+                        }
+
+                        Button {
+                            let name = newFormationName.isEmpty ? "Formation" : newFormationName
+                            vm.addFormation(name: name, tvd: newFormationTVD, dip: newFormationDip)
+                            newFormationName = ""
+                            newFormationTVD = 0
+                            newFormationDip = 90
+                        } label: {
+                            Label("Add", systemImage: "plus.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(newFormationTVD <= 0)
+
+                        Spacer()
+
+                        Button {
+                            vm.showingFormationImporter = true
+                        } label: {
+                            Label("Import CSV", systemImage: "square.and.arrow.down")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                } else {
+                    Text("Click to expand formation tops table")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } label: {
+            HStack {
+                Label("Formation Tops", systemImage: "square.3.layers.3d.down.left")
+                if !vm.formations.isEmpty {
+                    Text("(\(vm.formations.count))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+
+                Toggle(isOn: $showFormations) {
+                    Text("Show")
+                        .font(.caption)
+                }
+                #if os(macOS)
+                .toggleStyle(.checkbox)
+                #endif
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showFormationTable.toggle()
+                    }
+                } label: {
+                    Image(systemName: showFormationTable ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func formationRow(index: Int, formation: FormationTop) -> some View {
+        HStack(spacing: 0) {
+            TextField("Name", text: Binding(
+                get: { formation.name },
+                set: { formation.name = $0 }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 140)
+
+            NumericTextField(
+                placeholder: "m",
+                value: Binding(
+                    get: { formation.tvdTop_m },
+                    set: { formation.tvdTop_m = $0 }
+                ),
+                fractionDigits: 1
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 90)
+            .monospacedDigit()
+
+            NumericTextField(
+                placeholder: "°",
+                value: Binding(
+                    get: { formation.dipAngle_deg },
+                    set: { formation.dipAngle_deg = $0 }
+                ),
+                fractionDigits: 1
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 70)
+            .monospacedDigit()
+
+            Spacer()
+
+            Button(role: .destructive) {
+                vm.deleteFormation(formation)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 30)
+        }
+        .font(.caption)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .background(index % 2 == 0 ? Color.clear : Color.gray.opacity(0.05))
+    }
+
+    // MARK: - Plan Stations Table
+
+    @State private var showPlanTable: Bool = false
+
+    private var planStationsTableSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                if showPlanTable, let plan = vm.selectedPlan {
+                    let stations = plan.sortedStations
+                    if stations.isEmpty {
+                        Text("No stations in plan")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Header row
+                        HStack(spacing: 0) {
+                            Text("#")
+                                .frame(width: 40, alignment: .leading)
+                            Text("MD (m)")
+                                .frame(width: 80, alignment: .trailing)
+                            Text("Inc (°)")
+                                .frame(width: 70, alignment: .trailing)
+                            Text("Azi (°)")
+                                .frame(width: 70, alignment: .trailing)
+                            Text("TVD (m)")
+                                .frame(width: 80, alignment: .trailing)
+                            Text("NS (m)")
+                                .frame(width: 80, alignment: .trailing)
+                            Text("EW (m)")
+                                .frame(width: 80, alignment: .trailing)
+                            Text("VS (m)")
+                                .frame(width: 80, alignment: .trailing)
+                            Spacer()
+                        }
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+
+                        Divider()
+
+                        ScrollView {
+                            LazyVStack(spacing: 2) {
+                                ForEach(Array(stations.enumerated()), id: \.element.id) { index, station in
+                                    planStationRow(index: index, station: station)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 300)
+                    }
+                } else {
+                    Text("Click to expand plan stations table")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } label: {
+            HStack {
+                Label("Plan Stations", systemImage: "tablecells")
+                if let plan = vm.selectedPlan {
+                    Text("(\(plan.sortedStations.count) stations)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showPlanTable.toggle()
+                    }
+                } label: {
+                    Image(systemName: showPlanTable ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func planStationRow(index: Int, station: DirectionalPlanStation) -> some View {
+        HStack(spacing: 0) {
+            Text("\(index + 1)")
+                .frame(width: 40, alignment: .leading)
+                .foregroundStyle(.green)
+            Text(String(format: "%.1f", station.md))
+                .frame(width: 80, alignment: .trailing)
+            Text(String(format: "%.2f", station.inc))
+                .frame(width: 70, alignment: .trailing)
+            Text(String(format: "%.2f", station.azi))
+                .frame(width: 70, alignment: .trailing)
+            Text(String(format: "%.1f", station.tvd))
+                .frame(width: 80, alignment: .trailing)
+            Text(String(format: "%.1f", station.ns_m))
+                .frame(width: 80, alignment: .trailing)
+            Text(String(format: "%.1f", station.ew_m))
+                .frame(width: 80, alignment: .trailing)
+            Text(station.vs_m.map { String(format: "%.1f", $0) } ?? "-")
+                .frame(width: 80, alignment: .trailing)
+            Spacer()
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(index % 2 == 0 ? Color.clear : Color.gray.opacity(0.05))
+    }
 
     // MARK: - Empty State
 

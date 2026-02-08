@@ -636,43 +636,133 @@ struct MaterialTransferEditorView: View {
         var onCancel: () -> Void
         var onAdd: () -> Void
 
+        @State private var searchText: String = ""
+
+        private var filteredRentals: [RentalItem] {
+            guard !searchText.isEmpty else { return rentals }
+            let query = searchText.lowercased()
+            return rentals.filter { rental in
+                rental.name.lowercased().contains(query) ||
+                (rental.detail?.lowercased().contains(query) ?? false) ||
+                (rental.serialNumber?.lowercased().contains(query) ?? false) ||
+                (rental.category?.name.lowercased().contains(query) ?? false) ||
+                (rental.vendor?.companyName.lowercased().contains(query) ?? false)
+            }
+        }
+
         var body: some View {
             NavigationStack {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Search field
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search by name, serial, vendor...", text: $searchText)
+                            .textFieldStyle(.plain)
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.1)))
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
                     if rentals.isEmpty {
                         Text("No rentals found for this well.")
                             .foregroundStyle(.secondary)
                             .padding()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if filteredRentals.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            Text("No results for \"\(searchText)\"")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         List {
-                            ForEach(rentals) { r in
+                            ForEach(filteredRentals) { r in
                                 Toggle(isOn: Binding(
                                     get: { selected.contains(r.id) },
                                     set: { newVal in
                                         if newVal { selected.insert(r.id) } else { selected.remove(r.id) }
                                     }
                                 )) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(r.name).font(.headline)
-                                        if let d = r.detail, !d.isEmpty {
-                                            Text(d).font(.caption).foregroundStyle(.secondary)
+                                    HStack {
+                                        if let category = r.category {
+                                            Image(systemName: category.icon)
+                                                .foregroundStyle(.blue)
+                                                .frame(width: 24)
                                         }
-                                        if let sn = r.serialNumber, !sn.isEmpty {
-                                            Text("Serial: \(sn)").font(.caption2).foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(r.name).font(.headline)
+                                            HStack(spacing: 8) {
+                                                if let sn = r.serialNumber, !sn.isEmpty {
+                                                    Text("SN: \(sn)")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                if let vendor = r.vendor {
+                                                    Text(vendor.companyName)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            if let d = r.detail, !d.isEmpty {
+                                                Text(d)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.tertiary)
+                                                    .lineLimit(1)
+                                            }
                                         }
+                                        Spacer()
+                                        // Status indicator
+                                        Text(r.status.rawValue)
+                                            .font(.caption2)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(r.status.color.opacity(0.2))
+                                            .foregroundStyle(r.status.color)
+                                            .cornerRadius(4)
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Selection count
+                    if !selected.isEmpty {
+                        HStack {
+                            Text("\(selected.count) item(s) selected")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Clear Selection") {
+                                selected.removeAll()
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color.secondary.opacity(0.05))
+                    }
                 }
                 .navigationTitle("Add From Rentals")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onCancel() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Add") { onAdd() }.disabled(selected.isEmpty) }
+                    ToolbarItem(placement: .confirmationAction) { Button("Add \(selected.count)") { onAdd() }.disabled(selected.isEmpty) }
                 }
             }
-            .frame(minWidth: 520, minHeight: 380)
+            .frame(minWidth: 600, minHeight: 450)
         }
     }
 

@@ -32,14 +32,40 @@ struct Josh_Well_Control_for_MacApp: App {
             PlatformAdaptiveContentView()
         }
         .modelContainer(container)
+        #if os(macOS)
+        .commands {
+            CommandGroup(replacing: .help) {
+                OpenDocumentationButton()
+            }
+        }
+        #endif
 
         #if os(macOS)
         Settings {
             AppSettingsView()
         }
+
+        Window("Documentation", id: "documentation") {
+            DocumentationView()
+        }
+        .defaultSize(width: 900, height: 650)
         #endif
     }
 }
+
+#if os(macOS)
+/// Button that opens the documentation window using environment
+struct OpenDocumentationButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Documentation") {
+            openWindow(id: "documentation")
+        }
+        .keyboardShortcut("?", modifiers: [.command])
+    }
+}
+#endif
 
 // MARK: - App Settings View
 

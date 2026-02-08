@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import AppKit
 import Observation
 import SwiftData
 
@@ -15,6 +16,10 @@ class PumpScheduleViewModel {
     enum Side { case annulus, string }
     private(set) var context: ModelContext?
     private var didBootstrap = false
+
+    // Imported wellbore state (from Trip Out/Trip In handoff)
+    var importedBitMD: Double?
+    var importedWellboreState: WellboreStateSnapshot?
 
     struct Stage {
         let name: String
@@ -255,6 +260,25 @@ class PumpScheduleViewModel {
         self.updateHydraulics(project: project)
     }
 
+    /// Bootstrap from a wellbore state snapshot (e.g., from Trip Out or Trip In)
+    func bootstrapFromWellboreState(_ state: WellboreStateSnapshot, project: ProjectState, context: ModelContext) {
+        guard !didBootstrap else { return }
+        self.context = context
+        self.bind(project: project)
+        importedBitMD = state.bitMD_m
+        importedWellboreState = state
+        sourceMode = .program
+        if program.isEmpty {
+            let activeMud = project.activeMud
+            program = [ProgramStage(id: UUID(), name: activeMud?.name ?? "Active Mud",
+                                    mudID: activeMud?.id, color: activeMud?.color ?? .gray,
+                                    volume_m3: 10.0, pumpRate_m3permin: nil)]
+        }
+        buildStages(project: project)
+        updateHydraulics(project: project)
+        didBootstrap = true
+    }
+
     func nextStageOrWrap() {
         if progress >= 0.9999 {
             stageIndex = min(stageIndex + 1, max(stages.count - 1, 0))
@@ -422,6 +446,53 @@ class PumpScheduleViewModel {
         var parcels: [VolumeParcel]
     }
 
+    // MARK: - Imported State Helpers
+
+    /// Effective bit MD: use imported value when available, otherwise derive from project geometry
+    func effectiveBitMD(project: ProjectState) -> Double {
+        importedBitMD ?? max(
+            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
+            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        )
+    }
+
+    /// Find the closest project mud matching a given density (within tolerance)
+    private func findMud(forDensity rho: Double, in project: ProjectState) -> MudProperties? {
+        let tolerance = 50.0  // kg/m³
+        if let active = project.activeMud, abs(active.density_kgm3 - rho) <= tolerance {
+            return active
+        }
+        guard let closest = (project.muds ?? []).min(by: { abs($0.density_kgm3 - rho) < abs($1.density_kgm3 - rho) }) else { return nil }
+        return abs(closest.density_kgm3 - rho) <= tolerance ? closest : nil
+    }
+
+    /// Convert imported TripLayerSnapshot layers into VolumeParcel arrays.
+    /// For annulus: returns deep→shallow (bit at index 0).
+    /// For string: returns shallow→deep (surface at index 0).
+    private func parcelsFromImportedLayers(
+        _ layers: [TripLayerSnapshot],
+        bitMD: Double,
+        geom: ProjectGeometryService,
+        isString: Bool,
+        project: ProjectState
+    ) -> [VolumeParcel] {
+        let filtered = layers.filter { $0.topMD < bitMD }
+            .sorted { $0.topMD < $1.topMD }
+        var parcels: [VolumeParcel] = []
+        for layer in filtered {
+            let top = max(0, layer.topMD)
+            let bot = min(layer.bottomMD, bitMD)
+            guard bot > top + 1e-9 else { continue }
+            let vol = isString ? geom.volumeInString_m3(top, bot) : geom.volumeInAnnulus_m3(top, bot)
+            guard vol > 1e-12 else { continue }
+            let color = Color(.sRGB, red: layer.colorR ?? 0.5, green: layer.colorG ?? 0.5,
+                              blue: layer.colorB ?? 0.5, opacity: layer.colorA ?? 1.0)
+            let mud = findMud(forDensity: layer.rho_kgpm3, in: project)
+            parcels.append(VolumeParcel(volume_m3: vol, color: color, mud: mud))
+        }
+        return isString ? parcels : parcels.reversed()
+    }
+
     private func merge(_ segs: [Seg]) -> [Seg] {
         let tol = 1e-6
         var out: [Seg] = []
@@ -444,62 +515,66 @@ class PumpScheduleViewModel {
     }
 
     func stacksFor(project: ProjectState, stageIndex: Int, pumpedV: Double) -> StackState {
-        let bitMD = max(
-            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
-            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
-        )
+        let bitMD = effectiveBitMD(project: project)
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
-        // Initial active mud fills both
-        var string: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
-        var annulus: [Seg] = [Seg(top: 0, bottom: bitMD, color: project.activeMud?.color ?? .gray.opacity(0.35), mud: project.activeMud)]
-
-        // Keep a volume-accurate annulus parcel stack so that fluid exiting the bit becomes
-        // the new bottom-most fluid and pushes older fluids upward toward surface.
         let activeColor = project.activeMud?.color ?? .gray.opacity(0.35)
         let activeMud = project.activeMud
         let annulusCapacity_m3 = geom.volumeInAnnulus_m3(0.0, bitMD)
-        var annulusParcelsDeepToShallow: [VolumeParcel] = [
-            VolumeParcel(volume_m3: max(0.0, annulusCapacity_m3), color: activeColor, mud: activeMud)
-        ]
+        let stringCapacity_m3 = geom.volumeInString_m3(0.0, bitMD)
+
+        // Initial parcel stacks: imported state or default (active mud fills everything)
+        var annulusParcelsDeepToShallow: [VolumeParcel]
+        let initialStringParcels: [VolumeParcel]
+
+        if let state = importedWellboreState {
+            annulusParcelsDeepToShallow = parcelsFromImportedLayers(
+                state.layersPocket, bitMD: bitMD, geom: geom, isString: false, project: project)
+            initialStringParcels = parcelsFromImportedLayers(
+                state.layersString, bitMD: bitMD, geom: geom, isString: true, project: project)
+            // Fallback if imported layers are empty
+            if annulusParcelsDeepToShallow.isEmpty {
+                annulusParcelsDeepToShallow = [VolumeParcel(volume_m3: max(0.0, annulusCapacity_m3), color: activeColor, mud: activeMud)]
+            }
+        } else {
+            annulusParcelsDeepToShallow = [VolumeParcel(volume_m3: max(0.0, annulusCapacity_m3), color: activeColor, mud: activeMud)]
+            initialStringParcels = [VolumeParcel(volume_m3: max(0.0, stringCapacity_m3), color: activeColor, mud: activeMud)]
+        }
+
+        // Initial segment arrays (used when no pumping occurs)
+        var string: [Seg] = segmentsFromStringParcels(initialStringParcels, bitMD: bitMD, geom: geom, fallbackMud: activeMud)
+        var annulus: [Seg] = segmentsFromAnnulusParcels(annulusParcelsDeepToShallow, bitMD: bitMD, geom: geom, fallbackMud: activeMud)
+
+        // Ensure segments fill to bitMD
+        if string.isEmpty { string = [Seg(top: 0, bottom: bitMD, color: activeColor, mud: activeMud)] }
+        if annulus.isEmpty { annulus = [Seg(top: 0, bottom: bitMD, color: activeColor, mud: activeMud)] }
+
         var overflowAtSurface: [VolumeParcel] = []
 
         // Process all stages up to current, including partial progress of current stage
-        // We need to handle ALL pumped volume cumulatively
         var totalPumpedVolume: Double = 0
         var pumpSequence: [(id: Int, volume: Double, color: Color, mud: MudProperties?)] = []
-        
-        // Collect all pumped volumes in order
+
         for i in 0...stageIndex {
             guard i < stages.count else { break }
             let st = stages[i]
-            
+
             if st.side == .string {
                 let vol: Double
                 if i < stageIndex {
-                    // Previous stages: fully pumped
                     vol = max(0, st.totalVolume_m3)
                 } else {
-                    // Current stage: partially pumped
                     vol = pumpedV
                 }
-                
+
                 if vol > 0 {
                     pumpSequence.append((id: i, volume: vol, color: st.color, mud: st.mud))
                     totalPumpedVolume += vol
                 }
             } else if st.side == .annulus {
-                // Annulus injection (reverse circulation / bullheading): inject at surface (top) of
-                // annulus and displace downward. NOT used for normal cement jobs where fluids are
-                // pumped down the string. This path is triggered only if a stage explicitly uses
-                // side: .annulus (e.g., for specialized reverse circulation simulations).
                 let vol = i < stageIndex ? max(0, st.totalVolume_m3) : pumpedV
                 if vol > 0 {
-                    // annulusParcelsDeepToShallow: deep->shallow, so surface is the LAST parcel.
                     annulusParcelsDeepToShallow.append(VolumeParcel(volume_m3: vol, color: st.color, mud: st.mud))
-
-                    // Enforce capacity by overflowing out the bottom (bit side) for now.
-                    // (We are not tracking what leaves the bit in annulus-injection mode.)
                     var overflow = totalVolume(annulusParcelsDeepToShallow) - annulusCapacity_m3
                     while overflow > 1e-9, !annulusParcelsDeepToShallow.isEmpty {
                         var first = annulusParcelsDeepToShallow.removeFirst()
@@ -515,21 +590,16 @@ class PumpScheduleViewModel {
                 }
             }
         }
-        
-        // Now simulate the continuous flow through string -> annulus
-        if totalPumpedVolume > 0 {
-            // String capacity (in volume)
-            let stringCapacity_m3 = geom.volumeInString_m3(0.0, bitMD)
 
-            // Model the string as a finite-capacity FIFO volume stack.
-            // Parcels are ordered shallow (surface) -> deep (bit).
-            var stringParcels: [VolumeParcel] = [
-                VolumeParcel(volume_m3: max(0.0, stringCapacity_m3), color: activeColor, mud: activeMud)
-            ]
+        // Simulate continuous flow through string -> annulus
+        if totalPumpedVolume > 0 {
+            var stringParcels = initialStringParcels
+            // Fallback if empty
+            if stringParcels.isEmpty {
+                stringParcels = [VolumeParcel(volume_m3: max(0.0, stringCapacity_m3), color: activeColor, mud: activeMud)]
+            }
             var expelledAtBit: [VolumeParcel] = []
 
-            // Replay pumped sequence in chronological order. Each pumped parcel enters at surface;
-            // any overflow exits at the bit and must be added to the annulus from the bottom up.
             for entry in pumpSequence {
                 pushToTopAndOverflow(
                     stringParcels: &stringParcels,
@@ -539,19 +609,14 @@ class PumpScheduleViewModel {
                 )
             }
 
-            // Build string segments from the parcel stack.
-            // (Note: this uses the same volume->length mapping you already use elsewhere.)
             string = segmentsFromStringParcels(stringParcels, bitMD: bitMD, geom: geom, fallbackMud: activeMud)
 
-            // Ensure the string is fully filled to bitMD (numerical guard)
             if let last = string.last, last.bottom < bitMD - 1e-6 {
                 string.append(Seg(top: last.bottom, bottom: bitMD, color: activeColor, mud: activeMud))
             } else if string.isEmpty {
                 string = [Seg(top: 0, bottom: bitMD, color: activeColor, mud: activeMud)]
             }
 
-            // Any expelled parcels exit at the bit. They must become the NEW bottom-most fluid in the annulus,
-            // pushing older annulus fluids upward. Model the annulus as a finite-capacity stack with inflow at bottom.
             if !expelledAtBit.isEmpty {
                 for p in expelledAtBit {
                     pushToBottomAndOverflowTop(
@@ -563,7 +628,6 @@ class PumpScheduleViewModel {
                 }
             }
 
-            // Rebuild annulus segments from the parcel stack.
             annulus = segmentsFromAnnulusParcels(annulusParcelsDeepToShallow, bitMD: bitMD, geom: geom, fallbackMud: activeMud)
         }
 
@@ -825,11 +889,7 @@ class PumpScheduleViewModel {
 #endif
 
     func hydraulicsForCurrent(project: ProjectState) -> HydraulicsReadout {
-        // Guard
-        let bitMD = max(
-            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
-            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
-        )
+        let bitMD = effectiveBitMD(project: project)
         let controlMD: Double = {
             switch controlDepthMode {
             case .bit: return bitMD
@@ -989,9 +1049,55 @@ class PumpScheduleViewModel {
     }
 
     func maxDepthMD(project: ProjectState) -> Double {
-        max(
-            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
-            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
+        effectiveBitMD(project: project)
+    }
+
+    /// Export the current wellbore fluid state as a WellboreStateSnapshot
+    /// for handing back to Trip Out or Trip In simulations.
+    func exportWellboreState(project: ProjectState) -> WellboreStateSnapshot? {
+        let bitMD = effectiveBitMD(project: project)
+        let stg = currentStage(project: project)
+        let totalV = stg?.totalVolume_m3 ?? 0
+        let pumpedV = max(0.0, min(progress * max(totalV, 0), totalV))
+        let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedV)
+        let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
+
+        let annulusLayers = stacks.annulus.map { seg -> TripLayerSnapshot in
+            let nsColor = NSColor(seg.color)
+            return TripLayerSnapshot(
+                side: "Annulus", topMD: seg.top, bottomMD: seg.bottom,
+                topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
+                rho_kgpm3: seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3,
+                deltaHydroStatic_kPa: 0,
+                volume_m3: geom.volumeInAnnulus_m3(seg.top, seg.bottom),
+                colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
+                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent)
+            )
+        }
+
+        let stringLayers = stacks.string.map { seg -> TripLayerSnapshot in
+            let nsColor = NSColor(seg.color)
+            return TripLayerSnapshot(
+                side: "String", topMD: seg.top, bottomMD: seg.bottom,
+                topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
+                rho_kgpm3: seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3,
+                deltaHydroStatic_kPa: 0,
+                volume_m3: geom.volumeInString_m3(seg.top, seg.bottom),
+                colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
+                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent)
+            )
+        }
+
+        return WellboreStateSnapshot(
+            bitMD_m: bitMD,
+            bitTVD_m: project.tvd(of: bitMD),
+            layersPocket: annulusLayers,
+            layersAnnulus: annulusLayers,
+            layersString: stringLayers,
+            SABP_kPa: 0,
+            ESDAtControl_kgpm3: ecd_kgm3,
+            sourceDescription: "Pump Schedule at \(Int(bitMD))m MD",
+            timestamp: .now
         )
     }
 
@@ -1000,11 +1106,7 @@ class PumpScheduleViewModel {
     /// current stage/progress. This is derived from volume balance rather than
     /// tracking discrete parcels over time.
     func expelledFluidsForCurrent(project: ProjectState) -> [ExpelledFluid] {
-        // Determine bit depth and geometry
-        let bitMD = max(
-            (project.annulus ?? []).map { $0.bottomDepth_m }.max() ?? 0,
-            (project.drillString ?? []).map { $0.bottomDepth_m }.max() ?? 0
-        )
+        let bitMD = effectiveBitMD(project: project)
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
         // Build current stacks (same as used for visualization/hydraulics)

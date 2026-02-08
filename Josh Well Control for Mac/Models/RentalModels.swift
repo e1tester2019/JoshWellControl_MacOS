@@ -8,6 +8,7 @@ enum RentalItemStatus: String, Codable, CaseIterable {
     case working = "Working"
     case issues = "Issues"
     case failed = "Failed"
+    case awaitingReturn = "Awaiting Return"
 
     var icon: String {
         switch self {
@@ -15,6 +16,7 @@ enum RentalItemStatus: String, Codable, CaseIterable {
         case .working: return "checkmark.circle.fill"
         case .issues: return "exclamationmark.triangle.fill"
         case .failed: return "xmark.octagon.fill"
+        case .awaitingReturn: return "shippingbox.and.arrow.backward.fill"
         }
     }
 
@@ -24,6 +26,7 @@ enum RentalItemStatus: String, Codable, CaseIterable {
         case .working: return .green
         case .issues: return .orange
         case .failed: return .red
+        case .awaitingReturn: return .purple
         }
     }
 }

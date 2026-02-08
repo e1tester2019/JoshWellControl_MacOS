@@ -336,6 +336,12 @@ final class NumericalTripModel: @unchecked Sendable {
         // Observed pit gain calibration
         // When set, uses this value instead of calculating equalization from pressure
         var observedInitialPitGain_m3: Double? = nil
+        // Super Simulation: custom initial layer state
+        // When set, seeds stacks from these layers instead of ProjectSnapshot.
+        // This enables chaining operations (e.g., trip out after circulation).
+        var initialAnnulusLayers: [TripLayerSnapshot]? = nil
+        var initialStringLayers: [TripLayerSnapshot]? = nil
+        var initialPocketLayers: [TripLayerSnapshot]? = nil
     }
 
     /// Progress reporting for long-running simulations
@@ -377,7 +383,8 @@ final class NumericalTripModel: @unchecked Sendable {
 
     /// Run trip simulation with pre-extracted project snapshot (concurrency-safe version)
     /// Callers should create the ProjectSnapshot on the main actor before calling this method.
-    func run(_ input: TripInput, geom: GeometryService, projectSnapshot: ProjectSnapshot, onProgress: ProgressCallback? = nil) -> [TripStep] {
+    /// Marked nonisolated so it can run on a background thread for UI responsiveness.
+    nonisolated func run(_ input: TripInput, geom: GeometryService, projectSnapshot: ProjectSnapshot, onProgress: ProgressCallback? = nil) -> [TripStep] {
         var sabp_kPa = input.initialSABP_kPa
         var bitMD = input.startBitMD_m
         let step = max(0.1, input.step_m)
@@ -389,19 +396,42 @@ final class NumericalTripModel: @unchecked Sendable {
         let stringStack = Stack(side: .string, geom: geom, tvdOfMd: tvdOfMd)
         let annulusStack = Stack(side: .annulus, geom: geom, tvdOfMd: tvdOfMd)
 
-        let ann = projectSnapshot.annulusLayers
-        let str = projectSnapshot.stringLayers
-
-        annulusStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
-        for l in ann {
-            let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
-            StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+        // Seed annulus stack: from custom initial layers (Super Sim) or ProjectSnapshot
+        if let customAnnulus = input.initialAnnulusLayers, !customAnnulus.isEmpty {
+            // Direct layer assignment — avoids seed+paint boundary gaps
+            annulusStack.layers = customAnnulus.map { l in
+                let color: ColorRGBA? = (l.colorR != nil)
+                    ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1)
+                    : nil
+                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color)
+            }
+            annulusStack.ensureInvariants(bitMD: bitMD)
+        } else {
+            annulusStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
+            let ann = projectSnapshot.annulusLayers
+            for l in ann {
+                let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
+                StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+            }
         }
 
-        stringStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
-        for l in str {
-            let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
-            StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+        // Seed string stack: from custom initial layers (Super Sim) or ProjectSnapshot
+        if let customString = input.initialStringLayers, !customString.isEmpty {
+            // Direct layer assignment — avoids seed+paint boundary gaps
+            stringStack.layers = customString.map { l in
+                let color: ColorRGBA? = (l.colorR != nil)
+                    ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1)
+                    : nil
+                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color)
+            }
+            stringStack.ensureInvariants(bitMD: bitMD)
+        } else {
+            stringStack.seedUniform(rho: input.baseMudDensity_kgpm3, topMD: 0, bottomMD: bitMD)
+            let str = projectSnapshot.stringLayers
+            for l in str {
+                let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
+                StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+            }
         }
 
         // --- Slug Pulse / U-Tube Equalization Phase ---
@@ -547,7 +577,15 @@ final class NumericalTripModel: @unchecked Sendable {
         }
 
         // --- Pre-step initial snapshot (state AFTER slug pulse equalization) ---
+        // Seed pocket (open hole below bit) from previous operation's state
         var pocket: [Layer] = []
+        if let customPocket = input.initialPocketLayers {
+            for l in customPocket where l.bottomMD > bitMD + 1e-9 {
+                let top = max(l.topMD, bitMD)
+                let color: ColorRGBA? = (l.colorR != nil) ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1) : nil
+                pocket.append(Layer(rho: l.rho_kgpm3, topMD: top, bottomMD: l.bottomMD, color: color))
+            }
+        }
         let initPocketRows = snapshotPocket(pocket, bitMD: bitMD)
         let initAnnRows = snapshotStack(annulusStack, bitMD: bitMD)
         let initStrRows = snapshotStack(stringStack, bitMD: bitMD)
@@ -1168,7 +1206,7 @@ final class NumericalTripModel: @unchecked Sendable {
     ///   - fallbackTheta300: Fallback dial300 if layer has no mud reference
     ///   - floatIsOpen: Whether the float valve is open
     /// - Returns: Swab pressure drop in kPa, or 0 if calculation fails
-    private func calculateSwab(
+    nonisolated private func calculateSwab(
         annulusLayers: [FinalFluidLayer],
         bitMD: Double,
         tripSpeed_m_per_s: Double,
@@ -1273,7 +1311,7 @@ final class NumericalTripModel: @unchecked Sendable {
     }
 
     /// Calculates swab pressure using pre-extracted layer snapshots (concurrency-safe version)
-    private func calculateSwabFromSnapshot(
+    nonisolated private func calculateSwabFromSnapshot(
         annulusLayers: [FinalLayerSnapshot],
         bitMD: Double,
         tripSpeed_m_per_s: Double,

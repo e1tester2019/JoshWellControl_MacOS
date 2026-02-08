@@ -290,7 +290,7 @@ struct MacOSSidebarView: View {
     private let dashboardViews: [ViewSelection] = [.handover, .padDashboard, .wellDashboard, .dashboard]
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys, .directionalPlanning]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
-    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking]
+    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking, .superSimulation]
     private let schedulingViews: [ViewSelection] = [.shiftCalendar, .lookAheadScheduler, .vendors, .jobCodes]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
 
@@ -619,15 +619,21 @@ struct MacOSDetailView: View {
                 case .surgeSwab:
                     SurgeSwabView(project: project)
                 case .tripSimulation:
-                    TripSimulationView(project: project)
+                    TripSimulationView(project: project, navigateToView: { view in
+                        selectedViewBinding = view
+                    })
                 case .tripInSimulation:
-                    TripInSimulationView(project: project)
+                    TripInSimulationView(project: project, navigateToView: { view in
+                        selectedViewBinding = view
+                    })
                 case .tripTracker:
                     TripTrackerView(project: project)
                 case .tripRecord:
                     TripRecordView(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
+                case .superSimulation:
+                    SuperSimulationView(project: project)
                 case .directionalPlanning:
                     DirectionalDashboardView(project: project)
                 case .rentals:

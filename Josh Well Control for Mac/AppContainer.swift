@@ -22,7 +22,8 @@ enum AppContainer {
     // v11: Added DirectionalPlan, DirectionalPlanStation, DirectionalLimits for directional drilling features
     // v12: Added equipment registry and enhanced rentals (RentalCategory, RentalEquipment, RentalEquipmentIssue, VendorContact, VendorAddress)
     // v13: Added ShiftEntry for shift calendar feature
-    private static let schemaVersion = 13
+    // v14: Added FormationTop for directional dashboard formation overlay
+    private static let schemaVersion = 14
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     /// Tracks whether the app is running in a degraded state (in-memory only)
@@ -150,7 +151,9 @@ enum AppContainer {
             VendorContact.self,
             VendorAddress.self,
             // Shift Calendar
-            ShiftEntry.self
+            ShiftEntry.self,
+            // Formation Overlay
+            FormationTop.self
         ]
         let fullSchema = Schema(models)
 
@@ -180,6 +183,7 @@ enum AppContainer {
                     // One-time migrations
                     migrateExpenseReceiptFlags(context: ctx)
                     migrateRentalsToEquipmentRegistry(context: ctx)
+                    migrateSimulationsToFrozenInputs(context: ctx)
                 }
 
                 return container
@@ -198,6 +202,15 @@ enum AppContainer {
             let cfg = ModelConfiguration(schema: fullSchema)
             let container = try ModelContainer(for: fullSchema, configurations: [cfg])
             print("✅ Using local on-disk store")
+
+            // Run migrations for local store
+            Task { @MainActor in
+                let ctx = container.mainContext
+                migrateExpenseReceiptFlags(context: ctx)
+                migrateRentalsToEquipmentRegistry(context: ctx)
+                migrateSimulationsToFrozenInputs(context: ctx)
+            }
+
             return container
         } catch {
             let errorMsg = "Local disk store failed: \(error.localizedDescription)"
@@ -351,5 +364,38 @@ private func migrateRentalsToEquipmentRegistry(context: ModelContext) {
         print("📦 Migrated rentals to equipment registry: \(createdCount) equipment created, \(linkedCount) rentals linked")
     } catch {
         print("⚠️ Failed to migrate rentals to equipment registry: \(error)")
+    }
+}
+
+private let simulationFrozenInputsMigrationKey = "hasRunSimulationFrozenInputsMigration_v1"
+
+/// Migration: Freeze inputs for existing simulations and clear layer data to reduce storage.
+/// This ensures simulations remain valid even if project data changes, and dramatically reduces database size.
+@MainActor
+private func migrateSimulationsToFrozenInputs(context: ModelContext) {
+    // Only run this migration once
+    guard !UserDefaults.standard.bool(forKey: simulationFrozenInputsMigrationKey) else {
+        return
+    }
+
+    print("🔄 Starting simulation migration (freezing inputs, clearing layer data)...")
+
+    // First estimate how much storage we'll save
+    let estimate = SimulationMigrationService.estimateStorageSavings(context: context)
+    if estimate.totalSimulations > 0 {
+        print("📊 Found \(estimate.totalSimulations) simulations with \(estimate.formattedTotal) of layer data")
+    }
+
+    // Run the migration
+    let result = SimulationMigrationService.migrateAllSimulations(context: context)
+
+    // Log results
+    print(result.summary)
+
+    if result.saveSucceeded {
+        UserDefaults.standard.set(true, forKey: simulationFrozenInputsMigrationKey)
+        print("✅ Simulation migration complete")
+    } else {
+        print("⚠️ Simulation migration had issues - will retry on next launch")
     }
 }

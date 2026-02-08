@@ -13,6 +13,7 @@ struct LookAheadTaskSidebarView: View {
 
     @Bindable var task: LookAheadTask
     var onClose: () -> Void
+    var onDelete: (() -> Void)?  // Called after task is deleted
     var onTimingChanged: ((LookAheadTask, Date) -> Void)?  // Called with task and old end time
 
     @Query(sort: \JobCode.code) private var jobCodes: [JobCode]
@@ -20,6 +21,7 @@ struct LookAheadTaskSidebarView: View {
     @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
 
     @State private var showingVendorPicker = false
+    @State private var showingDeleteConfirmation = false
     @State private var editableEndTime: Date = Date()
     @State private var editableDuration: Double = 60
 
@@ -78,6 +80,14 @@ struct LookAheadTaskSidebarView: View {
 
             Spacer()
 
+            Button(action: { showingDeleteConfirmation = true }) {
+                Image(systemName: "trash")
+                    .font(.body)
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            .help("Delete task")
+
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
@@ -86,6 +96,21 @@ struct LookAheadTaskSidebarView: View {
             .buttonStyle(.plain)
         }
         .padding()
+        .alert("Delete Task?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteTask()
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(task.name)\"? This cannot be undone.")
+        }
+    }
+
+    private func deleteTask() {
+        modelContext.delete(task)
+        try? modelContext.save()
+        onDelete?()
+        onClose()
     }
 
     // MARK: - Status Section

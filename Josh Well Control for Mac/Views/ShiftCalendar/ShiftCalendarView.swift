@@ -103,6 +103,7 @@ struct ShiftCalendarView: View {
                 LookAheadTaskSidebarView(
                     task: task,
                     onClose: { selectedTask = nil },
+                    onDelete: { selectedTask = nil },
                     onTimingChanged: { changedTask, oldEndTime in
                         adjustTaskChainFromSidebar(task: changedTask, oldEndTime: oldEndTime)
                     }

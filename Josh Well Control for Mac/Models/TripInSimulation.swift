@@ -113,15 +113,45 @@ final class TripInSimulation {
     /// Depth where ESD first drops below target (m), or nil if never
     var depthBelowTarget_m: Double?
 
+    // MARK: - Frozen Inputs (self-contained simulation state)
+
+    /// Compressed JSON of FrozenSimulationInputs - captures annulus geometry and muds
+    /// at the time the simulation was run
+    var frozenInputsData: Data?
+
+    /// Hash of inputs when simulation was created (for quick staleness check)
+    var inputStateHash: String?
+
+    /// Whether this simulation has frozen inputs
+    @Transient var hasFrozenInputs: Bool {
+        frozenInputsData != nil
+    }
+
+    /// Decoded frozen inputs
+    @Transient var frozenInputs: FrozenSimulationInputs? {
+        get {
+            guard let data = frozenInputsData else { return nil }
+            return FrozenSimulationInputs.fromCompressedData(data)
+        }
+        set {
+            frozenInputsData = newValue?.toCompressedData()
+            inputStateHash = newValue?.inputHash
+        }
+    }
+
     // MARK: - Relationships
 
     /// Steps for this simulation
     @Relationship(deleteRule: .cascade, inverse: \TripInSimulationStep.simulation)
     var steps: [TripInSimulationStep]?
 
-    /// Back-reference to the owning project
+    /// Back-reference to the owning project (kept for backwards compatibility)
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
+
+    /// Reference to the Well this simulation belongs to
+    @Relationship(deleteRule: .nullify)
+    var well: Well?
 
     // MARK: - Computed Properties
 
@@ -182,7 +212,8 @@ final class TripInSimulation {
         activeMudDensity_kgpm3: Double = 1200,
         targetESD_kgpm3: Double = 1200,
         baseMudDensity_kgpm3: Double = 1200,
-        project: ProjectState? = nil
+        project: ProjectState? = nil,
+        well: Well? = nil
     ) {
         self.name = name
         self.sourceSimulationID = sourceSimulationID
@@ -203,6 +234,7 @@ final class TripInSimulation {
         self.targetESD_kgpm3 = targetESD_kgpm3
         self.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
         self.project = project
+        self.well = well
     }
 
     // MARK: - Step Management
@@ -253,6 +285,31 @@ final class TripInSimulation {
         controlMD_m = simulation.shoeMD_m
         baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
         targetESD_kgpm3 = simulation.targetESDAtTD_kgpm3
+    }
+
+    // MARK: - Frozen Input Management
+
+    /// Freeze the current project state into this simulation
+    @MainActor
+    func freezeInputs(from project: ProjectState, fillMud: MudProperties?) {
+        let frozen = FrozenSimulationInputs(from: project, backfillMud: fillMud, activeMud: project.activeMud)
+        self.frozenInputs = frozen
+        self.well = project.well
+    }
+
+    /// Check if the simulation is stale
+    @MainActor
+    func isStale(comparedTo project: ProjectState) -> Bool {
+        guard let frozen = frozenInputs else { return true }
+        let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
+        return frozen.isStale(comparedTo: project, backfillMud: fillMud, activeMud: project.activeMud)
+    }
+
+    /// Clear all step layer data to reduce storage
+    func clearStepLayerData() {
+        for step in (steps ?? []) {
+            step.layersPocketData = nil
+        }
     }
 }
 

@@ -63,6 +63,9 @@ class TripInSimulationViewModel {
     var progressValue: Double = 0.0
     var progressMessage: String = ""
 
+    // TVD source selection - use directional plan instead of surveys for projection
+    var useDirectionalPlanForTVD: Bool = false
+
     // MARK: - Computed Properties
 
     var selectedStep: TripInStep? {
@@ -163,6 +166,7 @@ class TripInSimulationViewModel {
         case none = "None"
         case tripSimulation = "Trip Simulation"
         case tripTracker = "Trip Tracker"
+        case wellboreState = "Wellbore State"
     }
 
     var sourceType: SourceType = .none
@@ -284,6 +288,38 @@ class TripInSimulationViewModel {
         importedPocketLayers = tripTrack.layersPocket
     }
 
+    // MARK: - Import from Wellbore State Snapshot
+
+    /// Import from a WellboreStateSnapshot (e.g., mid-trip-out handoff)
+    func importFromWellboreState(_ state: WellboreStateSnapshot, project: ProjectState) {
+        sourceType = .wellboreState
+        sourceSimulationID = nil
+        sourceSimulationName = state.sourceDescription
+        sourceTripTrackID = nil
+        sourceTripTrackName = ""
+
+        // Use pocket layers from the snapshot
+        importedPocketLayers = state.layersPocket
+
+        // Start where the snapshot's bit is (e.g., mid-trip-out depth)
+        startBitMD_m = state.bitMD_m
+
+        // End at TD (deepest annulus section)
+        let annulusSections = project.annulus ?? []
+        if let deepest = annulusSections.max(by: { $0.bottomDepth_m < $1.bottomDepth_m }) {
+            endBitMD_m = deepest.bottomDepth_m
+        }
+
+        // Carry over target ESD from snapshot
+        targetESD_kgpm3 = state.ESDAtControl_kgpm3
+
+        // Fluid properties from project
+        if let activeMud = project.activeMud {
+            activeMudDensity_kgpm3 = activeMud.density_kgm3
+            baseMudDensity_kgpm3 = activeMud.density_kgm3
+        }
+    }
+
     /// Display name for source
     var sourceDisplayName: String {
         switch sourceType {
@@ -293,6 +329,8 @@ class TripInSimulationViewModel {
             return sourceSimulationName.isEmpty ? "Trip Simulation" : sourceSimulationName
         case .tripTracker:
             return sourceTripTrackName.isEmpty ? "Trip Tracker" : sourceTripTrackName
+        case .wellboreState:
+            return sourceSimulationName.isEmpty ? "Wellbore State" : sourceSimulationName
         }
     }
 
@@ -303,9 +341,10 @@ class TripInSimulationViewModel {
         progressValue = 0.0
         progressMessage = "Running trip-in simulation..."
         steps.removeAll()
+        circulationHistory.removeAll()
 
-        // Create TVD sampler
-        let tvdSampler = TvdSampler(stations: project.surveys ?? [])
+        // Create TVD sampler - preferPlan uses directional plan for projection
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
 
         // Get geometry service (may be used for annulus capacity calculations in future)
         _ = ProjectGeometryService(
@@ -600,18 +639,32 @@ class TripInSimulationViewModel {
             let newHeight: Double
             let midpoint = (layer.topMD + layer.bottomMD) / 2.0
 
+            // IMPORTANT: Layers already in annulus coordinates (e.g., pumped fluid) should NOT expand
+            // They only shift upward from pipe displacement, not expand due to area change
+            let alreadyInAnnulus = layer.isInAnnulus == true
+
             if layer.bottomMD <= bitMD {
                 // Layer is entirely above the bit (pipe has passed through it)
-                // It expands based on local geometry
-                let factor = expansionFactor(at: midpoint)
-                newHeight = originalHeight * factor
+                if alreadyInAnnulus {
+                    // Already in annulus coordinates - no expansion, just shift
+                    newHeight = originalHeight
+                } else {
+                    // Original wellbore layer - expands based on local geometry
+                    let factor = expansionFactor(at: midpoint)
+                    newHeight = originalHeight * factor
+                }
             } else if layer.topMD < bitMD {
                 // Layer spans the bit - partially expanded
-                // Portion above bit expands, portion below stays same
+                // Portion above bit expands (if not already in annulus), portion below stays same
                 let aboveBitHeight = bitMD - layer.topMD
                 let belowBitHeight = layer.bottomMD - bitMD
-                let factor = expansionFactor(at: (layer.topMD + bitMD) / 2.0)
-                newHeight = (aboveBitHeight * factor) + belowBitHeight
+                if alreadyInAnnulus {
+                    // Already in annulus - no expansion
+                    newHeight = originalHeight
+                } else {
+                    let factor = expansionFactor(at: (layer.topMD + bitMD) / 2.0)
+                    newHeight = (aboveBitHeight * factor) + belowBitHeight
+                }
             } else {
                 // Layer is entirely below the bit - no expansion yet
                 newHeight = originalHeight
@@ -691,7 +744,8 @@ class TripInSimulationViewModel {
                 colorR: layer.colorR,
                 colorG: layer.colorG,
                 colorB: layer.colorB,
-                colorA: layer.colorA
+                colorA: layer.colorA,
+                isInAnnulus: layer.isInAnnulus  // Preserve flag for pumped fluids
             ))
         }
 
@@ -782,6 +836,13 @@ class TripInSimulationViewModel {
         simulation.updateSummaryResults()
         context.insert(simulation)
 
+        // Freeze inputs for data integrity - ensures simulation remains valid if project changes
+        let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
+        simulation.freezeInputs(from: project, fillMud: fillMud)
+
+        // Clear step layer data to reduce storage (layers can be recomputed from frozen inputs)
+        simulation.clearStepLayerData()
+
         if project.tripInSimulations == nil {
             project.tripInSimulations = []
         }
@@ -860,6 +921,7 @@ class TripInSimulationViewModel {
             print("   First step pocket layers: \(firstStep.layersPocket.count)")
         }
 
+        circulationHistory.removeAll()
         selectedIndex = 0
         stepSlider = 0
     }
@@ -869,7 +931,555 @@ class TripInSimulationViewModel {
     func clear() {
         currentSimulation = nil
         steps.removeAll()
+        circulationHistory.removeAll()
         selectedIndex = 0
         stepSlider = 0
+    }
+
+    // MARK: - Delete Simulation
+
+    /// Delete a saved simulation
+    func deleteSimulation(_ simulation: TripInSimulation, context: ModelContext) {
+        // If this is the currently loaded simulation, clear the view
+        if currentSimulation?.id == simulation.id {
+            clear()
+        }
+        context.delete(simulation)
+        try? context.save()
+    }
+
+    // MARK: - Wellbore State Export
+
+    /// Export the wellbore state at the currently selected step for handoff to Trip Out or Pump Schedule.
+    func wellboreStateAtSelectedStep() -> WellboreStateSnapshot? {
+        guard selectedIndex >= 0 && selectedIndex < steps.count else { return nil }
+        let step = steps[selectedIndex]
+        return WellboreStateSnapshot(
+            bitMD_m: step.bitMD_m,
+            bitTVD_m: step.bitTVD_m,
+            layersPocket: step.layersPocket,
+            layersAnnulus: step.layersAnnulus,
+            layersString: step.layersString,
+            SABP_kPa: step.requiredChokePressure_kPa,
+            ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
+            sourceDescription: "Trip In at \(Int(step.bitMD_m))m MD",
+            timestamp: .now
+        )
+    }
+
+    // MARK: - Circulate At Depth (Interactive)
+    // Uses CirculationService for dual-stack (string+annulus) circulation physics.
+
+    /// Current circulate-out schedule (preview before committing)
+    var circulateOutSchedule: [CirculationService.CirculateOutStep] = []
+
+    /// Pump output for stroke calculations (m³/stroke)
+    var pumpOutput_m3perStroke: Double = 0.01  // Default ~10 L/stroke
+
+    /// Queue of pump operations to execute in series
+    var pumpQueue: [CirculationService.PumpOperation] = []
+
+    /// Currently selected mud for adding to queue
+    var selectedCirculateMudID: UUID?
+
+    /// Volume for next pump operation (m³)
+    var circulateVolume_m3: Double = 5.0
+
+    /// Preview layers after all queued operations (before committing)
+    var previewPocketLayers: [TripLayerSnapshot] = []
+
+    /// ESD after proposed circulation
+    var previewESDAtControl: Double = 0
+
+    /// Required SABP after proposed circulation
+    var previewRequiredSABP: Double = 0
+
+    /// History of committed circulation operations
+    var circulationHistory: [CirculationService.CirculationRecord] = []
+
+    /// Add a pump operation to the queue
+    func addToPumpQueue(mud: MudProperties, volume_m3: Double) {
+        let operation = CirculationService.PumpOperation(
+            mudID: mud.id,
+            mudName: mud.name,
+            mudDensity_kgpm3: mud.density_kgm3,
+            mudColorR: mud.colorR,
+            mudColorG: mud.colorG,
+            mudColorB: mud.colorB,
+            volume_m3: volume_m3
+        )
+        pumpQueue.append(operation)
+    }
+
+    /// Remove an operation from the queue
+    func removeFromPumpQueue(at index: Int) {
+        guard index >= 0 && index < pumpQueue.count else { return }
+        pumpQueue.remove(at: index)
+    }
+
+    /// Clear the entire pump queue
+    func clearPumpQueue() {
+        pumpQueue.removeAll()
+        previewPocketLayers = []
+        circulateOutSchedule = []
+        previewESDAtControl = 0
+        previewRequiredSABP = 0
+    }
+
+    /// Preview the effect of all queued pump operations.
+    /// Models fluid flowing DOWN the drill string and UP the annulus.
+    func previewPumpQueue(
+        fromStepIndex: Int,
+        project: ProjectState
+    ) {
+        guard fromStepIndex >= 0 && fromStepIndex < steps.count else { return }
+        guard !pumpQueue.isEmpty else { return }
+
+        let currentStep = steps[fromStepIndex]
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+        let geom = ProjectGeometryService(
+            project: project,
+            currentStringBottomMD: currentStep.bitMD_m,
+            tvdMapper: { md in tvdSampler.tvd(of: md) }
+        )
+
+        let result = CirculationService.previewPumpQueue(
+            pocketLayers: currentStep.layersPocket,
+            stringLayers: currentStep.layersString,
+            bitMD: currentStep.bitMD_m,
+            controlMD: controlMD_m,
+            targetESD_kgpm3: targetESD_kgpm3,
+            geom: geom,
+            tvdSampler: tvdSampler,
+            pumpQueue: pumpQueue,
+            pumpOutput_m3perStroke: pumpOutput_m3perStroke,
+            activeMudDensity_kgpm3: activeMudDensity_kgpm3
+        )
+
+        circulateOutSchedule = result.schedule
+        previewPocketLayers = result.resultLayersPocket
+        previewESDAtControl = result.ESDAtControl
+        previewRequiredSABP = result.requiredSABP
+    }
+
+    /// Commit all queued pump operations - updates the pocket layers and recalculates all subsequent steps
+    func commitPumpQueue(
+        fromStepIndex: Int,
+        project: ProjectState
+    ) {
+        guard fromStepIndex >= 0 && fromStepIndex < steps.count else { return }
+        guard !previewPocketLayers.isEmpty else { return }
+        guard !pumpQueue.isEmpty else { return }
+
+        let currentStep = steps[fromStepIndex]
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+
+        // Calculate ESD before
+        let esdBefore = CirculationService.calculateESDFromLayers(
+            layers: currentStep.layersPocket,
+            atDepthMD: controlMD_m,
+            tvdSampler: tvdSampler
+        )
+
+        // Record the circulation
+        let record = CirculationService.CirculationRecord(
+            timestamp: Date(),
+            atBitMD_m: currentStep.bitMD_m,
+            operations: pumpQueue,
+            ESDBeforeAtControl_kgpm3: esdBefore,
+            ESDAfterAtControl_kgpm3: previewESDAtControl,
+            SABPRequired_kPa: previewRequiredSABP
+        )
+        circulationHistory.append(record)
+
+        // Mark ALL layers above the current bit as isInAnnulus = true
+        // because they've already been expanded to annular coordinates at this bit depth.
+        // Without this, recalculation would apply expansion again to these layers.
+        let bitMD = currentStep.bitMD_m
+        let markedLayers = previewPocketLayers.map { layer -> TripLayerSnapshot in
+            if layer.bottomMD <= bitMD {
+                // Layer is entirely above the bit - already in annulus coordinates
+                var marked = layer
+                marked.isInAnnulus = true
+                return marked
+            } else {
+                // Layer below the bit (or spanning) - in original wellbore coordinates
+                // previewPumpQueue already splits layers at the bit, so spanning shouldn't occur
+                return layer
+            }
+        }
+
+        // Update imported pocket layers (used when re-running simulation)
+        importedPocketLayers = markedLayers
+
+        // Update the current step
+        steps[fromStepIndex] = TripInStep(
+            stepIndex: currentStep.stepIndex,
+            bitMD_m: currentStep.bitMD_m,
+            bitTVD_m: currentStep.bitTVD_m,
+            stepFillVolume_m3: currentStep.stepFillVolume_m3,
+            cumulativeFillVolume_m3: currentStep.cumulativeFillVolume_m3,
+            expectedFillClosed_m3: currentStep.expectedFillClosed_m3,
+            expectedFillOpen_m3: currentStep.expectedFillOpen_m3,
+            stepDisplacementReturns_m3: currentStep.stepDisplacementReturns_m3,
+            cumulativeDisplacementReturns_m3: currentStep.cumulativeDisplacementReturns_m3,
+            ESDAtControl_kgpm3: previewESDAtControl,
+            ESDAtBit_kgpm3: currentStep.ESDAtBit_kgpm3,
+            requiredChokePressure_kPa: previewRequiredSABP,
+            isBelowTarget: previewESDAtControl < targetESD_kgpm3,
+            differentialPressureAtBottom_kPa: currentStep.differentialPressureAtBottom_kPa,
+            annulusPressureAtBit_kPa: currentStep.annulusPressureAtBit_kPa,
+            stringPressureAtBit_kPa: currentStep.stringPressureAtBit_kPa,
+            floatState: currentStep.floatState,
+            mudDensityAtControl_kgpm3: previewESDAtControl,
+            layersAnnulus: currentStep.layersAnnulus,
+            layersString: currentStep.layersString,
+            layersPocket: markedLayers
+        )
+
+        // Clear queue and preview
+        pumpQueue.removeAll()
+        previewPocketLayers = []
+        circulateOutSchedule = []
+
+        // Save current selection before recalculating
+        let savedIndex = fromStepIndex
+
+        // Auto-recalculate all subsequent steps with new pocket layers
+        if fromStepIndex < steps.count - 1 {
+            recalculateStepsFrom(stepIndex: fromStepIndex, project: project)
+        }
+
+        // Restore selection to where user was (don't jump to last step)
+        selectedIndex = savedIndex
+        stepSlider = Double(savedIndex)
+    }
+
+    /// Recalculate all steps from the given index forward using the pocket layers at that step
+    func recalculateStepsFrom(stepIndex: Int, project: ProjectState) {
+        guard stepIndex >= 0 && stepIndex < steps.count else { return }
+
+        let startingStep = steps[stepIndex]
+        let startingBitMD = startingStep.bitMD_m
+
+        // If already at end, nothing to recalculate
+        guard startingBitMD < endBitMD_m else { return }
+
+        // IMPORTANT: Use pocket layers as a FIXED base for all steps (not chained).
+        // calculateDisplacedPocketLayers is a "from scratch" function that calculates
+        // displacement at any bit depth given base layers. Chaining would double-expand.
+        let basePocketLayers = startingStep.layersPocket
+
+        // Remove all steps after the current one
+        steps = Array(steps.prefix(stepIndex + 1))
+
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+        let controlTVD = tvdSampler.tvd(of: controlMD_m)
+        let annulusSections = project.annulus ?? []
+
+        // Calculate remaining depths
+        var depths: [Double] = []
+        var nextDepth = startingBitMD + step_m
+        while nextDepth <= endBitMD_m {
+            depths.append(nextDepth)
+            nextDepth += step_m
+        }
+        if let last = depths.last, last != endBitMD_m {
+            depths.append(endBitMD_m)
+        }
+
+        guard !depths.isEmpty else { return }
+
+        var cumulativeFill = startingStep.cumulativeFillVolume_m3
+        var cumulativeDisplacement = startingStep.cumulativeDisplacementReturns_m3
+
+        for (index, bitMD) in depths.enumerated() {
+            let bitTVD = tvdSampler.tvd(of: bitMD)
+            let prevMD = index == 0 ? startingBitMD : depths[index - 1]
+
+            let pipeCapacity = Double.pi / 4.0 * pipeID_m * pipeID_m
+            let intervalLength = abs(bitMD - prevMD)
+
+            // Fill volume
+            let stepFill: Double
+            if isFloatedCasing && bitMD > floatSubMD_m {
+                stepFill = 0
+            } else {
+                stepFill = pipeCapacity * intervalLength
+            }
+            cumulativeFill += stepFill
+
+            // Displacement
+            let stepDisplacement = (Double.pi / 4.0 * pipeOD_m * pipeOD_m) * intervalLength
+            cumulativeDisplacement += stepDisplacement
+
+            let expectedClosed = pipeCapacity * bitMD
+            let expectedOpen = (Double.pi / 4.0 * (pipeOD_m * pipeOD_m - pipeID_m * pipeID_m)) * bitMD
+
+            // Displace pocket layers from the FIXED base (not chained from previous step)
+            let displacedPockets = calculateDisplacedPocketLayers(
+                bitMD: bitMD,
+                pocketLayers: basePocketLayers,
+                annulusSections: annulusSections,
+                pipeOD_m: pipeOD_m,
+                tvdSampler: tvdSampler
+            )
+
+            // Calculate ESD
+            let ESDAtControl = calculateESDFromLayers(
+                layers: displacedPockets,
+                atDepthMD: controlMD_m,
+                tvdSampler: tvdSampler
+            )
+
+            let ESDAtBit = calculateESDFromLayers(
+                layers: displacedPockets,
+                atDepthMD: bitMD,
+                tvdSampler: tvdSampler
+            )
+
+            let isBelowTarget = ESDAtControl < targetESD_kgpm3
+
+            let requiredChoke: Double
+            if isBelowTarget {
+                requiredChoke = max(0, (targetESD_kgpm3 - ESDAtControl) * 0.00981 * controlTVD)
+            } else {
+                requiredChoke = 0
+            }
+
+            // Pressure calculations
+            let annulusHP = ESDAtBit * 0.00981 * bitTVD
+            var stringHP: Double = 0
+            var floatState = "N/A"
+
+            if isFloatedCasing && bitMD >= floatSubMD_m {
+                let pipeCapacityPerMeter = Double.pi / 4.0 * pipeID_m * pipeID_m
+                let mudHeightInString = cumulativeFill / pipeCapacityPerMeter
+                let fillLevelMD = min(mudHeightInString, bitMD)
+                let fillLevelTVD = tvdSampler.tvd(of: fillLevelMD)
+
+                stringHP = activeMudDensity_kgpm3 * 0.00981 * fillLevelTVD
+
+                let floatSubTVD = tvdSampler.tvd(of: floatSubMD_m)
+                let annulusPressureAtFloat = baseMudDensity_kgpm3 * 0.00981 * floatSubTVD
+                let mudAboveFloat = min(mudHeightInString, floatSubMD_m)
+                let insidePressureAtFloat = activeMudDensity_kgpm3 * 0.00981 * tvdSampler.tvd(of: mudAboveFloat)
+                let diffAtFloat = annulusPressureAtFloat - insidePressureAtFloat
+
+                if diffAtFloat >= crackFloat_kPa {
+                    let openPercent = min(100, Int((diffAtFloat / crackFloat_kPa - 1.0) * 100 + 50))
+                    floatState = "OPEN \(openPercent)%"
+                } else {
+                    let closedPercent = Int((1.0 - diffAtFloat / crackFloat_kPa) * 100)
+                    floatState = "CLOSED \(closedPercent)%"
+                }
+            } else {
+                stringHP = activeMudDensity_kgpm3 * 0.00981 * bitTVD
+                floatState = "Full"
+            }
+
+            let differentialPressure = annulusHP - stringHP
+
+            let step = TripInStep(
+                stepIndex: steps.count,
+                bitMD_m: bitMD,
+                bitTVD_m: bitTVD,
+                stepFillVolume_m3: stepFill,
+                cumulativeFillVolume_m3: cumulativeFill,
+                expectedFillClosed_m3: expectedClosed,
+                expectedFillOpen_m3: expectedOpen,
+                stepDisplacementReturns_m3: stepDisplacement,
+                cumulativeDisplacementReturns_m3: cumulativeDisplacement,
+                ESDAtControl_kgpm3: ESDAtControl,
+                ESDAtBit_kgpm3: ESDAtBit,
+                requiredChokePressure_kPa: requiredChoke,
+                isBelowTarget: isBelowTarget,
+                differentialPressureAtBottom_kPa: differentialPressure,
+                annulusPressureAtBit_kPa: annulusHP,
+                stringPressureAtBit_kPa: stringHP,
+                floatState: floatState,
+                mudDensityAtControl_kgpm3: ESDAtControl,
+                layersAnnulus: [],
+                layersString: [],
+                layersPocket: displacedPockets
+            )
+
+            steps.append(step)
+        }
+    }
+
+    /// Total volume in pump queue
+    var totalQueueVolume_m3: Double {
+        pumpQueue.reduce(0) { $0 + $1.volume_m3 }
+    }
+
+    // MARK: - Continue Simulation from Current Depth
+
+    /// Continue the trip-in simulation from the current selected step to TD
+    /// Uses the current pocket layers (which may have been updated by circulation)
+    func continueSimulation(fromStepIndex: Int, project: ProjectState) {
+        guard fromStepIndex >= 0 && fromStepIndex < steps.count else { return }
+
+        let currentStep = steps[fromStepIndex]
+        let currentBitMD = currentStep.bitMD_m
+
+        // If already at end, nothing to do
+        guard currentBitMD < endBitMD_m else { return }
+
+        isRunning = true
+        progressMessage = "Continuing simulation from \(Int(currentBitMD))m..."
+
+        // IMPORTANT: Use pocket layers as a FIXED base for all steps (not chained).
+        // calculateDisplacedPocketLayers is a "from scratch" function.
+        let basePocketLayers = currentStep.layersPocket
+
+        // Remove all steps after the current one
+        steps = Array(steps.prefix(fromStepIndex + 1))
+
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+        let controlTVD = tvdSampler.tvd(of: controlMD_m)
+
+        // Calculate remaining depths
+        var depths: [Double] = []
+        var nextDepth = currentBitMD + step_m
+        while nextDepth <= endBitMD_m {
+            depths.append(nextDepth)
+            nextDepth += step_m
+        }
+        if depths.last != endBitMD_m {
+            depths.append(endBitMD_m)
+        }
+
+        guard !depths.isEmpty else {
+            isRunning = false
+            return
+        }
+
+        var cumulativeFill = currentStep.cumulativeFillVolume_m3
+        var cumulativeDisplacement = currentStep.cumulativeDisplacementReturns_m3
+
+        let annulusSections = project.annulus ?? []
+
+        for (index, bitMD) in depths.enumerated() {
+            let bitTVD = tvdSampler.tvd(of: bitMD)
+            let prevMD = index == 0 ? currentBitMD : depths[index - 1]
+
+            let pipeCapacity = Double.pi / 4.0 * pipeID_m * pipeID_m
+            let intervalLength = abs(bitMD - prevMD)
+
+            // Fill volume
+            let stepFill: Double
+            if isFloatedCasing && bitMD > floatSubMD_m {
+                stepFill = 0
+            } else {
+                stepFill = pipeCapacity * intervalLength
+            }
+            cumulativeFill += stepFill
+
+            // Displacement
+            let stepDisplacement = (Double.pi / 4.0 * pipeOD_m * pipeOD_m) * intervalLength
+            cumulativeDisplacement += stepDisplacement
+
+            let expectedClosed = pipeCapacity * bitMD
+            let expectedOpen = (Double.pi / 4.0 * (pipeOD_m * pipeOD_m - pipeID_m * pipeID_m)) * bitMD
+
+            // Displace pocket layers from the FIXED base (not chained from previous step)
+            let displacedPockets = calculateDisplacedPocketLayers(
+                bitMD: bitMD,
+                pocketLayers: basePocketLayers,
+                annulusSections: annulusSections,
+                pipeOD_m: pipeOD_m,
+                tvdSampler: tvdSampler
+            )
+
+            // Calculate ESD
+            let ESDAtControl = calculateESDFromLayers(
+                layers: displacedPockets,
+                atDepthMD: controlMD_m,
+                tvdSampler: tvdSampler
+            )
+
+            let ESDAtBit = calculateESDFromLayers(
+                layers: displacedPockets,
+                atDepthMD: bitMD,
+                tvdSampler: tvdSampler
+            )
+
+            let isBelowTarget = ESDAtControl < targetESD_kgpm3
+
+            let requiredChoke: Double
+            if isBelowTarget {
+                requiredChoke = max(0, (targetESD_kgpm3 - ESDAtControl) * 0.00981 * controlTVD)
+            } else {
+                requiredChoke = 0
+            }
+
+            // Pressure calculations
+            let annulusHP = ESDAtBit * 0.00981 * bitTVD
+            var stringHP: Double = 0
+            var floatState = "N/A"
+
+            if isFloatedCasing && bitMD >= floatSubMD_m {
+                let pipeCapacityPerMeter = Double.pi / 4.0 * pipeID_m * pipeID_m
+                let mudHeightInString = cumulativeFill / pipeCapacityPerMeter
+                let fillLevelMD = min(mudHeightInString, bitMD)
+                let fillLevelTVD = tvdSampler.tvd(of: fillLevelMD)
+
+                stringHP = activeMudDensity_kgpm3 * 0.00981 * fillLevelTVD
+
+                let floatSubTVD = tvdSampler.tvd(of: floatSubMD_m)
+                let annulusPressureAtFloat = baseMudDensity_kgpm3 * 0.00981 * floatSubTVD
+                let mudAboveFloat = min(mudHeightInString, floatSubMD_m)
+                let insidePressureAtFloat = activeMudDensity_kgpm3 * 0.00981 * tvdSampler.tvd(of: mudAboveFloat)
+                let diffAtFloat = annulusPressureAtFloat - insidePressureAtFloat
+
+                if diffAtFloat >= crackFloat_kPa {
+                    let openPercent = min(100, Int((diffAtFloat / crackFloat_kPa - 1.0) * 100 + 50))
+                    floatState = "OPEN \(openPercent)%"
+                } else {
+                    let closedPercent = Int((1.0 - diffAtFloat / crackFloat_kPa) * 100)
+                    floatState = "CLOSED \(closedPercent)%"
+                }
+            } else {
+                stringHP = activeMudDensity_kgpm3 * 0.00981 * bitTVD
+                floatState = "Full"
+            }
+
+            let differentialPressure = annulusHP - stringHP
+
+            let step = TripInStep(
+                stepIndex: steps.count,
+                bitMD_m: bitMD,
+                bitTVD_m: bitTVD,
+                stepFillVolume_m3: stepFill,
+                cumulativeFillVolume_m3: cumulativeFill,
+                expectedFillClosed_m3: expectedClosed,
+                expectedFillOpen_m3: expectedOpen,
+                stepDisplacementReturns_m3: stepDisplacement,
+                cumulativeDisplacementReturns_m3: cumulativeDisplacement,
+                ESDAtControl_kgpm3: ESDAtControl,
+                ESDAtBit_kgpm3: ESDAtBit,
+                requiredChokePressure_kPa: requiredChoke,
+                isBelowTarget: isBelowTarget,
+                differentialPressureAtBottom_kPa: differentialPressure,
+                annulusPressureAtBit_kPa: annulusHP,
+                stringPressureAtBit_kPa: stringHP,
+                floatState: floatState,
+                mudDensityAtControl_kgpm3: ESDAtControl,
+                layersAnnulus: [],
+                layersString: [],
+                layersPocket: displacedPockets
+            )
+
+            steps.append(step)
+            progressValue = Double(index + 1) / Double(depths.count)
+        }
+
+        isRunning = false
+        progressMessage = "Complete"
+
+        // Move selection to last step
+        selectedIndex = steps.count - 1
+        stepSlider = Double(selectedIndex)
     }
 }
