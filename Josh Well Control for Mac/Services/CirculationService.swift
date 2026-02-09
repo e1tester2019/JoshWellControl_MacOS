@@ -41,6 +41,10 @@ class CirculationService {
         var layersPocket: [TripLayerSnapshot] = []
         /// String state snapshot at this step
         var layersString: [TripLayerSnapshot] = []
+        /// Pump rate at this step (m³/min), adjusted for APL
+        var pumpRate_m3perMin: Double = 0
+        /// Annular pressure loss at this step (kPa)
+        var apl_kPa: Double = 0
     }
 
     struct CirculationRecord: Identifiable {
@@ -72,6 +76,8 @@ class CirculationService {
         var colorA: Double
         var rho_kgpm3: Double
         var mudID: UUID?
+        var pv_cP: Double = 0
+        var yp_Pa: Double = 0
     }
 
     // MARK: - ESD Calculation
@@ -125,7 +131,8 @@ class CirculationService {
 
         stringParcels.insert(VolumeParcel(
             volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
-            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID
+            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
+            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa
         ), at: 0)
 
         var overflow = totalVolume(stringParcels) - max(0.0, capacity_m3)
@@ -138,11 +145,13 @@ class CirculationService {
             } else {
                 expelled.append(VolumeParcel(
                     volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID
+                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
                 ))
                 stringParcels.append(VolumeParcel(
                     volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID
+                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
                 ))
                 overflow = 0
             }
@@ -163,7 +172,8 @@ class CirculationService {
 
         annulusParcels.insert(VolumeParcel(
             volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
-            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID
+            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
+            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa
         ), at: 0)
 
         var overflow = totalVolume(annulusParcels) - max(0.0, capacity_m3)
@@ -176,11 +186,13 @@ class CirculationService {
             } else {
                 overflowAtSurface.append(VolumeParcel(
                     volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID
+                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
                 ))
                 annulusParcels.append(VolumeParcel(
                     volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID
+                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
                 ))
                 overflow = 0
             }
@@ -210,7 +222,8 @@ class CirculationService {
                 volume_m3: vol,
                 colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
                 colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
-                rho_kgpm3: layer.rho_kgpm3, mudID: nil
+                rho_kgpm3: layer.rho_kgpm3, mudID: nil,
+                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0
             ))
         }
         return parcels
@@ -236,7 +249,8 @@ class CirculationService {
                 volume_m3: vol,
                 colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
                 colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
-                rho_kgpm3: layer.rho_kgpm3, mudID: nil
+                rho_kgpm3: layer.rho_kgpm3, mudID: nil,
+                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0
             ))
         }
         return parcels
@@ -279,7 +293,9 @@ class CirculationService {
                     colorG: p.colorG,
                     colorB: p.colorB,
                     colorA: p.colorA,
-                    isInAnnulus: true
+                    isInAnnulus: true,
+                    pv_cP: p.pv_cP,
+                    yp_Pa: p.yp_Pa
                 ))
                 usedFromBottom += L
             }
@@ -320,7 +336,9 @@ class CirculationService {
                     colorR: p.colorR,
                     colorG: p.colorG,
                     colorB: p.colorB,
-                    colorA: p.colorA
+                    colorA: p.colorA,
+                    pv_cP: p.pv_cP,
+                    yp_Pa: p.yp_Pa
                 ))
                 currentTop = bottom
             }
@@ -360,6 +378,84 @@ class CirculationService {
         return 0.5 * (lo + hi)
     }
 
+    // MARK: - APL from Parcels
+
+    /// Calculate total annular pressure loss from bit to surface using Bingham model.
+    /// Walks the annulus parcel stack (deep→shallow) and maps each parcel to geometry sections.
+    static func calculateAPLFromParcels(
+        annulusParcels: [VolumeParcel],
+        bitMD: Double,
+        geom: ProjectGeometryService,
+        annulusSections: [AnnulusSection],
+        drillStringSections: [DrillStringSection],
+        pumpRate_m3perMin: Double
+    ) -> Double {
+        guard pumpRate_m3perMin > 0.001 else { return 0 }
+
+        let aplService = APLCalculationService.shared
+        var totalAPL_kPa = 0.0
+
+        // Map parcels to depth ranges using same approach as snapshotsFromAnnulusParcels.
+        // Parcels are deep→shallow (index 0 = at bit). Walk from bit upward.
+        var usedFromBottom: Double = 0.0
+
+        for p in annulusParcels {
+            let v = max(0.0, p.volume_m3)
+            guard v > 1e-12 else { continue }
+
+            let L = lengthForAnnulusParcelVolumeFromBottom(
+                volume: v, bitMD: bitMD, usedFromBottom: usedFromBottom, geom: geom
+            )
+            guard L > 1e-9 else { continue }
+
+            let parcelBot = max(0, bitMD - usedFromBottom)
+            let parcelTop = max(0, bitMD - usedFromBottom - L)
+
+            // For each annulus section overlapping this parcel
+            for section in annulusSections {
+                let secTop = section.topDepth_m
+                let secBot = section.bottomDepth_m
+
+                // Overlap between parcel range and section range
+                let overlapTop = max(parcelTop, secTop)
+                let overlapBot = min(parcelBot, secBot)
+                guard overlapBot > overlapTop + 1e-9 else { continue }
+
+                let overlapLen = overlapBot - overlapTop
+                let holeID = section.innerDiameter_m
+                let midDepth = (overlapTop + overlapBot) / 2
+                let pipeOD = drillStringSections.first(where: { midDepth >= $0.topDepth_m && midDepth <= $0.bottomDepth_m })?.outerDiameter_m
+                    ?? drillStringSections.first?.outerDiameter_m ?? 0.127
+
+                if p.pv_cP > 0 || p.yp_Pa > 0 {
+                    // Bingham model
+                    totalAPL_kPa += aplService.aplBingham(
+                        length_m: overlapLen,
+                        flowRate_m3_per_min: pumpRate_m3perMin,
+                        holeDiameter_m: holeID,
+                        pipeDiameter_m: pipeOD,
+                        plasticViscosity_cP: p.pv_cP,
+                        yieldPoint_Pa: p.yp_Pa
+                    )
+                } else {
+                    // Simplified fallback
+                    totalAPL_kPa += aplService.aplSimplified(
+                        density_kgm3: p.rho_kgpm3,
+                        length_m: overlapLen,
+                        flowRate_m3_per_min: pumpRate_m3perMin,
+                        holeDiameter_m: holeID,
+                        pipeDiameter_m: pipeOD
+                    )
+                }
+            }
+
+            usedFromBottom += L
+            if usedFromBottom >= bitMD - 1e-9 { break }
+        }
+
+        return totalAPL_kPa
+    }
+
     // MARK: - Dual-Stack Preview
 
     /// Calculate the effect of pumping operations on the wellbore state.
@@ -375,7 +471,12 @@ class CirculationService {
         tvdSampler: TvdSampler,
         pumpQueue: [PumpOperation],
         pumpOutput_m3perStroke: Double = 0.01,
-        activeMudDensity_kgpm3: Double = 1200
+        activeMudDensity_kgpm3: Double = 1200,
+        maxPumpRate_m3perMin: Double = 1.0,
+        minPumpRate_m3perMin: Double = 0.2,
+        annulusSections: [AnnulusSection] = [],
+        drillStringSections: [DrillStringSection] = [],
+        progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
             return PreviewResult(
@@ -418,7 +519,8 @@ class CirculationService {
                         bottomTVD: tvdSampler.tvd(of: bitMD),
                         rho_kgpm3: layer.rho_kgpm3, deltaHydroStatic_kPa: layer.deltaHydroStatic_kPa,
                         volume_m3: 0, colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
-                        colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0
+                        colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
+                        pv_cP: layer.pv_cP, yp_Pa: layer.yp_Pa
                     ))
                 }
                 openHoleLayers.append(TripLayerSnapshot(
@@ -427,7 +529,8 @@ class CirculationService {
                     bottomTVD: tvdSampler.tvd(of: layer.bottomMD),
                     rho_kgpm3: layer.rho_kgpm3, deltaHydroStatic_kPa: layer.deltaHydroStatic_kPa,
                     volume_m3: 0, colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
-                    colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0
+                    colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
+                    pv_cP: layer.pv_cP, yp_Pa: layer.yp_Pa
                 ))
             }
         }
@@ -499,6 +602,7 @@ class CirculationService {
 
         var schedule: [CirculateOutStep] = []
         var cumulativeVolume: Double = 0
+        let totalQueueVolume = pumpQueue.reduce(0.0) { $0 + $1.volume_m3 }
         var previousSABP = initialSABP
         var stepIndex = 0
 
@@ -528,6 +632,8 @@ class CirculationService {
                 let thisStepVolume = min(stepVolume, operation.volume_m3 - operationVolumePumped)
                 operationVolumePumped += thisStepVolume
                 cumulativeVolume += thisStepVolume
+
+                progressCallback?(cumulativeVolume, totalQueueVolume)
 
                 // 1. Push pumped fluid into STRING at surface
                 var expelledAtBit: [VolumeParcel] = []
@@ -567,9 +673,74 @@ class CirculationService {
                     atDepthMD: controlMD,
                     tvdSampler: tvdSampler
                 )
-                let newSABP = max(0, (targetESD_kgpm3 - newESD) * 0.00981 * controlTVD)
-                let deltaSABP = newSABP - previousSABP
-                let cumulativeDelta = newSABP - initialSABP
+                let staticSABP = max(0, (targetESD_kgpm3 - newESD) * 0.00981 * controlTVD)
+
+                // 4. Calculate APL and determine effective choke + pump rate
+                let hasAPLGeometry = !annulusSections.isEmpty && !drillStringSections.isEmpty
+                var stepPumpRate = maxPumpRate_m3perMin
+                var stepAPL = 0.0
+                var effectiveSABP = staticSABP
+
+                if hasAPLGeometry && maxPumpRate_m3perMin > 0.001 {
+                    // Calculate APL at max pump rate
+                    stepAPL = calculateAPLFromParcels(
+                        annulusParcels: annulusParcels,
+                        bitMD: bitMD,
+                        geom: geom,
+                        annulusSections: annulusSections,
+                        drillStringSections: drillStringSections,
+                        pumpRate_m3perMin: maxPumpRate_m3perMin
+                    )
+
+                    let chokeHeadroom = staticSABP - stepAPL
+                    if chokeHeadroom >= 0 {
+                        // Sufficient headroom — pump at max rate, choke reduced by APL
+                        effectiveSABP = chokeHeadroom
+                    } else {
+                        // APL exceeds static SABP — need to reduce pump rate
+                        // Binary search for the pump rate where APL ≤ staticSABP
+                        var lo = minPumpRate_m3perMin
+                        var hi = maxPumpRate_m3perMin
+                        for _ in 0..<20 { // 20 iterations gives ~1e-6 precision
+                            let mid = 0.5 * (lo + hi)
+                            let midAPL = calculateAPLFromParcels(
+                                annulusParcels: annulusParcels,
+                                bitMD: bitMD,
+                                geom: geom,
+                                annulusSections: annulusSections,
+                                drillStringSections: drillStringSections,
+                                pumpRate_m3perMin: mid
+                            )
+                            if midAPL <= staticSABP {
+                                lo = mid
+                            } else {
+                                hi = mid
+                            }
+                        }
+                        stepPumpRate = lo
+
+                        // Recalculate APL at the found rate
+                        stepAPL = calculateAPLFromParcels(
+                            annulusParcels: annulusParcels,
+                            bitMD: bitMD,
+                            geom: geom,
+                            annulusSections: annulusSections,
+                            drillStringSections: drillStringSections,
+                            pumpRate_m3perMin: stepPumpRate
+                        )
+
+                        effectiveSABP = max(0, staticSABP - stepAPL)
+
+                        // If even min pump rate gives APL > staticSABP, use min rate with choke = 0
+                        if stepPumpRate <= minPumpRate_m3perMin + 0.001 && stepAPL > staticSABP {
+                            stepPumpRate = minPumpRate_m3perMin
+                            effectiveSABP = 0  // Can't reduce further, ECD will exceed target
+                        }
+                    }
+                }
+
+                let deltaSABP = effectiveSABP - previousSABP
+                let cumulativeDelta = effectiveSABP - initialSABP
 
                 // Log every step for smooth visual scrubbing
                 let isEndOfOperation = abs(operationVolumePumped - operation.volume_m3) < 0.01
@@ -589,16 +760,18 @@ class CirculationService {
                     volumePumped_bbl: cumulativeVolume * 6.28981,
                     strokesAtPumpOutput: cumulativeVolume / pumpOutput_m3perStroke,
                     ESDAtControl_kgpm3: newESD,
-                    requiredSABP_kPa: newSABP,
+                    requiredSABP_kPa: effectiveSABP,
                     deltaSABP_kPa: deltaSABP,
                     cumulativeDeltaSABP_kPa: cumulativeDelta,
                     description: description,
                     layersPocket: currentPocketLayers(),
-                    layersString: currentStringLayers()
+                    layersString: currentStringLayers(),
+                    pumpRate_m3perMin: stepPumpRate,
+                    apl_kPa: stepAPL
                 ))
 
                 stepIndex += 1
-                previousSABP = newSABP
+                previousSABP = effectiveSABP
             }
         }
 

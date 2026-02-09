@@ -30,6 +30,10 @@ struct TripLayerSnapshot: Codable, Equatable {
     /// If false/nil, layer is in original wellbore coordinates and needs expansion.
     var isInAnnulus: Bool?
 
+    // Rheology for APL calculation (Bingham plastic)
+    var pv_cP: Double?
+    var yp_Pa: Double?
+
     // MARK: - Convenience Initializer from LayerRow
 
     /// Create from a NumericalTripModel.LayerRow
@@ -49,6 +53,9 @@ struct TripLayerSnapshot: Codable, Equatable {
             self.colorB = color.b
             self.colorA = color.a
         }
+
+        self.pv_cP = layerRow.pv_cP > 0 ? layerRow.pv_cP : nil
+        self.yp_Pa = layerRow.yp_Pa > 0 ? layerRow.yp_Pa : nil
     }
 
     /// Direct initializer for all properties
@@ -65,7 +72,9 @@ struct TripLayerSnapshot: Codable, Equatable {
         colorG: Double? = nil,
         colorB: Double? = nil,
         colorA: Double? = nil,
-        isInAnnulus: Bool? = nil
+        isInAnnulus: Bool? = nil,
+        pv_cP: Double? = nil,
+        yp_Pa: Double? = nil
     ) {
         self.side = side
         self.topMD = topMD
@@ -80,6 +89,8 @@ struct TripLayerSnapshot: Codable, Equatable {
         self.colorB = colorB
         self.colorA = colorA
         self.isInAnnulus = isInAnnulus
+        self.pv_cP = pv_cP
+        self.yp_Pa = yp_Pa
     }
 
     // MARK: - Convert Back to LayerRow
@@ -91,7 +102,7 @@ struct TripLayerSnapshot: Codable, Equatable {
             color = NumericalTripModel.ColorRGBA(r: r, g: g, b: b, a: a)
         }
 
-        return NumericalTripModel.LayerRow(
+        var row = NumericalTripModel.LayerRow(
             side: side,
             topMD: topMD,
             bottomMD: bottomMD,
@@ -102,6 +113,9 @@ struct TripLayerSnapshot: Codable, Equatable {
             volume_m3: volume_m3,
             color: color
         )
+        row.pv_cP = pv_cP ?? 0
+        row.yp_Pa = yp_Pa ?? 0
+        return row
     }
 
     // MARK: - Export Dictionary

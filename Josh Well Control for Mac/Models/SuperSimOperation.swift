@@ -66,6 +66,8 @@ struct SuperSimOperation: Identifiable {
     // MARK: - Circulation Config
 
     var pumpQueueEncoded: Data?
+    var maxPumpRate_m3perMin: Double = 1.0
+    var minPumpRate_m3perMin: Double = 0.2
 
     // MARK: - Results
 
@@ -127,7 +129,9 @@ struct SuperSimOperation: Identifiable {
             fillMudColorB: fillMudColorB, fillMudColorA: fillMudColorA,
             isFloatedCasing: isFloatedCasing, floatSubMD_m: floatSubMD_m,
             tripInStep_m: tripInStep_m,
-            pumpQueueEncoded: pumpQueueEncoded
+            pumpQueueEncoded: pumpQueueEncoded,
+            maxPumpRate_m3perMin: maxPumpRate_m3perMin,
+            minPumpRate_m3perMin: minPumpRate_m3perMin
         )
     }
 
@@ -161,6 +165,8 @@ struct SuperSimOperation: Identifiable {
         op.floatSubMD_m = config.floatSubMD_m
         op.tripInStep_m = config.tripInStep_m
         op.pumpQueueEncoded = config.pumpQueueEncoded
+        op.maxPumpRate_m3perMin = config.maxPumpRate_m3perMin ?? 1.0
+        op.minPumpRate_m3perMin = config.minPumpRate_m3perMin ?? 0.2
         return op
     }
 }
@@ -210,5 +216,7 @@ struct SuperSimPreset: Codable, Identifiable {
         var tripInStep_m: Double
         // Circulation
         var pumpQueueEncoded: Data?
+        var maxPumpRate_m3perMin: Double?
+        var minPumpRate_m3perMin: Double?
     }
 }

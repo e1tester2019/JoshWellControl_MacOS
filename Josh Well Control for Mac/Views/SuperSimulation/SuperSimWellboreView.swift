@@ -149,84 +149,85 @@ struct SuperSimWellboreView: View {
 
     private func wellboreCanvas(_ state: SuperSimViewModel.WellboreDisplayState) -> some View {
         Canvas { ctx, size in
-            // Three-column layout: Annulus | String | Annulus
-            let gap: CGFloat = 8
-            let colW = (size.width - 2 * gap) / 3
-            let annLeft = CGRect(x: 0, y: 0, width: colW, height: size.height)
-            let strRect = CGRect(x: colW + gap, y: 0, width: colW, height: size.height)
-            let annRight = CGRect(x: 2 * (colW + gap), y: 0, width: colW, height: size.height)
+            let w = size.width
+            let h = size.height
+            let margin: CGFloat = 30 // right margin for depth ticks
 
-            // Unified vertical scale by MD
+            // Wellbore proportions
+            let wellW = w - margin
+            let pipeRatio: CGFloat = 0.35 // pipe width as fraction of wellbore
+            let pipeW = wellW * pipeRatio
+            let pipeX = (wellW - pipeW) / 2 // centered
+
+            // Depth scale
             let maxPocketMD = state.layersPocket.map { $0.bottomMD }.max() ?? state.bitMD_m
             let globalMaxMD = max(state.bitMD_m, maxPocketMD)
-            func yGlobal(_ md: Double) -> CGFloat {
+            func yMD(_ md: Double) -> CGFloat {
                 guard globalMaxMD > 0 else { return 0 }
-                return CGFloat(md / globalMaxMD) * size.height
+                return CGFloat(md / globalMaxMD) * h
             }
 
-            // Draw annulus (left & right) and string (center), above bit
-            drawColumn(&ctx, layers: state.layersAnnulus, in: annLeft, bitMD: state.bitMD_m, yGlobal: yGlobal)
-            drawColumn(&ctx, layers: state.layersString, in: strRect, bitMD: state.bitMD_m, yGlobal: yGlobal)
-            drawColumn(&ctx, layers: state.layersAnnulus, in: annRight, bitMD: state.bitMD_m, yGlobal: yGlobal)
+            let yBit = yMD(state.bitMD_m)
 
-            // Pocket (below bit): draw full width
-            for layer in state.layersPocket {
-                let yTop = yGlobal(layer.topMD)
-                let yBot = yGlobal(layer.bottomMD)
-                let yMin = min(yTop, yBot)
+            // 1. Fill annulus layers (left + right gap, above bit)
+            for layer in state.layersAnnulus {
+                let yTop = floor(yMD(layer.topMD))
+                let yBot = ceil(yMD(layer.bottomMD))
+                let lh = max(1, yBot - yTop)
                 let col = fillColor(layer: layer)
-                let top = floor(yMin)
-                let bottom = ceil(max(yTop, yBot))
-                var sub = CGRect(x: 0, y: top, width: size.width, height: max(1, bottom - top))
-                sub = sub.insetBy(dx: 0, dy: -0.25)
-                ctx.fill(Path(sub), with: .color(col))
+                // Left annulus
+                ctx.fill(Path(CGRect(x: 0, y: yTop, width: pipeX, height: lh)), with: .color(col))
+                // Right annulus
+                ctx.fill(Path(CGRect(x: pipeX + pipeW, y: yTop, width: wellW - pipeX - pipeW, height: lh)), with: .color(col))
             }
 
-            // Headers
-            ctx.draw(Text("Annulus").font(.caption2), at: CGPoint(x: annLeft.midX, y: 12))
-            ctx.draw(Text("String").font(.caption2), at: CGPoint(x: strRect.midX, y: 12))
-            ctx.draw(Text("Annulus").font(.caption2), at: CGPoint(x: annRight.midX, y: 12))
+            // 2. Fill string layers (center pipe, above bit)
+            for layer in state.layersString {
+                let yTop = floor(yMD(layer.topMD))
+                let yBot = ceil(yMD(min(layer.bottomMD, state.bitMD_m)))
+                let lh = max(1, yBot - yTop)
+                let col = fillColor(layer: layer)
+                ctx.fill(Path(CGRect(x: pipeX, y: yTop, width: pipeW, height: lh)), with: .color(col))
+            }
 
-            // Bit marker
-            let yBit = yGlobal(state.bitMD_m)
-            ctx.fill(Path(CGRect(x: 0, y: yBit - 0.5, width: size.width, height: 1)),
+            // 3. Pocket layers (full width below bit — open hole, no pipe)
+            for layer in state.layersPocket {
+                let yTop = floor(yMD(layer.topMD))
+                let yBot = ceil(yMD(layer.bottomMD))
+                let lh = max(1, yBot - yTop)
+                let col = fillColor(layer: layer)
+                ctx.fill(Path(CGRect(x: 0, y: yTop, width: wellW, height: lh)), with: .color(col))
+            }
+
+            // 4. Pipe walls (dark lines from surface to bit)
+            if state.bitMD_m > 0 {
+                let pipeLineW: CGFloat = 2
+                ctx.fill(Path(CGRect(x: pipeX - pipeLineW / 2, y: 0, width: pipeLineW, height: yBit)),
+                         with: .color(.black))
+                ctx.fill(Path(CGRect(x: pipeX + pipeW - pipeLineW / 2, y: 0, width: pipeLineW, height: yBit)),
+                         with: .color(.black))
+            }
+
+            // 5. Bit marker (horizontal line at bit depth)
+            ctx.fill(Path(CGRect(x: pipeX - 4, y: yBit - 1.5, width: pipeW + 8, height: 3)),
                      with: .color(.accentColor.opacity(0.9)))
 
-            // Depth ticks
+            // 6. Hole wall outline
+            ctx.stroke(Path(CGRect(x: 0, y: 0, width: wellW, height: h)),
+                       with: .color(.primary.opacity(0.6)), lineWidth: 1)
+
+            // 7. Depth ticks
             let tickCount = 6
             for i in 0...tickCount {
                 let md = Double(i) / Double(tickCount) * globalMaxMD
-                let yy = yGlobal(md)
-                ctx.fill(Path(CGRect(x: size.width - 10, y: yy - 0.5, width: 10, height: 1)),
+                let yy = yMD(md)
+                ctx.fill(Path(CGRect(x: wellW, y: yy - 0.5, width: 6, height: 1)),
                          with: .color(.secondary))
                 ctx.draw(Text(String(format: "%.0f", md)).font(.system(size: 9)),
-                         at: CGPoint(x: size.width - 12, y: yy - 6), anchor: .trailing)
+                         at: CGPoint(x: wellW + 8, y: yy), anchor: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Drawing Helpers
-
-    private func drawColumn(
-        _ ctx: inout GraphicsContext,
-        layers: [TripLayerSnapshot],
-        in rect: CGRect,
-        bitMD: Double,
-        yGlobal: (Double) -> CGFloat
-    ) {
-        for layer in layers where layer.bottomMD <= bitMD {
-            let yTop = yGlobal(layer.topMD)
-            let yBot = yGlobal(layer.bottomMD)
-            let yMin = min(yTop, yBot)
-            let col = fillColor(layer: layer)
-            let top = floor(yMin)
-            let bottom = ceil(max(yTop, yBot))
-            var sub = CGRect(x: rect.minX, y: top, width: rect.width, height: max(1, bottom - top))
-            sub = sub.insetBy(dx: 0, dy: -0.25)
-            ctx.fill(Path(sub), with: .color(col))
-        }
-        ctx.stroke(Path(rect), with: .color(.black.opacity(0.8)), lineWidth: 1)
     }
 
     private func fillColor(layer: TripLayerSnapshot) -> Color {

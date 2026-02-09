@@ -66,6 +66,8 @@ struct SuperSimReportData {
         let cumulativeFillVolume_m3: Double
         let cumulativeDisplacementReturns_m3: Double
         let floatState: String
+        let layersAnnulus: [LayerData]
+        let layersString: [LayerData]
         let layersPocket: [LayerData]
     }
 
@@ -77,6 +79,10 @@ struct SuperSimReportData {
         let description: String
         let layersAnnulus: [LayerData]
         let layersString: [LayerData]
+        let layersPocket: [LayerData]
+        let bitMD_m: Double
+        let pumpRate_m3perMin: Double
+        let apl_kPa: Double
     }
 
     struct LayerData {
@@ -207,11 +213,8 @@ class SuperSimHTMLGenerator {
                 </div>
             </div>
             <div class="wellbore-display">
-                <div class="well-columns-container">
-                    <div class="well-column"><div class="column-header">Annulus</div><canvas id="g-ann-l" width="80" height="400"></canvas></div>
-                    <div class="well-column string-column"><div class="column-header">String</div><canvas id="g-str" width="80" height="400"></canvas></div>
-                    <div class="well-column"><div class="column-header">Annulus</div><canvas id="g-ann-r" width="80" height="400"></canvas></div>
-                </div>
+                <div id="global-op-label" class="op-activity-label"></div>
+                <canvas id="g-well" width="200" height="500"></canvas>
             </div>
             <div class="step-info" id="global-info">
                 <div class="info-row"><span>Operation:</span> <span id="gi-op">--</span></div>
@@ -231,6 +234,7 @@ class SuperSimHTMLGenerator {
             </div>
             <div id="container-esd" class="chart-container"><canvas id="chart-esd"></canvas></div>
             <div id="container-sabp" class="chart-container" style="display:none"><canvas id="chart-sabp"></canvas></div>
+            <div id="chart-values" class="chart-value-label"></div>
         </section>
         """
     }
@@ -316,11 +320,8 @@ class SuperSimHTMLGenerator {
                 </div>
             </div>
             <div class="wellbore-display">
-                <div class="well-columns-container">
-                    <div class="well-column"><div class="column-header">Annulus</div><canvas id="\(opId)-ann-l" width="80" height="400"></canvas></div>
-                    <div class="well-column string-column"><div class="column-header">String</div><canvas id="\(opId)-str" width="80" height="400"></canvas></div>
-                    <div class="well-column"><div class="column-header">Annulus</div><canvas id="\(opId)-ann-r" width="80" height="400"></canvas></div>
-                </div>
+                <div id="\(opId)-op-label" class="op-activity-label">\(op.type.rawValue)</div>
+                <canvas id="\(opId)-well" width="200" height="500"></canvas>
             </div>
             <div class="step-info" id="\(opId)-info"></div>
         </section>
@@ -425,9 +426,11 @@ class SuperSimHTMLGenerator {
         <thead><tr>
             <th onclick="sortOpTable('\(opId)',0)">Vol Pumped (m&sup3;) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',1)">ESD (kg/m&sup3;) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',2)">Required BP (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',2)">Choke (kPa) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',3)">&Delta;BP (kPa) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',4)">Action</th>
+            <th onclick="sortOpTable('\(opId)',4)">Pump Rate (m&sup3;/min) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',5)">APL (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',6)">Action</th>
         </tr></thead><tbody>
         """
         for (i, s) in steps.enumerated() {
@@ -445,6 +448,8 @@ class SuperSimHTMLGenerator {
                 <td>\(f1(s.ESDAtControl_kgpm3))</td>
                 <td>\(f0(s.requiredSABP_kPa))</td>
                 <td class="\(s.deltaSABP_kPa > 0.5 ? "delta-up" : s.deltaSABP_kPa < -0.5 ? "delta-down" : "")">\(deltaStr)</td>
+                <td>\(f2(s.pumpRate_m3perMin))</td>
+                <td>\(f0(s.apl_kPa))</td>
                 <td>\(esc(s.description))</td>
             </tr>
             """
@@ -482,14 +487,14 @@ class SuperSimHTMLGenerator {
                 if i > 0 { json += "," }
                 let deltaP = (s.annulusPressureAtBit_kPa + s.requiredChokePressure_kPa) - s.stringPressureAtBit_kPa
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"choke":\(s.requiredChokePressure_kPa),"hpA":\(s.annulusPressureAtBit_kPa),"hpS":\(s.stringPressureAtBit_kPa),"dp":\(deltaP),"fill":\(s.cumulativeFillVolume_m3),"disp":\(s.cumulativeDisplacementReturns_m3),"fs":"\(escJSON(s.floatState))","lp":\(layersJSON(s.layersPocket))}
+                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"choke":\(s.requiredChokePressure_kPa),"hpA":\(s.annulusPressureAtBit_kPa),"hpS":\(s.stringPressureAtBit_kPa),"dp":\(deltaP),"fill":\(s.cumulativeFillVolume_m3),"disp":\(s.cumulativeDisplacementReturns_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .circulate:
             for (i, s) in (op.circulationSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 json += """
-                {"vol":\(s.volumePumped_m3),"esd":\(s.ESDAtControl_kgpm3),"bp":\(s.requiredSABP_kPa),"dbp":\(s.deltaSABP_kPa),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString))}
+                {"vol":\(s.volumePumped_m3),"md":\(s.bitMD_m),"esd":\(s.ESDAtControl_kgpm3),"bp":\(s.requiredSABP_kPa),"dbp":\(s.deltaSABP_kPa),"pr":\(s.pumpRate_m3perMin),"apl":\(s.apl_kPa),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         }
@@ -586,9 +591,9 @@ class SuperSimHTMLGenerator {
         .slider-container button{padding:2px 10px;border-radius:4px;border:1px solid var(--border);background:var(--card);cursor:pointer;}
         .playback-controls{display:flex;gap:8px;}
         .playback-controls button,.playback-controls select{padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);cursor:pointer;}
-        .wellbore-display{display:flex;justify-content:center;}
-        .well-columns-container{display:flex;gap:4px;}
-        .well-column{text-align:center;} .column-header{font-size:0.75em;color:var(--muted);margin-bottom:4px;}
+        .wellbore-display{display:flex;flex-direction:column;align-items:center;}
+        .wellbore-display canvas{max-width:200px;}
+        .op-activity-label{font-size:0.95em;font-weight:600;color:var(--brand);padding:4px 14px;margin-bottom:6px;border-radius:6px;background:rgba(37,99,235,0.08);text-align:center;min-height:1.4em;}
         .step-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px 16px;margin-top:12px;padding:8px;background:#fafafa;border-radius:8px;font-size:0.85em;}
         .info-row{display:flex;gap:6px;} .info-row span:first-child{color:var(--muted);}
 
@@ -598,6 +603,8 @@ class SuperSimHTMLGenerator {
         .chart-tab.active{background:var(--brand);color:#fff;border-color:var(--brand);}
         .chart-container{position:relative;width:100%;height:300px;}
         .chart-container canvas{width:100%;height:100%;}
+        .chart-value-label{font-size:0.85em;color:var(--muted);padding:6px 0;display:flex;gap:16px;flex-wrap:wrap;justify-content:center;}
+        .chart-value-label span{font-weight:500;color:var(--text);}
 
         /* Tables */
         .table-controls{display:flex;gap:8px;margin-bottom:8px;}
@@ -678,9 +685,12 @@ class SuperSimHTMLGenerator {
             setText('gi-esd', s.esd.toFixed(1) + ' kg/m\\u00B3');
             setText('gi-sabp-s', s.ss.toFixed(0) + ' kPa');
             setText('gi-sabp-d', s.sd.toFixed(0) + ' kPa');
-            drawWell('g-ann-l', s.la.concat(s.lp), s.md);
-            drawWell('g-str', s.ls || [], s.md);
-            drawWell('g-ann-r', s.la.concat(s.lp), s.md);
+            const gLabel = document.getElementById('global-op-label');
+            if (gLabel) {
+                const activityText = s.ot === 'Trip Out' ? '\\u25B2 Tripping Out' : s.ot === 'Trip In' ? '\\u25BC Tripping In' : '\\u27F3 Circulating';
+                gLabel.textContent = activityText + ' \\u2014 ' + s.ol;
+            }
+            drawWellbore('g-well', s.la, s.ls || [], s.lp || [], s.md);
             drawChartMarker();
         }
         function globalTogglePlay() {
@@ -711,13 +721,7 @@ class SuperSimHTMLGenerator {
             if (lbl) lbl.textContent = 'Step ' + (st.idx + 1) + ' / ' + od.steps.length;
 
             // Draw wellbore
-            const annLayers = s.la || s.lp || [];
-            const strLayers = s.ls || [];
-            const pocketLayers = s.lp || [];
-            const allAnn = annLayers.concat(pocketLayers.filter(p => !annLayers.some(a => a.t === p.t && a.b === p.b)));
-            drawWell(id + '-ann-l', od.type === 'Circulate' ? annLayers : allAnn, s.md);
-            drawWell(id + '-str', strLayers, s.md);
-            drawWell(id + '-ann-r', od.type === 'Circulate' ? annLayers : allAnn, s.md);
+            drawWellbore(id + '-well', s.la || [], s.ls || [], s.lp || [], s.md || 0);
 
             // Step info
             const info = document.getElementById(id + '-info');
@@ -737,8 +741,10 @@ class SuperSimHTMLGenerator {
                 } else {
                     html = infoRow('Vol Pumped', s.vol.toFixed(2) + ' m\\u00B3') +
                            infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +
-                           infoRow('Required BP', s.bp.toFixed(0) + ' kPa') +
+                           infoRow('Choke', s.bp.toFixed(0) + ' kPa') +
                            infoRow('\\u0394BP', s.dbp.toFixed(0) + ' kPa') +
+                           infoRow('Pump Rate', s.pr.toFixed(2) + ' m\\u00B3/min') +
+                           infoRow('APL', s.apl.toFixed(0) + ' kPa') +
                            infoRow('Action', s.desc);
                 }
                 info.innerHTML = html;
@@ -782,27 +788,57 @@ class SuperSimHTMLGenerator {
         });
 
         // --- Wellbore Drawing ---
-        function drawWell(canvasId, layers, bitMD) {
+        function drawWellbore(canvasId, annLayers, strLayers, pocketLayers, bitMD) {
             const c = document.getElementById(canvasId); if (!c) return;
             const ctx = c.getContext('2d');
             ctx.clearRect(0, 0, c.width, c.height);
             const h = c.height, w = c.width;
-            // Draw all layers (including pocket below bit)
-            for (const l of layers) {
+            const pipeRatio = 0.35;
+            const pipeW = w * pipeRatio;
+            const pipeX = (w - pipeW) / 2;
+            const yBit = (bitMD / maxDepth) * h;
+
+            // 1. Annulus layers (left + right strips, above bit)
+            for (const l of annLayers) {
                 const y1 = (l.t / maxDepth) * h;
                 const y2 = (l.b / maxDepth) * h;
+                const ly = Math.floor(y1), lh = Math.max(1, Math.ceil(y2 - y1));
                 ctx.fillStyle = l.c || '#999';
-                ctx.fillRect(0, Math.floor(y1), w, Math.max(1, Math.ceil(y2 - y1)));
+                ctx.fillRect(0, ly, pipeX, lh);
+                ctx.fillRect(pipeX + pipeW, ly, w - pipeX - pipeW, lh);
             }
-            // Open hole background below bit
-            const yBit = (bitMD / maxDepth) * h;
-            if (yBit < h) {
-                ctx.fillStyle = 'rgba(60,60,60,0.15)';
-                ctx.fillRect(0, yBit, w, h - yBit);
+
+            // 2. String layers (center pipe, above bit)
+            for (const l of strLayers) {
+                const y1 = (l.t / maxDepth) * h;
+                const y2 = (Math.min(l.b, bitMD) / maxDepth) * h;
+                const ly = Math.floor(y1), lh = Math.max(1, Math.ceil(y2 - y1));
+                ctx.fillStyle = l.c || '#999';
+                ctx.fillRect(pipeX, ly, pipeW, lh);
             }
-            ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.strokeRect(0, 0, w, h);
-            // Bit marker
-            ctx.fillStyle = '#0066cc'; ctx.fillRect(0, yBit - 1, w, 2);
+
+            // 3. Pocket layers (full width below bit — open hole)
+            for (const l of pocketLayers) {
+                const y1 = (l.t / maxDepth) * h;
+                const y2 = (l.b / maxDepth) * h;
+                const ly = Math.floor(y1), lh = Math.max(1, Math.ceil(y2 - y1));
+                ctx.fillStyle = l.c || '#999';
+                ctx.fillRect(0, ly, w, lh);
+            }
+
+            // 4. Pipe walls (surface to bit)
+            if (bitMD > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(pipeX - 1, 0, 2, yBit);
+                ctx.fillRect(pipeX + pipeW - 1, 0, 2, yBit);
+            }
+
+            // 5. Bit marker
+            ctx.fillStyle = '#0066cc';
+            ctx.fillRect(pipeX - 4, yBit - 1.5, pipeW + 8, 3);
+
+            // 6. Hole outline
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeRect(0, 0, w, h);
         }
 
         // --- Charts (HiDPI) ---
@@ -879,6 +915,19 @@ class SuperSimHTMLGenerator {
             const x = pad.l + (gIdx / Math.max(1, gSteps.length - 1)) * pw;
             ctx.strokeStyle = 'rgba(0,102,204,0.7)'; ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + h - pad.t - pad.b); ctx.stroke();
+            // Update chart value label
+            const s = gSteps[gIdx];
+            const valEl = document.getElementById('chart-values');
+            if (s && valEl) {
+                const totalESD = controlTVD > 0 ? s.esd + s.ss / (0.00981 * controlTVD) : s.esd;
+                valEl.innerHTML = s.ol + ' \\u2014 ' +
+                    'Step <span>' + s.gi + '</span> \\u2022 ' +
+                    'MD <span>' + s.md.toFixed(0) + ' m</span> \\u2022 ' +
+                    'ESD <span>' + s.esd.toFixed(1) + ' kg/m\\u00B3</span> \\u2022 ' +
+                    'ESD+BP <span>' + totalESD.toFixed(1) + ' kg/m\\u00B3</span> \\u2022 ' +
+                    'Static SABP <span>' + s.ss.toFixed(0) + ' kPa</span> \\u2022 ' +
+                    'Dynamic SABP <span>' + s.sd.toFixed(0) + ' kPa</span>';
+            }
         }
 
         function drawESD() {

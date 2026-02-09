@@ -28,6 +28,8 @@ final class NumericalTripModel: @unchecked Sendable {
         var topMD: Double
         var bottomMD: Double
         var color: ColorRGBA? = nil
+        var pv_cP: Double = 0
+        var yp_Pa: Double = 0
     }
 
     /// Sendable snapshot of fluid layer data for crossing concurrency boundaries
@@ -84,7 +86,7 @@ final class NumericalTripModel: @unchecked Sendable {
             for i in 0..<stack.layers.count {
                 let L = stack.layers[i]
                 if md > L.topMD + eps && md < L.bottomMD - eps {
-                    let right = NumericalTripModel.Layer(rho: L.rho, topMD: md, bottomMD: L.bottomMD, color: L.color)
+                    let right = NumericalTripModel.Layer(rho: L.rho, topMD: md, bottomMD: L.bottomMD, color: L.color, pv_cP: L.pv_cP, yp_Pa: L.yp_Pa)
                     stack.layers[i].bottomMD = md
                     stack.layers.insert(right, at: i + 1)
                     return
@@ -94,11 +96,11 @@ final class NumericalTripModel: @unchecked Sendable {
 
         /// Paint (set density) for all sublayers fully contained within [fromMD, toMD].
         static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double) {
-            paintInterval(stack, fromMD, toMD, rho, color: nil)
+            paintInterval(stack, fromMD, toMD, rho, color: nil, pv_cP: 0, yp_Pa: 0)
         }
 
         /// Color-aware variant; when `color` is provided, painted sublayers also carry a composition color.
-        static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double, color: NumericalTripModel.ColorRGBA?) {
+        static func paintInterval(_ stack: NumericalTripModel.Stack, _ fromMD: Double, _ toMD: Double, _ rho: Double, color: NumericalTripModel.ColorRGBA?, pv_cP: Double = 0, yp_Pa: Double = 0) {
             let a = fromMD, b = toMD
             if b <= a { return }
             splitAt(stack, a)
@@ -107,6 +109,8 @@ final class NumericalTripModel: @unchecked Sendable {
                 if stack.layers[i].topMD >= a && stack.layers[i].bottomMD <= b {
                     stack.layers[i].rho = rho
                     stack.layers[i].color = color
+                    stack.layers[i].pv_cP = pv_cP
+                    stack.layers[i].yp_Pa = yp_Pa
                 }
             }
             stack.ensureInvariants(bitMD: stack.layers.last?.bottomMD ?? b)
@@ -151,7 +155,7 @@ final class NumericalTripModel: @unchecked Sendable {
             ensureInvariants(bitMD: bitMD)
         }
 
-        func addBackfillFromSurface(rho: Double, volume_m3: Double, bitMD: Double, color: ColorRGBA? = nil) {
+        func addBackfillFromSurface(rho: Double, volume_m3: Double, bitMD: Double, color: ColorRGBA? = nil, pv_cP: Double = 0, yp_Pa: Double = 0) {
             guard volume_m3 > 1e-12 else { return }
             let len = geom.lengthForAnnulusVolume_m(0.0, volume_m3)
             guard len > 1e-12 else { return }
@@ -163,7 +167,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 && layers[0].color == color
 
             if !canMerge {
-                layers.insert(Layer(rho: rho, topMD: 0, bottomMD: 0, color: color), at: 0)
+                layers.insert(Layer(rho: rho, topMD: 0, bottomMD: 0, color: color, pv_cP: pv_cP, yp_Pa: yp_Pa), at: 0)
             }
             layers[0].bottomMD += len
             for i in 1..<layers.count {
@@ -268,6 +272,8 @@ final class NumericalTripModel: @unchecked Sendable {
         var deltaHydroStatic_kPa: Double
         var volume_m3: Double
         var color: ColorRGBA? = nil
+        var pv_cP: Double = 0
+        var yp_Pa: Double = 0
     }
 
     struct Totals {
@@ -321,6 +327,10 @@ final class NumericalTripModel: @unchecked Sendable {
         var backfillDensity_kgpm3: Double
         var backfillColor: ColorRGBA? = nil
         var baseMudColor: ColorRGBA? = nil
+        var backfillPV_cP: Double = 0
+        var backfillYP_Pa: Double = 0
+        var baseMudPV_cP: Double = 0
+        var baseMudYP_Pa: Double = 0
         var fixedBackfillVolume_m3: Double = 0
         var switchToBaseAfterFixed: Bool = true
         var targetESDAtTD_kgpm3: Double
@@ -403,7 +413,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let color: ColorRGBA? = (l.colorR != nil)
                     ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1)
                     : nil
-                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color)
+                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color, pv_cP: l.pv_cP ?? 0, yp_Pa: l.yp_Pa ?? 0)
             }
             annulusStack.ensureInvariants(bitMD: bitMD)
         } else {
@@ -411,7 +421,9 @@ final class NumericalTripModel: @unchecked Sendable {
             let ann = projectSnapshot.annulusLayers
             for l in ann {
                 let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
-                StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+                let pvCp = (l.mudDial600 != nil && l.mudDial300 != nil) ? (l.mudDial600! - l.mudDial300!) : 0.0
+                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * 0.4788) : 0.0
+                StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor, pv_cP: pvCp, yp_Pa: ypPa)
             }
         }
 
@@ -422,7 +434,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let color: ColorRGBA? = (l.colorR != nil)
                     ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1)
                     : nil
-                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color)
+                return Layer(rho: l.rho_kgpm3, topMD: l.topMD, bottomMD: l.bottomMD, color: color, pv_cP: l.pv_cP ?? 0, yp_Pa: l.yp_Pa ?? 0)
             }
             stringStack.ensureInvariants(bitMD: bitMD)
         } else {
@@ -430,7 +442,9 @@ final class NumericalTripModel: @unchecked Sendable {
             let str = projectSnapshot.stringLayers
             for l in str {
                 let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
-                StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor)
+                let pvCp = (l.mudDial600 != nil && l.mudDial300 != nil) ? (l.mudDial600! - l.mudDial300!) : 0.0
+                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * 0.4788) : 0.0
+                StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor, pv_cP: pvCp, yp_Pa: ypPa)
             }
         }
 
@@ -475,6 +489,8 @@ final class NumericalTripModel: @unchecked Sendable {
             // Remove from bottom of string
             let drainRho = bottomLayer.rho
             let drainColor = bottomLayer.color
+            let drainPV = bottomLayer.pv_cP
+            let drainYP = bottomLayer.yp_Pa
             stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
             if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
                 stringStack.layers.removeLast()
@@ -507,7 +523,7 @@ final class NumericalTripModel: @unchecked Sendable {
             if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
                 annulusStack.layers[annulusStack.layers.count - 1].bottomMD = bitMD
             } else {
-                annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: bitMD, color: drainColor))
+                annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: bitMD, color: drainColor, pv_cP: drainPV, yp_Pa: drainYP))
             }
             annulusStack.ensureInvariants(bitMD: bitMD)
 
@@ -583,7 +599,7 @@ final class NumericalTripModel: @unchecked Sendable {
             for l in customPocket where l.bottomMD > bitMD + 1e-9 {
                 let top = max(l.topMD, bitMD)
                 let color: ColorRGBA? = (l.colorR != nil) ? ColorRGBA(r: l.colorR ?? 0, g: l.colorG ?? 0, b: l.colorB ?? 0, a: l.colorA ?? 1) : nil
-                pocket.append(Layer(rho: l.rho_kgpm3, topMD: top, bottomMD: l.bottomMD, color: color))
+                pocket.append(Layer(rho: l.rho_kgpm3, topMD: top, bottomMD: l.bottomMD, color: color, pv_cP: l.pv_cP ?? 0, yp_Pa: l.yp_Pa ?? 0))
             }
         }
         let initPocketRows = snapshotPocket(pocket, bitMD: bitMD)
@@ -660,7 +676,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
                 let dTVD = max(0.0, tvdBot - tvdTop)
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
-                rows.append(.init(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: 0, color: L.color))
+                var row = LayerRow(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: 0, color: L.color)
+                row.pv_cP = L.pv_cP
+                row.yp_Pa = L.yp_Pa
+                rows.append(row)
             }
             return rows
         }
@@ -675,7 +694,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 let dTVD = max(0.0, tvdBot - tvdTop)
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 let vol = (sideLabel == "Annulus") ? geom.volumeInAnnulus_m3(a, b) : geom.volumeInString_m3(a, b)
-                rows.append(.init(side: sideLabel, topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color))
+                var row = LayerRow(side: sideLabel, topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
+                row.pv_cP = L.pv_cP
+                row.yp_Pa = L.yp_Pa
+                rows.append(row)
             }
             return rows
         }
@@ -684,13 +706,13 @@ final class NumericalTripModel: @unchecked Sendable {
             for r in rows { tvd += max(0, r.bottomTVD - r.topTVD); dP += r.deltaHydroStatic_kPa }
             return Totals(count: rows.count, tvd_m: tvd, deltaP_kPa: dP)
         }
-        func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil) {
+        func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil, pv_cP: Double = 0, yp_Pa: Double = 0) {
             guard len > 1e-9 else { return }
             let top = bitMD
             let bot = bitMD + len
             // Check if we can merge with the last pocket layer (same density and color)
             if let last = pocket.last, abs(last.rho - rho) < 1e-6, abs(last.bottomMD - top) < 1e-9 {
-                // When merging, blend colors by length
+                // When merging, blend colors and PV/YP by length
                 let lastLen = last.bottomMD - last.topMD
                 let newLen = len
                 let totalLen = lastLen + newLen
@@ -705,9 +727,11 @@ final class NumericalTripModel: @unchecked Sendable {
                 } else {
                     mergedColor = last.color ?? color
                 }
-                pocket[pocket.count-1] = Layer(rho: rho, topMD: last.topMD, bottomMD: bot, color: mergedColor)
+                let mergedPV = totalLen > 1e-9 ? (last.pv_cP * lastLen + pv_cP * newLen) / totalLen : pv_cP
+                let mergedYP = totalLen > 1e-9 ? (last.yp_Pa * lastLen + yp_Pa * newLen) / totalLen : yp_Pa
+                pocket[pocket.count-1] = Layer(rho: rho, topMD: last.topMD, bottomMD: bot, color: mergedColor, pv_cP: mergedPV, yp_Pa: mergedYP)
             } else {
-                pocket.append(Layer(rho: rho, topMD: top, bottomMD: bot, color: color))
+                pocket.append(Layer(rho: rho, topMD: top, bottomMD: bot, color: color, pv_cP: pv_cP, yp_Pa: yp_Pa))
             }
         }
 
@@ -834,6 +858,8 @@ final class NumericalTripModel: @unchecked Sendable {
                     // Remove from string bottom
                     let drainRho = bottomLayer.rho
                     let drainColor = bottomLayer.color
+                    let drainPV = bottomLayer.pv_cP
+                    let drainYP = bottomLayer.yp_Pa
                     stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
                     if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
                         stringStack.layers.removeLast()
@@ -866,7 +892,7 @@ final class NumericalTripModel: @unchecked Sendable {
                     if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
                         annulusStack.layers[annulusStack.layers.count - 1].bottomMD = oldBitMD
                     } else {
-                        annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: oldBitMD, color: drainColor))
+                        annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: oldBitMD, color: drainColor, pv_cP: drainPV, yp_Pa: drainYP))
                     }
                     annulusStack.ensureInvariants(bitMD: oldBitMD)
                 }
@@ -885,12 +911,14 @@ final class NumericalTripModel: @unchecked Sendable {
             // Carve @ bottom for this step
             var lenA = 0.0, volA = 0.0, massA = 0.0
 
-            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?) {
+            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?, blendedPV_cP: Double, blendedYP_Pa: Double) {
                 var remaining = lenReq
                 var totLen = 0.0, totVol = 0.0, totMass = 0.0
                 // For color blending: track volume-weighted color components
                 var colorR = 0.0, colorG = 0.0, colorB = 0.0, colorA = 0.0
                 var colorVol = 0.0
+                // For PV/YP blending: volume-weighted
+                var pvAccum = 0.0, ypAccum = 0.0, rheoVol = 0.0
 
                 while remaining > 1e-9, !stack.layers.isEmpty {
                     var last = stack.layers.removeLast()
@@ -912,6 +940,13 @@ final class NumericalTripModel: @unchecked Sendable {
                         colorVol += segVol
                     }
 
+                    // Accumulate volume-weighted PV/YP
+                    if segVol > 1e-12 {
+                        pvAccum += last.pv_cP * segVol
+                        ypAccum += last.yp_Pa * segVol
+                        rheoVol += segVol
+                    }
+
                     last.bottomMD -= take
                     if last.bottomMD - last.topMD > 1e-12 { stack.layers.append(last) }
                     remaining -= take
@@ -925,13 +960,17 @@ final class NumericalTripModel: @unchecked Sendable {
                     a: colorA / colorVol
                 ) : nil
 
-                return (totLen, totMass, totVol, blendedColor)
+                let blendedPV = rheoVol > 1e-12 ? pvAccum / rheoVol : 0.0
+                let blendedYP = rheoVol > 1e-12 ? ypAccum / rheoVol : 0.0
+
+                return (totLen, totMass, totVol, blendedColor, blendedPV, blendedYP)
             }
 
             var colorA: ColorRGBA? = nil
             var colorS: ColorRGBA? = nil
             var lenS = 0.0, volS = 0.0, massS = 0.0
             var mPocket = 0.0, vPocket = 0.0, lenPocket = 0.0
+            var pvA = 0.0, ypA = 0.0, pvS = 0.0, ypS = 0.0
 
             if !floatClosed {
                 // Float OPEN: String mud drains out the bottom (stays stationary relative to hole)
@@ -941,9 +980,11 @@ final class NumericalTripModel: @unchecked Sendable {
                 // Carve from both string AND annulus
                 let s = takeBottomByLen(stringStack, isAnnulus: false, lenReq: dL)
                 lenS = s.len; volS = s.vol; massS = s.mass; colorS = s.blendedColor
+                pvS = s.blendedPV_cP; ypS = s.blendedYP_Pa
 
                 let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
+                pvA = a.blendedPV_cP; ypA = a.blendedYP_Pa
 
                 // Steel displacement goes to annulus side (added to pocket)
                 let vSteel = geom.steelDisplacement_m2(oldBitMD) * dL
@@ -963,6 +1004,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 // Only carve from annulus
                 let a = takeBottomByLen(annulusStack, isAnnulus: true, lenReq: dL)
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
+                pvA = a.blendedPV_cP; ypA = a.blendedYP_Pa
 
                 // Full pipe OD volume (not just steel) - the void left by the pipe
                 let vOD = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)
@@ -979,6 +1021,17 @@ final class NumericalTripModel: @unchecked Sendable {
             }
 
             let rhoMix = (vPocket > 1e-12) ? (mPocket / vPocket) : input.baseMudDensity_kgpm3
+
+            // Blend PV/YP for mixed pocket (volume-weighted)
+            let mixedPV: Double
+            let mixedYP: Double
+            if !floatClosed, vPocket > 1e-12 {
+                mixedPV = (pvA * volA + pvS * volS) / vPocket
+                mixedYP = (ypA * volA + ypS * volS) / vPocket
+            } else {
+                mixedPV = pvA
+                mixedYP = ypA
+            }
 
             // Blend colors for mixed pocket (float OPEN mixes string + annulus colors)
             let mixedColor: ColorRGBA? = {
@@ -1015,7 +1068,7 @@ final class NumericalTripModel: @unchecked Sendable {
             }
 
             // Append pocket at new bit with blended color
-            addPocketBelowBit(rho: rhoMix, len: lenPocket, bitMD: bitMD, color: mixedColor)
+            addPocketBelowBit(rho: rhoMix, len: lenPocket, bitMD: bitMD, color: mixedColor, pv_cP: mixedPV, yp_Pa: mixedYP)
 
             // Surface backfill required
             // Float CLOSED (DP Wet): backfill = pipe OD volume (capacity + displacement)
@@ -1039,18 +1092,18 @@ final class NumericalTripModel: @unchecked Sendable {
                     var useKill = min(need, backfillRemaining)
                     if !input.switchToBaseAfterFixed { useKill = need }
                     if useKill > 1e-12 {
-                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD, color: input.backfillColor)
+                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa)
                         backfillRemaining -= useKill
                         need -= useKill
                     }
                     if need > 1e-12, input.switchToBaseAfterFixed {
-                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.baseMudColor)
+                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.baseMudColor, pv_cP: input.baseMudPV_cP, yp_Pa: input.baseMudYP_Pa)
                         need = 0.0
                     }
                 } else {
                     // No fixed volume specified: use backfillDensity for ALL backfill
                     // This is the common case where user selects a backfill mud in the UI
-                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.backfillColor)
+                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa)
                     need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)

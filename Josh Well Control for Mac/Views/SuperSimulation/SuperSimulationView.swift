@@ -88,60 +88,64 @@ struct SuperSimulationView: View {
                 Divider()
 
                 // Run + preset controls
-                HStack {
-                    Button {
-                        viewModel.runAll(project: project)
-                    } label: {
-                        Label("Run All", systemImage: "play.fill")
-                    }
-                    .disabled(viewModel.operations.isEmpty || viewModel.isRunning)
-
+                VStack(spacing: 4) {
                     if viewModel.isRunning {
-                        ProgressView(value: viewModel.overallProgress)
-                            .frame(width: 80)
-                        Text(viewModel.progressMessage)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            ProgressView(value: viewModel.overallProgress)
+                            Text(viewModel.progressMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
 
-                    Spacer()
+                    HStack {
+                        Button {
+                            viewModel.runAll(project: project)
+                        } label: {
+                            Label("Run All", systemImage: "play.fill")
+                        }
+                        .disabled(viewModel.operations.isEmpty || viewModel.isRunning)
 
-                    // Save preset
-                    Button {
-                        showSavePreset = true
-                    } label: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(viewModel.operations.isEmpty)
-                    .help("Save operations as preset")
-                    .popover(isPresented: $showSavePreset) {
-                        savePresetPopover
-                    }
+                        Spacer()
 
-                    // Load preset
-                    Button {
-                        viewModel.loadPresetList()
-                        showLoadPreset = true
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Load saved preset")
-                    .popover(isPresented: $showLoadPreset) {
-                        loadPresetPopover
-                    }
+                        // Save preset
+                        Button {
+                            showSavePreset = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.operations.isEmpty)
+                        .help("Save operations as preset")
+                        .popover(isPresented: $showSavePreset) {
+                            savePresetPopover
+                        }
 
-                    // Export HTML report
-                    Button {
-                        viewModel.exportHTMLReport(project: project)
-                    } label: {
-                        Image(systemName: "doc.richtext")
+                        // Load preset
+                        Button {
+                            viewModel.loadPresetList()
+                            showLoadPreset = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Load saved preset")
+                        .popover(isPresented: $showLoadPreset) {
+                            loadPresetPopover
+                        }
+
+                        // Export HTML report
+                        Button {
+                            viewModel.exportHTMLReport(project: project)
+                        } label: {
+                            Image(systemName: "doc.richtext")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.totalGlobalSteps == 0)
+                        .help("Export HTML report")
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(viewModel.totalGlobalSteps == 0)
-                    .help("Export HTML report")
                 }
                 .padding(8)
             }

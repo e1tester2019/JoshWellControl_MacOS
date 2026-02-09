@@ -306,6 +306,24 @@ class SuperSimViewModel {
         let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
         let activeDensity = project.activeMud?.density_kgm3 ?? 1200
 
+        // Capture mud rheology for PV/YP lookup (used by trip out for backfill/base mud)
+        var mudRheologyMap: [UUID: MudRheology] = [:]
+        for mud in (project.muds ?? []) {
+            let pvCp: Double
+            let ypPa: Double
+            if let d600 = mud.dial600, let d300 = mud.dial300 {
+                pvCp = d600 - d300
+                ypPa = max(0, (d300 - pvCp) * 0.4788)
+            } else if let pv = mud.pv_Pa_s, let yp = mud.yp_Pa {
+                pvCp = pv * 1000.0 // Pa·s → cP
+                ypPa = yp
+            } else {
+                pvCp = 0
+                ypPa = 0
+            }
+            mudRheologyMap[mud.id] = MudRheology(pv_cP: pvCp, yp_Pa: ypPa)
+        }
+
         // Ensure controlTVD_m is set from the first operation's controlMD
         if controlTVD_m == 0, let firstControlMD = operations.first?.controlMD_m, firstControlMD > 0 {
             controlTVD_m = tvdSampler.tvd(of: firstControlMD)
@@ -339,13 +357,20 @@ class SuperSimViewModel {
                     self.operations[i].inputState = currentState
                     self.operations[i].status = .running
                     self.currentRunningIndex = i
-                    self.progressMessage = "Running \(op.type.rawValue) (\(i + 1)/\(totalOps))..."
+                    switch op.type {
+                    case .tripOut:
+                        self.progressMessage = "Trip Out \(String(format: "%.0f", op.startMD_m))→\(String(format: "%.0f", op.endMD_m))m (\(i + 1)/\(totalOps))..."
+                    case .tripIn:
+                        self.progressMessage = "Trip In \(String(format: "%.0f", op.startMD_m))→\(String(format: "%.0f", op.endMD_m))m (\(i + 1)/\(totalOps))..."
+                    case .circulate:
+                        self.progressMessage = "Circulating @ \(String(format: "%.0f", op.startMD_m))m (\(i + 1)/\(totalOps))..."
+                    }
                 }
 
                 let result: WellboreStateSnapshot
                 switch op.type {
                 case .tripOut:
-                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity)
+                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap)
 
                 case .tripIn:
                     result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections)
@@ -375,6 +400,11 @@ class SuperSimViewModel {
 
     // MARK: - Trip Out Runner
 
+    private struct MudRheology: Sendable {
+        let pv_cP: Double
+        let yp_Pa: Double
+    }
+
     private func runTripOut(
         _ op: SuperSimOperation,
         state: WellboreStateSnapshot,
@@ -382,7 +412,8 @@ class SuperSimViewModel {
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
         projectSnapshot: NumericalTripModel.ProjectSnapshot,
-        activeDensity: Double
+        activeDensity: Double,
+        mudRheologyMap: [UUID: MudRheology] = [:]
     ) async -> WellboreStateSnapshot {
         let geom = ProjectGeometryService(
             annulus: annulusSections,
@@ -397,6 +428,10 @@ class SuperSimViewModel {
             backfillColor = NumericalTripModel.ColorRGBA(r: r, g: g, b: b, a: op.backfillColorA ?? 1)
         }
 
+        // Look up PV/YP from mud rheology map
+        let backfillRheo = op.backfillMudID.flatMap { mudRheologyMap[$0] }
+        let baseRheo = op.baseMudID.flatMap { mudRheologyMap[$0] }
+
         var input = NumericalTripModel.TripInput(
             tvdOfMd: { md in tvdSampler.tvd(of: md) },
             shoeTVD_m: shoeTVD,
@@ -407,6 +442,10 @@ class SuperSimViewModel {
             baseMudDensity_kgpm3: op.baseMudDensity_kgpm3,
             backfillDensity_kgpm3: op.backfillDensity_kgpm3,
             backfillColor: backfillColor,
+            backfillPV_cP: backfillRheo?.pv_cP ?? 0,
+            backfillYP_Pa: backfillRheo?.yp_Pa ?? 0,
+            baseMudPV_cP: baseRheo?.pv_cP ?? 0,
+            baseMudYP_Pa: baseRheo?.yp_Pa ?? 0,
             targetESDAtTD_kgpm3: op.targetESD_kgpm3,
             initialSABP_kPa: state.SABP_kPa,
             tripSpeed_m_per_s: op.tripSpeed_m_per_s
@@ -441,15 +480,15 @@ class SuperSimViewModel {
 
         let pocketLayers = lastStep.layersPocket.map { lr -> TripLayerSnapshot in
             let s = TripLayerSnapshot(from: lr)
-            return TripLayerSnapshot(side: "pocket", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: false)
+            return TripLayerSnapshot(side: "pocket", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: false, pv_cP: s.pv_cP, yp_Pa: s.yp_Pa)
         }
         let annulusLayers = lastStep.layersAnnulus.map { lr -> TripLayerSnapshot in
             let s = TripLayerSnapshot(from: lr)
-            return TripLayerSnapshot(side: "annulus", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: true)
+            return TripLayerSnapshot(side: "annulus", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: true, pv_cP: s.pv_cP, yp_Pa: s.yp_Pa)
         }
         let stringLayers = lastStep.layersString.map { lr -> TripLayerSnapshot in
             let s = TripLayerSnapshot(from: lr)
-            return TripLayerSnapshot(side: "string", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: false)
+            return TripLayerSnapshot(side: "string", topMD: s.topMD, bottomMD: s.bottomMD, topTVD: s.topTVD, bottomTVD: s.bottomTVD, rho_kgpm3: s.rho_kgpm3, deltaHydroStatic_kPa: s.deltaHydroStatic_kPa, volume_m3: s.volume_m3, colorR: s.colorR, colorG: s.colorG, colorB: s.colorB, colorA: s.colorA, isInAnnulus: false, pv_cP: s.pv_cP, yp_Pa: s.yp_Pa)
         }
 
         // ESD at controlMD (not at TD) for consistent state chaining
@@ -599,7 +638,18 @@ class SuperSimViewModel {
             geom: geom,
             tvdSampler: tvdSampler,
             pumpQueue: pumpQueue,
-            activeMudDensity_kgpm3: activeDensity
+            activeMudDensity_kgpm3: activeDensity,
+            maxPumpRate_m3perMin: op.maxPumpRate_m3perMin,
+            minPumpRate_m3perMin: op.minPumpRate_m3perMin,
+            annulusSections: annulusSections,
+            drillStringSections: drillString,
+            progressCallback: { [weak self] pumped, total in
+                guard let self else { return }
+                let pct = total > 0 ? Int((pumped / total) * 100) : 0
+                DispatchQueue.main.async {
+                    self.progressMessage = "Circulating... \(String(format: "%.1f", pumped))/\(String(format: "%.1f", total)) m\u{00B3} (\(pct)%)"
+                }
+            }
         )
 
         // Store results
@@ -664,6 +714,8 @@ class SuperSimViewModel {
         let SABP_kPa: Double          // Static back pressure
         let dynamicSABP_kPa: Double   // Dynamic back pressure (while moving/pumping)
         let controlTVD_m: Double       // TVD at control depth for SABP → ESD conversion
+        let pumpRate_m3perMin: Double  // Pump rate (circulation only, 0 for trips)
+        let apl_kPa: Double           // Annular pressure loss (circulation only, 0 for trips)
 
         /// ESD including the contribution of static back pressure
         var totalESD_kgpm3: Double {
@@ -691,7 +743,9 @@ class SuperSimViewModel {
                         ESDAtControl_kgpm3: esd,
                         SABP_kPa: step.SABP_kPa,
                         dynamicSABP_kPa: step.SABP_Dynamic_kPa,
-                        controlTVD_m: controlTVD_m
+                        controlTVD_m: controlTVD_m,
+                        pumpRate_m3perMin: 0,
+                        apl_kPa: 0
                     ))
                     globalIdx += 1
                 }
@@ -706,12 +760,17 @@ class SuperSimViewModel {
                         ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
                         SABP_kPa: step.requiredChokePressure_kPa,
                         dynamicSABP_kPa: step.requiredChokePressure_kPa,
-                        controlTVD_m: controlTVD_m
+                        controlTVD_m: controlTVD_m,
+                        pumpRate_m3perMin: 0,
+                        apl_kPa: 0
                     ))
                     globalIdx += 1
                 }
             case .circulate:
                 for step in circulationResults[op.id] ?? [] {
+                    // Static SABP = choke needed if not pumping (before APL reduction)
+                    // Dynamic SABP = actual choke while pumping (static - APL)
+                    let staticSABP = step.requiredSABP_kPa + step.apl_kPa
                     points.append(TimelineChartPoint(
                         globalIndex: globalIdx,
                         operationIndex: opIdx,
@@ -719,9 +778,11 @@ class SuperSimViewModel {
                         operationLabel: label,
                         bitMD_m: op.startMD_m,
                         ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
-                        SABP_kPa: step.requiredSABP_kPa,
+                        SABP_kPa: staticSABP,
                         dynamicSABP_kPa: step.requiredSABP_kPa,
-                        controlTVD_m: controlTVD_m
+                        controlTVD_m: controlTVD_m,
+                        pumpRate_m3perMin: step.pumpRate_m3perMin,
+                        apl_kPa: step.apl_kPa
                     ))
                     globalIdx += 1
                 }
@@ -1105,7 +1166,46 @@ class SuperSimViewModel {
             case .tripIn:
                 if let steps = tripInResults[op.id] {
                     tripInSteps = steps.map { step in
-                        SuperSimReportData.TripInStep(
+                        // Split pocket layers at bit into annulus (above) and pocket (below)
+                        let bitMD = step.bitMD_m
+                        var annulusLayers: [SuperSimReportData.LayerData] = []
+                        var pocketLayers: [SuperSimReportData.LayerData] = []
+                        for layer in step.layersPocket {
+                            let ld = snapshotToReportData(layer)
+                            if layer.bottomMD <= bitMD {
+                                annulusLayers.append(ld)
+                            } else if layer.topMD >= bitMD {
+                                pocketLayers.append(ld)
+                            } else {
+                                // Straddles bit — split
+                                annulusLayers.append(SuperSimReportData.LayerData(
+                                    topMD: layer.topMD, bottomMD: bitMD,
+                                    topTVD: layer.topTVD, bottomTVD: layer.bottomTVD,
+                                    rho_kgpm3: layer.rho_kgpm3,
+                                    colorR: layer.colorR, colorG: layer.colorG,
+                                    colorB: layer.colorB, colorA: layer.colorA
+                                ))
+                                pocketLayers.append(SuperSimReportData.LayerData(
+                                    topMD: bitMD, bottomMD: layer.bottomMD,
+                                    topTVD: layer.topTVD, bottomTVD: layer.bottomTVD,
+                                    rho_kgpm3: layer.rho_kgpm3,
+                                    colorR: layer.colorR, colorG: layer.colorG,
+                                    colorB: layer.colorB, colorA: layer.colorA
+                                ))
+                            }
+                        }
+                        // String layer: fill mud from surface to bit
+                        var stringLayers: [SuperSimReportData.LayerData] = []
+                        if bitMD > 0 {
+                            stringLayers.append(SuperSimReportData.LayerData(
+                                topMD: 0, bottomMD: bitMD,
+                                topTVD: 0, bottomTVD: bitMD,
+                                rho_kgpm3: op.fillMudDensity_kgpm3,
+                                colorR: op.fillMudColorR, colorG: op.fillMudColorG,
+                                colorB: op.fillMudColorB, colorA: op.fillMudColorA
+                            ))
+                        }
+                        return SuperSimReportData.TripInStep(
                             bitMD_m: step.bitMD_m,
                             bitTVD_m: step.bitTVD_m,
                             ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
@@ -1116,22 +1216,32 @@ class SuperSimViewModel {
                             cumulativeFillVolume_m3: step.cumulativeFillVolume_m3,
                             cumulativeDisplacementReturns_m3: step.cumulativeDisplacementReturns_m3,
                             floatState: step.floatState,
-                            layersPocket: step.layersPocket.map { snapshotToReportData($0) }
+                            layersAnnulus: annulusLayers,
+                            layersString: stringLayers,
+                            layersPocket: pocketLayers
                         )
                     }
                 }
 
             case .circulate:
+                let circBitMD = op.inputState?.bitMD_m ?? op.startMD_m
                 if let steps = circulationResults[op.id] {
                     circulationSteps = steps.map { step in
-                        SuperSimReportData.CirculationStep(
+                        // Split full column into annulus (above bit) and pocket (at/below bit)
+                        let annulusOnly = step.layersPocket.filter { $0.bottomMD <= circBitMD + 0.01 }
+                        let pocketOnly = step.layersPocket.filter { $0.topMD >= circBitMD - 0.01 }
+                        return SuperSimReportData.CirculationStep(
                             volumePumped_m3: step.volumePumped_m3,
                             ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
                             requiredSABP_kPa: step.requiredSABP_kPa,
                             deltaSABP_kPa: step.deltaSABP_kPa,
                             description: step.description,
-                            layersAnnulus: step.layersPocket.map { snapshotToReportData($0) },
-                            layersString: step.layersString.map { snapshotToReportData($0) }
+                            layersAnnulus: annulusOnly.map { snapshotToReportData($0) },
+                            layersString: step.layersString.map { snapshotToReportData($0) },
+                            layersPocket: pocketOnly.map { snapshotToReportData($0) },
+                            bitMD_m: circBitMD,
+                            pumpRate_m3perMin: step.pumpRate_m3perMin,
+                            apl_kPa: step.apl_kPa
                         )
                     }
                 }

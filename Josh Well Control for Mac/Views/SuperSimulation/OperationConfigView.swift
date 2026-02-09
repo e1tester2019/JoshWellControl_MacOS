@@ -92,9 +92,12 @@ struct OperationConfigView: View {
                     .frame(width: 120)
             }
             GridRow {
-                Text("Trip Speed (m/s):")
+                Text("Trip Speed (m/min):")
                     .frame(width: 140, alignment: .trailing)
-                TextField("Speed", value: $operation.tripSpeed_m_per_s, format: .number)
+                TextField("Speed", value: Binding(
+                    get: { operation.tripSpeed_m_per_s * 60 },
+                    set: { operation.tripSpeed_m_per_s = $0 / 60 }
+                ), format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
             }
@@ -237,6 +240,20 @@ struct OperationConfigView: View {
                     Text("Control MD (m):")
                         .frame(width: 140, alignment: .trailing)
                     TextField("Control", value: $operation.controlMD_m, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Max Pump Rate (m\u{00B3}/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("Max", value: $operation.maxPumpRate_m3perMin, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Min Pump Rate (m\u{00B3}/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("Min", value: $operation.minPumpRate_m3perMin, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
                 }

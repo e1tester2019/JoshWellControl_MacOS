@@ -15,6 +15,7 @@ struct SuperSimTimelineChart: View {
     enum ChartType: String, CaseIterable {
         case esd = "ESD"
         case backPressure = "Back Pressure"
+        case pumpRate = "Pump Rate"
     }
 
     @State private var chartType: ChartType = .esd
@@ -26,16 +27,16 @@ struct SuperSimTimelineChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
-            HStack {
+            HStack(spacing: 20) {
                 Picker("", selection: $chartType) {
                     ForEach(ChartType.allCases, id: \.self) { type in
                         Text(type.rawValue).tag(type)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 200)
+                .frame(width: 320)
 
-                Spacer()
+                Spacer(minLength: 20)
 
                 if let point = hoveredPoint {
                     hoverInfo(point)
@@ -79,6 +80,9 @@ struct SuperSimTimelineChart: View {
                 case .backPressure:
                     backPressureChart(data)
                         .layoutPriority(1)
+                case .pumpRate:
+                    pumpRateChart(data)
+                        .layoutPriority(1)
                 }
             }
         }
@@ -107,6 +111,9 @@ struct SuperSimTimelineChart: View {
             case .backPressure:
                 legendSwatch(color: .red, label: "Static", style: .line)
                 legendSwatch(color: .red.opacity(0.5), label: "Dynamic", style: .dashed)
+            case .pumpRate:
+                legendSwatch(color: .purple, label: "Pump Rate", style: .line)
+                legendSwatch(color: .indigo, label: "APL", style: .dashed)
             }
         }
         .font(.caption2)
@@ -302,6 +309,64 @@ struct SuperSimTimelineChart: View {
         return applyScrollAndHover(chart, data: data)
     }
 
+    // MARK: - Pump Rate Chart
+
+    @ChartContentBuilder
+    private func pumpRateLines(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some ChartContent {
+        ForEach(data) { point in
+            LineMark(
+                x: .value("Step", point.globalIndex),
+                y: .value("Pump Rate (m\u{00B3}/min)", point.pumpRate_m3perMin),
+                series: .value("Series", "Pump Rate")
+            )
+            .foregroundStyle(.purple)
+            .interpolationMethod(.linear)
+            .lineStyle(StrokeStyle(lineWidth: 2))
+        }
+    }
+
+    @ChartContentBuilder
+    private func aplLines(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some ChartContent {
+        ForEach(data) { point in
+            LineMark(
+                x: .value("Step", point.globalIndex),
+                y: .value("APL (kPa)", point.apl_kPa),
+                series: .value("Series", "APL")
+            )
+            .foregroundStyle(.indigo)
+            .interpolationMethod(.linear)
+            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
+        }
+    }
+
+    @ChartContentBuilder
+    private func pumpRateHoverMarks(_ point: SuperSimViewModel.TimelineChartPoint) -> some ChartContent {
+        hoverMarks(point, yValue: point.pumpRate_m3perMin, yLabel: "Pump Rate (m\u{00B3}/min)")
+    }
+
+    private func pumpRateChart(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
+        // Pump rate on primary Y axis
+        let allRates = data.map(\.pumpRate_m3perMin)
+        let yMin = max(0, (allRates.min() ?? 0) - 0.1)
+        let yMax = (allRates.max() ?? 1.5) + 0.1
+
+        let chart = Chart {
+            operationBands(yMin: yMin, yMax: yMax)
+            pumpRateLines(data)
+            sliderMark(data, chartType: .pumpRate)
+            if let point = hoveredPoint {
+                pumpRateHoverMarks(point)
+            }
+        }
+        .chartXAxisLabel("Step")
+        .chartYAxisLabel("Pump Rate (m\u{00B3}/min)")
+        .chartXScale(domain: .automatic(includesZero: true))
+        .chartYScale(domain: yMin...yMax)
+        .frame(minHeight: 500, maxHeight: .infinity)
+
+        return applyScrollAndHover(chart, data: data)
+    }
+
     // MARK: - Slider Mark with Tooltip
 
     @ChartContentBuilder
@@ -312,7 +377,7 @@ struct SuperSimTimelineChart: View {
             RuleMark(x: .value("Slider", sliderIdx))
                 .foregroundStyle(Color.accentColor.opacity(0.5))
                 .lineStyle(StrokeStyle(lineWidth: 2))
-                .annotation(position: .top, alignment: .leading, spacing: 4) {
+                .annotation(position: .topLeading, alignment: .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(point.operationLabel)
                             .font(.caption2)
@@ -330,6 +395,12 @@ struct SuperSimTimelineChart: View {
                             Text("S: \(String(format: "%.0f", point.SABP_kPa)) kPa")
                                 .font(.caption2.bold())
                             Text("D: \(String(format: "%.0f", point.dynamicSABP_kPa)) kPa")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        case .pumpRate:
+                            Text("Rate: \(String(format: "%.2f", point.pumpRate_m3perMin)) m\u{00B3}/min")
+                                .font(.caption2.bold())
+                            Text("APL: \(String(format: "%.0f", point.apl_kPa)) kPa")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -417,6 +488,12 @@ struct SuperSimTimelineChart: View {
                 Text("Static: \(String(format: "%.0f", point.SABP_kPa)) kPa")
                     .monospacedDigit()
                 Text("Dynamic: \(String(format: "%.0f", point.dynamicSABP_kPa)) kPa")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            case .pumpRate:
+                Text("Rate: \(String(format: "%.2f", point.pumpRate_m3perMin)) m\u{00B3}/min")
+                    .monospacedDigit()
+                Text("APL: \(String(format: "%.0f", point.apl_kPa)) kPa")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
