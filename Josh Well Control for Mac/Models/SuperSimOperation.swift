@@ -12,12 +12,16 @@ enum OperationType: String, Codable, CaseIterable {
     case tripOut = "Trip Out"
     case tripIn = "Trip In"
     case circulate = "Circulate"
+    case reamOut = "Ream Out"
+    case reamIn = "Ream In"
 
     var icon: String {
         switch self {
         case .tripOut: return "arrow.up.circle.fill"
         case .tripIn: return "arrow.down.circle.fill"
         case .circulate: return "arrow.2.squarepath"
+        case .reamOut: return "arrow.up.arrow.down.circle.fill"
+        case .reamIn: return "arrow.down.arrow.up.circle.fill"
         }
     }
 }
@@ -48,6 +52,9 @@ struct SuperSimOperation: Identifiable {
     var step_m: Double = 10.0
     var crackFloat_kPa: Double = 2100
     var initialSABP_kPa: Double = 0
+    var switchToActiveAfterDisplacement: Bool = false
+    var useOverrideDisplacementVolume: Bool = false
+    var overrideDisplacementVolume_m3: Double = 0
 
     // MARK: - Trip In Config
 
@@ -62,12 +69,19 @@ struct SuperSimOperation: Identifiable {
     var isFloatedCasing: Bool = false
     var floatSubMD_m: Double = 0
     var tripInStep_m: Double = 100
+    var tripInSpeed_m_per_s: Double = 0  // 0 = no surge calculation
 
     // MARK: - Circulation Config
 
     var pumpQueueEncoded: Data?
     var maxPumpRate_m3perMin: Double = 1.0
     var minPumpRate_m3perMin: Double = 0.2
+
+    // MARK: - Ream Config (shared for Ream In / Ream Out)
+
+    var reamPumpRate_m3perMin: Double = 0.5
+    var reamMudID: UUID?
+    var reamMudDensity_kgpm3: Double = 1200
 
     // MARK: - Results
 
@@ -101,6 +115,8 @@ struct SuperSimOperation: Identifiable {
         case .tripOut: return "\(startStr)m → \(endStr)m"
         case .tripIn: return "\(startStr)m → \(endStr)m"
         case .circulate: return "@ \(startStr)m"
+        case .reamOut: return "\(startStr)m → \(endStr)m"
+        case .reamIn: return "\(startStr)m → \(endStr)m"
         }
     }
 
@@ -121,6 +137,9 @@ struct SuperSimOperation: Identifiable {
             backfillColorB: backfillColorB, backfillColorA: backfillColorA,
             tripSpeed_m_per_s: tripSpeed_m_per_s, step_m: step_m,
             crackFloat_kPa: crackFloat_kPa, initialSABP_kPa: initialSABP_kPa,
+            switchToActiveAfterDisplacement: switchToActiveAfterDisplacement,
+            useOverrideDisplacementVolume: useOverrideDisplacementVolume,
+            overrideDisplacementVolume_m3: overrideDisplacementVolume_m3,
             pipeOD_m: pipeOD_m, pipeID_m: pipeID_m,
             fillMudID: fillMudID,
             fillMudName: muds.first(where: { $0.id == fillMudID })?.name,
@@ -128,10 +147,13 @@ struct SuperSimOperation: Identifiable {
             fillMudColorR: fillMudColorR, fillMudColorG: fillMudColorG,
             fillMudColorB: fillMudColorB, fillMudColorA: fillMudColorA,
             isFloatedCasing: isFloatedCasing, floatSubMD_m: floatSubMD_m,
-            tripInStep_m: tripInStep_m,
+            tripInStep_m: tripInStep_m, tripInSpeed_m_per_s: tripInSpeed_m_per_s,
             pumpQueueEncoded: pumpQueueEncoded,
             maxPumpRate_m3perMin: maxPumpRate_m3perMin,
-            minPumpRate_m3perMin: minPumpRate_m3perMin
+            minPumpRate_m3perMin: minPumpRate_m3perMin,
+            reamPumpRate_m3perMin: reamPumpRate_m3perMin,
+            reamMudID: reamMudID,
+            reamMudDensity_kgpm3: reamMudDensity_kgpm3
         )
     }
 
@@ -153,6 +175,9 @@ struct SuperSimOperation: Identifiable {
         op.step_m = config.step_m
         op.crackFloat_kPa = config.crackFloat_kPa
         op.initialSABP_kPa = config.initialSABP_kPa
+        op.switchToActiveAfterDisplacement = config.switchToActiveAfterDisplacement ?? false
+        op.useOverrideDisplacementVolume = config.useOverrideDisplacementVolume ?? false
+        op.overrideDisplacementVolume_m3 = config.overrideDisplacementVolume_m3 ?? 0
         op.pipeOD_m = config.pipeOD_m
         op.pipeID_m = config.pipeID_m
         op.fillMudID = config.fillMudID
@@ -164,9 +189,13 @@ struct SuperSimOperation: Identifiable {
         op.isFloatedCasing = config.isFloatedCasing
         op.floatSubMD_m = config.floatSubMD_m
         op.tripInStep_m = config.tripInStep_m
+        op.tripInSpeed_m_per_s = config.tripInSpeed_m_per_s ?? 0
         op.pumpQueueEncoded = config.pumpQueueEncoded
         op.maxPumpRate_m3perMin = config.maxPumpRate_m3perMin ?? 1.0
         op.minPumpRate_m3perMin = config.minPumpRate_m3perMin ?? 0.2
+        op.reamPumpRate_m3perMin = config.reamPumpRate_m3perMin ?? 0.5
+        op.reamMudID = config.reamMudID
+        op.reamMudDensity_kgpm3 = config.reamMudDensity_kgpm3 ?? 1200
         return op
     }
 }
@@ -201,6 +230,9 @@ struct SuperSimPreset: Codable, Identifiable {
         var step_m: Double
         var crackFloat_kPa: Double
         var initialSABP_kPa: Double
+        var switchToActiveAfterDisplacement: Bool?
+        var useOverrideDisplacementVolume: Bool?
+        var overrideDisplacementVolume_m3: Double?
         // Trip In
         var pipeOD_m: Double
         var pipeID_m: Double
@@ -214,9 +246,14 @@ struct SuperSimPreset: Codable, Identifiable {
         var isFloatedCasing: Bool
         var floatSubMD_m: Double
         var tripInStep_m: Double
+        var tripInSpeed_m_per_s: Double?
         // Circulation
         var pumpQueueEncoded: Data?
         var maxPumpRate_m3perMin: Double?
         var minPumpRate_m3perMin: Double?
+        // Ream
+        var reamPumpRate_m3perMin: Double?
+        var reamMudID: UUID?
+        var reamMudDensity_kgpm3: Double?
     }
 }

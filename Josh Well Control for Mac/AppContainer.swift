@@ -23,7 +23,8 @@ enum AppContainer {
     // v12: Added equipment registry and enhanced rentals (RentalCategory, RentalEquipment, RentalEquipmentIssue, VendorContact, VendorAddress)
     // v13: Added ShiftEntry for shift calendar feature
     // v14: Added FormationTop for directional dashboard formation overlay
-    private static let schemaVersion = 14
+    // v15: Added surge pressure fields to TripInSimulationStep
+    private static let schemaVersion = 15
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     /// Tracks whether the app is running in a degraded state (in-memory only)

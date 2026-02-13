@@ -57,6 +57,9 @@ struct TripInSimulationReportData {
     var totalFillVolume: Double { steps.last?.cumulativeFillVolume_m3 ?? 0 }
     var totalDisplacementReturns: Double { steps.last?.cumulativeDisplacementReturns_m3 ?? 0 }
     var depthBelowTarget: Double? { steps.first(where: { $0.isBelowTarget })?.bitMD_m }
+    var hasSurge: Bool { steps.contains { $0.surgePressure_kPa > 0 } }
+    var maxSurgePressure: Double { steps.map { $0.surgePressure_kPa }.max() ?? 0 }
+    var maxDynamicESD: Double { steps.map { $0.dynamicESDAtControl_kgpm3 }.max() ?? 0 }
 }
 
 /// Cross-platform HTML generator for trip-in simulation reports
@@ -215,6 +218,18 @@ class TripInSimulationHTMLGenerator {
                             <div class="metric-value">\(data.depthBelowTarget != nil ? String(format: "%.0f m", data.depthBelowTarget!) : "N/A")</div>
                         </div>
                     </div>
+                    \(data.hasSurge ? """
+                    <div class="metrics-grid secondary">
+                        <div class="metric-box small">
+                            <div class="metric-title">Max Surge Pressure</div>
+                            <div class="metric-value">\(String(format: "%.0f kPa", data.maxSurgePressure))</div>
+                        </div>
+                        <div class="metric-box small">
+                            <div class="metric-title">Max Dynamic ESD</div>
+                            <div class="metric-value">\(String(format: "%.0f kg/m³", data.maxDynamicESD))</div>
+                        </div>
+                    </div>
+                    """ : "")
                 </section>
 
                 <!-- Interactive Wellbore Visualization -->
@@ -249,6 +264,10 @@ class TripInSimulationHTMLGenerator {
                         <div class="info-row"><span>HP Str @ Bit:</span> <span id="info-hp-str">--</span></div>
                         <div class="info-row"><span>ΔP @ Float:</span> <span id="info-delta-p">--</span></div>
                         <div class="info-row"><span>Float State:</span> <span id="info-float">--</span></div>
+                        \(data.hasSurge ? """
+                        <div class="info-row"><span>Surge:</span> <span id="info-surge">--</span></div>
+                        <div class="info-row"><span>Dyn ESD:</span> <span id="info-desd">--</span></div>
+                        """ : "")
                     </div>
                 </section>
 
@@ -296,16 +315,22 @@ class TripInSimulationHTMLGenerator {
                                     <th onclick="sortTable(6)">ΔP@Float ⇅</th>
                                     <th onclick="sortTable(7)">Fill (m³) ⇅</th>
                                     <th onclick="sortTable(8)">Disp (m³) ⇅</th>
+                                    \(data.hasSurge ? """
+                                    <th onclick="sortTable(9)">Surge (kPa) ⇅</th>
+                                    <th onclick="sortTable(10)">Dyn ESD ⇅</th>
+                                    <th onclick="sortTable(11)">Float ⇅</th>
+                                    """ : """
                                     <th onclick="sortTable(9)">Float ⇅</th>
+                                    """)
                                 </tr>
                             </thead>
                             <tbody>
-                                \(generateTableRows(data.steps))
+                                \(generateTableRows(data.steps, hasSurge: data.hasSurge))
                             </tbody>
                         </table>
                     </div>
                     <div class="table-legend">
-                        Units: MD/TVD (m), ESD (kg/m³), Choke/HP/ΔP (kPa), Fill/Disp (m³ cumulative)
+                        Units: MD/TVD (m), ESD/Dyn ESD (kg/m³), Choke/HP/ΔP/Surge (kPa), Fill/Disp (m³ cumulative)
                     </div>
                 </section>
             </main>
@@ -599,6 +624,10 @@ class TripInSimulationHTMLGenerator {
             const trueDeltaP = (step.hpAnn + step.choke) - step.hpStr;
             document.getElementById('info-delta-p').textContent = trueDeltaP.toFixed(0) + ' kPa';
             document.getElementById('info-float').textContent = step.floatState;
+            if (document.getElementById('info-surge')) {
+                document.getElementById('info-surge').textContent = step.surge.toFixed(0) + ' kPa';
+                document.getElementById('info-desd').textContent = step.desd.toFixed(0) + ' kg/m³';
+            }
 
             drawPocketCanvas(step);
         }
@@ -958,6 +987,8 @@ class TripInSimulationHTMLGenerator {
                 "deltaP": \(step.differentialPressureAtBottom_kPa),
                 "cumFill": \(step.cumulativeFillVolume_m3),
                 "cumDisp": \(step.cumulativeDisplacementReturns_m3),
+                "surge": \(step.surgePressure_kPa),
+                "desd": \(step.dynamicESDAtControl_kgpm3),
                 "floatState": "\(step.floatState)",
                 "layersPocket": \(layersToJSON(step.layersPocket))
             }
@@ -984,7 +1015,7 @@ class TripInSimulationHTMLGenerator {
         return json
     }
 
-    private func generateTableRows(_ steps: [TripInSimulationViewModel.TripInStep]) -> String {
+    private func generateTableRows(_ steps: [TripInSimulationViewModel.TripInStep], hasSurge: Bool) -> String {
         var html = ""
         for step in steps {
             // True ΔP at float = (Ann HP + Choke) - String HP
@@ -1000,6 +1031,7 @@ class TripInSimulationHTMLGenerator {
                 <td>\(String(format: "%.0f", trueDeltaP))</td>
                 <td>\(String(format: "%.3f", step.cumulativeFillVolume_m3))</td>
                 <td>\(String(format: "%.3f", step.cumulativeDisplacementReturns_m3))</td>
+                \(hasSurge ? "<td>\(String(format: "%.0f", step.surgePressure_kPa))</td><td>\(String(format: "%.0f", step.dynamicESDAtControl_kgpm3))</td>" : "")
                 <td>\(step.floatState)</td>
             </tr>
             """

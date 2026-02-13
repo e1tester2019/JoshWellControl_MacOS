@@ -15,6 +15,23 @@ struct OperationConfigView: View {
         (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Steel displacement volume (OD volume - ID volume) over the trip out range
+    private var computedDisplacementVolume: Double {
+        let annulusSections = project.annulus ?? []
+        let drillString = project.drillString ?? []
+        guard !annulusSections.isEmpty, !drillString.isEmpty else { return 0 }
+        let tvdSampler = TvdSampler(project: project)
+        let geom = ProjectGeometryService(
+            annulus: annulusSections,
+            string: drillString,
+            currentStringBottomMD: operation.startMD_m,
+            mdToTvd: { md in tvdSampler.tvd(of: md) }
+        )
+        let odVolume = geom.volumeOfStringOD_m3(operation.endMD_m, operation.startMD_m)
+        let idVolume = geom.volumeInString_m3(operation.endMD_m, operation.startMD_m)
+        return max(0, odVolume - idVolume)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuration")
@@ -27,6 +44,10 @@ struct OperationConfigView: View {
                 tripInConfig
             case .circulate:
                 circulateConfig
+            case .reamOut:
+                reamOutConfig
+            case .reamIn:
+                reamInConfig
             }
         }
     }
@@ -115,6 +136,40 @@ struct OperationConfigView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
             }
+            GridRow {
+                Text("")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Switch to active after displacement", isOn: $operation.switchToActiveAfterDisplacement)
+                    .controlSize(.small)
+                    .help("Pump backfill mud for the drill string displacement volume, then switch to active mud for the remaining pit gain portion")
+                    .onChange(of: operation.switchToActiveAfterDisplacement) { _, newValue in
+                        if newValue && operation.overrideDisplacementVolume_m3 < 0.001 {
+                            operation.overrideDisplacementVolume_m3 = computedDisplacementVolume
+                        }
+                    }
+            }
+            if operation.switchToActiveAfterDisplacement {
+                GridRow {
+                    Text("")
+                        .frame(width: 140, alignment: .trailing)
+                    HStack(spacing: 4) {
+                        Text("Vol:")
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2f", computedDisplacementVolume))
+                            .monospacedDigit()
+                            .foregroundStyle(.blue)
+                            .help("Computed steel displacement volume")
+                        Toggle("Override:", isOn: $operation.useOverrideDisplacementVolume)
+                            .controlSize(.small)
+                        TextField("", value: $operation.overrideDisplacementVolume_m3, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 70)
+                            .disabled(!operation.useOverrideDisplacementVolume)
+                        Text("m\u{00B3}")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .onChange(of: operation.baseMudID) { _, newID in
             if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
@@ -189,6 +244,240 @@ struct OperationConfigView: View {
                 Text("Step Size (m):")
                     .frame(width: 140, alignment: .trailing)
                 TextField("Step", value: $operation.tripInStep_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Trip Speed (m/min):")
+                    .frame(width: 140, alignment: .trailing)
+                HStack {
+                    TextField("Speed", value: Binding(
+                        get: { operation.tripInSpeed_m_per_s * 60 },
+                        set: { operation.tripInSpeed_m_per_s = $0 / 60 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    if operation.tripInSpeed_m_per_s <= 0 {
+                        Text("(no surge)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            GridRow {
+                Text("Control MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Control", value: $operation.controlMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Floated Casing:")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("", isOn: $operation.isFloatedCasing)
+                    .labelsHidden()
+            }
+        }
+        .onChange(of: operation.fillMudID) { _, newID in
+            if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
+                operation.fillMudDensity_kgpm3 = mud.density_kgm3
+                operation.fillMudColorR = mud.colorR
+                operation.fillMudColorG = mud.colorG
+                operation.fillMudColorB = mud.colorB
+                operation.fillMudColorA = mud.colorA
+            }
+        }
+    }
+
+    // MARK: - Ream Out Config
+
+    private var reamOutConfig: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text("Start MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Start", value: $operation.startMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("End MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("End", value: $operation.endMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Target ESD (kg/m\u{00B3}):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Base Mud:")
+                    .frame(width: 140, alignment: .trailing)
+                Picker("", selection: $operation.baseMudID) {
+                    Text("Select Mud").tag(nil as UUID?)
+                    ForEach(sortedMuds, id: \.id) { mud in
+                        Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3)) kg/m\u{00B3}")
+                            .tag(mud.id as UUID?)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 240)
+                .pickerStyle(.menu)
+            }
+            GridRow {
+                Text("Backfill Mud:")
+                    .frame(width: 140, alignment: .trailing)
+                Picker("", selection: $operation.backfillMudID) {
+                    Text("Select Mud").tag(nil as UUID?)
+                    ForEach(sortedMuds, id: \.id) { mud in
+                        Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3)) kg/m\u{00B3}")
+                            .tag(mud.id as UUID?)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 240)
+                .pickerStyle(.menu)
+            }
+            GridRow {
+                Text("Step Size (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Step", value: $operation.step_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Trip Speed (m/min):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Speed", value: Binding(
+                    get: { operation.tripSpeed_m_per_s * 60 },
+                    set: { operation.tripSpeed_m_per_s = $0 / 60 }
+                ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Pump Rate (m\u{00B3}/min):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Rate", value: $operation.reamPumpRate_m3perMin, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Control MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Control", value: $operation.controlMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Float Crack (kPa):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Crack", value: $operation.crackFloat_kPa, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+        }
+        .onChange(of: operation.baseMudID) { _, newID in
+            if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
+                operation.baseMudDensity_kgpm3 = mud.density_kgm3
+            }
+        }
+        .onChange(of: operation.backfillMudID) { _, newID in
+            if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
+                operation.backfillDensity_kgpm3 = mud.density_kgm3
+                operation.backfillColorR = mud.colorR
+                operation.backfillColorG = mud.colorG
+                operation.backfillColorB = mud.colorB
+                operation.backfillColorA = mud.colorA
+            }
+        }
+    }
+
+    // MARK: - Ream In Config
+
+    private var reamInConfig: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text("Start MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Start", value: $operation.startMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("End MD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("End", value: $operation.endMD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Target ESD (kg/m\u{00B3}):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Pipe OD (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("OD", value: $operation.pipeOD_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Pipe ID (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("ID", value: $operation.pipeID_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Fill Mud:")
+                    .frame(width: 140, alignment: .trailing)
+                Picker("", selection: $operation.fillMudID) {
+                    Text("Select Mud").tag(nil as UUID?)
+                    ForEach(sortedMuds, id: \.id) { mud in
+                        Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3)) kg/m\u{00B3}")
+                            .tag(mud.id as UUID?)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 240)
+                .pickerStyle(.menu)
+            }
+            GridRow {
+                Text("Step Size (m):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Step", value: $operation.tripInStep_m, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+            }
+            GridRow {
+                Text("Trip Speed (m/min):")
+                    .frame(width: 140, alignment: .trailing)
+                HStack {
+                    TextField("Speed", value: Binding(
+                        get: { operation.tripInSpeed_m_per_s * 60 },
+                        set: { operation.tripInSpeed_m_per_s = $0 / 60 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                    if operation.tripInSpeed_m_per_s <= 0 {
+                        Text("(no surge)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            GridRow {
+                Text("Pump Rate (m\u{00B3}/min):")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Rate", value: $operation.reamPumpRate_m3perMin, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
             }

@@ -75,6 +75,17 @@ final class TripInSimulationStep {
     /// Float valve state description
     var floatState: String = "N/A"
 
+    // MARK: - Surge Pressure
+
+    /// Surge pressure at this step (kPa)
+    var surgePressure_kPa: Double = 0
+
+    /// Surge ECD at control depth (kg/m³)
+    var surgeECD_kgm3: Double = 0
+
+    /// Dynamic ESD at control depth including surge (kg/m³)
+    var dynamicESDAtControl_kgpm3: Double = 0
+
     // MARK: - Annulus State
 
     /// Current mud density at control depth (kg/m³) - considering pocket displacement
@@ -152,6 +163,9 @@ final class TripInSimulationStep {
         annulusPressureAtBit_kPa: Double = 0,
         stringPressureAtBit_kPa: Double = 0,
         floatState: String = "N/A",
+        surgePressure_kPa: Double = 0,
+        surgeECD_kgm3: Double = 0,
+        dynamicESDAtControl_kgpm3: Double = 0,
         mudDensityAtControl_kgpm3: Double = 0,
         simulation: TripInSimulation? = nil
     ) {
@@ -172,6 +186,9 @@ final class TripInSimulationStep {
         self.annulusPressureAtBit_kPa = annulusPressureAtBit_kPa
         self.stringPressureAtBit_kPa = stringPressureAtBit_kPa
         self.floatState = floatState
+        self.surgePressure_kPa = surgePressure_kPa
+        self.surgeECD_kgm3 = surgeECD_kgm3
+        self.dynamicESDAtControl_kgpm3 = dynamicESDAtControl_kgpm3
         self.mudDensityAtControl_kgpm3 = mudDensityAtControl_kgpm3
         self.simulation = simulation
     }
@@ -199,6 +216,9 @@ extension TripInSimulationStep {
             "annulusPressureAtBit_kPa": annulusPressureAtBit_kPa,
             "stringPressureAtBit_kPa": stringPressureAtBit_kPa,
             "floatState": floatState,
+            "surgePressure_kPa": surgePressure_kPa,
+            "surgeECD_kgm3": surgeECD_kgm3,
+            "dynamicESDAtControl_kgpm3": dynamicESDAtControl_kgpm3,
             "mudDensityAtControl_kgpm3": mudDensityAtControl_kgpm3,
             "layersAnnulus": layersAnnulus.map { $0.dictionary },
             "layersString": layersString.map { $0.dictionary },

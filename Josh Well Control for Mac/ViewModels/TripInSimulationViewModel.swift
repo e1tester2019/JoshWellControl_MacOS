@@ -38,6 +38,9 @@ class TripInSimulationViewModel {
     var floatSubMD_m: Double = 0
     var crackFloat_kPa: Double = 2100
 
+    // Trip speed for surge calculation (0 = no surge)
+    var tripSpeed_m_per_min: Double = 0
+
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
     var activeMudDensity_kgpm3: Double = 1200  // Density of selected fill mud
@@ -125,11 +128,25 @@ class TripInSimulationViewModel {
         let stringPressureAtBit_kPa: Double
         let floatState: String
         let mudDensityAtControl_kgpm3: Double
+        // Surge pressure fields
+        let surgePressure_kPa: Double
+        let surgeECD_kgm3: Double
+        let dynamicESDAtControl_kgpm3: Double
 
         // Layers for visualization
         var layersAnnulus: [TripLayerSnapshot] = []
         var layersString: [TripLayerSnapshot] = []
         var layersPocket: [TripLayerSnapshot] = []
+    }
+
+    /// Summary: max surge pressure
+    var maxSurgePressure_kPa: Double {
+        steps.map { $0.surgePressure_kPa }.max() ?? 0
+    }
+
+    /// Summary: max surge ECD contribution
+    var maxSurgeECD_kgm3: Double {
+        steps.map { $0.surgeECD_kgm3 }.max() ?? 0
     }
 
     // MARK: - Bootstrap from Project
@@ -371,6 +388,48 @@ class TripInSimulationViewModel {
         // Use imported pocket layers (from Trip Simulation or Trip Tracker)
         let currentPocketLayers: [TripLayerSnapshot] = importedPocketLayers
 
+        // Compute surge profile if trip speed is set
+        var surgeProfile: [TripInService.SurgePressurePoint] = []
+        if tripSpeed_m_per_min > 0 {
+            let annSections = project.annulus ?? []
+            let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
+            let dsSections: [DrillStringSection]
+            if let projectDS = project.drillString, !projectDS.isEmpty {
+                dsSections = projectDS
+            } else {
+                let syntheticDS = DrillStringSection(
+                    name: "Trip-In String",
+                    topDepth_m: 0,
+                    length_m: endBitMD_m,
+                    outerDiameter_m: pipeOD_m,
+                    innerDiameter_m: pipeID_m
+                )
+                dsSections = [syntheticDS]
+            }
+
+            // Use fill mud if available (has PV/YP), otherwise use project active mud
+            let surgeMud = fillMud ?? project.activeMud
+
+            if surgeMud != nil, (surgeMud?.pv_Pa_s ?? 0) > 0 || (surgeMud?.yp_Pa ?? 0) > 0 {
+                let calculator = SurgeSwabCalculator(
+                    tripSpeed_m_per_min: tripSpeed_m_per_min,
+                    startBitMD_m: startBitMD_m,
+                    endBitMD_m: endBitMD_m,
+                    depthStep_m: step_m,
+                    annulusSections: annSections,
+                    drillStringSections: dsSections,
+                    mud: surgeMud,
+                    pipeEndType: isFloatedCasing ? .closed : .open
+                )
+                let results = calculator.calculate(tvdLookup: { md in
+                    tvdSampler.tvd(of: md)
+                })
+                surgeProfile = results.map { r in
+                    TripInService.SurgePressurePoint(md: r.bitMD_m, surgePressure_kPa: r.surgePressure_kPa)
+                }
+            }
+        }
+
         print("🏃 Running simulation with \(currentPocketLayers.count) pocket layers")
         print("📍 Start: \(startBitMD_m)m, End: \(endBitMD_m)m, Control: \(controlMD_m)m")
         if let first = currentPocketLayers.first {
@@ -501,6 +560,11 @@ class TripInSimulationViewModel {
 
             let differentialPressure = annulusHP - stringHP
 
+            // Surge pressure from pre-computed profile
+            let surgePressure = TripInService.interpolateSurge(at: bitMD, from: surgeProfile)
+            let surgeECD = controlTVD > 0 ? surgePressure / (0.00981 * controlTVD) : 0
+            let dynamicESD = ESDAtControl + surgeECD
+
             // Create step with displaced pocket layers (pushed up by pipe displacement)
             let step = TripInStep(
                 stepIndex: index,
@@ -521,6 +585,9 @@ class TripInSimulationViewModel {
                 stringPressureAtBit_kPa: stringHP,
                 floatState: floatState,
                 mudDensityAtControl_kgpm3: ESDAtControl,
+                surgePressure_kPa: surgePressure,
+                surgeECD_kgm3: surgeECD,
+                dynamicESDAtControl_kgpm3: dynamicESD,
                 layersAnnulus: [],
                 layersString: [],
                 layersPocket: displacedPockets
@@ -819,6 +886,9 @@ class TripInSimulationViewModel {
                 annulusPressureAtBit_kPa: step.annulusPressureAtBit_kPa,
                 stringPressureAtBit_kPa: step.stringPressureAtBit_kPa,
                 floatState: step.floatState,
+                surgePressure_kPa: step.surgePressure_kPa,
+                surgeECD_kgm3: step.surgeECD_kgm3,
+                dynamicESDAtControl_kgpm3: step.dynamicESDAtControl_kgpm3,
                 mudDensityAtControl_kgpm3: step.mudDensityAtControl_kgpm3
             )
             // Save all layer types
@@ -910,6 +980,9 @@ class TripInSimulationViewModel {
                 stringPressureAtBit_kPa: step.stringPressureAtBit_kPa,
                 floatState: step.floatState,
                 mudDensityAtControl_kgpm3: step.mudDensityAtControl_kgpm3,
+                surgePressure_kPa: step.surgePressure_kPa,
+                surgeECD_kgm3: step.surgeECD_kgm3,
+                dynamicESDAtControl_kgpm3: step.dynamicESDAtControl_kgpm3,
                 layersAnnulus: annulusLayers,
                 layersString: stringLayers,
                 layersPocket: pocketLayers
@@ -1132,6 +1205,9 @@ class TripInSimulationViewModel {
             stringPressureAtBit_kPa: currentStep.stringPressureAtBit_kPa,
             floatState: currentStep.floatState,
             mudDensityAtControl_kgpm3: previewESDAtControl,
+            surgePressure_kPa: 0,
+            surgeECD_kgm3: 0,
+            dynamicESDAtControl_kgpm3: previewESDAtControl,
             layersAnnulus: currentStep.layersAnnulus,
             layersString: currentStep.layersString,
             layersPocket: markedLayers
@@ -1299,6 +1375,9 @@ class TripInSimulationViewModel {
                 stringPressureAtBit_kPa: stringHP,
                 floatState: floatState,
                 mudDensityAtControl_kgpm3: ESDAtControl,
+                surgePressure_kPa: 0,
+                surgeECD_kgm3: 0,
+                dynamicESDAtControl_kgpm3: ESDAtControl,
                 layersAnnulus: [],
                 layersString: [],
                 layersPocket: displacedPockets
@@ -1466,6 +1545,9 @@ class TripInSimulationViewModel {
                 stringPressureAtBit_kPa: stringHP,
                 floatState: floatState,
                 mudDensityAtControl_kgpm3: ESDAtControl,
+                surgePressure_kPa: 0,
+                surgeECD_kgm3: 0,
+                dynamicESDAtControl_kgpm3: ESDAtControl,
                 layersAnnulus: [],
                 layersString: [],
                 layersPocket: displacedPockets

@@ -58,7 +58,11 @@ struct SuperSimulationView: View {
                 } else {
                     List(selection: $viewModel.selectedOperationIndex) {
                         ForEach(Array(viewModel.operations.enumerated()), id: \.element.id) { index, op in
-                            OperationRowView(operation: op, index: index)
+                            OperationRowView(
+                                operation: op,
+                                index: index,
+                                operationProgress: viewModel.currentRunningIndex == index ? viewModel.operationProgress : 0
+                            )
                                 .tag(index)
                                 .contextMenu {
                                     Button("Delete") {
@@ -90,13 +94,14 @@ struct SuperSimulationView: View {
                 // Run + preset controls
                 VStack(spacing: 4) {
                     if viewModel.isRunning {
-                        HStack(spacing: 6) {
-                            ProgressView(value: viewModel.overallProgress)
+                        VStack(alignment: .leading, spacing: 4) {
+                            ProgressView(value: viewModel.operationProgress)
+                                .tint(viewModel.operationProgress > 0 ? .blue : .secondary)
                             Text(viewModel.progressMessage)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
@@ -298,6 +303,7 @@ struct SuperSimulationView: View {
 struct OperationRowView: View {
     let operation: SuperSimOperation
     let index: Int
+    var operationProgress: Double = 0
 
     var body: some View {
         HStack(spacing: 8) {
@@ -311,6 +317,11 @@ struct OperationRowView: View {
                         .foregroundStyle(.secondary)
                     Text(operation.type.rawValue)
                         .font(.subheadline.weight(.medium))
+                    if case .running = operation.status, operationProgress > 0 {
+                        Text("\(Int(operationProgress * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.blue)
+                    }
                 }
                 Text(operation.depthLabel)
                     .font(.caption)
@@ -329,8 +340,20 @@ struct OperationRowView: View {
             Image(systemName: "circle")
                 .foregroundStyle(.secondary)
         case .running:
-            ProgressView()
-                .controlSize(.small)
+            if operationProgress > 0 {
+                ZStack {
+                    Circle()
+                        .stroke(.secondary.opacity(0.3), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: operationProgress)
+                        .stroke(.blue, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 16, height: 16)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
         case .complete:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
@@ -410,8 +433,9 @@ struct OperationDetailView: View {
             HStack(spacing: 4) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Running")
+                Text(viewModel.progressMessage.isEmpty ? "Running" : viewModel.progressMessage)
                     .font(.caption)
+                    .lineLimit(1)
             }
         case .complete:
             Text("Complete")

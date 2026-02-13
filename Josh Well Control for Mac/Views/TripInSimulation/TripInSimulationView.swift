@@ -543,6 +543,22 @@ struct TripInSimulationView: View {
                 }
             }
 
+            Section("Surge Pressure") {
+                LabeledContent("Trip Speed") {
+                    HStack {
+                        TextField("", value: $viewModel.tripSpeed_m_per_min, format: .number.precision(.fractionLength(1)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("m/min")
+                        if viewModel.tripSpeed_m_per_min <= 0 {
+                            Text("(disabled)")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+
             Section("Floated Casing") {
                 Toggle("Floated Casing", isOn: $viewModel.isFloatedCasing)
 
@@ -700,6 +716,21 @@ struct TripInSimulationView: View {
                 }
             }
 
+            if viewModel.maxSurgePressure_kPa > 0 {
+                summaryCard(
+                    title: "Max Surge",
+                    value: String(format: "%.0f", viewModel.maxSurgePressure_kPa),
+                    unit: "kPa",
+                    color: .purple
+                )
+                summaryCard(
+                    title: "Max Surge ECD",
+                    value: String(format: "+%.0f", viewModel.maxSurgeECD_kgm3),
+                    unit: "kg/m\u{00B3}",
+                    color: .purple
+                )
+            }
+
             if let depthBelow = viewModel.depthBelowTarget_m {
                 summaryCard(
                     title: "Below Target From",
@@ -763,13 +794,17 @@ struct TripInSimulationView: View {
             mdColumn
             tvdColumn
             esdColumn
+            surgeColumn
+            dynamicESDColumn
             chokeColumn
             esdPlusChokeColumn
-            hpAnnColumn
-            annPlusChokeColumn
-            hpStrColumn
-            deltaPColumn
-            circulationColumn
+            Group {
+                hpAnnColumn
+                annPlusChokeColumn
+                hpStrColumn
+                deltaPColumn
+                circulationColumn
+            }
         }
         .tableStyle(.bordered)
     }
@@ -793,6 +828,34 @@ struct TripInSimulationView: View {
             Text(String(format: "%.0f", step.ESDAtControl_kgpm3))
                 .monospacedDigit()
                 .foregroundColor(step.isBelowTarget ? .red : nil)
+        }
+        .width(55)
+    }
+
+    private var surgeColumn: some TableColumnContent<TripInSimulationViewModel.TripInStep, Never> {
+        TableColumn("Surge") { (step: TripInSimulationViewModel.TripInStep) in
+            if step.surgePressure_kPa > 0 {
+                Text(String(format: "%.0f", step.surgePressure_kPa))
+                    .monospacedDigit()
+                    .foregroundColor(.purple)
+            } else {
+                Text("-")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .width(50)
+    }
+
+    private var dynamicESDColumn: some TableColumnContent<TripInSimulationViewModel.TripInStep, Never> {
+        TableColumn("Dyn ESD") { (step: TripInSimulationViewModel.TripInStep) in
+            if step.surgePressure_kPa > 0 {
+                Text(String(format: "%.0f", step.dynamicESDAtControl_kgpm3))
+                    .monospacedDigit()
+                    .foregroundColor(.teal)
+            } else {
+                Text("-")
+                    .foregroundStyle(.secondary)
+            }
         }
         .width(55)
     }

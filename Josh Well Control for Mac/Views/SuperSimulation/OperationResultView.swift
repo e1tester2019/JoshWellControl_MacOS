@@ -23,6 +23,10 @@ struct OperationResultView: View {
                 tripInResults
             case .circulate:
                 circulationResults
+            case .reamOut:
+                reamOutResults
+            case .reamIn:
+                reamInResults
             }
         }
     }
@@ -182,6 +186,150 @@ struct OperationResultView: View {
                         Text(step.description)
                     }
                     .width(min: 100)
+                }
+                .frame(minHeight: 200, maxHeight: 400)
+            }
+        }
+    }
+
+    // MARK: - Ream Out Results
+
+    private var reamOutResults: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if viewModel.reamOutSteps.isEmpty {
+                Text("No results available")
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Text("\(viewModel.reamOutSteps.count) steps")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    stepSlider(count: viewModel.reamOutSteps.count)
+                }
+
+                Table(viewModel.reamOutSteps) {
+                    TableColumn("MD (m)") { step in
+                        Text(String(format: "%.0f", step.bitMD_m))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("SABP Static") { step in
+                        Text(String(format: "%.0f", step.SABP_kPa))
+                    }
+                    .width(min: 70, max: 90)
+
+                    TableColumn("Swab") { step in
+                        Text(String(format: "%.0f", step.swab_kPa))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("APL") { step in
+                        Text(String(format: "%.0f", step.apl_kPa))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("SABP Dyn") { step in
+                        Text(String(format: "%.0f", step.SABP_Dynamic_kPa))
+                    }
+                    .width(min: 70, max: 90)
+
+                    TableColumn("ESD") { step in
+                        Text(String(format: "%.1f", step.ESDatTD_kgpm3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("ECD") { step in
+                        Text(String(format: "%.1f", step.ECD_kgpm3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Rate") { step in
+                        Text(String(format: "%.2f", step.pumpRate_m3perMin))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("Fill (m\u{00B3})") { step in
+                        Text(String(format: "%.2f", step.cumulativeBackfill_m3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Float") { step in
+                        Text(step.floatState)
+                    }
+                    .width(min: 60, max: 90)
+                }
+                .frame(minHeight: 200, maxHeight: 400)
+            }
+        }
+    }
+
+    // MARK: - Ream In Results
+
+    private var reamInResults: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if viewModel.reamInSteps.isEmpty {
+                Text("No results available")
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Text("\(viewModel.reamInSteps.count) steps")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    stepSlider(count: viewModel.reamInSteps.count)
+                }
+
+                Table(viewModel.reamInSteps) {
+                    TableColumn("MD (m)") { step in
+                        Text(String(format: "%.0f", step.bitMD_m))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Choke Static") { step in
+                        Text(String(format: "%.0f", step.requiredChokePressure_kPa))
+                    }
+                    .width(min: 80, max: 100)
+
+                    TableColumn("Surge") { step in
+                        Text(String(format: "%.0f", step.surge_kPa))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("APL") { step in
+                        Text(String(format: "%.0f", step.apl_kPa))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("Choke Dyn") { step in
+                        Text(String(format: "%.0f", step.dynamicChoke_kPa))
+                    }
+                    .width(min: 70, max: 90)
+
+                    TableColumn("ESD") { step in
+                        Text(String(format: "%.1f", step.ESDAtControl_kgpm3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("ECD") { step in
+                        Text(String(format: "%.1f", step.ECD_kgpm3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Rate") { step in
+                        Text(String(format: "%.2f", step.pumpRate_m3perMin))
+                    }
+                    .width(min: 50, max: 70)
+
+                    TableColumn("Fill (m\u{00B3})") { step in
+                        Text(String(format: "%.2f", step.cumulativeFillVolume_m3))
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Float") { step in
+                        Text(step.floatState)
+                    }
+                    .width(min: 60, max: 90)
                 }
                 .frame(minHeight: 200, maxHeight: 400)
             }

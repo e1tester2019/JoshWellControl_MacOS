@@ -99,6 +99,8 @@ struct SuperSimTimelineChart: View {
                 legendSwatch(color: .blue.opacity(0.1), label: "Trip Out", style: .fill)
                 legendSwatch(color: .green.opacity(0.1), label: "Trip In", style: .fill)
                 legendSwatch(color: .orange.opacity(0.1), label: "Circulate", style: .fill)
+                legendSwatch(color: .purple.opacity(0.1), label: "Ream Out", style: .fill)
+                legendSwatch(color: .pink.opacity(0.1), label: "Ream In", style: .fill)
             }
 
             Divider().frame(height: 12)
@@ -176,6 +178,8 @@ struct SuperSimTimelineChart: View {
         case .tripOut: return .blue.opacity(0.08)
         case .tripIn: return .green.opacity(0.08)
         case .circulate: return .orange.opacity(0.08)
+        case .reamOut: return .purple.opacity(0.08)
+        case .reamIn: return .pink.opacity(0.08)
         }
     }
 
@@ -237,7 +241,7 @@ struct SuperSimTimelineChart: View {
         }
         .chartXAxisLabel("Step")
         .chartYAxisLabel("ESD (kg/m\u{00B3})")
-        .chartXScale(domain: .automatic(includesZero: true))
+        .chartXScale(domain: 0...(max(1, data.last?.globalIndex ?? 1)))
         .chartYScale(domain: yMin...yMax)
         .frame(minHeight: 500, maxHeight: .infinity)
 
@@ -302,7 +306,7 @@ struct SuperSimTimelineChart: View {
         }
         .chartXAxisLabel("Step")
         .chartYAxisLabel("SABP (kPa)")
-        .chartXScale(domain: .automatic(includesZero: true))
+        .chartXScale(domain: 0...(max(1, data.last?.globalIndex ?? 1)))
         .chartYScale(domain: yMin...yMax)
         .frame(minHeight: 500, maxHeight: .infinity)
 
@@ -326,11 +330,12 @@ struct SuperSimTimelineChart: View {
     }
 
     @ChartContentBuilder
-    private func aplLines(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some ChartContent {
+    private func aplLinesNormalized(_ data: [SuperSimViewModel.TimelineChartPoint], aplMax: Double, yMax: Double) -> some ChartContent {
+        let scale = aplMax > 0.001 ? yMax / aplMax : 0
         ForEach(data) { point in
             LineMark(
                 x: .value("Step", point.globalIndex),
-                y: .value("APL (kPa)", point.apl_kPa),
+                y: .value("APL (normalized)", point.apl_kPa * scale),
                 series: .value("Series", "APL")
             )
             .foregroundStyle(.indigo)
@@ -345,24 +350,61 @@ struct SuperSimTimelineChart: View {
     }
 
     private func pumpRateChart(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
-        // Pump rate on primary Y axis
+        // Pump rate on primary (leading) Y axis, APL on secondary (trailing) Y axis
         let allRates = data.map(\.pumpRate_m3perMin)
-        let yMin = max(0, (allRates.min() ?? 0) - 0.1)
-        let yMax = (allRates.max() ?? 1.5) + 0.1
+        let rateMin = max(0, (allRates.min() ?? 0) - 0.1)
+        let rateMax = (allRates.max() ?? 1.5) + 0.1
+
+        let allAPL = data.map(\.apl_kPa)
+        let aplMax = max(1, (allAPL.max() ?? 100) * 1.1)
 
         let chart = Chart {
-            operationBands(yMin: yMin, yMax: yMax)
+            operationBands(yMin: rateMin, yMax: rateMax)
             pumpRateLines(data)
+            aplLinesNormalized(data, aplMax: aplMax, yMax: rateMax)
             sliderMark(data, chartType: .pumpRate)
             if let point = hoveredPoint {
                 pumpRateHoverMarks(point)
             }
         }
         .chartXAxisLabel("Step")
-        .chartYAxisLabel("Pump Rate (m\u{00B3}/min)")
-        .chartXScale(domain: .automatic(includesZero: true))
-        .chartYScale(domain: yMin...yMax)
+        .chartXScale(domain: 0...(max(1, data.last?.globalIndex ?? 1)))
+        .chartYScale(domain: rateMin...rateMax)
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(String(format: "%.2f", v))
+                            .foregroundStyle(.purple)
+                    }
+                }
+            }
+            AxisMarks(position: .trailing) { value in
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        let aplValue = aplMax > 0.001 ? v / rateMax * aplMax : 0
+                        Text(String(format: "%.0f", aplValue))
+                            .foregroundStyle(.indigo)
+                    }
+                }
+            }
+        }
         .frame(minHeight: 500, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            Text("Pump Rate (m\u{00B3}/min)")
+                .font(.caption2)
+                .foregroundStyle(.purple)
+                .padding(.leading, 4)
+                .padding(.top, 2)
+        }
+        .overlay(alignment: .topTrailing) {
+            Text("APL (kPa)")
+                .font(.caption2)
+                .foregroundStyle(.indigo)
+                .padding(.trailing, 4)
+                .padding(.top, 2)
+        }
 
         return applyScrollAndHover(chart, data: data)
     }

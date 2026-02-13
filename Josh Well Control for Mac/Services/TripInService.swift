@@ -10,6 +10,14 @@ import Foundation
 
 enum TripInService {
 
+    // MARK: - Surge Profile Data
+
+    /// Pre-computed surge pressure at a given depth (passed in by caller)
+    struct SurgePressurePoint {
+        let md: Double
+        let surgePressure_kPa: Double
+    }
+
     // MARK: - Result Types
 
     struct TripInResult {
@@ -36,6 +44,10 @@ enum TripInService {
         let stringPressureAtBit_kPa: Double
         let floatState: String
         let layersPocket: [TripLayerSnapshot]
+        // Surge pressure fields
+        let surgePressure_kPa: Double
+        let surgeECD_kgm3: Double
+        let dynamicESDAtControl_kgpm3: Double
     }
 
     struct TripInInput {
@@ -54,6 +66,25 @@ enum TripInService {
         let pocketLayers: [TripLayerSnapshot]
         let annulusSections: [AnnulusSection]
         let tvdSampler: TvdSampler
+        // Surge pressure inputs (optional - empty profile = no surge)
+        var surgeProfile: [SurgePressurePoint] = []
+    }
+
+    // MARK: - Surge Interpolation
+
+    /// Interpolate surge pressure from a pre-computed profile at the given MD.
+    static func interpolateSurge(at md: Double, from profile: [SurgePressurePoint]) -> Double {
+        guard !profile.isEmpty else { return 0 }
+        if md <= profile.first!.md { return profile.first!.surgePressure_kPa }
+        if md >= profile.last!.md { return profile.last!.surgePressure_kPa }
+        for i in 0..<profile.count - 1 {
+            let a = profile[i], b = profile[i + 1]
+            if md >= a.md && md <= b.md {
+                let t = (md - a.md) / (b.md - a.md)
+                return a.surgePressure_kPa + t * (b.surgePressure_kPa - a.surgePressure_kPa)
+            }
+        }
+        return 0
     }
 
     // MARK: - Run Simulation
@@ -156,6 +187,11 @@ enum TripInService {
 
             let differentialPressure = annulusHP - stringHP
 
+            // Surge pressure from pre-computed profile
+            let surgePressure = interpolateSurge(at: bitMD, from: input.surgeProfile)
+            let surgeECD = controlTVD > 0 ? surgePressure / (0.00981 * controlTVD) : 0
+            let dynamicESD = ESDAtControl + surgeECD
+
             steps.append(TripInStepResult(
                 stepIndex: index,
                 bitMD_m: bitMD,
@@ -174,7 +210,10 @@ enum TripInService {
                 annulusPressureAtBit_kPa: annulusHP,
                 stringPressureAtBit_kPa: stringHP,
                 floatState: floatState,
-                layersPocket: displacedPockets
+                layersPocket: displacedPockets,
+                surgePressure_kPa: surgePressure,
+                surgeECD_kgm3: surgeECD,
+                dynamicESDAtControl_kgpm3: dynamicESD
             ))
         }
 

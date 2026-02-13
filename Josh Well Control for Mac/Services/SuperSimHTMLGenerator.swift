@@ -31,11 +31,14 @@ struct SuperSimReportData {
         let tripOutSteps: [TripOutStep]?
         let tripInSteps: [TripInStep]?
         let circulationSteps: [CirculationStep]?
+        let reamOutSteps: [ReamOutStep]?
+        let reamInSteps: [ReamInStep]?
         let stringVolume_m3: Double?
         let annulusVolume_m3: Double?
 
         var stepCount: Int {
             (tripOutSteps?.count ?? 0) + (tripInSteps?.count ?? 0) + (circulationSteps?.count ?? 0)
+            + (reamOutSteps?.count ?? 0) + (reamInSteps?.count ?? 0)
         }
     }
 
@@ -66,6 +69,9 @@ struct SuperSimReportData {
         let cumulativeFillVolume_m3: Double
         let cumulativeDisplacementReturns_m3: Double
         let floatState: String
+        let surgePressure_kPa: Double
+        let surgeECD_kgm3: Double
+        let dynamicESDAtControl_kgpm3: Double
         let layersAnnulus: [LayerData]
         let layersString: [LayerData]
         let layersPocket: [LayerData]
@@ -83,6 +89,41 @@ struct SuperSimReportData {
         let bitMD_m: Double
         let pumpRate_m3perMin: Double
         let apl_kPa: Double
+    }
+
+    struct ReamOutStep {
+        let bitMD_m: Double
+        let bitTVD_m: Double
+        let SABP_kPa: Double
+        let SABP_Dynamic_kPa: Double
+        let swab_kPa: Double
+        let apl_kPa: Double
+        let pumpRate_m3perMin: Double
+        let ESDatTD_kgpm3: Double
+        let ECD_kgpm3: Double
+        let floatState: String
+        let stepBackfill_m3: Double
+        let cumulativeBackfill_m3: Double
+        let layersAnnulus: [LayerData]
+        let layersString: [LayerData]
+        let layersPocket: [LayerData]
+    }
+
+    struct ReamInStep {
+        let bitMD_m: Double
+        let bitTVD_m: Double
+        let ESDAtControl_kgpm3: Double
+        let requiredChokePressure_kPa: Double
+        let dynamicChoke_kPa: Double
+        let surge_kPa: Double
+        let apl_kPa: Double
+        let pumpRate_m3perMin: Double
+        let ECD_kgpm3: Double
+        let cumulativeFillVolume_m3: Double
+        let floatState: String
+        let layersAnnulus: [LayerData]
+        let layersString: [LayerData]
+        let layersPocket: [LayerData]
     }
 
     struct LayerData {
@@ -250,6 +291,8 @@ class SuperSimHTMLGenerator {
             case .tripOut: cls = "trip-out"; icon = "&#9650;"
             case .tripIn: cls = "trip-in"; icon = "&#9660;"
             case .circulate: cls = "circulate"; icon = "&#8634;"
+            case .reamOut: cls = "ream-out"; icon = "&#8679;"
+            case .reamIn: cls = "ream-in"; icon = "&#8681;"
             }
             html += """
             <div class="op-card \(cls)" onclick="showTab('op\(op.index)')" style="cursor:pointer">
@@ -289,6 +332,8 @@ class SuperSimHTMLGenerator {
         case .tripOut: typeLabel = "Trip Out"
         case .tripIn: typeLabel = "Trip In"
         case .circulate: typeLabel = "Circulate"
+        case .reamOut: typeLabel = "Ream Out"
+        case .reamIn: typeLabel = "Ream In"
         }
         html += """
         <section class="card">
@@ -342,6 +387,10 @@ class SuperSimHTMLGenerator {
             html += generateTripInTable(op.tripInSteps ?? [], opId: opId)
         case .circulate:
             html += generateCirculationTable(op.circulationSteps ?? [], opId: opId)
+        case .reamOut:
+            html += generateReamOutTable(op.reamOutSteps ?? [], opId: opId)
+        case .reamIn:
+            html += generateReamInTable(op.reamInSteps ?? [], opId: opId)
         }
 
         html += "</section>"
@@ -386,19 +435,29 @@ class SuperSimHTMLGenerator {
     // MARK: - Trip In Table
 
     private func generateTripInTable(_ steps: [SuperSimReportData.TripInStep], opId: String) -> String {
+        let hasSurge = steps.contains { $0.surgePressure_kPa > 0 }
         var html = """
         <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
         <thead><tr>
             <th onclick="sortOpTable('\(opId)',0)">MD (m) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',1)">TVD (m) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',2)">ESD (kg/m&sup3;) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',3)">Choke (kPa) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',4)">HP Ann@Bit &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',5)">HP Str@Bit &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',6)">&Delta;P@Float &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',7)">Fill (m&sup3;) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',8)">Disp (m&sup3;) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',9)">Float &#8693;</th>
+        """
+        if hasSurge {
+            html += """
+                <th onclick="sortOpTable('\(opId)',3)">Surge (kPa) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',4)">Dyn ESD (kg/m&sup3;) &#8693;</th>
+            """
+        }
+        let colOffset = hasSurge ? 5 : 3
+        html += """
+            <th onclick="sortOpTable('\(opId)',\(colOffset))">Choke (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+1))">HP Ann@Bit &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+2))">HP Str@Bit &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+3))">&Delta;P@Float &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+4))">Fill (m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+5))">Disp (m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',\(colOffset+6))">Float &#8693;</th>
         </tr></thead><tbody>
         """
         for (i, s) in steps.enumerated() {
@@ -406,7 +465,13 @@ class SuperSimHTMLGenerator {
             html += """
             <tr onclick="opGoToStep('\(opId)',\(i))" class="clickable-row">
                 <td>\(f0(s.bitMD_m))</td><td>\(f0(s.bitTVD_m))</td>
-                <td>\(f1(s.ESDAtControl_kgpm3))</td><td>\(f0(s.requiredChokePressure_kPa))</td>
+                <td>\(f1(s.ESDAtControl_kgpm3))</td>
+            """
+            if hasSurge {
+                html += "<td>\(f0(s.surgePressure_kPa))</td><td>\(f1(s.dynamicESDAtControl_kgpm3))</td>"
+            }
+            html += """
+                <td>\(f0(s.requiredChokePressure_kPa))</td>
                 <td>\(f0(s.annulusPressureAtBit_kPa))</td><td>\(f0(s.stringPressureAtBit_kPa))</td>
                 <td>\(f0(deltaP))</td>
                 <td>\(f2(s.cumulativeFillVolume_m3))</td><td>\(f2(s.cumulativeDisplacementReturns_m3))</td>
@@ -458,6 +523,86 @@ class SuperSimHTMLGenerator {
         return html
     }
 
+    // MARK: - Ream Out Table
+
+    private func generateReamOutTable(_ steps: [SuperSimReportData.ReamOutStep], opId: String) -> String {
+        var html = """
+        <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
+        <thead><tr>
+            <th onclick="sortOpTable('\(opId)',0)">MD (m) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',1)">TVD (m) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',2)">SABP Static (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',3)">Swab (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',4)">APL (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',5)">SABP Dynamic (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',6)">ESD (kg/m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',7)">ECD (kg/m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',8)">Rate (m&sup3;/min) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',9)">Fill (m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',10)">Float</th>
+        </tr></thead><tbody>
+        """
+        for (i, s) in steps.enumerated() {
+            html += """
+            <tr onclick="opGoToStep('\(opId)',\(i))" class="clickable-row">
+                <td>\(f0(s.bitMD_m))</td>
+                <td>\(f0(s.bitTVD_m))</td>
+                <td>\(f0(s.SABP_kPa))</td>
+                <td>\(f0(s.swab_kPa))</td>
+                <td>\(f0(s.apl_kPa))</td>
+                <td>\(f0(s.SABP_Dynamic_kPa))</td>
+                <td>\(f1(s.ESDatTD_kgpm3))</td>
+                <td>\(f1(s.ECD_kgpm3))</td>
+                <td>\(f2(s.pumpRate_m3perMin))</td>
+                <td>\(f2(s.cumulativeBackfill_m3))</td>
+                <td>\(esc(s.floatState))</td>
+            </tr>
+            """
+        }
+        html += "</tbody></table></div>"
+        return html
+    }
+
+    // MARK: - Ream In Table
+
+    private func generateReamInTable(_ steps: [SuperSimReportData.ReamInStep], opId: String) -> String {
+        var html = """
+        <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
+        <thead><tr>
+            <th onclick="sortOpTable('\(opId)',0)">MD (m) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',1)">TVD (m) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',2)">Choke Static (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',3)">Surge (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',4)">APL (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',5)">Choke Dynamic (kPa) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',6)">ESD (kg/m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',7)">ECD (kg/m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',8)">Rate (m&sup3;/min) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',9)">Fill (m&sup3;) &#8693;</th>
+            <th onclick="sortOpTable('\(opId)',10)">Float</th>
+        </tr></thead><tbody>
+        """
+        for (i, s) in steps.enumerated() {
+            html += """
+            <tr onclick="opGoToStep('\(opId)',\(i))" class="clickable-row">
+                <td>\(f0(s.bitMD_m))</td>
+                <td>\(f0(s.bitTVD_m))</td>
+                <td>\(f0(s.requiredChokePressure_kPa))</td>
+                <td>\(f0(s.surge_kPa))</td>
+                <td>\(f0(s.apl_kPa))</td>
+                <td>\(f0(s.dynamicChoke_kPa))</td>
+                <td>\(f1(s.ESDAtControl_kgpm3))</td>
+                <td>\(f1(s.ECD_kgpm3))</td>
+                <td>\(f2(s.pumpRate_m3perMin))</td>
+                <td>\(f2(s.cumulativeFillVolume_m3))</td>
+                <td>\(esc(s.floatState))</td>
+            </tr>
+            """
+        }
+        html += "</tbody></table></div>"
+        return html
+    }
+
     // MARK: - JSON Serialization
 
     private func timelineStepsJSON(_ steps: [SuperSimReportData.TimelineStep]) -> String {
@@ -487,7 +632,7 @@ class SuperSimHTMLGenerator {
                 if i > 0 { json += "," }
                 let deltaP = (s.annulusPressureAtBit_kPa + s.requiredChokePressure_kPa) - s.stringPressureAtBit_kPa
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"choke":\(s.requiredChokePressure_kPa),"hpA":\(s.annulusPressureAtBit_kPa),"hpS":\(s.stringPressureAtBit_kPa),"dp":\(deltaP),"fill":\(s.cumulativeFillVolume_m3),"disp":\(s.cumulativeDisplacementReturns_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"choke":\(s.requiredChokePressure_kPa),"hpA":\(s.annulusPressureAtBit_kPa),"hpS":\(s.stringPressureAtBit_kPa),"dp":\(deltaP),"fill":\(s.cumulativeFillVolume_m3),"disp":\(s.cumulativeDisplacementReturns_m3),"surge":\(s.surgePressure_kPa),"desd":\(s.dynamicESDAtControl_kgpm3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .circulate:
@@ -495,6 +640,20 @@ class SuperSimHTMLGenerator {
                 if i > 0 { json += "," }
                 json += """
                 {"vol":\(s.volumePumped_m3),"md":\(s.bitMD_m),"esd":\(s.ESDAtControl_kgpm3),"bp":\(s.requiredSABP_kPa),"dbp":\(s.deltaSABP_kPa),"pr":\(s.pumpRate_m3perMin),"apl":\(s.apl_kPa),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                """
+            }
+        case .reamOut:
+            for (i, s) in (op.reamOutSteps ?? []).enumerated() {
+                if i > 0 { json += "," }
+                json += """
+                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDatTD_kgpm3),"ecd":\(s.ECD_kgpm3),"ss":\(s.SABP_kPa),"sd":\(s.SABP_Dynamic_kPa),"swab":\(s.swab_kPa),"apl":\(s.apl_kPa),"pr":\(s.pumpRate_m3perMin),"bf":\(s.stepBackfill_m3),"cbf":\(s.cumulativeBackfill_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                """
+            }
+        case .reamIn:
+            for (i, s) in (op.reamInSteps ?? []).enumerated() {
+                if i > 0 { json += "," }
+                json += """
+                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"ecd":\(s.ECD_kgpm3),"choke":\(s.requiredChokePressure_kPa),"dc":\(s.dynamicChoke_kPa),"surge":\(s.surge_kPa),"apl":\(s.apl_kPa),"pr":\(s.pumpRate_m3perMin),"fill":\(s.cumulativeFillVolume_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         }
@@ -738,6 +897,7 @@ class SuperSimHTMLGenerator {
                            infoRow('Choke', s.choke.toFixed(0) + ' kPa') +
                            infoRow('HP Ann@Bit', s.hpA.toFixed(0) + ' kPa') + infoRow('HP Str@Bit', s.hpS.toFixed(0) + ' kPa') +
                            infoRow('\\u0394P@Float', s.dp.toFixed(0) + ' kPa') + infoRow('Float', s.fs);
+                    if (s.surge > 0) html += infoRow('Surge', s.surge.toFixed(0) + ' kPa') + infoRow('Dyn ESD', s.desd.toFixed(1) + ' kg/m\\u00B3');
                 } else {
                     html = infoRow('Vol Pumped', s.vol.toFixed(2) + ' m\\u00B3') +
                            infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +

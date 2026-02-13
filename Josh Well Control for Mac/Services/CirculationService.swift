@@ -359,9 +359,9 @@ class CirculationService {
         let startMD = max(0, bitMD - usedFromBottom)
         var lo: Double = 0
         var hi: Double = startMD
-        let tol = 1e-6
+        let tol = 1e-4
         var iter = 0
-        let maxIter = 50
+        let maxIter = 30
 
         while (hi - lo) > tol, iter < maxIter {
             iter += 1
@@ -623,9 +623,30 @@ class CirculationService {
         ))
         stepIndex += 1
 
+        // Adaptive step size: limit to ~200 steps for performance
+        let stepVolume = max(0.5, totalQueueVolume / 200.0)
+
+        // Coalesce adjacent parcels with same density/color to prevent array explosion
+        func coalesceParcels(_ parcels: inout [VolumeParcel]) {
+            guard parcels.count > 1 else { return }
+            var result: [VolumeParcel] = [parcels[0]]
+            for i in 1..<parcels.count {
+                let p = parcels[i]
+                if let last = result.last,
+                   abs(last.rho_kgpm3 - p.rho_kgpm3) < 0.5,
+                   abs(last.colorR - p.colorR) < 0.02,
+                   abs(last.colorG - p.colorG) < 0.02,
+                   abs(last.colorB - p.colorB) < 0.02 {
+                    result[result.count - 1].volume_m3 += p.volume_m3
+                } else {
+                    result.append(p)
+                }
+            }
+            parcels = result
+        }
+
         // Process each pump operation
         for operation in pumpQueue {
-            let stepVolume = 0.5  // Resolution for schedule (m³ per step)
             var operationVolumePumped: Double = 0
 
             while operationVolumePumped < operation.volume_m3 {
@@ -667,6 +688,10 @@ class CirculationService {
                     }
                 }
 
+                // Coalesce to keep parcel arrays small
+                coalesceParcels(&stringParcels)
+                coalesceParcels(&annulusParcels)
+
                 // 3. Calculate new ESD from updated annulus + open hole
                 let newESD = calculateESDFromLayers(
                     layers: currentPocketLayers(),
@@ -701,7 +726,7 @@ class CirculationService {
                         // Binary search for the pump rate where APL ≤ staticSABP
                         var lo = minPumpRate_m3perMin
                         var hi = maxPumpRate_m3perMin
-                        for _ in 0..<20 { // 20 iterations gives ~1e-6 precision
+                        for _ in 0..<12 { // 12 iterations gives ~1e-4 precision (sufficient)
                             let mid = 0.5 * (lo + hi)
                             let midAPL = calculateAPLFromParcels(
                                 annulusParcels: annulusParcels,
