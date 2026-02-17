@@ -183,7 +183,7 @@ struct PadDashboardView: View {
             RentalDetailEditor(rental: rental, allEquipment: allEquipment)
                 .environment(\.locale, Locale(identifier: "en_GB"))
                 #if os(macOS)
-                .frame(minWidth: 720, minHeight: 520)
+                .standardSheetSize(.large)
                 #endif
         }
         .sheet(item: $selectedTransfer) { transfer in
@@ -404,7 +404,7 @@ struct PadDashboardView: View {
                         .foregroundStyle(.secondary)
                     TextEditor(text: $pad.directions)
                         .font(.body)
-                        .frame(minHeight: 60, maxHeight: 120)
+                        .frame(minHeight: 60)
                         .padding(4)
                         .background(Color(white: 0.5, opacity: 0.1))
                         .cornerRadius(6)
@@ -492,9 +492,7 @@ struct PadDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No wells on this pad")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "building.2", title: "No Wells", description: "Add wells to this pad to get started")
                 }
 
                 Button(action: { showingAddWell = true }) {
@@ -560,9 +558,7 @@ struct PadDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No rentals for wells on this pad")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "bag", title: "No Rentals", description: "No rental items for wells on this pad")
                 }
             }
         }
@@ -586,9 +582,7 @@ struct PadDashboardView: View {
                     .buttonStyle(.plain)
                 }
             } else {
-                Text("No material transfers for wells on this pad")
-                    .foregroundStyle(.secondary)
-                    .italic()
+                StandardEmptyState(icon: "arrow.left.arrow.right.circle", title: "No Transfers", description: "No material transfers for wells on this pad")
             }
         }
     }
@@ -699,9 +693,7 @@ struct PadDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No notes for this pad")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "note.text", title: "No Notes", description: "Add pad-level notes to share across all wells")
                 }
 
                 Button(action: { showingAddNote = true }) {
@@ -761,9 +753,7 @@ struct PadDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No pending tasks")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "checkmark.circle", title: "No Pending Tasks", description: "Add tasks to track pad-level work items")
                 }
 
                 Button(action: { showingAddTask = true }) {
@@ -934,7 +924,7 @@ private struct AddPadNoteSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
+        .standardSheetSize(.small)
         #endif
     }
 }
@@ -995,7 +985,7 @@ private struct AddPadTaskSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
+        .standardSheetSize(.small)
         #endif
     }
 }
@@ -1047,7 +1037,7 @@ private struct AddWellToPadSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 350, minHeight: 180)
+        .standardSheetSize(.small)
         #endif
     }
 }
@@ -1091,7 +1081,7 @@ private struct NewPadSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 350, minHeight: 180)
+        .standardSheetSize(.small)
         #endif
     }
 }

@@ -26,6 +26,35 @@ enum NewItemTarget: Identifiable {
 }
 
 struct WellsDashboardView: View {
+
+    // MARK: - Sheet Type Enum
+
+    private enum SheetType: Identifiable {
+        case newTask(NewItemTarget)
+        case editTask(WellTask)
+        case newNote(NewItemTarget)
+        case editNote(HandoverNote)
+        case export
+        case archive
+        case editPad(Pad)
+        case newPad
+        case assignPad(Well)
+
+        var id: String {
+            switch self {
+            case .newTask(let target): return "newTask-\(target.id)"
+            case .editTask(let task): return "editTask-\(task.id)"
+            case .newNote(let target): return "newNote-\(target.id)"
+            case .editNote(let note): return "editNote-\(note.id)"
+            case .export: return "export"
+            case .archive: return "archive"
+            case .editPad(let pad): return "editPad-\(pad.id)"
+            case .newPad: return "newPad"
+            case .assignPad(let well): return "assignPad-\(well.id)"
+            }
+        }
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Well.name) private var wells: [Well]
     @Query(sort: \Pad.name) private var pads: [Pad]
@@ -38,16 +67,11 @@ struct WellsDashboardView: View {
     @AppStorage("wellsDashboard.showCompletedTasks") private var showCompletedTasks = true
 
     @State private var selectedWellIDs: Set<UUID> = []
-    @State private var newTaskTarget: NewItemTarget?
-    @State private var newNoteTarget: NewItemTarget?
-    @State private var editingTask: WellTask?
-    @State private var editingNote: HandoverNote?
+    @State private var activeSheet: SheetType?
     @State private var filterPriority: TaskPriority?
     @State private var searchText = ""
 
     // Export state
-    @State private var showingExportSheet = false
-    @State private var showingArchiveView = false
     @State private var exportStartDate = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
     @State private var exportEndDate = Date()
     @State private var exportIncludeTasks = true
@@ -55,64 +79,51 @@ struct WellsDashboardView: View {
     @State private var exportIncludeCompleted = true
     @State private var exportShiftType: ShiftType? = nil
 
-    // Pad management
-    @State private var editingPad: Pad?
-    @State private var showingNewPadEditor = false
-    @State private var showingAssignPad = false
-    @State private var wellToAssignPad: Well?
-
     var body: some View {
         mainContent
-        .sheet(item: $newTaskTarget) { target in
-            switch target {
-            case .well(let well):
-                TaskEditorView(well: well, task: nil)
-            case .pad(let pad):
-                TaskEditorView(pad: pad, task: nil)
-            }
-        }
-        .sheet(item: $editingTask) { task in
-            Group {
-                if let well = task.well {
-                    TaskEditorView(well: well, task: task)
-                } else if let pad = task.pad {
-                    TaskEditorView(pad: pad, task: task)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .newTask(let target):
+                switch target {
+                case .well(let well):
+                    TaskEditorView(well: well, task: nil)
+                case .pad(let pad):
+                    TaskEditorView(pad: pad, task: nil)
                 }
-            }
-            .frame(minWidth: 450, minHeight: 500)
-        }
-        .sheet(item: $newNoteTarget) { target in
-            switch target {
-            case .well(let well):
-                NoteEditorView(well: well, note: nil)
-            case .pad(let pad):
-                NoteEditorView(pad: pad, note: nil)
-            }
-        }
-        .sheet(item: $editingNote) { note in
-            Group {
-                if let well = note.well {
-                    NoteEditorView(well: well, note: note)
-                } else if let pad = note.pad {
-                    NoteEditorView(pad: pad, note: note)
+            case .editTask(let task):
+                Group {
+                    if let well = task.well {
+                        TaskEditorView(well: well, task: task)
+                    } else if let pad = task.pad {
+                        TaskEditorView(pad: pad, task: task)
+                    }
                 }
-            }
-            .frame(minWidth: 500, minHeight: 450)
-        }
-        .sheet(isPresented: $showingExportSheet) {
-            exportSheet
-        }
-        .sheet(isPresented: $showingArchiveView) {
-            HandoverArchiveView()
-        }
-        .sheet(item: $editingPad) { pad in
-            PadEditorView(pad: pad)
-        }
-        .sheet(isPresented: $showingNewPadEditor) {
-            PadEditorView(pad: nil)
-        }
-        .sheet(isPresented: $showingAssignPad) {
-            if let well = wellToAssignPad {
+                .standardSheetSize(.medium)
+            case .newNote(let target):
+                switch target {
+                case .well(let well):
+                    NoteEditorView(well: well, note: nil)
+                case .pad(let pad):
+                    NoteEditorView(pad: pad, note: nil)
+                }
+            case .editNote(let note):
+                Group {
+                    if let well = note.well {
+                        NoteEditorView(well: well, note: note)
+                    } else if let pad = note.pad {
+                        NoteEditorView(pad: pad, note: note)
+                    }
+                }
+                .standardSheetSize(.medium)
+            case .export:
+                exportSheet
+            case .archive:
+                HandoverArchiveView()
+            case .editPad(let pad):
+                PadEditorView(pad: pad)
+            case .newPad:
+                PadEditorView(pad: nil)
+            case .assignPad(let well):
                 AssignPadSheet(well: well, pads: pads)
             }
         }
@@ -218,7 +229,7 @@ struct WellsDashboardView: View {
                     }
                     Divider()
                     Button("New Pad...") {
-                        showingNewPadEditor = true
+                        activeSheet = .newPad
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -278,7 +289,7 @@ struct WellsDashboardView: View {
                             Spacer()
                             if let pad = group.pad {
                                 Button {
-                                    editingPad = pad
+                                    activeSheet = .editPad(pad)
                                 } label: {
                                     Image(systemName: "pencil")
                                         .font(.caption)
@@ -308,22 +319,24 @@ struct WellsDashboardView: View {
                 }
             }
             .pickerStyle(.menu)
+            .controlSize(.small)
             .frame(width: 140)
 
             Toggle("Show Completed", isOn: $showCompletedTasks)
+                .controlSize(.small)
 
             Spacer()
 
             // Archive button
             Button {
-                showingArchiveView = true
+                activeSheet = .archive
             } label: {
                 Label("Archives", systemImage: "archivebox")
             }
 
             // Export button
             Button {
-                showingExportSheet = true
+                activeSheet = .export
             } label: {
                 Label("Export Report", systemImage: "square.and.arrow.up")
             }
@@ -334,7 +347,7 @@ struct WellsDashboardView: View {
                     Section("Pads") {
                         ForEach(selectedPads, id: \.id) { pad in
                             Button("Add Task to \(pad.name) (Pad)") {
-                                newTaskTarget = .pad(pad)
+                                activeSheet = .newTask(.pad(pad))
                             }
                         }
                     }
@@ -343,7 +356,7 @@ struct WellsDashboardView: View {
                     Section("Wells") {
                         ForEach(selectedWells, id: \.id) { well in
                             Button("Add Task to \(well.name)") {
-                                newTaskTarget = .well(well)
+                                activeSheet = .newTask(.well(well))
                             }
                         }
                     }
@@ -358,7 +371,7 @@ struct WellsDashboardView: View {
                     Section("Pads") {
                         ForEach(selectedPads, id: \.id) { pad in
                             Button("Add Note to \(pad.name) (Pad)") {
-                                newNoteTarget = .pad(pad)
+                                activeSheet = .newNote(.pad(pad))
                             }
                         }
                     }
@@ -367,7 +380,7 @@ struct WellsDashboardView: View {
                     Section("Wells") {
                         ForEach(selectedWells, id: \.id) { well in
                             Button("Add Note to \(well.name)") {
-                                newNoteTarget = .well(well)
+                                activeSheet = .newNote(.well(well))
                             }
                         }
                     }
@@ -388,7 +401,7 @@ struct WellsDashboardView: View {
                 Text("Export Handover Report")
                     .font(.headline)
                 Spacer()
-                Button("Cancel") { showingExportSheet = false }
+                Button("Cancel") { activeSheet = nil }
             }
             .padding()
 
@@ -460,7 +473,7 @@ struct WellsDashboardView: View {
             shiftType: exportShiftType
         )
         HandoverExportService.shared.exportHTML(options: options, modelContext: modelContext)
-        showingExportSheet = false
+        activeSheet = nil
     }
 
     private func formatShiftHours(_ settings: ShiftRotationSettings, _ type: ShiftType) -> String {
@@ -487,16 +500,19 @@ struct WellsDashboardView: View {
             .padding(.top, 8)
 
             if filteredTasks.isEmpty {
-                ContentUnavailableView("No Tasks", systemImage: "checkmark.circle", description: Text("Create a new task to get started"))
-                    .frame(maxHeight: .infinity)
+                StandardEmptyState(
+                    icon: "checkmark.circle",
+                    title: "No Tasks",
+                    description: "Create a new task to get started"
+                )
             } else {
                 List {
                     ForEach(filteredTasks, id: \.id) { task in
                         TaskRowView(task: task) {
-                            editingTask = task
+                            activeSheet = .editTask(task)
                         }
                         .contextMenu {
-                            Button("Edit") { editingTask = task }
+                            Button("Edit") { activeSheet = .editTask(task) }
                             Button(task.status == .completed ? "Mark Pending" : "Mark Complete") {
                                 task.status = task.status == .completed ? .pending : .completed
                                 try? modelContext.save()
@@ -530,16 +546,19 @@ struct WellsDashboardView: View {
             .padding(.top, 8)
 
             if filteredNotes.isEmpty {
-                ContentUnavailableView("No Notes", systemImage: "note.text", description: Text("Create a handover note to get started"))
-                    .frame(maxHeight: .infinity)
+                StandardEmptyState(
+                    icon: "note.text",
+                    title: "No Notes",
+                    description: "Create a handover note to get started"
+                )
             } else {
                 List {
                     ForEach(filteredNotes, id: \.id) { note in
                         NoteRowView(note: note) {
-                            editingNote = note
+                            activeSheet = .editNote(note)
                         }
                         .contextMenu {
-                            Button("Edit") { editingNote = note }
+                            Button("Edit") { activeSheet = .editNote(note) }
                             Button(note.isPinned ? "Unpin" : "Pin") {
                                 note.isPinned.toggle()
                                 try? modelContext.save()
@@ -577,8 +596,7 @@ struct WellsDashboardView: View {
 
         Section {
             Button("Assign to Pad...") {
-                wellToAssignPad = well
-                showingAssignPad = true
+                activeSheet = .assignPad(well)
             }
             if well.pad != nil {
                 Button("Remove from Pad") {

@@ -356,18 +356,6 @@ struct iPhoneOptimizedContentView: View {
                     }
 
                     NavigationLink {
-                        TripTrackerViewIOS(project: project)
-                    } label: {
-                        Label(ViewSelection.tripTracker.title, systemImage: ViewSelection.tripTracker.icon)
-                    }
-
-                    NavigationLink {
-                        TripRecordViewIOS(project: project)
-                    } label: {
-                        Label(ViewSelection.tripRecord.title, systemImage: ViewSelection.tripRecord.icon)
-                    }
-
-                    NavigationLink {
                         MPDTrackingView(project: project)
                     } label: {
                         Label(ViewSelection.mpdTracking.title, systemImage: ViewSelection.mpdTracking.icon)

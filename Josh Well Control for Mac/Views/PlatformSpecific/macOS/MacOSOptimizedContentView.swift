@@ -290,7 +290,7 @@ struct MacOSSidebarView: View {
     private let dashboardViews: [ViewSelection] = [.handover, .padDashboard, .wellDashboard, .dashboard]
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys, .directionalPlanning]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
-    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking, .superSimulation]
+    private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .mpdTracking, .superSimulation]
     private let schedulingViews: [ViewSelection] = [.shiftCalendar, .lookAheadScheduler, .vendors, .jobCodes]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
 
@@ -534,7 +534,11 @@ struct MacOSDetailView: View {
                     selectedViewBinding = .dashboard
                 })
             } else {
-                ContentUnavailableView("No Well Selected", systemImage: "building.2", description: Text("Select a well to view its dashboard"))
+                StandardEmptyState(
+                    icon: "building.2",
+                    title: "No Well Selected",
+                    description: "Select a well from the toolbar or create a new one"
+                )
             }
 
         // Business views (no project required)
@@ -626,10 +630,6 @@ struct MacOSDetailView: View {
                     TripInSimulationView(project: project, navigateToView: { view in
                         selectedViewBinding = view
                     })
-                case .tripTracker:
-                    TripTrackerView(project: project)
-                case .tripRecord:
-                    TripRecordView(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
                 case .superSimulation:
@@ -812,24 +812,19 @@ struct MacOSDetailView: View {
     }
 
     private var noProjectSelectedView: some View {
-        ContentUnavailableView {
-            Label("No Project Selected", systemImage: "folder.badge.questionmark")
-        } description: {
-            Text("Select or create a project to get started")
-        } actions: {
-            Button("Create New Well") {
-                // Create well action
-            }
-            .buttonStyle(.borderedProminent)
-        }
+        StandardEmptyState(
+            icon: "folder",
+            title: "No Project Selected",
+            description: "Select a project from the toolbar or create a new one"
+        )
     }
 
     private var noWellSelectedView: some View {
-        ContentUnavailableView {
-            Label("No Well Selected", systemImage: "building.2.crop.circle.badge.exclamationmark")
-        } description: {
-            Text("Select a well to view this feature")
-        }
+        StandardEmptyState(
+            icon: "building.2",
+            title: "No Well Selected",
+            description: "Select a well from the toolbar or create a new one"
+        )
     }
 }
 

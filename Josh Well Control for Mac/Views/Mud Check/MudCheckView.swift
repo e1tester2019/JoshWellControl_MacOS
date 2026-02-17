@@ -13,6 +13,7 @@ struct MudCheckView: View {
     @Bindable var project: ProjectState
 
     @State private var selection: MudProperties? = nil
+    @State private var itemToDelete: MudProperties?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -35,6 +36,22 @@ struct MudCheckView: View {
         }
         .navigationTitle("Mud Check")
         .toolbar { toolbar }
+        .alert("Delete Fluid?", isPresented: Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let item = itemToDelete {
+                    delete(item)
+                    itemToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                itemToDelete = nil
+            }
+        } message: {
+            Text("Are you sure you want to delete this fluid? This cannot be undone.")
+        }
         .onAppear { attachInitialSelection() }
         .onChange(of: project) { _, _ in
             selection = nil
@@ -46,7 +63,7 @@ struct MudCheckView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
             List(selection: $selection) {
-                Section("Fluids") {
+                Section {
                     let sorted = (project.muds ?? []).sorted { lhs, rhs in
                         lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                     }
@@ -79,6 +96,8 @@ struct MudCheckView: View {
                         let items = idx.map { sorted[$0] }
                         items.forEach(delete)
                     }
+                } header: {
+                    StandardSectionHeader(title: "Fluids", icon: "drop.fill")
                 }
             }
             .listStyle(.inset)
@@ -88,7 +107,7 @@ struct MudCheckView: View {
                 Button { addMud() } label: { Label("Add", systemImage: "plus") }
                 Button { if let s = selection { duplicateMud(s) } } label: { Label("Duplicate", systemImage: "doc.on.doc") }
                     .disabled(selection == nil)
-                Button(role: .destructive) { if let s = selection { delete(s) } } label: { Label("Delete", systemImage: "trash") }
+                Button(role: .destructive) { if let s = selection { itemToDelete = s } } label: { Label("Delete", systemImage: "trash") }
                     .disabled(selection == nil)
                 Spacer()
             }
@@ -98,14 +117,13 @@ struct MudCheckView: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 8) {
-            Text("No mud selected").font(.title3).bold()
-            Text("Add a mud or pick one from the list to edit its properties.")
-                .foregroundStyle(.secondary)
-            Button("Add Mud", systemImage: "plus") { addMud() }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(24)
+        StandardEmptyState(
+            icon: "drop",
+            title: "Select a Fluid",
+            description: "Choose a fluid from the list or add a new one",
+            actionLabel: "Add Mud",
+            action: { addMud() }
+        )
     }
 
     // MARK: - Toolbar
@@ -114,7 +132,7 @@ struct MudCheckView: View {
             Button("Add Mud", systemImage: "plus") { addMud() }
             Button("Duplicate", systemImage: "doc.on.doc") { if let s = selection { duplicateMud(s) } }
                 .disabled(selection == nil)
-            Button("Delete", systemImage: "trash", role: .destructive) { if let s = selection { delete(s) } }
+            Button("Delete", systemImage: "trash", role: .destructive) { if let s = selection { itemToDelete = s } }
                 .disabled(selection == nil)
             if let s = selection {
                 Button {

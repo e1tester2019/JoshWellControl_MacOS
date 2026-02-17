@@ -615,6 +615,40 @@ extension TripSimulationView {
       // Keep existing endMD_m (user's end depth target)
       targetESDAtTD_kgpm3 = state.ESDAtControl_kgpm3
     }
+
+    // MARK: - Ballooning Field Adjustment
+
+    var ballooningActualVolume_m3: Double = 0.0
+    var ballooningResult: BallooningAdjustmentCalculator.Result?
+
+    func recalculateBallooning(project: ProjectState) {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else {
+        ballooningResult = nil
+        return
+      }
+      let step = steps[idx]
+      let simulatedVol = step.cumulativeBackfill_m3
+
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: step.bitMD_m,
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
+      )
+
+      let backfillMud = backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+      let killDensity = backfillMud?.density_kgm3 ?? backfillDensity_kgpm3
+      let baseDensity = project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
+
+      ballooningResult = BallooningAdjustmentCalculator.calculate(.init(
+        simulatedSABP_kPa: step.SABP_kPa,
+        simulatedKillMudVolume_m3: simulatedVol,
+        actualKillMudVolume_m3: ballooningActualVolume_m3,
+        killMudDensity_kgpm3: killDensity,
+        originalMudDensity_kgpm3: baseDensity,
+        geom: geom
+      ))
+    }
   }
 }
 
@@ -1059,6 +1093,40 @@ extension TripSimulationViewIOS {
         sourceDescription: "Trip Out at \(Int(step.bitMD_m))m MD",
         timestamp: .now
       )
+    }
+
+    // MARK: - Ballooning Field Adjustment
+
+    var ballooningActualVolume_m3: Double = 0.0
+    var ballooningResult: BallooningAdjustmentCalculator.Result?
+
+    func recalculateBallooning(project: ProjectState) {
+      guard let idx = selectedIndex, steps.indices.contains(idx) else {
+        ballooningResult = nil
+        return
+      }
+      let step = steps[idx]
+      let simulatedVol = step.cumulativeBackfill_m3
+
+      let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+      let geom = ProjectGeometryService(
+        project: project,
+        currentStringBottomMD: step.bitMD_m,
+        tvdMapper: { md in tvdSampler.tvd(of: md) }
+      )
+
+      let backfillMud = backfillMudID.flatMap { id in (project.muds ?? []).first(where: { $0.id == id }) }
+      let killDensity = backfillMud?.density_kgm3 ?? backfillDensity_kgpm3
+      let baseDensity = project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
+
+      ballooningResult = BallooningAdjustmentCalculator.calculate(.init(
+        simulatedSABP_kPa: step.SABP_kPa,
+        simulatedKillMudVolume_m3: simulatedVol,
+        actualKillMudVolume_m3: ballooningActualVolume_m3,
+        killMudDensity_kgpm3: killDensity,
+        originalMudDensity_kgpm3: baseDensity,
+        geom: geom
+      ))
     }
   }
 }

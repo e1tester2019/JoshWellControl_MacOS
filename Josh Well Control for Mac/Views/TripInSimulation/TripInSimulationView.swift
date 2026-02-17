@@ -41,14 +41,8 @@ struct TripInSimulationView: View {
 
     @Query private var allTripSimulations: [TripSimulation]
     @Query private var allTripInSimulations: [TripInSimulation]
-    @Query private var allTripTracks: [TripTrack]
-
     private var savedTripOutSimulations: [TripSimulation] {
         allTripSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var savedTripTracks: [TripTrack] {
-        allTripTracks.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
     }
 
     private var savedTripInSimulations: [TripInSimulation] {
@@ -58,7 +52,24 @@ struct TripInSimulationView: View {
     // Bind to cached ViewModel - initialized from cache
     @State private var viewModel: TripInSimulationViewModel
 
-    @State private var showingSourcePicker = false
+    // Consolidated sheet state
+    private enum SheetType: Identifiable {
+        case sourcePicker
+        case frozenInputs(TripInSimulation)
+        case circulateOutSchedule
+        case pumpSchedule
+
+        var id: String {
+            switch self {
+            case .sourcePicker: return "sourcePicker"
+            case .frozenInputs(let sim): return "frozenInputs-\(sim.id)"
+            case .circulateOutSchedule: return "circulateOutSchedule"
+            case .pumpSchedule: return "pumpSchedule"
+            }
+        }
+    }
+    @State private var activeSheet: SheetType?
+
     @State private var showingSaveDialog = false
     @State private var saveError: String?
     @State private var showDetails = false
@@ -72,15 +83,7 @@ struct TripInSimulationView: View {
     @State private var selectedSimulationsForDelete: Set<TripInSimulation.ID> = []
     @State private var isEditingSimulations = false
 
-    // Frozen inputs viewer state
-    @State private var showingFrozenInputs = false
-    @State private var frozenInputsSimulation: TripInSimulation?
-
-    // Circulate out schedule state
-    @State private var showingCirculateOutSchedule = false
-
     // Pump Schedule sheet state
-    @State private var showingPumpScheduleSheet = false
     @State private var pumpScheduleVM = PumpScheduleViewModel()
 
     // Circulation detail popover
@@ -122,24 +125,22 @@ struct TripInSimulationView: View {
                 viewModel.bootstrap(from: project)
             }
         }
-        .sheet(isPresented: $showingSourcePicker) {
-            sourceSimulationPicker
-        }
         .alert("Save Error", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveError ?? "Unknown error")
         }
-        .sheet(isPresented: $showingFrozenInputs) {
-            if let sim = frozenInputsSimulation {
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .sourcePicker:
+                sourceSimulationPicker
+            case .frozenInputs(let sim):
                 FrozenInputsDetailViewTripIn(simulation: sim, currentProject: project)
+            case .circulateOutSchedule:
+                circulateOutScheduleSheet
+            case .pumpSchedule:
+                pumpScheduleSheet
             }
-        }
-        .sheet(isPresented: $showingCirculateOutSchedule) {
-            circulateOutScheduleSheet
-        }
-        .sheet(isPresented: $showingPumpScheduleSheet) {
-            pumpScheduleSheet
         }
     }
 
@@ -155,13 +156,14 @@ struct TripInSimulationView: View {
 
             // Source simulation picker
             Button {
-                showingSourcePicker = true
+                activeSheet = .sourcePicker
             } label: {
                 HStack {
                     Image(systemName: "arrow.up.doc")
                     Text(viewModel.sourceType == .none ? "Import Pocket State" : viewModel.sourceDisplayName)
                 }
             }
+            .controlSize(.small)
 
             Spacer()
 
@@ -189,6 +191,7 @@ struct TripInSimulationView: View {
                     Text("Dir Plan").tag(true)
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.small)
                 .frame(width: 130)
             }
             .help("Choose whether to use actual surveys or directional plan for TVD calculations")
@@ -200,12 +203,14 @@ struct TripInSimulationView: View {
                 viewModel.runSimulation(project: project)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.small)
             .disabled(viewModel.isRunning)
 
             if !viewModel.steps.isEmpty {
                 Button("Save", systemImage: "square.and.arrow.down") {
                     _ = viewModel.saveSimulation(to: project, context: modelContext)
                 }
+                .controlSize(.small)
 
                 Menu {
                     Button("Export HTML") { exportHTMLReport() }
@@ -213,15 +218,18 @@ struct TripInSimulationView: View {
                 } label: {
                     Label("Export", systemImage: "doc.richtext")
                 }
+                .controlSize(.small)
 
                 Button("Circulate", systemImage: "arrow.up.arrow.down.circle") {
-                    showingCirculateOutSchedule = true
+                    activeSheet = .circulateOutSchedule
                 }
+                .controlSize(.small)
                 .help("Pump fluids and track ESD/SABP changes")
 
                 Button("Pump Schedule", systemImage: "chart.bar.doc.horizontal") {
                     openPumpScheduleSheet()
                 }
+                .controlSize(.small)
                 .help("Open full pump schedule simulation with current wellbore state")
 
                 Divider()
@@ -230,6 +238,7 @@ struct TripInSimulationView: View {
                 Button("Trip Out from Here", systemImage: "arrow.up.to.line") {
                     handoffToTripOut()
                 }
+                .controlSize(.small)
                 .help("Switch to Trip Out simulation from the current depth")
             }
         }
@@ -243,7 +252,7 @@ struct TripInSimulationView: View {
         guard let state = viewModel.wellboreStateAtSelectedStep() else { return }
         pumpScheduleVM = PumpScheduleViewModel()
         pumpScheduleVM.bootstrapFromWellboreState(state, project: project, context: modelContext)
-        showingPumpScheduleSheet = true
+        activeSheet = .pumpSchedule
     }
 
     private var pumpScheduleSheet: some View {
@@ -257,7 +266,7 @@ struct TripInSimulationView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 Button("Cancel") {
-                    showingPumpScheduleSheet = false
+                    activeSheet = nil
                 }
                 .buttonStyle(.bordered)
             }
@@ -272,12 +281,12 @@ struct TripInSimulationView: View {
 
     private func applyPumpScheduleState() {
         guard let exported = pumpScheduleVM.exportWellboreState(project: project) else {
-            showingPumpScheduleSheet = false
+            activeSheet = nil
             return
         }
         let idx = viewModel.selectedIndex
         guard idx >= 0 && idx < viewModel.steps.count else {
-            showingPumpScheduleSheet = false
+            activeSheet = nil
             return
         }
 
@@ -289,7 +298,7 @@ struct TripInSimulationView: View {
         // Recalculate subsequent steps from this point
         viewModel.recalculateStepsFrom(stepIndex: idx + 1, project: project)
 
-        showingPumpScheduleSheet = false
+        activeSheet = nil
     }
 
     // MARK: - Operations Handoff
@@ -491,6 +500,13 @@ struct TripInSimulationView: View {
                 // Only update if different to avoid feedback loop
                 if newIndex != viewModel.selectedIndex && newIndex >= 0 && newIndex < viewModel.steps.count {
                     viewModel.selectedIndex = newIndex
+                }
+            }
+            .onChange(of: viewModel.selectedIndex) { _, newIdx in
+                // Reset ballooning actual volume to simulated value when step changes
+                if newIdx >= 0 && newIdx < viewModel.steps.count {
+                    viewModel.ballooningActualVolume_m3 = viewModel.steps[newIdx].cumulativeFillVolume_m3
+                    viewModel.ballooningResult = nil
                 }
             }
         }
@@ -707,7 +723,7 @@ struct TripInSimulationView: View {
                     Text("No pocket layers imported")
                         .foregroundStyle(.secondary)
                         .font(.caption)
-                    Text("Import from Trip Simulation or Trip Tracker")
+                    Text("Import from Trip Simulation")
                         .foregroundStyle(.tertiary)
                         .font(.caption2)
                 } else {
@@ -1209,8 +1225,7 @@ struct TripInSimulationView: View {
                             showingRenameDialog = true
                         }
                         Button {
-                            frozenInputsSimulation = simulation
-                            showingFrozenInputs = true
+                            activeSheet = .frozenInputs(simulation)
                         } label: {
                             Label("View Frozen Inputs", systemImage: "snowflake")
                         }
@@ -1256,44 +1271,17 @@ struct TripInSimulationView: View {
 
     // MARK: - Source Picker
 
-    @State private var sourcePickerTab: SourcePickerTab = .simulation
-
-    private enum SourcePickerTab {
-        case simulation
-        case tracker
-    }
-
     private var sourceSimulationPicker: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Tab picker
-                Picker("Source Type", selection: $sourcePickerTab) {
-                    Text("Trip Simulations").tag(SourcePickerTab.simulation)
-                    Text("Trip Trackers").tag(SourcePickerTab.tracker)
-                }
-                .pickerStyle(.segmented)
-                .padding()
-
-                Divider()
-
-                // Content based on selected tab
-                Group {
-                    switch sourcePickerTab {
-                    case .simulation:
-                        simulationsList
-                    case .tracker:
-                        trackersList
+            simulationsList
+                .navigationTitle("Import Pocket State")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            activeSheet = nil
+                        }
                     }
                 }
-            }
-            .navigationTitle("Import Pocket State")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingSourcePicker = false
-                    }
-                }
-            }
         }
         .frame(width: 450, height: 550)
     }
@@ -1341,56 +1329,8 @@ struct TripInSimulationView: View {
         viewModel.importFromTripSimulation(simulation, project: project, context: modelContext)
         print("⏱️ After import: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
 
-        showingSourcePicker = false
+        activeSheet = nil
         print("⏱️ After dismiss: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
-    }
-
-    private var trackersList: some View {
-        Group {
-            if savedTripTracks.isEmpty {
-                ContentUnavailableView(
-                    "No Trip Trackers",
-                    systemImage: "list.bullet.clipboard",
-                    description: Text("Start a trip tracker session first to import pocket state")
-                )
-            } else {
-                List(savedTripTracks) { tripTrack in
-                    Button {
-                        viewModel.importFromTripTracker(tripTrack, project: project)
-                        showingSourcePicker = false
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(tripTrack.name)
-                                .font(.headline)
-                            HStack {
-                                Text("Current: \(String(format: "%.0f", tripTrack.currentBitMD_m))m")
-                                Text("•")
-                                Text("TD: \(String(format: "%.0f", tripTrack.tdMD_m))m")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                            let pocketCount = tripTrack.layersPocket.count
-                            if pocketCount > 0 {
-                                Text("\(pocketCount) pocket layer(s)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            }
-
-                            HStack {
-                                Text("\(tripTrack.stepCount) steps recorded")
-                                Text("•")
-                                Text(tripTrack.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                            }
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
 
     // MARK: - Visualization
@@ -1649,6 +1589,104 @@ struct TripInSimulationView: View {
                         } else {
                             layerTable(step.layersPocket)
                         }
+                    }
+
+                    DisclosureGroup("Field Adjustment (Ballooning)") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Read-only context
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                GridRow {
+                                    Text("Simulated Kill Vol").foregroundStyle(.secondary)
+                                    Text(String(format: "%.3f m³", step.cumulativeFillVolume_m3))
+                                }
+                                GridRow {
+                                    Text("Kill ρ").foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kg/m³", viewModel.activeMudDensity_kgpm3))
+                                }
+                                GridRow {
+                                    Text("Base ρ").foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f kg/m³", viewModel.baseMudDensity_kgpm3))
+                                }
+                            }
+
+                            Divider()
+
+                            // User input
+                            HStack(spacing: 8) {
+                                Text("Actual Kill Mud Vol:")
+                                    .foregroundStyle(.secondary)
+                                NumericTextField(
+                                    placeholder: "m³",
+                                    value: $viewModel.ballooningActualVolume_m3,
+                                    fractionDigits: 3
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                                Text("m³")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .onChange(of: viewModel.ballooningActualVolume_m3) { _, _ in
+                                viewModel.recalculateBallooning(project: project)
+                            }
+
+                            // Results
+                            if let r = viewModel.ballooningResult, r.volumeDeficit_m3 > 0.001 {
+                                Divider()
+                                HStack(spacing: 12) {
+                                    // Hold Choke
+                                    VStack(spacing: 2) {
+                                        Text("Hold Choke")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(String(format: "%.0f kPa", r.adjustedSABP_kPa))
+                                            .font(.headline)
+                                            .foregroundStyle(.orange)
+                                            .fontWeight(.bold)
+                                    }
+                                    .frame(maxWidth: .infinity)
+
+                                    // Extra Choke
+                                    VStack(spacing: 2) {
+                                        Text("Extra Choke")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(String(format: "+%.0f kPa", r.deltaSABP_kPa))
+                                            .font(.headline)
+                                            .foregroundStyle(.red)
+                                    }
+                                    .frame(maxWidth: .infinity)
+
+                                    // Pump to Recover
+                                    VStack(spacing: 2) {
+                                        Text("Pump to Recover")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(String(format: "%.3f m³", r.volumeDeficit_m3))
+                                            .font(.headline)
+                                            .foregroundStyle(.blue)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+
+                                // Comparison
+                                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                    GridRow {
+                                        Text("Plan Choke").foregroundStyle(.secondary)
+                                        Text(String(format: "%.0f kPa", step.requiredChokePressure_kPa))
+                                    }
+                                    GridRow {
+                                        Text("Hold Choke").foregroundStyle(.secondary)
+                                        Text(String(format: "%.0f kPa", r.adjustedSABP_kPa))
+                                    }
+                                    GridRow {
+                                        Text("Deficit TVD Height").foregroundStyle(.secondary)
+                                        Text(String(format: "%.1f m", r.deficitTVDHeight_m))
+                                    }
+                                }
+                                .padding(.top, 4)
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                 }
             } else {
@@ -1960,7 +1998,7 @@ struct TripInSimulationView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        showingCirculateOutSchedule = false
+                        activeSheet = nil
                     }
                 }
             }

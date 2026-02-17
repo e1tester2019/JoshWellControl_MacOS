@@ -70,11 +70,11 @@ struct SwabbingView: View {
     // MARK: - Subviews
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.up")
-                .font(.title3)
-            Text("Swab (POOH): uses final layers; rheology from mud checks when linked, else 600/300 fallback")
-                .foregroundStyle(.secondary)
+        StandardSectionHeader(
+            title: "Swab (POOH)",
+            icon: "arrow.up",
+            subtitle: "Uses final layers; rheology from mud checks when linked, else 600/300 fallback"
+        ) {
             Text(viewmodel.rheologyBadgeText)
                 .font(.caption2)
                 .padding(.horizontal, 8)
@@ -82,7 +82,6 @@ struct SwabbingView: View {
                 .background(Capsule().fill(viewmodel.rheologyBadgeTint.opacity(0.15)))
                 .overlay(Capsule().stroke(viewmodel.rheologyBadgeTint.opacity(0.35)))
                 .foregroundStyle(viewmodel.rheologyBadgeTint)
-            Spacer()
         }
     }
 
@@ -197,17 +196,11 @@ struct SwabbingView: View {
                 .frame(minHeight: 380)
                 .padding(.top, 8)
             } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.05))
-                    VStack(spacing: 6) {
-                        Image(systemName: "chart.xyaxis.line")
-                            .foregroundStyle(.secondary)
-                        Text("No profile yet. Click Compute to run swab.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                StandardEmptyState(
+                    icon: "chart.xyaxis.line",
+                    title: "No Profile",
+                    description: "Click Compute to run swab."
+                )
                 .frame(minHeight: 220)
             }
         }

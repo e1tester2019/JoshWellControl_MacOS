@@ -88,17 +88,11 @@ struct SurgeSwabView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.title3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Surge/Swab Pressure Calculator")
-                    .font(.headline)
-                Text("Calculate pressure changes during tripping based on pipe displacement and mud rheology")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        StandardSectionHeader(
+            title: "Surge/Swab Pressure Calculator",
+            icon: "arrow.up.arrow.down",
+            subtitle: "Calculate pressure changes during tripping based on pipe displacement and mud rheology"
+        ) {
             Button {
                 compute()
             } label: {
@@ -501,17 +495,11 @@ struct SurgeSwabView: View {
     // MARK: - Shared
 
     private var emptyChartPlaceholder: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.05))
-            VStack(spacing: 6) {
-                Image(systemName: "chart.xyaxis.line")
-                    .foregroundStyle(.secondary)
-                Text("No results. Configure parameters and click Calculate.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        StandardEmptyState(
+            icon: "chart.xyaxis.line",
+            title: "No Results",
+            description: "Configure parameters and click Calculate."
+        )
         .frame(minHeight: 300)
     }
 

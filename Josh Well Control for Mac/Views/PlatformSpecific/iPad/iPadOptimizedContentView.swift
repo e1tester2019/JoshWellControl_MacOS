@@ -179,7 +179,7 @@ struct iPadSidebarView: View {
     private let geometryViews: [ViewSelection] = [.drillString, .annulus, .volumeSummary, .surveys]
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab]
-    private let simulationViews: [ViewSelection] = [.tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking]
+    private let simulationViews: [ViewSelection] = [.tripSimulation, .tripInSimulation, .mpdTracking]
     private let directionalViews: [ViewSelection] = [.directionalPlanning]
     private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
     private let lookAheadViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
@@ -492,10 +492,6 @@ struct iPadDetailView: View {
                     TripSimulationViewIOS(project: project)
                 case .tripInSimulation:
                     TripInSimulationViewIOS(project: project)
-                case .tripTracker:
-                    TripTrackerViewIOS(project: project)
-                case .tripRecord:
-                    TripRecordViewIOS(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
                 case .directionalPlanning:

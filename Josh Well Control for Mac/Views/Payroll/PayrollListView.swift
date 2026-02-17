@@ -22,27 +22,19 @@ struct PayrollListView: View {
                 // Quick stats
                 if !payRuns.isEmpty {
                     Section {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("Active Employees")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text("\(activeEmployees.count)")
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                            }
-
-                            Spacer()
+                        HStack(spacing: 12) {
+                            MetricCard(
+                                title: "Active Employees",
+                                value: "\(activeEmployees.count)",
+                                style: .compact
+                            )
 
                             if let lastRun = payRuns.first {
-                                VStack(alignment: .trailing) {
-                                    Text("Last Pay Run")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(lastRun.payDateString)
-                                        .font(.callout)
-                                        .fontWeight(.medium)
-                                }
+                                MetricCard(
+                                    title: "Last Pay Run",
+                                    value: lastRun.payDateString,
+                                    style: .compact
+                                )
                             }
                         }
                     }

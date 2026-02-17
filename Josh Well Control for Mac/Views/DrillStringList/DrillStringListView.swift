@@ -14,6 +14,7 @@ struct DrillStringListView: View {
     @Environment(\.modelContext) private var modelContext
     let project: ProjectState
     @State private var viewmodel: ViewModel
+    @State private var itemToDelete: DrillStringSection?
     
     init(project: ProjectState) {
         self.project = project
@@ -43,7 +44,7 @@ struct DrillStringListView: View {
                                 .buttonStyle(.borderless)
                                 .controlSize(.small)
                                 .help("Open details")
-                            Button(role: .destructive) { viewmodel.delete(sec) } label: {
+                            Button(role: .destructive) { itemToDelete = sec } label: {
                                 Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
                             }
                             .buttonStyle(.borderless)
@@ -57,6 +58,24 @@ struct DrillStringListView: View {
                 .onDelete { idx in
                     let items = idx.map { viewmodel.sortedSections[$0] }
                     items.forEach { viewmodel.delete($0) }
+                }
+
+                // Summary row
+                if !viewmodel.sortedSections.isEmpty {
+                    let totalCapacity = viewmodel.sortedSections.reduce(0.0) { $0 + viewmodel.sectionCapacity_m3($1) }
+                    let totalDisplacement = viewmodel.sortedSections.reduce(0.0) { $0 + viewmodel.sectionDisplacement_m3($1) }
+                    Section {
+                        HStack {
+                            Text("Total")
+                                .font(.headline)
+                            Spacer()
+                            Text(String(format: "Cap: %.3f m\u{00B3}   Disp: %.3f m\u{00B3}", totalCapacity, totalDisplacement))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
             }
             HStack {
@@ -83,6 +102,22 @@ struct DrillStringListView: View {
                         .help("Extend previous section to remove gaps up to the next section")
                 }
             }
+        }
+        .alert("Delete Section?", isPresented: Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let item = itemToDelete {
+                    viewmodel.delete(item)
+                    itemToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                itemToDelete = nil
+            }
+        } message: {
+            Text("Are you sure you want to delete this section? This cannot be undone.")
         }
         .sheet(item: $viewmodel.activeSection) { sec in
             DrillStringDetailView(section: sec)

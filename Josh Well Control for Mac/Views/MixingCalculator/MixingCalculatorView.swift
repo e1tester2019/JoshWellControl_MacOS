@@ -31,10 +31,11 @@ struct MixingCalculatorView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Density Change Calculations").font(.title2).bold()
-                Text("Simple mass balance and weight-up with barite calculators")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                StandardSectionHeader(
+                    title: "Density Change Calculations",
+                    icon: "scalemass",
+                    subtitle: "Simple mass balance and weight-up with barite calculators"
+                )
 
                 // Adaptive grid of summary boxes
                 LazyVGrid(columns: columns, spacing: 16) {
@@ -81,7 +82,7 @@ private struct WeightUpWithBariteSection: View {
     var totals: MixingCalculatorView.VolumeTotals
     var body: some View {
         @Bindable var vm = model
-        GroupBox("Weight up with Barite") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 16) {
                     label("Active mud")
@@ -133,6 +134,8 @@ private struct WeightUpWithBariteSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        } label: {
+            StandardSectionHeader(title: "Weight up with Barite", icon: "scalemass.fill")
         }
     }
 }
@@ -142,7 +145,7 @@ private struct WeightChangeWithMudSection: View {
     var totals: MixingCalculatorView.VolumeTotals
     var body: some View {
         @Bindable var vm = model
-        GroupBox("Weight change with Mud") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 16) {
                     label("Active mud")
@@ -197,6 +200,8 @@ private struct WeightChangeWithMudSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        } label: {
+            StandardSectionHeader(title: "Weight change with Mud", icon: "drop.triangle.fill")
         }
     }
 }

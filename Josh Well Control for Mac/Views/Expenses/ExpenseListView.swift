@@ -132,6 +132,7 @@ struct ExpenseListView: View {
                                 Label(cat.rawValue, systemImage: cat.icon).tag(cat as ExpenseCategory?)
                             }
                         }
+                        .controlSize(.small)
 
                         Picker("Province", selection: $filterProvince) {
                             Text("All Provinces").tag(nil as Province?)
@@ -139,12 +140,14 @@ struct ExpenseListView: View {
                                 Text(prov.rawValue).tag(prov as Province?)
                             }
                         }
+                        .controlSize(.small)
 
                         Picker("Reimbursement", selection: $filterReimbursable) {
                             ForEach(ReimbursableFilter.allCases, id: \.self) { filter in
                                 Text(filter.rawValue).tag(filter)
                             }
                         }
+                        .controlSize(.small)
 
                         HStack {
                             DatePicker("From", selection: Binding(
@@ -152,6 +155,7 @@ struct ExpenseListView: View {
                                 set: { filterStartDate = $0 }
                             ), displayedComponents: .date)
                             .environment(\.locale, Locale(identifier: "en_GB"))
+                            .controlSize(.small)
 
                             Button {
                                 filterStartDate = nil
@@ -169,6 +173,7 @@ struct ExpenseListView: View {
                                 set: { filterEndDate = $0 }
                             ), displayedComponents: .date)
                             .environment(\.locale, Locale(identifier: "en_GB"))
+                            .controlSize(.small)
 
                             Button {
                                 filterEndDate = nil

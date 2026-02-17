@@ -124,10 +124,7 @@ struct CementJobView: View {
     #if os(macOS)
     private var jobListPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Cement Jobs")
-                    .font(.headline)
-                Spacer()
+            StandardSectionHeader(title: "Cement Jobs", icon: "square.stack.3d.up") {
                 Button(action: { showingNewJobSheet = true }) {
                     Image(systemName: "plus")
                 }
@@ -137,10 +134,13 @@ struct CementJobView: View {
             Divider()
 
             if cementJobs.isEmpty {
-                Text("No cement jobs yet.\nClick + to create one.")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                StandardEmptyState(
+                    icon: "square.stack.3d.up",
+                    title: "No Cement Jobs",
+                    description: "Click + to create one",
+                    actionLabel: "New Job",
+                    action: { showingNewJobSheet = true }
+                )
             } else {
                 List(selection: Binding(
                     get: { viewModel.selectedJob?.id },

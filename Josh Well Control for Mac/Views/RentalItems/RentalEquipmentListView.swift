@@ -19,18 +19,34 @@ struct RentalEquipmentListView: View {
     @State private var searchText = ""
     @State private var selectedCategory: RentalCategory?
     @State private var selectedEquipment: RentalEquipment?
-    @State private var showingAddSheet = false
-    @State private var showingCategoryManager = false
-    @State private var showingIssueSheet = false
-    @State private var showingEditSheet = false
-    @State private var equipmentToEdit: RentalEquipment?
     @State private var filterActiveOnly = false
-    @State private var showingOnLocationReport = false
-    @State private var showingImportSheet = false
     @State private var importText = ""
     @State private var selectedEquipmentIDs: Set<UUID> = []
-    @State private var showingBulkEditSheet = false
-    @State private var showingSendToLocationSheet = false
+    @State private var activeSheet: SheetType? = nil
+
+    private enum SheetType: Identifiable {
+        case addEquipment
+        case categoryManager
+        case issueLog(RentalEquipment)
+        case editEquipment(RentalEquipment)
+        case onLocationReport
+        case importSheet
+        case bulkEdit
+        case sendToLocation
+
+        var id: String {
+            switch self {
+            case .addEquipment: return "addEquipment"
+            case .categoryManager: return "categoryManager"
+            case .issueLog(let eq): return "issueLog-\(eq.id)"
+            case .editEquipment(let eq): return "editEquipment-\(eq.id)"
+            case .onLocationReport: return "onLocationReport"
+            case .importSheet: return "importSheet"
+            case .bulkEdit: return "bulkEdit"
+            case .sendToLocation: return "sendToLocation"
+            }
+        }
+    }
 
     private var filteredEquipment: [RentalEquipment] {
         var result = allEquipment
@@ -78,7 +94,7 @@ struct RentalEquipmentListView: View {
             // Detail view
             if let equipment = selectedEquipment {
                 EquipmentDetailView(equipment: equipment, onLogIssue: {
-                    showingIssueSheet = true
+                    activeSheet = .issueLog(equipment)
                 })
                 .id(equipment.id) // Force view recreation when selection changes
                 .frame(minWidth: 350)
@@ -87,62 +103,68 @@ struct RentalEquipmentListView: View {
             }
         }
         .navigationTitle("Equipment Registry")
-        .sheet(isPresented: $showingAddSheet) {
-            EquipmentEditorSheet(equipment: nil, categories: categories, vendors: vendors) { equipment in
-                modelContext.insert(equipment)
-                try? modelContext.save()
-                selectedEquipment = equipment
-            }
-        }
-        .sheet(isPresented: $showingCategoryManager) {
-            RentalCategoryManagerView()
-        }
-        .sheet(isPresented: $showingIssueSheet) {
-            if let equipment = selectedEquipment {
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .addEquipment:
+                EquipmentEditorSheet(equipment: nil, categories: categories, vendors: vendors) { equipment in
+                    modelContext.insert(equipment)
+                    try? modelContext.save()
+                    selectedEquipment = equipment
+                }
+            case .categoryManager:
+                RentalCategoryManagerView()
+            case .issueLog(let equipment):
                 IssueLogSheet(equipment: equipment)
-            }
-        }
-        .sheet(isPresented: $showingEditSheet) {
-            if let equipment = equipmentToEdit {
+            case .editEquipment(let equipment):
                 EquipmentEditorSheet(equipment: equipment, categories: categories, vendors: vendors) { _ in
                     try? modelContext.save()
                 }
+            case .onLocationReport:
+                #if os(macOS)
+                EquipmentOnLocationReportPreview(equipment: onLocationEquipment)
+                #else
+                EmptyView()
+                #endif
+            case .importSheet:
+                #if os(macOS)
+                EquipmentImportSheet(
+                    csvText: $importText,
+                    categories: categories,
+                    vendors: vendors,
+                    existingEquipment: allEquipment
+                ) {
+                    activeSheet = nil
+                    importText = ""
+                }
+                #else
+                EmptyView()
+                #endif
+            case .bulkEdit:
+                #if os(macOS)
+                BulkEquipmentEditSheet(
+                    equipment: selectedEquipmentObjects,
+                    categories: categories,
+                    vendors: vendors
+                ) {
+                    activeSheet = nil
+                    selectedEquipmentIDs.removeAll()
+                }
+                #else
+                EmptyView()
+                #endif
+            case .sendToLocation:
+                #if os(macOS)
+                SendToLocationSheet(
+                    equipment: selectedEquipmentObjects
+                ) {
+                    activeSheet = nil
+                    selectedEquipmentIDs.removeAll()
+                }
+                #else
+                EmptyView()
+                #endif
             }
         }
-        #if os(macOS)
-        .sheet(isPresented: $showingOnLocationReport) {
-            EquipmentOnLocationReportPreview(equipment: onLocationEquipment)
-        }
-        .sheet(isPresented: $showingImportSheet) {
-            EquipmentImportSheet(
-                csvText: $importText,
-                categories: categories,
-                vendors: vendors,
-                existingEquipment: allEquipment
-            ) {
-                showingImportSheet = false
-                importText = ""
-            }
-        }
-        .sheet(isPresented: $showingBulkEditSheet) {
-            BulkEquipmentEditSheet(
-                equipment: selectedEquipmentObjects,
-                categories: categories,
-                vendors: vendors
-            ) {
-                showingBulkEditSheet = false
-                selectedEquipmentIDs.removeAll()
-            }
-        }
-        .sheet(isPresented: $showingSendToLocationSheet) {
-            SendToLocationSheet(
-                equipment: selectedEquipmentObjects
-            ) {
-                showingSendToLocationSheet = false
-                selectedEquipmentIDs.removeAll()
-            }
-        }
-        #endif
     }
 
     private var toolbar: some View {
@@ -174,10 +196,10 @@ struct RentalEquipmentListView: View {
                 // Bulk actions (when items selected)
                 if !selectedEquipmentIDs.isEmpty {
                     Button("Bulk Edit", systemImage: "pencil") {
-                        showingBulkEditSheet = true
+                        activeSheet = .bulkEdit
                     }
                     Button("Send to Location", systemImage: "arrow.right.circle") {
-                        showingSendToLocationSheet = true
+                        activeSheet = .sendToLocation
                     }
 
                     Divider()
@@ -189,13 +211,13 @@ struct RentalEquipmentListView: View {
                     Button("Import from File...", systemImage: "doc.badge.arrow.up") {
                         if let text = EquipmentImportService.shared.importFromFile() {
                             importText = text
-                            showingImportSheet = true
+                            activeSheet = .importSheet
                         }
                     }
                     Button("Paste from Clipboard", systemImage: "doc.on.clipboard") {
                         if let text = EquipmentImportService.shared.getClipboardText() {
                             importText = text
-                            showingImportSheet = true
+                            activeSheet = .importSheet
                         }
                     }
                     Divider()
@@ -212,14 +234,14 @@ struct RentalEquipmentListView: View {
                 .fixedSize()
 
                 Button("On Location Report", systemImage: "doc.text") {
-                    showingOnLocationReport = true
+                    activeSheet = .onLocationReport
                 }
                 .disabled(onLocationEquipment.isEmpty)
                 Button("Categories", systemImage: "folder") {
-                    showingCategoryManager = true
+                    activeSheet = .categoryManager
                 }
                 Button("Add Equipment", systemImage: "plus") {
-                    showingAddSheet = true
+                    activeSheet = .addEquipment
                 }
             }
 
@@ -244,9 +266,11 @@ struct RentalEquipmentListView: View {
                     }
                 }
                 .frame(width: 160)
+                .controlSize(.small)
 
                 Toggle("Active Only", isOn: $filterActiveOnly)
                     .toggleStyle(.checkbox)
+                    .controlSize(.small)
             }
         }
         .padding()
@@ -464,12 +488,11 @@ struct RentalEquipmentListView: View {
         .tag(equipment)
         .contextMenu {
             Button("Edit", systemImage: "pencil") {
-                equipmentToEdit = equipment
-                showingEditSheet = true
+                activeSheet = .editEquipment(equipment)
             }
             Button("Log Issue", systemImage: "exclamationmark.triangle") {
                 selectedEquipment = equipment
-                showingIssueSheet = true
+                activeSheet = .issueLog(equipment)
             }
             Divider()
             if !selectedEquipmentIDs.contains(equipment.id) {

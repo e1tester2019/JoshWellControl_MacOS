@@ -23,21 +23,37 @@ struct LookAheadListView: View {
 
     @State private var viewModel = LookAheadViewModel()
     @State private var selectedSchedule: LookAheadSchedule?
-    @State private var showAddTask = false
-    @State private var showScheduleEditor = false
-    @State private var editingTask: LookAheadTask?
-    @State private var duplicatingTask: LookAheadTask?
+    @State private var activeSheet: SheetType?
     @State private var showAnalytics = false
-    @State private var showCompleteSheet = false
-    @State private var taskToComplete: LookAheadTask?
 
     // Multi-select
     @State private var selectedTaskIDs: Set<UUID> = []
     @State private var isSelectionMode = false
-    @State private var showBulkDuplicate = false
 
     // Grouping
     @State private var groupingMode: TaskGroupingMode = .byDate
+
+    // MARK: - Sheet Types
+
+    private enum SheetType: Identifiable {
+        case addTask
+        case editTask(LookAheadTask)
+        case duplicateTask(LookAheadTask)
+        case bulkDuplicate
+        case scheduleEditor
+        case completeTask(LookAheadTask)
+
+        var id: String {
+            switch self {
+            case .addTask: return "addTask"
+            case .editTask(let task): return "editTask-\(task.id)"
+            case .duplicateTask(let task): return "duplicateTask-\(task.id)"
+            case .bulkDuplicate: return "bulkDuplicate"
+            case .scheduleEditor: return "scheduleEditor"
+            case .completeTask(let task): return "completeTask-\(task.id)"
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -51,50 +67,48 @@ struct LookAheadListView: View {
         #if os(macOS)
         .toolbar { toolbarContent }
         #endif
-        .sheet(isPresented: $showAddTask) {
-            LookAheadTaskEditorView(
-                schedule: selectedSchedule,
-                task: nil,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: wells
-            )
-        }
-        .sheet(item: $editingTask) { task in
-            LookAheadTaskEditorView(
-                schedule: selectedSchedule,
-                task: task,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: wells
-            )
-        }
-        .sheet(item: $duplicatingTask) { sourceTask in
-            LookAheadTaskEditorView(
-                schedule: selectedSchedule,
-                task: nil,
-                templateTask: sourceTask,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: wells
-            )
-        }
-        .sheet(isPresented: $showBulkDuplicate) {
-            BulkDuplicateSheet(
-                schedule: selectedSchedule,
-                selectedTaskIDs: selectedTaskIDs,
-                wells: wells,
-                onComplete: {
-                    selectedTaskIDs.removeAll()
-                    isSelectionMode = false
-                }
-            )
-        }
-        .sheet(isPresented: $showScheduleEditor) {
-            LookAheadScheduleEditorView(schedule: selectedSchedule)
-        }
-        .sheet(item: $taskToComplete) { task in
-            TaskCompleteSheet(task: task, viewModel: viewModel)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .addTask:
+                LookAheadTaskEditorView(
+                    schedule: selectedSchedule,
+                    task: nil,
+                    jobCodes: jobCodes,
+                    vendors: vendors,
+                    wells: wells
+                )
+            case .editTask(let task):
+                LookAheadTaskEditorView(
+                    schedule: selectedSchedule,
+                    task: task,
+                    jobCodes: jobCodes,
+                    vendors: vendors,
+                    wells: wells
+                )
+            case .duplicateTask(let sourceTask):
+                LookAheadTaskEditorView(
+                    schedule: selectedSchedule,
+                    task: nil,
+                    templateTask: sourceTask,
+                    jobCodes: jobCodes,
+                    vendors: vendors,
+                    wells: wells
+                )
+            case .bulkDuplicate:
+                BulkDuplicateSheet(
+                    schedule: selectedSchedule,
+                    selectedTaskIDs: selectedTaskIDs,
+                    wells: wells,
+                    onComplete: {
+                        selectedTaskIDs.removeAll()
+                        isSelectionMode = false
+                    }
+                )
+            case .scheduleEditor:
+                LookAheadScheduleEditorView(schedule: selectedSchedule)
+            case .completeTask(let task):
+                TaskCompleteSheet(task: task, viewModel: viewModel)
+            }
         }
         .onAppear {
             // Select active schedule or most recent
@@ -153,7 +167,7 @@ struct LookAheadListView: View {
                         } description: {
                             Text("Add your first task to start building the schedule.")
                         } actions: {
-                            Button("Add Task") { showAddTask = true }
+                            Button("Add Task") { activeSheet = .addTask }
                         }
                     }
                 }
@@ -188,7 +202,7 @@ struct LookAheadListView: View {
             .buttonStyle(.borderless)
 
             Button("Duplicate Selected") {
-                showBulkDuplicate = true
+                activeSheet = .bulkDuplicate
             }
             .buttonStyle(.borderedProminent)
             .disabled(selectedTaskIDs.isEmpty)
@@ -395,11 +409,11 @@ struct LookAheadListView: View {
                         viewModel.selectedTask = task
                     }
                 },
-                onEdit: { editingTask = task },
-                onDuplicate: { duplicatingTask = task },
+                onEdit: { activeSheet = .editTask(task) },
+                onDuplicate: { activeSheet = .duplicateTask(task) },
                 onDelete: { viewModel.deleteTask(task, context: modelContext) },
                 onStart: { startTask(task) },
-                onComplete: { taskToComplete = task },
+                onComplete: { activeSheet = .completeTask(task) },
                 onDelay: { delayTask(task) },
                 onDurationChange: { newMinutes in
                     viewModel.updateDuration(task, newDuration: newMinutes, context: modelContext)
@@ -541,16 +555,13 @@ struct LookAheadListView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Schedule", systemImage: "calendar.badge.plus")
-        } description: {
-            Text("Create a schedule to start planning your drilling operations.")
-        } actions: {
-            Button("Create Schedule") {
-                createNewSchedule()
-            }
-            .buttonStyle(.borderedProminent)
-        }
+        StandardEmptyState(
+            icon: "list.bullet.clipboard",
+            title: "No Tasks",
+            description: "Create a look-ahead task to get started",
+            actionLabel: "Create Schedule",
+            action: { createNewSchedule() }
+        )
     }
 
     // MARK: - Toolbar
@@ -559,7 +570,7 @@ struct LookAheadListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button { showAddTask = true } label: {
+            Button { activeSheet = .addTask } label: {
                 Label("Add Task", systemImage: "plus")
             }
             .disabled(selectedSchedule == nil)
@@ -610,7 +621,7 @@ struct LookAheadListView: View {
                 Divider()
                 Button("New Schedule...") { createNewSchedule() }
                 if selectedSchedule != nil {
-                    Button("Edit Schedule...") { showScheduleEditor = true }
+                    Button("Edit Schedule...") { activeSheet = .scheduleEditor }
                     Button("Duplicate Schedule") { duplicateSchedule() }
                     Divider()
                     Button {

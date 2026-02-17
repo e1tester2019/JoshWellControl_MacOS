@@ -62,6 +62,7 @@ struct DividendListView: View {
                         Text(shareholder.fullName).tag(shareholder as Shareholder?)
                     }
                 }
+                .controlSize(.small)
                 .frame(width: 180)
 
                 Picker("Year", selection: $selectedYear) {
@@ -70,6 +71,7 @@ struct DividendListView: View {
                         Text(String(year)).tag(year as Int?)
                     }
                 }
+                .controlSize(.small)
                 .frame(width: 120)
 
                 Picker("Quarter", selection: $selectedQuarter) {
@@ -79,9 +81,11 @@ struct DividendListView: View {
                     Text("Q3").tag(3 as Int?)
                     Text("Q4").tag(4 as Int?)
                 }
+                .controlSize(.small)
                 .frame(width: 120)
 
                 Toggle("Paid Only", isOn: $showPaidOnly)
+                    .controlSize(.small)
 
                 Spacer()
 

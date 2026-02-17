@@ -66,14 +66,17 @@ struct MudPlacementView: View {
 
                     // Steps Editor
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Steps", icon: "square.stack.3d.up.fill", color: .blue)
+                        StandardSectionHeader(title: "Steps", icon: "square.stack.3d.up.fill", accent: .blue)
 
                         GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
                             if viewmodel.steps.isEmpty {
-                                Text("No steps yet. Add one below.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                StandardEmptyState(
+                                    icon: "square.stack.3d.up",
+                                    title: "No Steps",
+                                    description: "Add a step below to define mud placements"
+                                )
+                                .frame(maxHeight: 120)
                             } else {
                                 ForEach(viewmodel.steps) { step in
                                     StepRowView(step: step, compute: { t, b in
@@ -128,7 +131,7 @@ struct MudPlacementView: View {
 
                     // Base Fluids Section
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Base Fluids", icon: "drop.fill", color: .green)
+                        StandardSectionHeader(title: "Base Fluids", icon: "drop.fill", accent: .green)
 
                         GroupBox {
                         HStack(spacing: 12) {
@@ -149,7 +152,7 @@ struct MudPlacementView: View {
 
                     // Apply Section
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Apply Placement", icon: "arrow.down.circle.fill", color: .purple)
+                        StandardSectionHeader(title: "Apply Placement", icon: "arrow.down.circle.fill", accent: .purple)
 
                         GroupBox {
                             VStack(alignment: .leading, spacing: 12) {
@@ -176,7 +179,7 @@ struct MudPlacementView: View {
                     // Final Layers Section
                     if let finalLayers = project.finalLayers {
                         VStack(alignment: .leading, spacing: 0) {
-                            sectionHeader(title: "Final Spotted Fluids", icon: "layers.fill", color: .orange)
+                            StandardSectionHeader(title: "Final Spotted Fluids", icon: "layers.fill", accent: .orange)
 
                             GroupBox {
                             HStack(alignment: .top, spacing: 16) {
@@ -261,7 +264,7 @@ struct MudPlacementView: View {
 
                     // Hydrostatic Section
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Hydrostatic Pressure", icon: "gauge", color: .indigo)
+                        StandardSectionHeader(title: "Hydrostatic Pressure", icon: "gauge", accent: .indigo)
 
                         GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
@@ -324,7 +327,7 @@ struct MudPlacementView: View {
 
                     // Interval Calculator Section
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Interval Calculator", icon: "function", color: .teal)
+                        StandardSectionHeader(title: "Interval Calculator", icon: "function", accent: .teal)
 
                         GroupBox {
                         VStack(alignment: .leading, spacing: 8) {
@@ -455,7 +458,7 @@ struct MudPlacementView: View {
 
                     // Planning Hints Section
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionHeader(title: "Planning Hints", icon: "lightbulb.fill", color: .yellow)
+                        StandardSectionHeader(title: "Planning Hints", icon: "lightbulb.fill", accent: .yellow)
 
                         GroupBox {
                         VStack(alignment: .leading, spacing: 6) {

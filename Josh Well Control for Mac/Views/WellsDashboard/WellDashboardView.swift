@@ -22,22 +22,44 @@ struct WellDashboardView: View {
     // If not provided, projects will open in a sheet instead
     var onSelectProject: ((ProjectState) -> Void)?
 
-    @State private var showingAddNote = false
-    @State private var showingAddTask = false
-    @State private var showingAddProject = false
-    @State private var showingAddRental = false
-    @State private var showingAddTransfer = false
     @State private var showingDeleteConfirmation = false
+    @State private var activeSheet: SheetType?
 
-    // Navigation states for items that open in sheets
-    @State private var selectedProjectForSheet: ProjectState?  // Fallback when onSelectProject is nil
-    @State private var selectedRental: RentalItem?
-    @State private var selectedTransfer: MaterialTransfer?
-    @State private var selectedNote: HandoverNote?
-    @State private var selectedTask: WellTask?
-    @State private var selectedLookAheadTask: LookAheadTask?
-    @State private var showingAddLookAheadTask = false
-    @State private var showingCloseOutSheet = false
+    // MARK: - Sheet Type Enum
+
+    private enum SheetType: Identifiable {
+        case addNote
+        case addTask
+        case addProject
+        case addRental
+        case addTransfer
+        case editProject(ProjectState)
+        case editRental(RentalItem)
+        case editTransfer(MaterialTransfer)
+        case editNote(HandoverNote)
+        case editTask(WellTask)
+        case editLookAheadTask(LookAheadTask)
+        case addLookAheadTask
+        case closeOut
+
+        var id: String {
+            switch self {
+            case .addNote: return "addNote"
+            case .addTask: return "addTask"
+            case .addProject: return "addProject"
+            case .addRental: return "addRental"
+            case .addTransfer: return "addTransfer"
+            case .editProject(let p): return "editProject-\(p.id)"
+            case .editRental(let r): return "editRental-\(r.id)"
+            case .editTransfer(let t): return "editTransfer-\(t.id)"
+            case .editNote(let n): return "editNote-\(n.id)"
+            case .editTask(let t): return "editTask-\(t.id)"
+            case .editLookAheadTask(let t): return "editLookAheadTask-\(t.id)"
+            case .addLookAheadTask: return "addLookAheadTask"
+            case .closeOut: return "closeOut"
+            }
+        }
+    }
 
     private var pageBackgroundColor: Color {
         #if os(macOS)
@@ -96,20 +118,56 @@ struct WellDashboardView: View {
         }
         .background(pageBackgroundColor)
         .navigationTitle("Well Dashboard")
-        .sheet(isPresented: $showingAddNote) {
-            NoteEditorView(well: well, note: nil)
-        }
-        .sheet(isPresented: $showingAddTask) {
-            TaskEditorView(well: well, task: nil)
-        }
-        .sheet(isPresented: $showingAddProject) {
-            AddProjectSheet(well: well)
-        }
-        .sheet(isPresented: $showingAddRental) {
-            AddRentalSheet(well: well)
-        }
-        .sheet(isPresented: $showingAddTransfer) {
-            AddTransferSheet(well: well)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .addNote:
+                NoteEditorView(well: well, note: nil)
+            case .addTask:
+                TaskEditorView(well: well, task: nil)
+            case .addProject:
+                AddProjectSheet(well: well)
+            case .addRental:
+                AddRentalSheet(well: well)
+            case .addTransfer:
+                AddTransferSheet(well: well)
+            case .editProject(let project):
+                ProjectDashboardView(project: project)
+            case .editRental(let rental):
+                RentalDetailEditor(rental: rental, allEquipment: allEquipment)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+                    #if os(macOS)
+                    .standardSheetSize(.large)
+                    #endif
+            case .editTransfer(let transfer):
+                MaterialTransferEditorView(well: well, transfer: transfer)
+            case .editNote(let note):
+                NoteEditorView(well: well, note: note)
+            case .editTask(let task):
+                TaskEditorView(well: well, task: task)
+            case .editLookAheadTask(let task):
+                LookAheadTaskEditorView(
+                    schedule: task.schedule,
+                    task: task,
+                    jobCodes: jobCodes,
+                    vendors: vendors,
+                    wells: allWells
+                )
+            case .addLookAheadTask:
+                LookAheadTaskEditorView(
+                    schedule: activeSchedule,
+                    task: nil,
+                    jobCodes: jobCodes,
+                    vendors: vendors,
+                    wells: allWells,
+                    preselectedWell: well
+                )
+            case .closeOut:
+                CloseOutWellSheet(
+                    sourceWell: well,
+                    equipment: equipmentOnWell,
+                    allWells: allWells
+                )
+            }
         }
         .alert("Delete Well?", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -119,52 +177,6 @@ struct WellDashboardView: View {
             }
         } message: {
             Text("Are you sure you want to delete \"\(well.name)\"? This will also delete all projects, rentals, transfers, notes, and tasks associated with this well.")
-        }
-        // Navigation sheets for clickable list items
-        .sheet(item: $selectedRental) { rental in
-            RentalDetailEditor(rental: rental, allEquipment: allEquipment)
-                .environment(\.locale, Locale(identifier: "en_GB"))
-                #if os(macOS)
-                .frame(minWidth: 720, minHeight: 520)
-                #endif
-        }
-        .sheet(item: $selectedTransfer) { transfer in
-            MaterialTransferEditorView(well: well, transfer: transfer)
-        }
-        .sheet(item: $selectedNote) { note in
-            NoteEditorView(well: well, note: note)
-        }
-        .sheet(item: $selectedTask) { task in
-            TaskEditorView(well: well, task: task)
-        }
-        .sheet(item: $selectedProjectForSheet) { project in
-            ProjectDashboardView(project: project)
-        }
-        .sheet(item: $selectedLookAheadTask) { task in
-            LookAheadTaskEditorView(
-                schedule: task.schedule,
-                task: task,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: allWells
-            )
-        }
-        .sheet(isPresented: $showingAddLookAheadTask) {
-            LookAheadTaskEditorView(
-                schedule: activeSchedule,
-                task: nil,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: allWells,
-                preselectedWell: well
-            )
-        }
-        .sheet(isPresented: $showingCloseOutSheet) {
-            CloseOutWellSheet(
-                sourceWell: well,
-                equipment: equipmentOnWell,
-                allWells: allWells
-            )
         }
     }
 
@@ -192,7 +204,7 @@ struct WellDashboardView: View {
                 // Close Out Well button
                 if !equipmentOnWell.isEmpty {
                     Button {
-                        showingCloseOutSheet = true
+                        activeSheet = .closeOut
                     } label: {
                         Label("Close Out (\(equipmentOnWell.count))", systemImage: "arrow.right.square")
                             .padding(.horizontal, 12)
@@ -425,7 +437,7 @@ struct WellDashboardView: View {
                             if let callback = onSelectProject {
                                 callback(project)
                             } else {
-                                selectedProjectForSheet = project
+                                activeSheet = .editProject(project)
                             }
                         } label: {
                             HStack {
@@ -455,12 +467,10 @@ struct WellDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No projects")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "folder", title: "No Projects", description: "Add a project to track well control data")
                 }
 
-                Button(action: { showingAddProject = true }) {
+                Button(action: { activeSheet = .addProject }) {
                     Label("Add Project", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
@@ -496,7 +506,7 @@ struct WellDashboardView: View {
 
                         PaginatedList(items: sortedRentals, pageSize: 5) { rental in
                             Button {
-                                selectedRental = rental
+                                activeSheet = .editRental(rental)
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 1) {
@@ -541,12 +551,10 @@ struct WellDashboardView: View {
                         }
                     }
                 } else {
-                    Text("No rental items")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "bag", title: "No Rentals", description: "Track rental equipment for this well")
                 }
 
-                Button(action: { showingAddRental = true }) {
+                Button(action: { activeSheet = .addRental }) {
                     Label("Add Rental", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
@@ -653,7 +661,7 @@ struct WellDashboardView: View {
 
                         PaginatedList(items: sortedTransfers, pageSize: 5) { transfer in
                             Button {
-                                selectedTransfer = transfer
+                                activeSheet = .editTransfer(transfer)
                             } label: {
                                 HStack {
                                     Text("\(transfer.number)")
@@ -684,12 +692,10 @@ struct WellDashboardView: View {
                         }
                     }
                 } else {
-                    Text("No material transfers")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "arrow.left.arrow.right.circle", title: "No Transfers", description: "Track material transfers for this well")
                 }
 
-                Button(action: { showingAddTransfer = true }) {
+                Button(action: { activeSheet = .addTransfer }) {
                     Label("Add Transfer", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
@@ -710,7 +716,7 @@ struct WellDashboardView: View {
                 if !sortedNotes.isEmpty {
                     PaginatedList(items: sortedNotes, pageSize: 5) { note in
                         Button {
-                            selectedNote = note
+                            activeSheet = .editNote(note)
                         } label: {
                             HStack(alignment: .top, spacing: 8) {
                                 if note.isPinned {
@@ -747,12 +753,10 @@ struct WellDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No notes")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "note.text", title: "No Notes", description: "Add handover notes for this well")
                 }
 
-                Button(action: { showingAddNote = true }) {
+                Button(action: { activeSheet = .addNote }) {
                     Label("Add Note", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
@@ -769,7 +773,7 @@ struct WellDashboardView: View {
                 if !well.pendingTasks.isEmpty {
                     PaginatedList(items: well.pendingTasks, pageSize: 5) { task in
                         Button {
-                            selectedTask = task
+                            activeSheet = .editTask(task)
                         } label: {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
@@ -805,12 +809,10 @@ struct WellDashboardView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    Text("No pending tasks")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "checkmark.circle", title: "No Pending Tasks", description: "Add tasks to track work for this well")
                 }
 
-                Button(action: { showingAddTask = true }) {
+                Button(action: { activeSheet = .addTask }) {
                     Label("Add Task", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
@@ -841,7 +843,7 @@ struct WellDashboardView: View {
                 if !wellLookAheadTasks.isEmpty {
                     PaginatedList(items: wellLookAheadTasks, pageSize: 5) { task in
                         Button {
-                            selectedLookAheadTask = task
+                            activeSheet = .editLookAheadTask(task)
                         } label: {
                             LookAheadTaskDashboardRow(task: task)
                         }
@@ -854,7 +856,7 @@ struct WellDashboardView: View {
                 }
 
                 if activeSchedule != nil {
-                    Button(action: { showingAddLookAheadTask = true }) {
+                    Button(action: { activeSheet = .addLookAheadTask }) {
                         Label("Add Look Ahead Task", systemImage: "plus")
                     }
                     .buttonStyle(.borderless)

@@ -607,7 +607,7 @@ struct ProjectDashboardView: View {
         .sheet(item: $newTransferToEdit, content: { transfer in
             if let well = project.well {
                 MaterialTransferEditorView(well: well, transfer: transfer)
-                    .frame(minWidth: 700, minHeight: 500)
+                    .standardSheetSize(.large)
             } else {
                 Text("No well available")
                     .padding()
@@ -683,9 +683,7 @@ struct ProjectDashboardView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("No notes for this project")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "note.text", title: "No Notes", description: "Add notes to track project information")
                 }
 
                 Button(action: { showingAddNote = true }) {
@@ -741,9 +739,7 @@ struct ProjectDashboardView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("No pending tasks")
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    StandardEmptyState(icon: "checkmark.circle", title: "No Pending Tasks", description: "Add tasks to track project work items")
                 }
 
                 Button(action: { showingAddTask = true }) {
@@ -820,7 +816,7 @@ private struct ProjectAddNoteSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
+        .standardSheetSize(.small)
         #endif
     }
 }
@@ -884,7 +880,7 @@ private struct ProjectAddTaskSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 400, minHeight: 300)
+        .standardSheetSize(.small)
         #endif
     }
 }
@@ -1039,7 +1035,7 @@ private struct RenameProjectSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 300, minHeight: 120)
+        .standardSheetSize(.small)
         #endif
     }
 }

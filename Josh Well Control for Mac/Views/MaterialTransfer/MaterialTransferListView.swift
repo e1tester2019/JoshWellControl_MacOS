@@ -13,6 +13,7 @@ struct MaterialTransferListView: View {
     @State private var editingTransfer: MaterialTransfer? = nil
     @State private var previewingTransfer: MaterialTransfer? = nil
     @State private var exportError: String? = nil
+    @State private var transferToDelete: MaterialTransfer? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,7 +35,7 @@ struct MaterialTransferListView: View {
                             .contextMenu {
                                 Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
                                 Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
-                                Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
+                                Button(role: .destructive) { transferToDelete = t } label: { Label("Delete", systemImage: "trash") }
                             }
                             .listRowSeparator(.hidden)
                     }
@@ -51,7 +52,7 @@ struct MaterialTransferListView: View {
                             .contextMenu {
                                 Button("Open Editor", systemImage: "square.and.pencil") { openEditor(t) }
                                 Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { preview(t) }
-                                Button(role: .destructive) { delete(t) } label: { Label("Delete", systemImage: "trash") }
+                                Button(role: .destructive) { transferToDelete = t } label: { Label("Delete", systemImage: "trash") }
                             }
                             .listRowSeparator(.hidden)
                     }
@@ -65,8 +66,14 @@ struct MaterialTransferListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack {
-                Button("Open Editor", systemImage: "square.and.pencil") { if let s = selection { openEditor(s) } }.disabled(selection == nil)
-                Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { if let s = selection { preview(s) } }.disabled(selection == nil)
+                Button("Open Editor", systemImage: "square.and.pencil") { if let s = selection { openEditor(s) } }
+                    .disabled(selection == nil)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                Button("Preview PDF", systemImage: "doc.text.magnifyingglass") { if let s = selection { preview(s) } }
+                    .disabled(selection == nil)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 Spacer()
             }
         }
@@ -91,6 +98,19 @@ struct MaterialTransferListView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(exportError ?? "Unknown error")
+        }
+        .alert("Delete Transfer?", isPresented: Binding(get: { transferToDelete != nil }, set: { if !$0 { transferToDelete = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let t = transferToDelete {
+                    delete(t)
+                    transferToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                transferToDelete = nil
+            }
+        } message: {
+            Text("Are you sure you want to delete transfer #\(transferToDelete?.number ?? 0)? This action cannot be undone.")
         }
     }
 

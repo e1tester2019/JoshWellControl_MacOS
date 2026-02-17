@@ -33,8 +33,6 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case surgeSwab
     case tripSimulation
     case tripInSimulation
-    case tripTracker
-    case tripRecord
     case mpdTracking
     case superSimulation
     case directionalPlanning
@@ -120,7 +118,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .technical
         case .mudCheck, .mixingCalc, .pressureWindow, .mudPlacement, .swabbing, .surgeSwab:
             return .operations
-        case .pumpSchedule, .cementJob, .tripSimulation, .tripInSimulation, .tripTracker, .tripRecord, .mpdTracking, .superSimulation:
+        case .pumpSchedule, .cementJob, .tripSimulation, .tripInSimulation, .mpdTracking, .superSimulation:
             return .simulation
         case .lookAheadScheduler, .vendors, .jobCodes:
             return .operations
@@ -164,8 +162,6 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "Trip Simulation"
         case .tripInSimulation: return "Trip In"
         case .superSimulation: return "Super Simulation"
-        case .tripTracker: return "Trip Tracker"
-        case .tripRecord: return "Trip Recording"
         case .mpdTracking: return "MPD Tracking"
         case .directionalPlanning: return "Directional Planning"
         case .lookAheadScheduler: return "Look Ahead"
@@ -211,8 +207,6 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .tripSimulation: return "play.circle.fill"
         case .tripInSimulation: return "arrow.down.circle.fill"
         case .superSimulation: return "bolt.circle.fill"
-        case .tripTracker: return "figure.walk.circle.fill"
-        case .tripRecord: return "list.bullet.clipboard"
         case .mpdTracking: return "gauge.with.needle.fill"
         case .directionalPlanning: return "arrow.triangle.turn.up.right.diamond"
         case .lookAheadScheduler: return "calendar.badge.clock"
@@ -297,10 +291,6 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Simulate running pipe into well with floated casing support"
         case .superSimulation:
             return "Chain trip and circulation operations with continuous wellbore state tracking"
-        case .tripTracker:
-            return "Process-based step-by-step trip tracking"
-        case .tripRecord:
-            return "Record actual trip observations vs simulation predictions"
         case .mpdTracking:
             return "Managed Pressure Drilling ECD/ESD tracking"
         case .directionalPlanning:

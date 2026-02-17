@@ -8,7 +8,10 @@ struct WellSection<Content: View>: View {
     var subtitle: String?
     var spacing: CGFloat
     var trailing: AnyView?
+    var isCollapsible: Bool
     let content: Content
+
+    @State private var isExpanded: Bool = true
 
     init(
         title: String,
@@ -16,6 +19,7 @@ struct WellSection<Content: View>: View {
         subtitle: String? = nil,
         spacing: CGFloat = 12,
         trailing: AnyView? = nil,
+        isCollapsible: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -23,6 +27,7 @@ struct WellSection<Content: View>: View {
         self.subtitle = subtitle
         self.spacing = spacing
         self.trailing = trailing
+        self.isCollapsible = isCollapsible
         self.content = content()
     }
 
@@ -37,20 +42,38 @@ struct WellSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
             HStack(alignment: .firstTextBaseline) {
-                Label(title, systemImage: icon)
-                    .font(.headline)
+                if isCollapsible {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Label(title, systemImage: icon)
+                                .font(.headline)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Label(title, systemImage: icon)
+                        .font(.headline)
+                }
                 Spacer()
                 if let trailing {
                     trailing
                 }
             }
-            if let subtitle {
+            if let subtitle, isExpanded || !isCollapsible {
                 Text(subtitle)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
-            content
+            if isExpanded || !isCollapsible {
+                content
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)

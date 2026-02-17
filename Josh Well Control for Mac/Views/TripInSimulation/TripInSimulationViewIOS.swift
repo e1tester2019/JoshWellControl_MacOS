@@ -15,14 +15,8 @@ struct TripInSimulationViewIOS: View {
 
     @Query private var allTripSimulations: [TripSimulation]
     @Query private var allTripInSimulations: [TripInSimulation]
-    @Query private var allTripTracks: [TripTrack]
-
     private var savedTripOutSimulations: [TripSimulation] {
         allTripSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var savedTripTracks: [TripTrack] {
-        allTripTracks.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
     }
 
     private var savedTripInSimulations: [TripInSimulation] {
@@ -444,27 +438,6 @@ struct TripInSimulationViewIOS: View {
                     }
                 }
 
-                Section("Trip Trackers") {
-                    if savedTripTracks.isEmpty {
-                        Text("No trip trackers")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(savedTripTracks) { track in
-                            Button {
-                                viewModel.importFromTripTracker(track, project: project)
-                                showingSourcePicker = false
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(track.name)
-                                        .foregroundStyle(.primary)
-                                    Text("Current: \(Int(track.currentBitMD_m))m • \(track.layersPocket.count) pocket layers")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
             }
             .navigationTitle("Select Source")
             .navigationBarTitleDisplayMode(.inline)

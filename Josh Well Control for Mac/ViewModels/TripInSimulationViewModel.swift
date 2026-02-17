@@ -182,15 +182,10 @@ class TripInSimulationViewModel {
     enum SourceType: String {
         case none = "None"
         case tripSimulation = "Trip Simulation"
-        case tripTracker = "Trip Tracker"
         case wellboreState = "Wellbore State"
     }
 
     var sourceType: SourceType = .none
-
-    // For Trip Tracker source
-    var sourceTripTrackID: UUID?
-    var sourceTripTrackName: String = ""
 
     // Initial pocket layers imported from source
     var importedPocketLayers: [TripLayerSnapshot] = []
@@ -206,8 +201,6 @@ class TripInSimulationViewModel {
         sourceType = .tripSimulation
         sourceSimulationID = simulation.id
         sourceSimulationName = simulation.name
-        sourceTripTrackID = nil
-        sourceTripTrackName = ""
         controlMD_m = simulation.shoeMD_m
         baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
         targetESD_kgpm3 = simulation.targetESDAtTD_kgpm3
@@ -285,26 +278,6 @@ class TripInSimulationViewModel {
         print("✅ Import complete, total: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - totalStart))s")
     }
 
-    // MARK: - Import from Trip Tracker
-
-    func importFromTripTracker(_ tripTrack: TripTrack, project: ProjectState) {
-        sourceType = .tripTracker
-        sourceTripTrackID = tripTrack.id
-        sourceTripTrackName = tripTrack.name
-        sourceSimulationID = nil
-        sourceSimulationName = ""
-
-        // Copy parameters
-        controlMD_m = tripTrack.shoeMD_m
-        baseMudDensity_kgpm3 = tripTrack.baseMudDensity_kgpm3
-        targetESD_kgpm3 = tripTrack.targetESD_kgpm3
-        endBitMD_m = tripTrack.tdMD_m  // Trip-in goes to TD
-        startBitMD_m = tripTrack.currentBitMD_m  // Start where tracker currently is
-
-        // Get current pocket layers from trip tracker
-        importedPocketLayers = tripTrack.layersPocket
-    }
-
     // MARK: - Import from Wellbore State Snapshot
 
     /// Import from a WellboreStateSnapshot (e.g., mid-trip-out handoff)
@@ -312,9 +285,6 @@ class TripInSimulationViewModel {
         sourceType = .wellboreState
         sourceSimulationID = nil
         sourceSimulationName = state.sourceDescription
-        sourceTripTrackID = nil
-        sourceTripTrackName = ""
-
         // Combine pocket + annulus layers from the snapshot (matches SuperSim behavior).
         // TripInService.calculateDisplacedPocketLayers handles isInAnnulus layers
         // correctly (no expansion, shift only).
@@ -346,8 +316,6 @@ class TripInSimulationViewModel {
             return "No source selected"
         case .tripSimulation:
             return sourceSimulationName.isEmpty ? "Trip Simulation" : sourceSimulationName
-        case .tripTracker:
-            return sourceTripTrackName.isEmpty ? "Trip Tracker" : sourceTripTrackName
         case .wellboreState:
             return sourceSimulationName.isEmpty ? "Wellbore State" : sourceSimulationName
         }
@@ -1012,5 +980,38 @@ class TripInSimulationViewModel {
         // Move selection to last step
         selectedIndex = steps.count - 1
         stepSlider = Double(selectedIndex)
+    }
+
+    // MARK: - Ballooning Field Adjustment
+
+    var ballooningActualVolume_m3: Double = 0.0
+    var ballooningResult: BallooningAdjustmentCalculator.Result?
+
+    func recalculateBallooning(project: ProjectState) {
+        guard selectedIndex >= 0 && selectedIndex < steps.count else {
+            ballooningResult = nil
+            return
+        }
+        let step = steps[selectedIndex]
+        let simulatedVol = step.cumulativeFillVolume_m3
+
+        let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+        let geom = ProjectGeometryService(
+            project: project,
+            currentStringBottomMD: step.bitMD_m,
+            tvdMapper: { md in tvdSampler.tvd(of: md) }
+        )
+
+        let killDensity = activeMudDensity_kgpm3
+        let baseDensity = baseMudDensity_kgpm3
+
+        ballooningResult = BallooningAdjustmentCalculator.calculate(.init(
+            simulatedSABP_kPa: step.requiredChokePressure_kPa,
+            simulatedKillMudVolume_m3: simulatedVol,
+            actualKillMudVolume_m3: ballooningActualVolume_m3,
+            killMudDensity_kgpm3: killDensity,
+            originalMudDensity_kgpm3: baseDensity,
+            geom: geom
+        ))
     }
 }

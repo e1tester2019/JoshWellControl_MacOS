@@ -27,6 +27,37 @@ struct SurveyListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             List(selection: $vm.selection) {
+                // Summary row
+                if !surveys.isEmpty {
+                    Section {
+                        HStack(spacing: 16) {
+                            Text("Summary")
+                                .font(.headline)
+                            Spacer()
+                            let stationCount = surveys.count
+                            let td = surveys.map(\.md).max() ?? 0
+                            let maxIncl = surveys.map(\.inc).max() ?? 0
+                            let maxDLS = surveys.compactMap(\.dls_deg_per30m).max() ?? 0
+                            Text("\(stationCount) stations")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "TD: %.1f m", td))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                            Text(String(format: "Max Inc: %.1f\u{00B0}", maxIncl))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                            Text(String(format: "Max DLS: %.2f \u{00B0}/30m", maxDLS))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
                 Section {
                     ForEach(surveys) { s in
                         // Use lightweight display row for non-selected, editable for selected
@@ -136,6 +167,8 @@ struct SurveyListView: View {
                 Spacer()
             }
             .font(.caption)
+
+            Divider()
 
             // Action buttons
             HStack {

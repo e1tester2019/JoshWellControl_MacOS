@@ -18,12 +18,26 @@ struct RentalItemsView: View {
     @State private var editingRental: RentalItem? = nil
     @State private var selectedCategory: RentalCategory? = nil
     @State private var showOnlyActive = false
-    @State private var showTransferSheet = false
-    @State private var showEquipmentPicker = false
-    @State private var showAddFromRegistry = false
-    @State private var showOnLocationReport = false
-    @State private var showBulkTransferSheet = false
+    @State private var activeSheet: SheetType? = nil
     @State private var viewMode: RentalViewMode = .list
+
+    private enum SheetType: Identifiable {
+        case transfer(RentalItem)
+        case equipmentPicker(RentalItem?)
+        case addFromRegistry
+        case onLocationReport
+        case bulkTransfer
+
+        var id: String {
+            switch self {
+            case .transfer(let item): return "transfer-\(item.id)"
+            case .equipmentPicker(let item): return "equipmentPicker-\(item?.id.uuidString ?? "nil")"
+            case .addFromRegistry: return "addFromRegistry"
+            case .onLocationReport: return "onLocationReport"
+            case .bulkTransfer: return "bulkTransfer"
+            }
+        }
+    }
 
     enum RentalViewMode: String, CaseIterable {
         case list = "List"
@@ -54,6 +68,7 @@ struct RentalItemsView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 120)
+                .controlSize(.small)
 
                 // Category filter
                 Picker("Category", selection: $selectedCategory) {
@@ -63,22 +78,26 @@ struct RentalItemsView: View {
                     }
                 }
                 .frame(width: 160)
+                .controlSize(.small)
 
                 Toggle("Active Only", isOn: $showOnlyActive)
                     #if os(macOS)
                     .toggleStyle(.checkbox)
                     #endif
+                    .controlSize(.small)
 
                 Menu {
                     Button("New Rental", systemImage: "plus") { addRental() }
-                    Button("Add from Registry", systemImage: "shippingbox") { showAddFromRegistry = true }
+                    Button("Add from Registry", systemImage: "shippingbox") { activeSheet = .addFromRegistry }
                     Divider()
-                    Button("Transfer Selected", systemImage: "arrow.right.circle") { showTransferSheet = true }
+                    Button("Transfer Selected", systemImage: "arrow.right.circle") {
+                        if let s = selection { activeSheet = .transfer(s) }
+                    }
                         .disabled(selection == nil)
-                    Button("Bulk Transfer Active/Standby", systemImage: "arrow.right.circle.fill") { showBulkTransferSheet = true }
+                    Button("Bulk Transfer Active/Standby", systemImage: "arrow.right.circle.fill") { activeSheet = .bulkTransfer }
                         .disabled(activeAndStandbyRentals.isEmpty)
                     Divider()
-                    Button("On Location Report", systemImage: "doc.text") { showOnLocationReport = true }
+                    Button("On Location Report", systemImage: "doc.text") { activeSheet = .onLocationReport }
                         .disabled(onLocationRentals.isEmpty)
                 } label: {
                     Label("Add", systemImage: "plus")
@@ -101,7 +120,7 @@ struct RentalItemsView: View {
                 .disabled(selection == nil)
 
                 Button("Link Equipment", systemImage: "link") {
-                    showEquipmentPicker = true
+                    activeSheet = .equipmentPicker(selection)
                 }
                 .disabled(selection == nil)
 
@@ -125,28 +144,27 @@ struct RentalItemsView: View {
                 .frame(minWidth: 720, minHeight: 600)
                 #endif
         }
-        .sheet(isPresented: $showTransferSheet) {
-            if let rental = selection {
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .transfer(let rental):
                 TransferRentalSheet(rental: rental, currentWell: well, allWells: allWells.filter { $0.id != well.id })
+            case .equipmentPicker(let rental):
+                EquipmentPickerSheet(rental: rental, allEquipment: allEquipment.filter { $0.isActive })
+            case .addFromRegistry:
+                AddFromRegistrySheet(well: well, allEquipment: allEquipment.filter { $0.isActive })
+            case .onLocationReport:
+                #if os(macOS)
+                RentalsOnLocationReportPreview(well: well, rentals: onLocationRentals)
+                #else
+                EmptyView()
+                #endif
+            case .bulkTransfer:
+                BulkTransferRentalSheet(
+                    rentals: activeAndStandbyRentals,
+                    currentWell: well,
+                    allWells: allWells.filter { $0.id != well.id }
+                )
             }
-        }
-        .sheet(isPresented: $showEquipmentPicker) {
-            EquipmentPickerSheet(rental: selection, allEquipment: allEquipment.filter { $0.isActive })
-        }
-        .sheet(isPresented: $showAddFromRegistry) {
-            AddFromRegistrySheet(well: well, allEquipment: allEquipment.filter { $0.isActive })
-        }
-        #if os(macOS)
-        .sheet(isPresented: $showOnLocationReport) {
-            RentalsOnLocationReportPreview(well: well, rentals: onLocationRentals)
-        }
-        #endif
-        .sheet(isPresented: $showBulkTransferSheet) {
-            BulkTransferRentalSheet(
-                rentals: activeAndStandbyRentals,
-                currentWell: well,
-                allWells: allWells.filter { $0.id != well.id }
-            )
         }
     }
 
@@ -407,7 +425,7 @@ struct RentalItemsView: View {
         if r.equipment == nil {
             Button("Link to Equipment", systemImage: "link") {
                 selection = r
-                showEquipmentPicker = true
+                activeSheet = .equipmentPicker(r)
             }
         } else {
             Button("Unlink Equipment", systemImage: "link.badge.minus") {
@@ -420,7 +438,7 @@ struct RentalItemsView: View {
         Divider()
         Button("Transfer to Well", systemImage: "arrow.right.circle") {
             selection = r
-            showTransferSheet = true
+            activeSheet = .transfer(r)
         }
         Button("Copy Summary", systemImage: "doc.on.doc") { copySummary(r) }
         Button("Copy Well + Rental", systemImage: "doc.on.clipboard") { copyWellPlusRental(r) }

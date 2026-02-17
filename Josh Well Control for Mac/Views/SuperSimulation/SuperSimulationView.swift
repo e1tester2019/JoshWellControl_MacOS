@@ -41,20 +41,11 @@ struct SuperSimulationView: View {
                 Divider()
 
                 if viewModel.operations.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "timeline.selection")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.secondary)
-                        Text("No Operations")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        Text("Add trip and circulation operations to build a simulation timeline.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding()
-                    .frame(maxHeight: .infinity)
+                    StandardEmptyState(
+                        icon: "timeline.selection",
+                        title: "No Operations",
+                        description: "Add trip and circulation operations to build a simulation timeline."
+                    )
                 } else {
                     List(selection: $viewModel.selectedOperationIndex) {
                         ForEach(Array(viewModel.operations.enumerated()), id: \.element.id) { index, op in
@@ -189,18 +180,11 @@ struct SuperSimulationView: View {
                     project: project
                 )
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "bolt.circle.fill")
-                        .font(.system(size: 50))
-                        .foregroundStyle(.blue.opacity(0.5))
-                    Text("Super Simulation")
-                        .font(.title2)
-                    Text("Select an operation from the timeline, or add new operations to get started.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                StandardEmptyState(
+                    icon: "bolt.circle.fill",
+                    title: "Super Simulation",
+                    description: "Select an operation from the timeline, or add new operations to get started."
+                )
             }
         }
         .onAppear {
