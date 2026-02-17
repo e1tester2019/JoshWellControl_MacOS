@@ -56,7 +56,7 @@ struct SuperSimOperation: Identifiable {
     var useOverrideDisplacementVolume: Bool = false
     var overrideDisplacementVolume_m3: Double = 0
     var holdSABPOpen: Bool = false
-    var eccentricityFactor: Double = 1.0
+    var eccentricityFactor: Double = 1.2
     var fallbackTheta600: Double? = nil
     var fallbackTheta300: Double? = nil
     var useObservedPitGain: Bool = false
@@ -191,7 +191,7 @@ struct SuperSimOperation: Identifiable {
         op.useOverrideDisplacementVolume = config.useOverrideDisplacementVolume ?? false
         op.overrideDisplacementVolume_m3 = config.overrideDisplacementVolume_m3 ?? 0
         op.holdSABPOpen = config.holdSABPOpen ?? false
-        op.eccentricityFactor = config.eccentricityFactor ?? 1.0
+        op.eccentricityFactor = config.eccentricityFactor ?? 1.2
         op.fallbackTheta600 = config.fallbackTheta600
         op.fallbackTheta300 = config.fallbackTheta300
         op.useObservedPitGain = config.useObservedPitGain ?? false

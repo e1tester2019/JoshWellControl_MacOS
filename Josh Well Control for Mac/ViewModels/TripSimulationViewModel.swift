@@ -256,6 +256,31 @@ extension TripSimulationView {
       }
     }
 
+    /// Extract PV in cP from a mud, preferring dial readings over stored pv_Pa_s.
+    /// Matches the conversion logic used in SuperSimViewModel.
+    private static func pvCp(for mud: MudProperties?) -> Double {
+      guard let mud else { return 0 }
+      if let d600 = mud.dial600, let d300 = mud.dial300 {
+        return d600 - d300
+      } else if let pv = mud.pv_Pa_s {
+        return pv * 1000.0 // Pa·s → cP
+      }
+      return 0
+    }
+
+    /// Extract YP in Pa from a mud, preferring dial readings over stored yp_Pa.
+    /// Matches the conversion logic used in SuperSimViewModel.
+    private static func ypPa(for mud: MudProperties?) -> Double {
+      guard let mud else { return 0 }
+      if let d600 = mud.dial600, let d300 = mud.dial300 {
+        let pvCp = d600 - d300
+        return max(0, (d300 - pvCp) * 0.4788)
+      } else if let yp = mud.yp_Pa {
+        return yp
+      }
+      return 0
+    }
+
     func runSimulation(project: ProjectState) {
       #if DEBUG
       let annLayers = project.finalAnnulusLayersSorted
@@ -319,6 +344,10 @@ extension TripSimulationView {
         backfillDensity_kgpm3: (backfillMud?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
         backfillColor: backfillColor,
         baseMudColor: baseMudColor,
+        backfillPV_cP: Self.pvCp(for: backfillMud ?? activeMud),
+        backfillYP_Pa: Self.ypPa(for: backfillMud ?? activeMud),
+        baseMudPV_cP: Self.pvCp(for: activeMud),
+        baseMudYP_Pa: Self.ypPa(for: activeMud),
         fixedBackfillVolume_m3: displacementVolume_m3,
         switchToBaseAfterFixed: switchToActiveAfterDisplacement,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,
@@ -697,6 +726,27 @@ extension TripSimulationViewIOS {
       }
     }
 
+    private static func pvCp(for mud: MudProperties?) -> Double {
+      guard let mud else { return 0 }
+      if let d600 = mud.dial600, let d300 = mud.dial300 {
+        return d600 - d300
+      } else if let pv = mud.pv_Pa_s {
+        return pv * 1000.0
+      }
+      return 0
+    }
+
+    private static func ypPa(for mud: MudProperties?) -> Double {
+      guard let mud else { return 0 }
+      if let d600 = mud.dial600, let d300 = mud.dial300 {
+        let pvCp = d600 - d300
+        return max(0, (d300 - pvCp) * 0.4788)
+      } else if let yp = mud.yp_Pa {
+        return yp
+      }
+      return 0
+    }
+
     func runSimulation(project: ProjectState) {
       // Reset progress state
       isRunning = true
@@ -747,6 +797,10 @@ extension TripSimulationViewIOS {
         backfillDensity_kgpm3: (backfillMud2?.density_kgm3 ?? activeMud?.density_kgm3 ?? backfillDensity_kgpm3),
         backfillColor: backfillColor2,
         baseMudColor: baseMudColor2,
+        backfillPV_cP: Self.pvCp(for: backfillMud2 ?? activeMud),
+        backfillYP_Pa: Self.ypPa(for: backfillMud2 ?? activeMud),
+        baseMudPV_cP: Self.pvCp(for: activeMud),
+        baseMudYP_Pa: Self.ypPa(for: activeMud),
         fixedBackfillVolume_m3: displacementVolume_m3,
         switchToBaseAfterFixed: switchToActiveAfterDisplacement,
         targetESDAtTD_kgpm3: targetESDAtTD_kgpm3,

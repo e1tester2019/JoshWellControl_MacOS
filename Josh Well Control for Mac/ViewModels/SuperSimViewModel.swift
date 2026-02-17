@@ -340,15 +340,17 @@ class SuperSimViewModel {
         let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
         let activeDensity = project.activeMud?.density_kgm3 ?? 1200
 
-        // Capture mud rheology and colors for PV/YP and color lookup (used by trip out for backfill/base mud)
+        // Capture mud rheology, dial readings, and colors for lookup (used by trip out for backfill/base mud)
         var mudRheologyMap: [UUID: MudRheology] = [:]
         var mudColorMap: [UUID: NumericalTripModel.ColorRGBA] = [:]
+        var mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
         for mud in (project.muds ?? []) {
             let pvCp: Double
             let ypPa: Double
             if let d600 = mud.dial600, let d300 = mud.dial300 {
                 pvCp = d600 - d300
                 ypPa = max(0, (d300 - pvCp) * 0.4788)
+                mudDialMap[mud.id] = (d600: d600, d300: d300)
             } else if let pv = mud.pv_Pa_s, let yp = mud.yp_Pa {
                 pvCp = pv * 1000.0 // Pa·s → cP
                 ypPa = yp
@@ -411,7 +413,7 @@ class SuperSimViewModel {
                 let result: WellboreStateSnapshot
                 switch op.type {
                 case .tripOut:
-                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap)
+                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .tripIn:
                     result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
@@ -420,7 +422,7 @@ class SuperSimViewModel {
                     result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity)
 
                 case .reamOut:
-                    result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap)
+                    result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .reamIn:
                     result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
@@ -462,7 +464,8 @@ class SuperSimViewModel {
         projectSnapshot: NumericalTripModel.ProjectSnapshot,
         activeDensity: Double,
         mudRheologyMap: [UUID: MudRheology] = [:],
-        mudColorMap: [UUID: NumericalTripModel.ColorRGBA] = [:]
+        mudColorMap: [UUID: NumericalTripModel.ColorRGBA] = [:],
+        mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) async -> WellboreStateSnapshot {
         let geom = ProjectGeometryService(
             annulus: annulusSections,
@@ -518,8 +521,8 @@ class SuperSimViewModel {
             holdSABPOpen: op.holdSABPOpen,
             tripSpeed_m_per_s: op.tripSpeed_m_per_s,
             eccentricityFactor: op.eccentricityFactor,
-            fallbackTheta600: op.fallbackTheta600,
-            fallbackTheta300: op.fallbackTheta300,
+            fallbackTheta600: op.fallbackTheta600 ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d600 }),
+            fallbackTheta300: op.fallbackTheta300 ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d300 }),
             observedInitialPitGain_m3: op.useObservedPitGain ? op.observedInitialPitGain_m3 : nil
         )
 
@@ -816,7 +819,8 @@ class SuperSimViewModel {
         projectSnapshot: NumericalTripModel.ProjectSnapshot,
         activeDensity: Double,
         mudRheologyMap: [UUID: MudRheology] = [:],
-        mudColorMap: [UUID: NumericalTripModel.ColorRGBA] = [:]
+        mudColorMap: [UUID: NumericalTripModel.ColorRGBA] = [:],
+        mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) async -> WellboreStateSnapshot {
         // Ream Out = Trip Out + pumping (APL). Reuse the trip-out engine then augment.
         let geom = ProjectGeometryService(
@@ -871,8 +875,8 @@ class SuperSimViewModel {
             holdSABPOpen: op.holdSABPOpen,
             tripSpeed_m_per_s: op.tripSpeed_m_per_s,
             eccentricityFactor: op.eccentricityFactor,
-            fallbackTheta600: op.fallbackTheta600,
-            fallbackTheta300: op.fallbackTheta300,
+            fallbackTheta600: op.fallbackTheta600 ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d600 }),
+            fallbackTheta300: op.fallbackTheta300 ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d300 }),
             observedInitialPitGain_m3: op.useObservedPitGain ? op.observedInitialPitGain_m3 : nil
         )
 
@@ -1863,6 +1867,7 @@ class SuperSimViewModel {
         // Build timeline steps from chart data + wellbore layers
         var timelineSteps: [SuperSimReportData.TimelineStep] = []
         let chartData = timelineChartData
+        let tvdSampler = TvdSampler(project: project)
         for point in chartData {
             if let display = wellboreDisplayAtGlobalStep(point.globalIndex) {
                 timelineSteps.append(SuperSimReportData.TimelineStep(
@@ -1871,7 +1876,7 @@ class SuperSimViewModel {
                     operationType: point.operationType,
                     operationLabel: point.operationLabel,
                     bitMD_m: point.bitMD_m,
-                    bitTVD_m: display.bitMD_m,
+                    bitTVD_m: tvdSampler.tvd(of: point.bitMD_m),
                     ESD_kgpm3: point.ESDAtControl_kgpm3,
                     staticSABP_kPa: point.SABP_kPa,
                     dynamicSABP_kPa: point.dynamicSABP_kPa,
