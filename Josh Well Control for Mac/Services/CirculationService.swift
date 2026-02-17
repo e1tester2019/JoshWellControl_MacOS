@@ -24,6 +24,10 @@ class CirculationService {
         var mudColorG: Double
         var mudColorB: Double
         var volume_m3: Double
+        var pv_cP: Double = 0
+        var yp_Pa: Double = 0
+        var dial600: Double = 0
+        var dial300: Double = 0
     }
 
     struct CirculateOutStep: Identifiable {
@@ -78,6 +82,8 @@ class CirculationService {
         var mudID: UUID?
         var pv_cP: Double = 0
         var yp_Pa: Double = 0
+        var dial600: Double = 0
+        var dial300: Double = 0
     }
 
     // MARK: - ESD Calculation
@@ -132,7 +138,7 @@ class CirculationService {
         stringParcels.insert(VolumeParcel(
             volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
             colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
-            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa
+            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa, dial600: add.dial600, dial300: add.dial300
         ), at: 0)
 
         var overflow = totalVolume(stringParcels) - max(0.0, capacity_m3)
@@ -146,12 +152,12 @@ class CirculationService {
                 expelled.append(VolumeParcel(
                     volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
                     colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
                 ))
                 stringParcels.append(VolumeParcel(
                     volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
                     colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
                 ))
                 overflow = 0
             }
@@ -173,7 +179,7 @@ class CirculationService {
         annulusParcels.insert(VolumeParcel(
             volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
             colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
-            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa
+            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa, dial600: add.dial600, dial300: add.dial300
         ), at: 0)
 
         var overflow = totalVolume(annulusParcels) - max(0.0, capacity_m3)
@@ -187,12 +193,12 @@ class CirculationService {
                 overflowAtSurface.append(VolumeParcel(
                     volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
                     colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
                 ))
                 annulusParcels.append(VolumeParcel(
                     volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
                     colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa
+                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
                 ))
                 overflow = 0
             }
@@ -223,7 +229,8 @@ class CirculationService {
                 colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
                 colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
                 rho_kgpm3: layer.rho_kgpm3, mudID: nil,
-                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0
+                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0,
+                dial600: layer.dial600 ?? 0, dial300: layer.dial300 ?? 0
             ))
         }
         return parcels
@@ -250,7 +257,8 @@ class CirculationService {
                 colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
                 colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
                 rho_kgpm3: layer.rho_kgpm3, mudID: nil,
-                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0
+                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0,
+                dial600: layer.dial600 ?? 0, dial300: layer.dial300 ?? 0
             ))
         }
         return parcels
@@ -295,7 +303,9 @@ class CirculationService {
                     colorA: p.colorA,
                     isInAnnulus: true,
                     pv_cP: p.pv_cP,
-                    yp_Pa: p.yp_Pa
+                    yp_Pa: p.yp_Pa,
+                    dial600: p.dial600 > 0 ? p.dial600 : nil,
+                    dial300: p.dial300 > 0 ? p.dial300 : nil
                 ))
                 usedFromBottom += L
             }
@@ -338,7 +348,9 @@ class CirculationService {
                     colorB: p.colorB,
                     colorA: p.colorA,
                     pv_cP: p.pv_cP,
-                    yp_Pa: p.yp_Pa
+                    yp_Pa: p.yp_Pa,
+                    dial600: p.dial600 > 0 ? p.dial600 : nil,
+                    dial300: p.dial300 > 0 ? p.dial300 : nil
                 ))
                 currentTop = bottom
             }
@@ -427,8 +439,18 @@ class CirculationService {
                 let pipeOD = drillStringSections.first(where: { midDepth >= $0.topDepth_m && midDepth <= $0.bottomDepth_m })?.outerDiameter_m
                     ?? drillStringSections.first?.outerDiameter_m ?? 0.127
 
-                if p.pv_cP > 0 || p.yp_Pa > 0 {
-                    // Bingham model
+                if p.dial600 > 0 && p.dial300 > 0 {
+                    // Power-law Mooney-Rabinowitsch (matches standalone PumpSchedule)
+                    totalAPL_kPa += aplService.aplPowerLaw(
+                        length_m: overlapLen,
+                        flowRate_m3_per_min: pumpRate_m3perMin,
+                        holeDiameter_m: holeID,
+                        pipeDiameter_m: pipeOD,
+                        dial600: p.dial600,
+                        dial300: p.dial300
+                    )
+                } else if p.pv_cP > 0 || p.yp_Pa > 0 {
+                    // Bingham fallback
                     totalAPL_kPa += aplService.aplBingham(
                         length_m: overlapLen,
                         flowRate_m3_per_min: pumpRate_m3perMin,
@@ -438,7 +460,7 @@ class CirculationService {
                         yieldPoint_Pa: p.yp_Pa
                     )
                 } else {
-                    // Simplified fallback
+                    // Simplified empirical fallback
                     totalAPL_kPa += aplService.aplSimplified(
                         density_kgm3: p.rho_kgpm3,
                         length_m: overlapLen,
@@ -664,7 +686,9 @@ class CirculationService {
                         volume_m3: thisStepVolume,
                         colorR: operation.mudColorR, colorG: operation.mudColorG,
                         colorB: operation.mudColorB, colorA: 1.0,
-                        rho_kgpm3: operation.mudDensity_kgpm3, mudID: operation.mudID
+                        rho_kgpm3: operation.mudDensity_kgpm3, mudID: operation.mudID,
+                        pv_cP: operation.pv_cP, yp_Pa: operation.yp_Pa,
+                        dial600: operation.dial600, dial300: operation.dial300
                     ),
                     capacity_m3: stringCapacity,
                     expelled: &expelledAtBit

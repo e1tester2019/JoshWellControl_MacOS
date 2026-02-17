@@ -204,6 +204,52 @@ class APLCalculationService {
         return (gradient_Pa_per_m * length_m) / 1000.0
     }
 
+    // MARK: - Power-Law Mooney-Rabinowitsch Model
+
+    /// Calculate APL using Power-Law Mooney-Rabinowitsch model (when Fann dial readings available).
+    /// Matches PumpScheduleViewModel.hydraulicsForCurrent() formula exactly.
+    ///
+    /// - Parameters:
+    ///   - length_m: Section length (m)
+    ///   - flowRate_m3_per_min: Flow rate (m³/min)
+    ///   - holeDiameter_m: Hole/casing ID (m)
+    ///   - pipeDiameter_m: Pipe OD (m)
+    ///   - dial600: Fann 600 rpm dial reading
+    ///   - dial300: Fann 300 rpm dial reading
+    /// - Returns: APL in kPa
+    func aplPowerLaw(
+        length_m: Double,
+        flowRate_m3_per_min: Double,
+        holeDiameter_m: Double,
+        pipeDiameter_m: Double,
+        dial600: Double,
+        dial300: Double
+    ) -> Double {
+        guard dial600 > 0, dial300 > 0, flowRate_m3_per_min > 0 else { return 0 }
+        let hydraulicDiameter = holeDiameter_m - pipeDiameter_m
+        guard hydraulicDiameter > 1e-6 else { return 0 }
+
+        // Power-law parameters from Fann readings
+        let n = log(dial600 / dial300) / log(600.0 / 300.0)
+        let tau600 = 0.4788 * dial600  // Pa (dial reading → shear stress)
+        let gamma600 = 1022.0          // s⁻¹ (600 rpm → shear rate)
+        let K = tau600 / pow(gamma600, n)
+
+        guard K > 0 else { return 0 }
+
+        // Annular velocity (m/s)
+        let area_m2 = Double.pi / 4.0 * (pow(holeDiameter_m, 2) - pow(pipeDiameter_m, 2))
+        guard area_m2 > 1e-9 else { return 0 }
+        let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
+
+        // Mooney-Rabinowitsch corrected wall shear rate and stress
+        let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / hydraulicDiameter)
+        let tau_w = K * pow(gamma_w, n)
+        let gradient_Pa_per_m = 4.0 * tau_w / hydraulicDiameter
+
+        return (gradient_Pa_per_m * length_m) / 1000.0
+    }
+
     // MARK: - Helper Functions
 
     /// Get pipe OD at a specific depth

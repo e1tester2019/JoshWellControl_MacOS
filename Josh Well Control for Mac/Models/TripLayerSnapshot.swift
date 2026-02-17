@@ -34,6 +34,10 @@ struct TripLayerSnapshot: Codable, Equatable {
     var pv_cP: Double?
     var yp_Pa: Double?
 
+    // Fann dial readings for Power-law Mooney-Rabinowitsch APL model
+    var dial600: Double?
+    var dial300: Double?
+
     // MARK: - Convenience Initializer from LayerRow
 
     /// Create from a NumericalTripModel.LayerRow
@@ -74,7 +78,9 @@ struct TripLayerSnapshot: Codable, Equatable {
         colorA: Double? = nil,
         isInAnnulus: Bool? = nil,
         pv_cP: Double? = nil,
-        yp_Pa: Double? = nil
+        yp_Pa: Double? = nil,
+        dial600: Double? = nil,
+        dial300: Double? = nil
     ) {
         self.side = side
         self.topMD = topMD
@@ -91,6 +97,8 @@ struct TripLayerSnapshot: Codable, Equatable {
         self.isInAnnulus = isInAnnulus
         self.pv_cP = pv_cP
         self.yp_Pa = yp_Pa
+        self.dial600 = dial600
+        self.dial300 = dial300
     }
 
     // MARK: - Convert Back to LayerRow

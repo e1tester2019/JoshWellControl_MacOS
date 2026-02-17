@@ -318,7 +318,11 @@ class PumpScheduleViewModel {
             colorB: Double(nsColor.blueComponent),
             colorA: Double(nsColor.alphaComponent),
             rho_kgpm3: mud?.density_kgm3 ?? 1200,
-            mudID: mud?.id
+            mudID: mud?.id,
+            pv_cP: (mud?.pv_Pa_s ?? 0) * 1000,
+            yp_Pa: mud?.yp_Pa ?? 0,
+            dial600: mud?.dial600 ?? 0,
+            dial300: mud?.dial300 ?? 0
         )
     }
 
@@ -436,7 +440,9 @@ class PumpScheduleViewModel {
                 volume_m3: vol,
                 colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
                 colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
-                rho_kgpm3: layer.rho_kgpm3, mudID: mud?.id
+                rho_kgpm3: layer.rho_kgpm3, mudID: mud?.id,
+                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0,
+                dial600: layer.dial600 ?? 0, dial300: layer.dial300 ?? 0
             ))
         }
         return isString ? parcels : parcels.reversed()
@@ -1020,7 +1026,11 @@ class PumpScheduleViewModel {
                 deltaHydroStatic_kPa: 0,
                 volume_m3: geom.volumeInAnnulus_m3(seg.top, seg.bottom),
                 colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
-                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent)
+                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent),
+                pv_cP: (seg.mud?.pv_Pa_s ?? 0) * 1000,
+                yp_Pa: seg.mud?.yp_Pa ?? 0,
+                dial600: seg.mud?.dial600,
+                dial300: seg.mud?.dial300
             )
         }
 
@@ -1033,7 +1043,11 @@ class PumpScheduleViewModel {
                 deltaHydroStatic_kPa: 0,
                 volume_m3: geom.volumeInString_m3(seg.top, seg.bottom),
                 colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
-                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent)
+                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent),
+                pv_cP: (seg.mud?.pv_Pa_s ?? 0) * 1000,
+                yp_Pa: seg.mud?.yp_Pa ?? 0,
+                dial600: seg.mud?.dial600,
+                dial300: seg.mud?.dial300
             )
         }
 

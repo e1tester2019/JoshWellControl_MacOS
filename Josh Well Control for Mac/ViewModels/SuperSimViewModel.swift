@@ -419,7 +419,7 @@ class SuperSimViewModel {
                     result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
 
                 case .circulate:
-                    result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity)
+                    result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
 
                 case .reamOut:
                     result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
@@ -734,7 +734,9 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
-        activeDensity: Double
+        activeDensity: Double,
+        mudRheologyMap: [UUID: MudRheology] = [:],
+        mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) -> WellboreStateSnapshot {
         let geom = ProjectGeometryService(
             annulus: annulusSections,
@@ -743,11 +745,27 @@ class SuperSimViewModel {
             mdToTvd: { md in tvdSampler.tvd(of: md) }
         )
 
-        // Decode pump queue from operation
+        // Decode pump queue from operation and enrich with rheology from mud data
         var pumpQueue: [CirculationService.PumpOperation] = []
         if let data = op.pumpQueueEncoded,
            let decoded = try? JSONDecoder().decode([CodablePumpOperation].self, from: data) {
-            pumpQueue = decoded.map { $0.toPumpOperation() }
+            pumpQueue = decoded.map { entry in
+                var pumpOp = entry.toPumpOperation()
+                // If decoded entry lacks rheology, look up from mud data
+                if pumpOp.dial600 <= 0 || pumpOp.dial300 <= 0 {
+                    if let dials = mudDialMap[pumpOp.mudID] {
+                        pumpOp.dial600 = dials.d600
+                        pumpOp.dial300 = dials.d300
+                    }
+                }
+                if pumpOp.pv_cP <= 0 && pumpOp.yp_Pa <= 0 {
+                    if let rheo = mudRheologyMap[pumpOp.mudID] {
+                        pumpOp.pv_cP = rheo.pv_cP
+                        pumpOp.yp_Pa = rheo.yp_Pa
+                    }
+                }
+                return pumpOp
+            }
         }
 
         guard !pumpQueue.isEmpty else { return state }
@@ -1972,6 +1990,10 @@ private struct CodablePumpOperation: Codable {
     let mudColorG: Double
     let mudColorB: Double
     let volume_m3: Double
+    let pv_cP: Double?
+    let yp_Pa: Double?
+    let dial600: Double?
+    let dial300: Double?
 
     func toPumpOperation() -> CirculationService.PumpOperation {
         CirculationService.PumpOperation(
@@ -1981,7 +2003,11 @@ private struct CodablePumpOperation: Codable {
             mudColorR: mudColorR,
             mudColorG: mudColorG,
             mudColorB: mudColorB,
-            volume_m3: volume_m3
+            volume_m3: volume_m3,
+            pv_cP: pv_cP ?? 0,
+            yp_Pa: yp_Pa ?? 0,
+            dial600: dial600 ?? 0,
+            dial300: dial300 ?? 0
         )
     }
 }
