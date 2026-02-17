@@ -359,9 +359,9 @@ class CirculationService {
         let startMD = max(0, bitMD - usedFromBottom)
         var lo: Double = 0
         var hi: Double = startMD
-        let tol = 1e-4
+        let tol = 1e-6
         var iter = 0
-        let maxIter = 30
+        let maxIter = 50
 
         while (hi - lo) > tol, iter < maxIter {
             iter += 1

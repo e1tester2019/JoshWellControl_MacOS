@@ -606,9 +606,13 @@ class SuperSimViewModel {
         // Compute surge profile if trip speed is set
         var surgeProfile: [TripInService.SurgePressurePoint] = []
         if op.tripInSpeed_m_per_s > 0 {
+            // Use fill mud rheology if available, fall back to base mud (matches standalone behavior)
             let fillMudRheo = op.fillMudID.flatMap { mudRheologyMap[$0] }
-            let pvPaS = fillMudRheo.map { $0.pv_cP / 1000.0 }   // cP → Pa·s
-            let ypPa = fillMudRheo?.yp_Pa
+            let baseMudRheo = op.baseMudID.flatMap { mudRheologyMap[$0] }
+            let surgeRheo = (fillMudRheo?.pv_cP ?? 0) > 0 || (fillMudRheo?.yp_Pa ?? 0) > 0
+                ? fillMudRheo : baseMudRheo
+            let pvPaS = surgeRheo.map { $0.pv_cP / 1000.0 }   // cP → Pa·s
+            let ypPa = surgeRheo?.yp_Pa
 
             if let pv = pvPaS, let yp = ypPa, pv > 0 || yp > 0 {
                 // Use project drill string, or create synthetic from pipe OD/ID
@@ -960,9 +964,13 @@ class SuperSimViewModel {
         // Build surge profile if trip speed > 0
         var surgeProfile: [TripInService.SurgePressurePoint] = []
         if op.tripInSpeed_m_per_s > 0 {
+            // Use fill mud rheology if available, fall back to base mud (matches standalone behavior)
             let fillMudRheo = op.fillMudID.flatMap { mudRheologyMap[$0] }
-            let pvPaS = fillMudRheo.map { $0.pv_cP / 1000.0 }
-            let ypPa = fillMudRheo?.yp_Pa
+            let baseMudRheo = op.baseMudID.flatMap { mudRheologyMap[$0] }
+            let surgeRheo = (fillMudRheo?.pv_cP ?? 0) > 0 || (fillMudRheo?.yp_Pa ?? 0) > 0
+                ? fillMudRheo : baseMudRheo
+            let pvPaS = surgeRheo.map { $0.pv_cP / 1000.0 }
+            let ypPa = surgeRheo?.yp_Pa
 
             if let pv = pvPaS, let yp = ypPa, pv > 0 || yp > 0 {
                 let dsSections: [DrillStringSection]
