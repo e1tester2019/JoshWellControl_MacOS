@@ -101,4 +101,26 @@ struct FluidIdentity: Codable, Equatable, Sendable {
         self.dial600 = dial600
         self.dial300 = dial300
     }
+
+    /// Create from individual color components + rheology (for VolumeParcel/PumpOperation/TripLayerSnapshot conversions)
+    init(
+        density_kgm3: Double,
+        colorR: Double = 0.5, colorG: Double = 0.5,
+        colorB: Double = 0.5, colorA: Double = 1.0,
+        pv_cP: Double = 0, yp_Pa: Double = 0,
+        dial600: Double = 0, dial300: Double = 0,
+        mudID: UUID? = nil, mudName: String? = nil
+    ) {
+        self.density_kgm3 = density_kgm3
+        self.colorR = colorR
+        self.colorG = colorG
+        self.colorB = colorB
+        self.colorA = colorA
+        self.pv_cP = pv_cP
+        self.yp_Pa = yp_Pa
+        self.dial600 = dial600
+        self.dial300 = dial300
+        self.mudID = mudID
+        self.mudName = mudName
+    }
 }

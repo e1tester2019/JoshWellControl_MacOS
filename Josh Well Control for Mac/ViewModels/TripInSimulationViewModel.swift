@@ -709,15 +709,7 @@ class TripInSimulationViewModel {
 
     /// Add a pump operation to the queue
     func addToPumpQueue(mud: MudProperties, volume_m3: Double) {
-        let operation = CirculationService.PumpOperation(
-            mudID: mud.id,
-            mudName: mud.name,
-            mudDensity_kgpm3: mud.density_kgm3,
-            mudColorR: mud.colorR,
-            mudColorG: mud.colorG,
-            mudColorB: mud.colorB,
-            volume_m3: volume_m3
-        )
+        let operation = CirculationService.PumpOperation(volume_m3: volume_m3, fluid: FluidIdentity(from: mud))
         pumpQueue.append(operation)
     }
 

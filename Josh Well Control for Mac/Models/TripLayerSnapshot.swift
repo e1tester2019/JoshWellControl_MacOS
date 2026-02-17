@@ -101,6 +101,43 @@ struct TripLayerSnapshot: Codable, Equatable {
         self.dial300 = dial300
     }
 
+    // MARK: - FluidIdentity Bridge
+
+    /// Extract fluid properties as a FluidIdentity
+    var fluid: FluidIdentity {
+        FluidIdentity(
+            density_kgm3: rho_kgpm3,
+            colorR: colorR ?? 0.5, colorG: colorG ?? 0.5,
+            colorB: colorB ?? 0.5, colorA: colorA ?? 1.0,
+            pv_cP: pv_cP ?? 0, yp_Pa: yp_Pa ?? 0,
+            dial600: dial600 ?? 0, dial300: dial300 ?? 0
+        )
+    }
+
+    /// Create a snapshot with geometry + FluidIdentity
+    init(
+        side: String, topMD: Double, bottomMD: Double,
+        topTVD: Double, bottomTVD: Double,
+        deltaHydroStatic_kPa: Double, volume_m3: Double,
+        fluid: FluidIdentity,
+        isInAnnulus: Bool? = nil
+    ) {
+        self.init(
+            side: side, topMD: topMD, bottomMD: bottomMD,
+            topTVD: topTVD, bottomTVD: bottomTVD,
+            rho_kgpm3: fluid.density_kgm3,
+            deltaHydroStatic_kPa: deltaHydroStatic_kPa,
+            volume_m3: volume_m3,
+            colorR: fluid.colorR, colorG: fluid.colorG,
+            colorB: fluid.colorB, colorA: fluid.colorA,
+            isInAnnulus: isInAnnulus,
+            pv_cP: fluid.pv_cP > 0 ? fluid.pv_cP : nil,
+            yp_Pa: fluid.yp_Pa > 0 ? fluid.yp_Pa : nil,
+            dial600: fluid.dial600 > 0 ? fluid.dial600 : nil,
+            dial300: fluid.dial300 > 0 ? fluid.dial300 : nil
+        )
+    }
+
     // MARK: - Convert Back to LayerRow
 
     /// Convert back to a LayerRow for visualization

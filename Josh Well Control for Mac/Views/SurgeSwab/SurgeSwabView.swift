@@ -132,7 +132,7 @@ struct SurgeSwabView: View {
                         if let pv = mud.pv_Pa_s, let yp = mud.yp_Pa {
                             HStack(spacing: 16) {
                                 Text("PV: \(String(format: "%.1f", pv * 1000)) mPa·s")
-                                Text("YP: \(String(format: "%.1f", yp / 0.478802)) lb/100ft²")
+                                Text("YP: \(String(format: "%.1f", yp / HydraulicsDefaults.fann35_dialToPa)) lb/100ft²")
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -636,7 +636,7 @@ struct SurgeSwabView: View {
                                 if let yp = mud.yp_Pa {
                                     GridRow {
                                         Text("Yield Point:").font(.caption).foregroundStyle(.secondary)
-                                        Text(String(format: "%.1f Pa (%.1f lb/100ft²)", yp, yp / 0.478802))
+                                        Text(String(format: "%.1f Pa (%.1f lb/100ft²)", yp, yp / HydraulicsDefaults.fann35_dialToPa))
                                             .font(.caption).monospacedDigit()
                                     }
                                 }

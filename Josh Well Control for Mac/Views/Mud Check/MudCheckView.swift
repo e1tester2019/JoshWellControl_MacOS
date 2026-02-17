@@ -225,13 +225,13 @@ private struct MudEditor: View {
         let pv_cP = max(0, dial600Input - dial300Input)
         let yp_lbf = dial300Input - pv_cP
         let pv_Pa_s = pv_cP * 0.001
-        let yp_Pa = yp_lbf * 0.478802
+        let yp_Pa = yp_lbf * HydraulicsDefaults.fann35_dialToPa
 
         // Power-law from two points
-        let tau600 = dial600Input * 0.478802 // Pa
-        let tau300 = dial300Input * 0.478802 // Pa
-        let g600 = 1022.0 // 1/s
-        let g300 = 511.0  // 1/s
+        let tau600 = dial600Input * HydraulicsDefaults.fann35_dialToPa // Pa
+        let tau300 = dial300Input * HydraulicsDefaults.fann35_dialToPa // Pa
+        let g600 = HydraulicsDefaults.fann35_600rpm_shearRate // 1/s
+        let g300 = HydraulicsDefaults.fann35_300rpm_shearRate // 1/s
         let n = log(tau600 / tau300) / log(g600 / g300)
         let K = tau600 / pow(g600, n)
 

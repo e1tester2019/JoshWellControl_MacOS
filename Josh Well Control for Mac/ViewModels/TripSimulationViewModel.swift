@@ -92,15 +92,7 @@ extension TripSimulationView {
     }
 
     func addToPumpQueue(mud: MudProperties, volume_m3: Double) {
-      let operation = CirculationService.PumpOperation(
-        mudID: mud.id,
-        mudName: mud.name,
-        mudDensity_kgpm3: mud.density_kgm3,
-        mudColorR: mud.colorR,
-        mudColorG: mud.colorG,
-        mudColorB: mud.colorB,
-        volume_m3: volume_m3
-      )
+      let operation = CirculationService.PumpOperation(volume_m3: volume_m3, fluid: FluidIdentity(from: mud))
       pumpQueue.append(operation)
     }
 
@@ -274,7 +266,7 @@ extension TripSimulationView {
       guard let mud else { return 0 }
       if let d600 = mud.dial600, let d300 = mud.dial300 {
         let pvCp = d600 - d300
-        return max(0, (d300 - pvCp) * 0.4788)
+        return max(0, (d300 - pvCp) * HydraulicsDefaults.fann35_dialToPa)
       } else if let yp = mud.yp_Pa {
         return yp
       }
@@ -740,7 +732,7 @@ extension TripSimulationViewIOS {
       guard let mud else { return 0 }
       if let d600 = mud.dial600, let d300 = mud.dial300 {
         let pvCp = d600 - d300
-        return max(0, (d300 - pvCp) * 0.4788)
+        return max(0, (d300 - pvCp) * HydraulicsDefaults.fann35_dialToPa)
       } else if let yp = mud.yp_Pa {
         return yp
       }

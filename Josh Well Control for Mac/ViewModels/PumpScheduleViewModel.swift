@@ -408,7 +408,7 @@ class PumpScheduleViewModel {
 
     /// Find the closest project mud matching a given density (within tolerance)
     private func findMud(forDensity rho: Double, in project: ProjectState) -> MudProperties? {
-        let tolerance = 50.0  // kg/m³
+        let tolerance = HydraulicsDefaults.densityTolerance_kgm3
         if let active = project.activeMud, abs(active.density_kgm3 - rho) <= tolerance {
             return active
         }
@@ -885,35 +885,27 @@ class PumpScheduleViewModel {
 
             // Friction: along the flow path (MD)
             let dMD = botMD - topMD
-            let Q_m3s = max(pumpRate_m3permin, 0) / 60.0
-            if Q_m3s > 0 && dMD > 0 {
+            if pumpRate_m3permin > 0 && dMD > 0 {
                 let mdMid = 0.5 * (topMD + botMD)
                 let Do = max(geom.pipeOD_m(mdMid), 0.001)
                 let Dhole = max(geom.holeOD_m(mdMid), Do + 0.0001)
-                let Dh = max(Dhole - Do, 1e-6)
-                let Aann = .pi * (Dhole * Dhole - Do * Do) / 4.0
-                let Va = Q_m3s / max(Aann, 1e-12)
+                let aplService = APLCalculationService.shared
 
-                // Power-law K/n: prefer annulus-specific lab fit if available,
-                // otherwise fall back to 600/300 universal fit.
-                var K: Double = 0
-                var n: Double = 1
                 if let m = seg.mud {
                     if let nAnn = m.n_annulus, let KAnn = m.K_annulus {
-                        n = nAnn
-                        K = KAnn
+                        annulusFriction_Pa += aplService.aplFromKN(
+                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                            holeDiameter_m: Dhole, pipeDiameter_m: Do,
+                            K: KAnn, n: nAnn
+                        ) * 1000.0
                     } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
-                        n = log(t600/t300) / log(600.0/300.0)
-                        let tau600 = 0.4788 * t600
-                        let gamma600 = 1022.0
-                        K = tau600 / pow(gamma600, n)
+                        annulusFriction_Pa += aplService.aplPowerLaw(
+                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                            holeDiameter_m: Dhole, pipeDiameter_m: Do,
+                            dial600: t600, dial300: t300
+                        ) * 1000.0
                     }
                 }
-                // Mooney–Rabinowitsch laminar ΔP/L (Pa/m)
-                let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Va / Dh)
-                let tau_w = K > 0 ? K * pow(gamma_w, n) : 0
-                let dPperM = 4.0 * tau_w / Dh
-                annulusFriction_Pa += dPperM * dMD
             }
         }
 
@@ -930,35 +922,24 @@ class PumpScheduleViewModel {
             stringHydrostatic_Pa += rhoString * g * dTVD
 
             let dMD = botMD - topMD
-            let Q_m3s = max(pumpRate_m3permin, 0) / 60.0
-            if Q_m3s > 0 && dMD > 0 {
+            if pumpRate_m3permin > 0 && dMD > 0 {
                 let mdMid = 0.5 * (topMD + botMD)
-
-                // Internal flow: use pipe ID and internal flow area
                 let Di = max(geom.pipeID_m(mdMid), 0.001)
-                let Apipe = .pi * Di * Di / 4.0
-                let Vp = Q_m3s / max(Apipe, 1e-12)
+                let aplService = APLCalculationService.shared
 
-                // Power-law K/n: prefer pipe-specific lab fit if available,
-                // otherwise fall back to 600/300 universal fit.
-                var K: Double = 0
-                var n: Double = 1
                 if let m = seg.mud {
                     if let nPipe = m.n_pipe, let KPipe = m.K_pipe {
-                        n = nPipe
-                        K = KPipe
+                        stringFriction_Pa += aplService.pipeFlowAPLFromKN(
+                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                            pipeDiameter_m: Di, K: KPipe, n: nPipe
+                        ) * 1000.0
                     } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
-                        n = log(t600/t300) / log(600.0/300.0)
-                        let tau600 = 0.4788 * t600
-                        let gamma600 = 1022.0
-                        K = tau600 / pow(gamma600, n)
+                        stringFriction_Pa += aplService.pipeFlowAPLPowerLaw(
+                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                            pipeDiameter_m: Di, dial600: t600, dial300: t300
+                        ) * 1000.0
                     }
                 }
-                // Mooney–Rabinowitsch laminar ΔP/L (Pa/m) for pipe flow
-                let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * Vp / Di)
-                let tau_w = K > 0 ? K * pow(gamma_w, n) : 0
-                let dPperM = 4.0 * tau_w / Di
-                stringFriction_Pa += dPperM * dMD
             }
         }
 

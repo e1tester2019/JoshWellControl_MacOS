@@ -83,8 +83,8 @@ final class MudProperties {
 
     /// YP stored in Pa; mud checks often show lbf/100ft². These bridge both ways.
     var yp_lbf_per_100ft2: Double? {
-        get { yp_Pa.map { $0 / 0.478802 } }
-        set { yp_Pa = newValue.map { $0 * 0.478802 } }
+        get { yp_Pa.map { $0 / HydraulicsDefaults.fann35_dialToPa } }
+        set { yp_Pa = newValue.map { $0 * HydraulicsDefaults.fann35_dialToPa } }
     }
 
     init(name: String = "Mud",
@@ -156,8 +156,8 @@ final class MudProperties {
 
     func powerLawFitFromFann() -> (n: Double, K: Double)? {
         guard let d600 = dial600, let d300 = dial300, d600 > 0, d300 > 0 else { return nil }
-        let tau600 = d600 * 0.478802 // Pa
-        let tau300 = d300 * 0.478802 // Pa
+        let tau600 = d600 * HydraulicsDefaults.fann35_dialToPa // Pa
+        let tau300 = d300 * HydraulicsDefaults.fann35_dialToPa // Pa
         let g600 = 1022.0
         let g300 = 511.0
         let n = log(tau600 / tau300) / log(g600 / g300)
@@ -170,7 +170,7 @@ final class MudProperties {
         let pv_cP = max(0, d600 - d300)
         let yp_lbf = d300 - pv_cP
         let pv_Pa_s = pv_cP * 0.001
-        let yp_Pa = yp_lbf * 0.478802
+        let yp_Pa = yp_lbf * HydraulicsDefaults.fann35_dialToPa
         return (pv_Pa_s, yp_Pa)
     }
 

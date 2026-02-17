@@ -119,10 +119,10 @@ struct FrozenMud: Codable, Equatable {
     /// Power law fit from Fann readings (same as MudProperties)
     func powerLawFit() -> (n: Double, K: Double)? {
         guard let d600 = dial600, let d300 = dial300, d600 > 0, d300 > 0 else { return nil }
-        let tau600 = d600 * 0.478802
-        let tau300 = d300 * 0.478802
-        let g600 = 1022.0
-        let g300 = 511.0
+        let tau600 = d600 * HydraulicsDefaults.fann35_dialToPa
+        let tau300 = d300 * HydraulicsDefaults.fann35_dialToPa
+        let g600 = HydraulicsDefaults.fann35_600rpm_shearRate
+        let g300 = HydraulicsDefaults.fann35_300rpm_shearRate
         let n = log(tau600 / tau300) / log(g600 / g300)
         let K = tau600 / pow(g600, n)
         return (n, K)

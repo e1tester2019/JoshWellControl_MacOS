@@ -349,7 +349,7 @@ class SuperSimViewModel {
             let ypPa: Double
             if let d600 = mud.dial600, let d300 = mud.dial300 {
                 pvCp = d600 - d300
-                ypPa = max(0, (d300 - pvCp) * 0.4788)
+                ypPa = max(0, (d300 - pvCp) * HydraulicsDefaults.fann35_dialToPa)
                 mudDialMap[mud.id] = (d600: d600, d300: d300)
             } else if let pv = mud.pv_Pa_s, let yp = mud.yp_Pa {
                 pvCp = pv * 1000.0 // Pa·s → cP

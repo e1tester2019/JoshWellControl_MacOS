@@ -92,6 +92,33 @@ class CirculationService {
             if dial600 != 0 { try c.encode(dial600, forKey: .dial600) }
             if dial300 != 0 { try c.encode(dial300, forKey: .dial300) }
         }
+
+        /// Extract fluid properties as a FluidIdentity
+        var fluid: FluidIdentity {
+            FluidIdentity(
+                density_kgm3: mudDensity_kgpm3,
+                colorR: mudColorR, colorG: mudColorG, colorB: mudColorB, colorA: 1.0,
+                pv_cP: pv_cP, yp_Pa: yp_Pa,
+                dial600: dial600, dial300: dial300,
+                mudID: mudID, mudName: mudName
+            )
+        }
+
+        /// Create from FluidIdentity + volume
+        init(volume_m3: Double, fluid: FluidIdentity) {
+            self.id = UUID()
+            self.mudID = fluid.mudID ?? UUID()
+            self.mudName = fluid.mudName ?? ""
+            self.mudDensity_kgpm3 = fluid.density_kgm3
+            self.mudColorR = fluid.colorR
+            self.mudColorG = fluid.colorG
+            self.mudColorB = fluid.colorB
+            self.volume_m3 = volume_m3
+            self.pv_cP = fluid.pv_cP
+            self.yp_Pa = fluid.yp_Pa
+            self.dial600 = fluid.dial600
+            self.dial300 = fluid.dial300
+        }
     }
 
     struct CirculateOutStep: Identifiable {
@@ -148,6 +175,53 @@ class CirculationService {
         var yp_Pa: Double = 0
         var dial600: Double = 0
         var dial300: Double = 0
+
+        /// Extract fluid properties as a FluidIdentity
+        var fluid: FluidIdentity {
+            FluidIdentity(
+                density_kgm3: rho_kgpm3,
+                colorR: colorR, colorG: colorG, colorB: colorB, colorA: colorA,
+                pv_cP: pv_cP, yp_Pa: yp_Pa,
+                dial600: dial600, dial300: dial300,
+                mudID: mudID
+            )
+        }
+
+        /// Create from FluidIdentity + volume
+        init(volume_m3: Double, fluid: FluidIdentity) {
+            self.volume_m3 = volume_m3
+            self.colorR = fluid.colorR
+            self.colorG = fluid.colorG
+            self.colorB = fluid.colorB
+            self.colorA = fluid.colorA
+            self.rho_kgpm3 = fluid.density_kgm3
+            self.mudID = fluid.mudID
+            self.pv_cP = fluid.pv_cP
+            self.yp_Pa = fluid.yp_Pa
+            self.dial600 = fluid.dial600
+            self.dial300 = fluid.dial300
+        }
+
+        /// Original memberwise initializer
+        init(
+            volume_m3: Double,
+            colorR: Double, colorG: Double, colorB: Double, colorA: Double,
+            rho_kgpm3: Double, mudID: UUID? = nil,
+            pv_cP: Double = 0, yp_Pa: Double = 0,
+            dial600: Double = 0, dial300: Double = 0
+        ) {
+            self.volume_m3 = volume_m3
+            self.colorR = colorR
+            self.colorG = colorG
+            self.colorB = colorB
+            self.colorA = colorA
+            self.rho_kgpm3 = rho_kgpm3
+            self.mudID = mudID
+            self.pv_cP = pv_cP
+            self.yp_Pa = yp_Pa
+            self.dial600 = dial600
+            self.dial300 = dial300
+        }
     }
 
     // MARK: - ESD Calculation
@@ -199,11 +273,7 @@ class CirculationService {
         let addV = max(0.0, add.volume_m3)
         guard addV > 1e-12 else { return }
 
-        stringParcels.insert(VolumeParcel(
-            volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
-            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
-            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa, dial600: add.dial600, dial300: add.dial300
-        ), at: 0)
+        stringParcels.insert(VolumeParcel(volume_m3: addV, fluid: add.fluid), at: 0)
 
         var overflow = totalVolume(stringParcels) - max(0.0, capacity_m3)
         while overflow > 1e-9, let last = stringParcels.last {
@@ -213,16 +283,8 @@ class CirculationService {
                 expelled.append(last)
                 overflow -= v
             } else {
-                expelled.append(VolumeParcel(
-                    volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
-                ))
-                stringParcels.append(VolumeParcel(
-                    volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
-                ))
+                expelled.append(VolumeParcel(volume_m3: overflow, fluid: last.fluid))
+                stringParcels.append(VolumeParcel(volume_m3: v - overflow, fluid: last.fluid))
                 overflow = 0
             }
         }
@@ -240,11 +302,7 @@ class CirculationService {
         let addV = max(0.0, add.volume_m3)
         guard addV > 1e-12 else { return }
 
-        annulusParcels.insert(VolumeParcel(
-            volume_m3: addV, colorR: add.colorR, colorG: add.colorG,
-            colorB: add.colorB, colorA: add.colorA, rho_kgpm3: add.rho_kgpm3, mudID: add.mudID,
-            pv_cP: add.pv_cP, yp_Pa: add.yp_Pa, dial600: add.dial600, dial300: add.dial300
-        ), at: 0)
+        annulusParcels.insert(VolumeParcel(volume_m3: addV, fluid: add.fluid), at: 0)
 
         var overflow = totalVolume(annulusParcels) - max(0.0, capacity_m3)
         while overflow > 1e-9, let last = annulusParcels.last {
@@ -254,16 +312,8 @@ class CirculationService {
                 overflowAtSurface.append(last)
                 overflow -= v
             } else {
-                overflowAtSurface.append(VolumeParcel(
-                    volume_m3: overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
-                ))
-                annulusParcels.append(VolumeParcel(
-                    volume_m3: v - overflow, colorR: last.colorR, colorG: last.colorG,
-                    colorB: last.colorB, colorA: last.colorA, rho_kgpm3: last.rho_kgpm3, mudID: last.mudID,
-                    pv_cP: last.pv_cP, yp_Pa: last.yp_Pa, dial600: last.dial600, dial300: last.dial300
-                ))
+                overflowAtSurface.append(VolumeParcel(volume_m3: overflow, fluid: last.fluid))
+                annulusParcels.append(VolumeParcel(volume_m3: v - overflow, fluid: last.fluid))
                 overflow = 0
             }
         }
@@ -288,14 +338,7 @@ class CirculationService {
             guard bot > top + 1e-9 else { continue }
             let vol = geom.volumeInAnnulus_m3(top, bot)
             guard vol > 1e-12 else { continue }
-            parcels.append(VolumeParcel(
-                volume_m3: vol,
-                colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
-                colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
-                rho_kgpm3: layer.rho_kgpm3, mudID: nil,
-                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0,
-                dial600: layer.dial600 ?? 0, dial300: layer.dial300 ?? 0
-            ))
+            parcels.append(VolumeParcel(volume_m3: vol, fluid: layer.fluid))
         }
         return parcels
     }
@@ -316,14 +359,7 @@ class CirculationService {
             guard bot > top + 1e-9 else { continue }
             let vol = geom.volumeInString_m3(top, bot)
             guard vol > 1e-12 else { continue }
-            parcels.append(VolumeParcel(
-                volume_m3: vol,
-                colorR: layer.colorR ?? 0.5, colorG: layer.colorG ?? 0.5,
-                colorB: layer.colorB ?? 0.5, colorA: layer.colorA ?? 1.0,
-                rho_kgpm3: layer.rho_kgpm3, mudID: nil,
-                pv_cP: layer.pv_cP ?? 0, yp_Pa: layer.yp_Pa ?? 0,
-                dial600: layer.dial600 ?? 0, dial300: layer.dial300 ?? 0
-            ))
+            parcels.append(VolumeParcel(volume_m3: vol, fluid: layer.fluid))
         }
         return parcels
     }
@@ -353,23 +389,10 @@ class CirculationService {
 
             if botMD > topMD + 1e-9 {
                 snapshots.append(TripLayerSnapshot(
-                    side: "annulus",
-                    topMD: topMD,
-                    bottomMD: botMD,
-                    topTVD: tvdSampler.tvd(of: topMD),
-                    bottomTVD: tvdSampler.tvd(of: botMD),
-                    rho_kgpm3: p.rho_kgpm3,
-                    deltaHydroStatic_kPa: 0,
-                    volume_m3: v,
-                    colorR: p.colorR,
-                    colorG: p.colorG,
-                    colorB: p.colorB,
-                    colorA: p.colorA,
-                    isInAnnulus: true,
-                    pv_cP: p.pv_cP,
-                    yp_Pa: p.yp_Pa,
-                    dial600: p.dial600 > 0 ? p.dial600 : nil,
-                    dial300: p.dial300 > 0 ? p.dial300 : nil
+                    side: "annulus", topMD: topMD, bottomMD: botMD,
+                    topTVD: tvdSampler.tvd(of: topMD), bottomTVD: tvdSampler.tvd(of: botMD),
+                    deltaHydroStatic_kPa: 0, volume_m3: v,
+                    fluid: p.fluid, isInAnnulus: true
                 ))
                 usedFromBottom += L
             }
@@ -399,22 +422,10 @@ class CirculationService {
             let bottom = min(currentTop + L, bitMD)
             if bottom > currentTop + 1e-9 {
                 snapshots.append(TripLayerSnapshot(
-                    side: "string",
-                    topMD: currentTop,
-                    bottomMD: bottom,
-                    topTVD: tvdSampler.tvd(of: currentTop),
-                    bottomTVD: tvdSampler.tvd(of: bottom),
-                    rho_kgpm3: p.rho_kgpm3,
-                    deltaHydroStatic_kPa: 0,
-                    volume_m3: v,
-                    colorR: p.colorR,
-                    colorG: p.colorG,
-                    colorB: p.colorB,
-                    colorA: p.colorA,
-                    pv_cP: p.pv_cP,
-                    yp_Pa: p.yp_Pa,
-                    dial600: p.dial600 > 0 ? p.dial600 : nil,
-                    dial300: p.dial300 > 0 ? p.dial300 : nil
+                    side: "string", topMD: currentTop, bottomMD: bottom,
+                    topTVD: tvdSampler.tvd(of: currentTop), bottomTVD: tvdSampler.tvd(of: bottom),
+                    deltaHydroStatic_kPa: 0, volume_m3: v,
+                    fluid: p.fluid
                 ))
                 currentTop = bottom
             }
@@ -466,7 +477,7 @@ class CirculationService {
         drillStringSections: [DrillStringSection],
         pumpRate_m3perMin: Double
     ) -> Double {
-        guard pumpRate_m3perMin > 0.001 else { return 0 }
+        guard pumpRate_m3perMin > HydraulicsDefaults.minFlowRate_m3perMin else { return 0 }
 
         let aplService = APLCalculationService.shared
         var totalAPL_kPa = 0.0
@@ -746,14 +757,7 @@ class CirculationService {
                 var expelledAtBit: [VolumeParcel] = []
                 pushToTopAndOverflow(
                     stringParcels: &stringParcels,
-                    add: VolumeParcel(
-                        volume_m3: thisStepVolume,
-                        colorR: operation.mudColorR, colorG: operation.mudColorG,
-                        colorB: operation.mudColorB, colorA: 1.0,
-                        rho_kgpm3: operation.mudDensity_kgpm3, mudID: operation.mudID,
-                        pv_cP: operation.pv_cP, yp_Pa: operation.yp_Pa,
-                        dial600: operation.dial600, dial300: operation.dial300
-                    ),
+                    add: VolumeParcel(volume_m3: thisStepVolume, fluid: operation.fluid),
                     capacity_m3: stringCapacity,
                     expelled: &expelledAtBit
                 )
@@ -794,7 +798,7 @@ class CirculationService {
                 var stepAPL = 0.0
                 var effectiveSABP = staticSABP
 
-                if hasAPLGeometry && maxPumpRate_m3perMin > 0.001 {
+                if hasAPLGeometry && maxPumpRate_m3perMin > HydraulicsDefaults.minFlowRate_m3perMin {
                     // Calculate APL at max pump rate
                     stepAPL = calculateAPLFromParcels(
                         annulusParcels: annulusParcels,

@@ -9,9 +9,9 @@ import Foundation
 
 
 final class NumericalTripModel: @unchecked Sendable {
-    static let g: Double = 9.81
-    static let eps: Double = 1e-9
-    static let rhoAir: Double = 1.2
+    static let g = HydraulicsDefaults.gravity_mps2
+    static let eps = HydraulicsDefaults.epsilon
+    static let rhoAir = HydraulicsDefaults.rhoAir_kgm3
 
     enum Side { case string, annulus }
 
@@ -339,7 +339,7 @@ final class NumericalTripModel: @unchecked Sendable {
         // Swab parameters
         var tripSpeed_m_per_s: Double = 0.5        // Hoist speed (m/s), default 0.5 m/s = 30 m/min
         var eccentricityFactor: Double = 1.0       // Pipe eccentricity factor (1.0 = concentric)
-        var swabSafetyFactor: Double = 1.15        // Safety multiplier for recommended SABP
+        var swabSafetyFactor = HydraulicsDefaults.swabSafetyFactor
         // Fallback rheology if layers don't have mud references
         var fallbackTheta600: Double? = nil
         var fallbackTheta300: Double? = nil
@@ -422,7 +422,7 @@ final class NumericalTripModel: @unchecked Sendable {
             for l in ann {
                 let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
                 let pvCp = (l.mudDial600 != nil && l.mudDial300 != nil) ? (l.mudDial600! - l.mudDial300!) : 0.0
-                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * 0.4788) : 0.0
+                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * HydraulicsDefaults.fann35_dialToPa) : 0.0
                 StackOps.paintInterval(annulusStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor, pv_cP: pvCp, yp_Pa: ypPa)
             }
         }
@@ -443,7 +443,7 @@ final class NumericalTripModel: @unchecked Sendable {
             for l in str {
                 let layerColor = ColorRGBA(r: l.colorR, g: l.colorG, b: l.colorB, a: l.colorA)
                 let pvCp = (l.mudDial600 != nil && l.mudDial300 != nil) ? (l.mudDial600! - l.mudDial300!) : 0.0
-                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * 0.4788) : 0.0
+                let ypPa = (l.mudDial300 != nil) ? max(0, (l.mudDial300! - pvCp) * HydraulicsDefaults.fann35_dialToPa) : 0.0
                 StackOps.paintInterval(stringStack, l.topMD_m, l.bottomMD_m, l.density_kgm3, color: layerColor, pv_cP: pvCp, yp_Pa: ypPa)
             }
         }
@@ -760,7 +760,7 @@ final class NumericalTripModel: @unchecked Sendable {
         // Float valve tolerance: allows float to open when string pressure exceeds
         // annulus pressure by more than this threshold. Accounts for numerical
         // precision and real-world conditions where small differentials crack the float.
-        let floatTolerance_kPa: Double = 5.0
+        let floatTolerance_kPa = HydraulicsDefaults.floatTolerance_kPa
 
         while bitMD > input.endMD_m + 1e-9 {
             // Check float state and pressure margin to determine step size

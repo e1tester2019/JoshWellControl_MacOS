@@ -85,7 +85,7 @@ struct TrippingSimulator {
                 step_m: mdStep,
                 geom: geom,
                 traj: traj,
-                sabpSafety: 1.15
+                sabpSafety: HydraulicsDefaults.swabSafetyFactor
             )
             return .init(bitMD_m: bitMD, tvd_m: (traj?.TVDofMD(bitMD) ?? bitMD),
                          total_kPa: estimate.totalSwab_kPa,

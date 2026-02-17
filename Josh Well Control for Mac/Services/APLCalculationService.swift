@@ -295,6 +295,29 @@ class APLCalculationService {
         )
     }
 
+    /// Pipe (internal) flow APL from Fann dial readings.
+    /// Convenience wrapper that derives K/n from dials and delegates to `pipeFlowAPLFromKN()`.
+    func pipeFlowAPLPowerLaw(
+        length_m: Double,
+        flowRate_m3_per_min: Double,
+        pipeDiameter_m: Double,
+        dial600: Double,
+        dial300: Double
+    ) -> Double {
+        guard dial600 > 0, dial300 > 0 else { return 0 }
+        let n = log(dial600 / dial300) / log(600.0 / 300.0)
+        let tau600 = HydraulicsDefaults.fann35_dialToPa * dial600
+        let gamma600 = HydraulicsDefaults.fann35_600rpm_shearRate
+        let K = tau600 / pow(gamma600, n)
+
+        return pipeFlowAPLFromKN(
+            length_m: length_m,
+            flowRate_m3_per_min: flowRate_m3_per_min,
+            pipeDiameter_m: pipeDiameter_m,
+            K: K, n: n
+        )
+    }
+
     // MARK: - Helper Functions
 
     /// Get pipe OD at a specific depth

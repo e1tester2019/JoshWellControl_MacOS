@@ -47,9 +47,9 @@ struct SwabCalculator {
             let n = log(theta600/theta300) / log(600.0/300.0) // = ln(θ600/θ300)/ln 2
 
             // Convert dial → shear stress (Pa) and rpm → shear rate (1/s)
-            // Fann 35: τ(Pa)=0.4788*θ ; γ(1/s)=rpm*1.703 ~ {300→511, 600→1022}
-            let tau600 = 0.4788 * theta600     // Pa
-            let gamma600 = 1022.0              // 1/s
+            // Fann 35: τ(Pa) = dialToPa × θ ; γ(1/s) = rpm × 1.703
+            let tau600 = HydraulicsDefaults.fann35_dialToPa * theta600     // Pa
+            let gamma600 = HydraulicsDefaults.fann35_600rpm_shearRate      // 1/s
             // Power-law K in Pa·s^n using one point (600):
             let K = tau600 / pow(gamma600, n)  // Pa·s^n
 
@@ -71,7 +71,7 @@ struct SwabCalculator {
             let Re_g = rho * pow(Va, 2.0 - n) * pow(Dh, n) / (K * pow(8.0, n - 1.0))
 
             // Laminar flag (you can refine the threshold by n if you’d like)
-            let laminar = Re_g < 2100.0
+            let laminar = Re_g < HydraulicsDefaults.laminarReynoldsThreshold
             return (dPperM, laminar, Re_g)
         }
     ) {
@@ -117,7 +117,7 @@ struct SwabCalculator {
         step_m: Double,
         geom: GeometryService,
         traj: TrajectorySampler? = nil,
-        sabpSafety: Double = 1.15,
+        sabpSafety: Double = HydraulicsDefaults.swabSafetyFactor,
         floatIsOpen: Bool = false
     ) throws -> SwabEstimate {
 
@@ -196,11 +196,11 @@ struct SwabCalculator {
                 }
 
                 // Burkhardt clinging constant: mud clings to pipe and moves with it
-                // Kc = 0.45 + [(Dp/Dhole)² × 0.45]
+                // Kc = base + [(Dp/Dhole)² × base]
                 // The (1 + Kc) factor accounts for additional mud dragged by the pipe
                 // This typically increases effective annular velocity by 50-80%
                 let pipeToHoleRatio = Do / Dhole
-                let clingingConstant = 0.45 + (pipeToHoleRatio * pipeToHoleRatio * 0.45)
+                let clingingConstant = HydraulicsDefaults.clingingConstantBase + (pipeToHoleRatio * pipeToHoleRatio * HydraulicsDefaults.clingingConstantBase)
 
                 // Annular velocity with clinging effect
                 // Va = Vpipe × (1 + Kc) × (dispA / Aann) × eccentricityFactor
