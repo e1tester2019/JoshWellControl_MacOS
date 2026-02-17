@@ -630,6 +630,16 @@ struct PumpQueueEditor: View {
         var colorB: Double
     }
 
+    private struct CodableEntry: Codable {
+        let mudID: UUID
+        let mudName: String
+        let mudDensity_kgpm3: Double
+        let mudColorR: Double
+        let mudColorG: Double
+        let mudColorB: Double
+        let volume_m3: Double
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Existing queue entries
@@ -699,15 +709,6 @@ struct PumpQueueEditor: View {
     }
 
     private func encodeQueue() {
-        struct CodableEntry: Codable {
-            let mudID: UUID
-            let mudName: String
-            let mudDensity_kgpm3: Double
-            let mudColorR: Double
-            let mudColorG: Double
-            let mudColorB: Double
-            let volume_m3: Double
-        }
         let codable = entries.map { e in
             CodableEntry(
                 mudID: e.mudID,
@@ -724,15 +725,6 @@ struct PumpQueueEditor: View {
 
     private func decodeQueue() {
         guard let data = operation.pumpQueueEncoded else { return }
-        struct CodableEntry: Codable {
-            let mudID: UUID
-            let mudName: String
-            let mudDensity_kgpm3: Double
-            let mudColorR: Double
-            let mudColorG: Double
-            let mudColorB: Double
-            let volume_m3: Double
-        }
         if let decoded = try? JSONDecoder().decode([CodableEntry].self, from: data) {
             entries = decoded.map { e in
                 PumpEntry(

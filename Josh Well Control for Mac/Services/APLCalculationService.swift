@@ -206,17 +206,72 @@ class APLCalculationService {
 
     // MARK: - Power-Law Mooney-Rabinowitsch Model
 
-    /// Calculate APL using Power-Law Mooney-Rabinowitsch model (when Fann dial readings available).
-    /// Matches PumpScheduleViewModel.hydraulicsForCurrent() formula exactly.
+    /// Annular APL from pre-computed Power-Law K and n values.
+    /// This is the primary method — `aplPowerLaw(dial600:dial300:)` derives K/n and delegates here.
     ///
     /// - Parameters:
     ///   - length_m: Section length (m)
     ///   - flowRate_m3_per_min: Flow rate (m³/min)
     ///   - holeDiameter_m: Hole/casing ID (m)
     ///   - pipeDiameter_m: Pipe OD (m)
-    ///   - dial600: Fann 600 rpm dial reading
-    ///   - dial300: Fann 300 rpm dial reading
+    ///   - K: Power-law consistency index (Pa·sⁿ)
+    ///   - n: Power-law flow behavior index
     /// - Returns: APL in kPa
+    func aplFromKN(
+        length_m: Double,
+        flowRate_m3_per_min: Double,
+        holeDiameter_m: Double,
+        pipeDiameter_m: Double,
+        K: Double,
+        n: Double
+    ) -> Double {
+        guard K > 0, n > 0, flowRate_m3_per_min > 0 else { return 0 }
+        let hydraulicDiameter = holeDiameter_m - pipeDiameter_m
+        guard hydraulicDiameter > 1e-6 else { return 0 }
+
+        let area_m2 = Double.pi / 4.0 * (pow(holeDiameter_m, 2) - pow(pipeDiameter_m, 2))
+        guard area_m2 > 1e-9 else { return 0 }
+        let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
+
+        let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / hydraulicDiameter)
+        let tau_w = K * pow(gamma_w, n)
+        let gradient_Pa_per_m = 4.0 * tau_w / hydraulicDiameter
+
+        return (gradient_Pa_per_m * length_m) / 1000.0
+    }
+
+    /// Pipe (internal) flow APL from pre-computed Power-Law K and n values.
+    ///
+    /// - Parameters:
+    ///   - length_m: Section length (m)
+    ///   - flowRate_m3_per_min: Flow rate (m³/min)
+    ///   - pipeDiameter_m: Pipe internal diameter (m)
+    ///   - K: Power-law consistency index (Pa·sⁿ)
+    ///   - n: Power-law flow behavior index
+    /// - Returns: Friction pressure loss in kPa
+    func pipeFlowAPLFromKN(
+        length_m: Double,
+        flowRate_m3_per_min: Double,
+        pipeDiameter_m: Double,
+        K: Double,
+        n: Double
+    ) -> Double {
+        guard K > 0, n > 0, flowRate_m3_per_min > 0 else { return 0 }
+        guard pipeDiameter_m > 1e-6 else { return 0 }
+
+        let area_m2 = Double.pi / 4.0 * pow(pipeDiameter_m, 2)
+        guard area_m2 > 1e-9 else { return 0 }
+        let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
+
+        let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / pipeDiameter_m)
+        let tau_w = K * pow(gamma_w, n)
+        let gradient_Pa_per_m = 4.0 * tau_w / pipeDiameter_m
+
+        return (gradient_Pa_per_m * length_m) / 1000.0
+    }
+
+    /// Annular APL from Fann dial readings using Power-Law Mooney-Rabinowitsch model.
+    /// Convenience wrapper that derives K/n from dials and delegates to `aplFromKN()`.
     func aplPowerLaw(
         length_m: Double,
         flowRate_m3_per_min: Double,
@@ -225,29 +280,19 @@ class APLCalculationService {
         dial600: Double,
         dial300: Double
     ) -> Double {
-        guard dial600 > 0, dial300 > 0, flowRate_m3_per_min > 0 else { return 0 }
-        let hydraulicDiameter = holeDiameter_m - pipeDiameter_m
-        guard hydraulicDiameter > 1e-6 else { return 0 }
-
-        // Power-law parameters from Fann readings
+        guard dial600 > 0, dial300 > 0 else { return 0 }
         let n = log(dial600 / dial300) / log(600.0 / 300.0)
-        let tau600 = 0.4788 * dial600  // Pa (dial reading → shear stress)
-        let gamma600 = 1022.0          // s⁻¹ (600 rpm → shear rate)
+        let tau600 = HydraulicsDefaults.fann35_dialToPa * dial600
+        let gamma600 = HydraulicsDefaults.fann35_600rpm_shearRate
         let K = tau600 / pow(gamma600, n)
 
-        guard K > 0 else { return 0 }
-
-        // Annular velocity (m/s)
-        let area_m2 = Double.pi / 4.0 * (pow(holeDiameter_m, 2) - pow(pipeDiameter_m, 2))
-        guard area_m2 > 1e-9 else { return 0 }
-        let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
-
-        // Mooney-Rabinowitsch corrected wall shear rate and stress
-        let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / hydraulicDiameter)
-        let tau_w = K * pow(gamma_w, n)
-        let gradient_Pa_per_m = 4.0 * tau_w / hydraulicDiameter
-
-        return (gradient_Pa_per_m * length_m) / 1000.0
+        return aplFromKN(
+            length_m: length_m,
+            flowRate_m3_per_min: flowRate_m3_per_min,
+            holeDiameter_m: holeDiameter_m,
+            pipeDiameter_m: pipeDiameter_m,
+            K: K, n: n
+        )
     }
 
     // MARK: - Helper Functions

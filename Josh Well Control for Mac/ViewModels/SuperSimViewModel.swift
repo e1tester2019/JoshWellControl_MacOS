@@ -748,9 +748,9 @@ class SuperSimViewModel {
         // Decode pump queue from operation and enrich with rheology from mud data
         var pumpQueue: [CirculationService.PumpOperation] = []
         if let data = op.pumpQueueEncoded,
-           let decoded = try? JSONDecoder().decode([CodablePumpOperation].self, from: data) {
+           let decoded = try? JSONDecoder().decode([CirculationService.PumpOperation].self, from: data) {
             pumpQueue = decoded.map { entry in
-                var pumpOp = entry.toPumpOperation()
+                var pumpOp = entry
                 // If decoded entry lacks rheology, look up from mud data
                 if pumpOp.dial600 <= 0 || pumpOp.dial300 <= 0 {
                     if let dials = mudDialMap[pumpOp.mudID] {
@@ -1979,35 +1979,3 @@ class SuperSimViewModel {
     }
 }
 
-// MARK: - Codable Helper for PumpOperation
-
-/// Codable wrapper for CirculationService.PumpOperation (which uses UUID, not Codable by default)
-private struct CodablePumpOperation: Codable {
-    let mudID: UUID
-    let mudName: String
-    let mudDensity_kgpm3: Double
-    let mudColorR: Double
-    let mudColorG: Double
-    let mudColorB: Double
-    let volume_m3: Double
-    let pv_cP: Double?
-    let yp_Pa: Double?
-    let dial600: Double?
-    let dial300: Double?
-
-    func toPumpOperation() -> CirculationService.PumpOperation {
-        CirculationService.PumpOperation(
-            mudID: mudID,
-            mudName: mudName,
-            mudDensity_kgpm3: mudDensity_kgpm3,
-            mudColorR: mudColorR,
-            mudColorG: mudColorG,
-            mudColorB: mudColorB,
-            volume_m3: volume_m3,
-            pv_cP: pv_cP ?? 0,
-            yp_Pa: yp_Pa ?? 0,
-            dial600: dial600 ?? 0,
-            dial300: dial300 ?? 0
-        )
-    }
-}

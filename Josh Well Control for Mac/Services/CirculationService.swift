@@ -15,8 +15,8 @@ class CirculationService {
 
     // MARK: - Data Types
 
-    struct PumpOperation: Identifiable {
-        let id = UUID()
+    struct PumpOperation: Identifiable, Codable {
+        let id: UUID
         var mudID: UUID
         var mudName: String
         var mudDensity_kgpm3: Double
@@ -28,6 +28,70 @@ class CirculationService {
         var yp_Pa: Double = 0
         var dial600: Double = 0
         var dial300: Double = 0
+
+        init(
+            mudID: UUID,
+            mudName: String,
+            mudDensity_kgpm3: Double,
+            mudColorR: Double,
+            mudColorG: Double,
+            mudColorB: Double,
+            volume_m3: Double,
+            pv_cP: Double = 0,
+            yp_Pa: Double = 0,
+            dial600: Double = 0,
+            dial300: Double = 0
+        ) {
+            self.id = UUID()
+            self.mudID = mudID
+            self.mudName = mudName
+            self.mudDensity_kgpm3 = mudDensity_kgpm3
+            self.mudColorR = mudColorR
+            self.mudColorG = mudColorG
+            self.mudColorB = mudColorB
+            self.volume_m3 = volume_m3
+            self.pv_cP = pv_cP
+            self.yp_Pa = yp_Pa
+            self.dial600 = dial600
+            self.dial300 = dial300
+        }
+
+        // Custom Codable: exclude ephemeral `id`, use decodeIfPresent for backward compat
+        private enum CodingKeys: String, CodingKey {
+            case mudID, mudName, mudDensity_kgpm3, mudColorR, mudColorG, mudColorB
+            case volume_m3, pv_cP, yp_Pa, dial600, dial300
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.id = UUID()
+            self.mudID = try c.decode(UUID.self, forKey: .mudID)
+            self.mudName = try c.decode(String.self, forKey: .mudName)
+            self.mudDensity_kgpm3 = try c.decode(Double.self, forKey: .mudDensity_kgpm3)
+            self.mudColorR = try c.decode(Double.self, forKey: .mudColorR)
+            self.mudColorG = try c.decode(Double.self, forKey: .mudColorG)
+            self.mudColorB = try c.decode(Double.self, forKey: .mudColorB)
+            self.volume_m3 = try c.decode(Double.self, forKey: .volume_m3)
+            self.pv_cP = try c.decodeIfPresent(Double.self, forKey: .pv_cP) ?? 0
+            self.yp_Pa = try c.decodeIfPresent(Double.self, forKey: .yp_Pa) ?? 0
+            self.dial600 = try c.decodeIfPresent(Double.self, forKey: .dial600) ?? 0
+            self.dial300 = try c.decodeIfPresent(Double.self, forKey: .dial300) ?? 0
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(mudID, forKey: .mudID)
+            try c.encode(mudName, forKey: .mudName)
+            try c.encode(mudDensity_kgpm3, forKey: .mudDensity_kgpm3)
+            try c.encode(mudColorR, forKey: .mudColorR)
+            try c.encode(mudColorG, forKey: .mudColorG)
+            try c.encode(mudColorB, forKey: .mudColorB)
+            try c.encode(volume_m3, forKey: .volume_m3)
+            if pv_cP != 0 { try c.encode(pv_cP, forKey: .pv_cP) }
+            if yp_Pa != 0 { try c.encode(yp_Pa, forKey: .yp_Pa) }
+            if dial600 != 0 { try c.encode(dial600, forKey: .dial600) }
+            if dial300 != 0 { try c.encode(dial300, forKey: .dial300) }
+        }
     }
 
     struct CirculateOutStep: Identifiable {
