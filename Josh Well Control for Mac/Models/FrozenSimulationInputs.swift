@@ -116,6 +116,16 @@ struct FrozenMud: Codable, Equatable {
         self.colorA = colorA
     }
 
+    /// Extract fluid properties as a FluidIdentity
+    var fluid: FluidIdentity {
+        FluidIdentity(
+            density_kgm3: density_kgm3,
+            colorR: colorR, colorG: colorG, colorB: colorB, colorA: colorA,
+            dial600: dial600 ?? 0, dial300: dial300 ?? 0,
+            mudName: name
+        )
+    }
+
     /// Power law fit from Fann readings (same as MudProperties)
     func powerLawFit() -> (n: Double, K: Double)? {
         guard let d600 = dial600, let d300 = dial300, d600 > 0, d300 > 0 else { return nil }

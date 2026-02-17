@@ -30,6 +30,11 @@ final class NumericalTripModel: @unchecked Sendable {
         var color: ColorRGBA? = nil
         var pv_cP: Double = 0
         var yp_Pa: Double = 0
+
+        /// Extract fluid properties as a FluidIdentity
+        var fluid: FluidIdentity {
+            FluidIdentity(density_kgm3: rho, color: color, pv_cP: pv_cP, yp_Pa: yp_Pa)
+        }
     }
 
     /// Sendable snapshot of fluid layer data for crossing concurrency boundaries
@@ -274,6 +279,11 @@ final class NumericalTripModel: @unchecked Sendable {
         var color: ColorRGBA? = nil
         var pv_cP: Double = 0
         var yp_Pa: Double = 0
+
+        /// Extract fluid properties as a FluidIdentity
+        var fluid: FluidIdentity {
+            FluidIdentity(density_kgm3: rho_kgpm3, color: color, pv_cP: pv_cP, yp_Pa: yp_Pa)
+        }
     }
 
     struct Totals {
