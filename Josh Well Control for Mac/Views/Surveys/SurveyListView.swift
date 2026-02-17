@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import AppKit
 
 // MARK: - Survey List / Editor
 struct SurveyListView: View {
@@ -141,6 +142,8 @@ struct SurveyListView: View {
                 Button("Add Station") { vm.add(after: surveys.last) }
                 Button("Clear Stations") { vm.clearStations(surveys) }
                 Spacer()
+                Button("Export CSV…") { vm.exportCSV(surveys: surveys) }
+                    .disabled(surveys.isEmpty)
                 Button("Import Surveys…") { vm.showingImporter = true }
             }
         }
@@ -229,6 +232,35 @@ extension SurveyListView {
                 selection = nil
             }
             modelContext.delete(s)
+        }
+
+        func exportCSV(surveys: [SurveyStation]) {
+            let sorted = surveys.sorted { $0.md < $1.md }
+            var csv = "MD (m),Incl (deg),Azimuth (deg),TVD (m),VS (m),NS (m),EW (m),DLS (deg/30m),Subsea (m),Build Rate (deg/30m),Turn Rate (deg/30m)\n"
+            for s in sorted {
+                let fields: [String] = [
+                    String(format: "%.2f", s.md),
+                    String(format: "%.2f", s.inc),
+                    String(format: "%.2f", s.azi),
+                    s.tvd.map { String(format: "%.2f", $0) } ?? "",
+                    s.vs_m.map { String(format: "%.2f", $0) } ?? "",
+                    s.ns_m.map { String(format: "%.2f", $0) } ?? "",
+                    s.ew_m.map { String(format: "%.2f", $0) } ?? "",
+                    s.dls_deg_per30m.map { String(format: "%.2f", $0) } ?? "",
+                    s.subsea_m.map { String(format: "%.2f", $0) } ?? "",
+                    s.buildRate_deg_per30m.map { String(format: "%.2f", $0) } ?? "",
+                    s.turnRate_deg_per30m.map { String(format: "%.2f", $0) } ?? ""
+                ]
+                csv += fields.joined(separator: ",") + "\n"
+            }
+
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.commaSeparatedText]
+            panel.nameFieldStringValue = "\(project?.well?.name ?? "Surveys").csv"
+            panel.canCreateDirectories = true
+            if panel.runModal() == .OK, let url = panel.url {
+                try? csv.write(to: url, atomically: true, encoding: .utf8)
+            }
         }
 
         func handleImport(_ result: Result<[URL], Error>, existingSurveys: [SurveyStation]) {

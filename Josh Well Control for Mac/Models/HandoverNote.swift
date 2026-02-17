@@ -27,6 +27,7 @@ final class HandoverNote {
     var updatedAt: Date = Date.now
     var author: String = ""
     var isPinned: Bool = false
+    var priorityRaw: String = TaskPriority.medium.rawValue
 
     @Relationship var well: Well?
     @Relationship var pad: Pad?  // Can be assigned to pad instead of well
@@ -35,11 +36,13 @@ final class HandoverNote {
     init(title: String = "",
          content: String = "",
          category: NoteCategory = .general,
+         priority: TaskPriority = .medium,
          author: String = "",
          isPinned: Bool = false) {
         self.title = title
         self.content = content
         self.categoryRaw = category.rawValue
+        self.priorityRaw = priority.rawValue
         self.author = author
         self.isPinned = isPinned
     }
@@ -48,6 +51,14 @@ final class HandoverNote {
         get { NoteCategory(rawValue: categoryRaw) ?? .general }
         set {
             categoryRaw = newValue.rawValue
+            updatedAt = Date.now
+        }
+    }
+
+    var priority: TaskPriority {
+        get { TaskPriority(rawValue: priorityRaw) ?? .medium }
+        set {
+            priorityRaw = newValue.rawValue
             updatedAt = Date.now
         }
     }

@@ -37,8 +37,12 @@ struct SuperSimReportData {
         let annulusVolume_m3: Double?
 
         var stepCount: Int {
-            (tripOutSteps?.count ?? 0) + (tripInSteps?.count ?? 0) + (circulationSteps?.count ?? 0)
-            + (reamOutSteps?.count ?? 0) + (reamInSteps?.count ?? 0)
+            let a = tripOutSteps?.count ?? 0
+            let b = tripInSteps?.count ?? 0
+            let c = circulationSteps?.count ?? 0
+            let d = reamOutSteps?.count ?? 0
+            let e = reamInSteps?.count ?? 0
+            return a + b + c + d + e
         }
     }
 
@@ -610,7 +614,7 @@ class SuperSimHTMLGenerator {
         for (i, s) in steps.enumerated() {
             if i > 0 { json += "," }
             json += """
-            {"gi":\(s.globalIndex),"oi":\(s.operationIndex),"ot":"\(escJSON(s.operationType.rawValue))","ol":"\(escJSON(s.operationLabel))","md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESD_kgpm3),"ss":\(s.staticSABP_kPa),"sd":\(s.dynamicSABP_kPa),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+            {"gi":\(s.globalIndex),"oi":\(s.operationIndex),"ot":"\(escJSON(s.operationType.rawValue))","ol":"\(escJSON(s.operationLabel))","md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESD_kgpm3)),"ss":\(f0(s.staticSABP_kPa)),"sd":\(f0(s.dynamicSABP_kPa)),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
             """
         }
         json += "]"
@@ -624,7 +628,7 @@ class SuperSimHTMLGenerator {
             for (i, s) in (op.tripOutSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDatTD_kgpm3),"ss":\(s.SABP_kPa),"sd":\(s.SABP_Dynamic_kPa),"dpW":\(s.expectedFillIfClosed_m3),"dpD":\(s.expectedFillIfOpen_m3),"bf":\(s.stepBackfill_m3),"td":\(s.cumulativeSurfaceTankDelta_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDatTD_kgpm3)),"ss":\(f0(s.SABP_kPa)),"sd":\(f0(s.SABP_Dynamic_kPa)),"dpW":\(f2(s.expectedFillIfClosed_m3)),"dpD":\(f2(s.expectedFillIfOpen_m3)),"bf":\(f2(s.stepBackfill_m3)),"td":\(f2(s.cumulativeSurfaceTankDelta_m3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .tripIn:
@@ -632,28 +636,28 @@ class SuperSimHTMLGenerator {
                 if i > 0 { json += "," }
                 let deltaP = (s.annulusPressureAtBit_kPa + s.requiredChokePressure_kPa) - s.stringPressureAtBit_kPa
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"choke":\(s.requiredChokePressure_kPa),"hpA":\(s.annulusPressureAtBit_kPa),"hpS":\(s.stringPressureAtBit_kPa),"dp":\(deltaP),"fill":\(s.cumulativeFillVolume_m3),"disp":\(s.cumulativeDisplacementReturns_m3),"surge":\(s.surgePressure_kPa),"desd":\(s.dynamicESDAtControl_kgpm3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"choke":\(f0(s.requiredChokePressure_kPa)),"hpA":\(f0(s.annulusPressureAtBit_kPa)),"hpS":\(f0(s.stringPressureAtBit_kPa)),"dp":\(f0(deltaP)),"fill":\(f2(s.cumulativeFillVolume_m3)),"disp":\(f2(s.cumulativeDisplacementReturns_m3)),"surge":\(f0(s.surgePressure_kPa)),"desd":\(f1(s.dynamicESDAtControl_kgpm3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .circulate:
             for (i, s) in (op.circulationSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 json += """
-                {"vol":\(s.volumePumped_m3),"md":\(s.bitMD_m),"esd":\(s.ESDAtControl_kgpm3),"bp":\(s.requiredSABP_kPa),"dbp":\(s.deltaSABP_kPa),"pr":\(s.pumpRate_m3perMin),"apl":\(s.apl_kPa),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"vol":\(f2(s.volumePumped_m3)),"md":\(f1(s.bitMD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"bp":\(f0(s.requiredSABP_kPa)),"dbp":\(f0(s.deltaSABP_kPa)),"pr":\(f2(s.pumpRate_m3perMin)),"apl":\(f0(s.apl_kPa)),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .reamOut:
             for (i, s) in (op.reamOutSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDatTD_kgpm3),"ecd":\(s.ECD_kgpm3),"ss":\(s.SABP_kPa),"sd":\(s.SABP_Dynamic_kPa),"swab":\(s.swab_kPa),"apl":\(s.apl_kPa),"pr":\(s.pumpRate_m3perMin),"bf":\(s.stepBackfill_m3),"cbf":\(s.cumulativeBackfill_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDatTD_kgpm3)),"ecd":\(f1(s.ECD_kgpm3)),"ss":\(f0(s.SABP_kPa)),"sd":\(f0(s.SABP_Dynamic_kPa)),"swab":\(f0(s.swab_kPa)),"apl":\(f0(s.apl_kPa)),"pr":\(f2(s.pumpRate_m3perMin)),"bf":\(f2(s.stepBackfill_m3)),"cbf":\(f2(s.cumulativeBackfill_m3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .reamIn:
             for (i, s) in (op.reamInSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 json += """
-                {"md":\(s.bitMD_m),"tvd":\(s.bitTVD_m),"esd":\(s.ESDAtControl_kgpm3),"ecd":\(s.ECD_kgpm3),"choke":\(s.requiredChokePressure_kPa),"dc":\(s.dynamicChoke_kPa),"surge":\(s.surge_kPa),"apl":\(s.apl_kPa),"pr":\(s.pumpRate_m3perMin),"fill":\(s.cumulativeFillVolume_m3),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"ecd":\(f1(s.ECD_kgpm3)),"choke":\(f0(s.requiredChokePressure_kPa)),"dc":\(f0(s.dynamicChoke_kPa)),"surge":\(f0(s.surge_kPa)),"apl":\(f0(s.apl_kPa)),"pr":\(f2(s.pumpRate_m3perMin)),"fill":\(f2(s.cumulativeFillVolume_m3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         }
@@ -666,7 +670,7 @@ class SuperSimHTMLGenerator {
         for (i, l) in layers.enumerated() {
             if i > 0 { json += "," }
             let c = colorStr(l)
-            json += "{\"t\":\(l.topMD),\"b\":\(l.bottomMD),\"r\":\(l.rho_kgpm3),\"c\":\"\(c)\"}"
+            json += "{\"t\":\(f1(l.topMD)),\"b\":\(f1(l.bottomMD)),\"r\":\(f1(l.rho_kgpm3)),\"c\":\"\(c)\"}"
         }
         json += "]"
         return json

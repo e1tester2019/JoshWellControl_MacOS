@@ -26,6 +26,7 @@ struct ArchivedNote: Codable, Identifiable {
     var title: String
     var content: String
     var category: String
+    var priority: String = TaskPriority.medium.rawValue
     var author: String
     var createdAt: Date
     var wellName: String?
@@ -50,8 +51,11 @@ final class HandoverReportArchive {
     var tasksData: Data?
     var notesData: Data?
 
-    // Optional: store the PDF data for direct viewing
+    // Optional: store the PDF data for direct viewing (legacy)
     var pdfData: Data?
+
+    // HTML report content
+    var htmlData: Data?
 
     // Summary stats
     var taskCount: Int = 0
@@ -150,6 +154,7 @@ final class HandoverReportArchive {
             title: note.title,
             content: note.content,
             category: note.category.rawValue,
+            priority: note.priority.rawValue,
             author: note.author,
             createdAt: note.createdAt,
             wellName: note.well?.name,

@@ -420,10 +420,10 @@ class SuperSimViewModel {
                     result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity)
 
                 case .reamOut:
-                    result = await self.runReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap)
+                    result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap)
 
                 case .reamIn:
-                    result = self.runReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
+                    result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
                 }
 
                 currentState = result
@@ -515,7 +515,12 @@ class SuperSimViewModel {
             switchToBaseAfterFixed: op.switchToActiveAfterDisplacement,
             targetESDAtTD_kgpm3: op.targetESD_kgpm3,
             initialSABP_kPa: state.SABP_kPa,
-            tripSpeed_m_per_s: op.tripSpeed_m_per_s
+            holdSABPOpen: op.holdSABPOpen,
+            tripSpeed_m_per_s: op.tripSpeed_m_per_s,
+            eccentricityFactor: op.eccentricityFactor,
+            fallbackTheta600: op.fallbackTheta600,
+            fallbackTheta300: op.fallbackTheta300,
+            observedInitialPitGain_m3: op.useObservedPitGain ? op.observedInitialPitGain_m3 : nil
         )
 
         // Super Sim: inject custom initial layers from previous operation's state
@@ -802,7 +807,7 @@ class SuperSimViewModel {
 
     // MARK: - Ream Out Runner
 
-    private func runReamOut(
+    private func executeReamOut(
         _ op: SuperSimOperation,
         state: WellboreStateSnapshot,
         tvdSampler: TvdSampler,
@@ -863,7 +868,12 @@ class SuperSimViewModel {
             switchToBaseAfterFixed: op.switchToActiveAfterDisplacement,
             targetESDAtTD_kgpm3: op.targetESD_kgpm3,
             initialSABP_kPa: state.SABP_kPa,
-            tripSpeed_m_per_s: op.tripSpeed_m_per_s
+            holdSABPOpen: op.holdSABPOpen,
+            tripSpeed_m_per_s: op.tripSpeed_m_per_s,
+            eccentricityFactor: op.eccentricityFactor,
+            fallbackTheta600: op.fallbackTheta600,
+            fallbackTheta300: op.fallbackTheta300,
+            observedInitialPitGain_m3: op.useObservedPitGain ? op.observedInitialPitGain_m3 : nil
         )
 
         input.initialAnnulusLayers = state.layersAnnulus.isEmpty ? nil : state.layersAnnulus
@@ -933,7 +943,7 @@ class SuperSimViewModel {
 
     // MARK: - Ream In Runner
 
-    private func runReamIn(
+    private func executeReamIn(
         _ op: SuperSimOperation,
         state: WellboreStateSnapshot,
         tvdSampler: TvdSampler,
@@ -1913,6 +1923,26 @@ class SuperSimViewModel {
                 text: html,
                 defaultName: defaultName,
                 allowedFileTypes: ["html"]
+            )
+        }
+    }
+
+    func exportZippedHTMLReport(project: ProjectState) {
+        guard totalGlobalSteps > 0 else { return }
+        let reportData = buildReportData(project: project)
+        let html = SuperSimHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "SuperSim").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let baseName = "SuperSimulation_\(wellName)_\(dateStr)"
+
+        Task {
+            await HTMLZipExporter.shared.exportZipped(
+                htmlContent: html,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
             )
         }
     }

@@ -113,7 +113,7 @@ class CirculationService {
 
     // MARK: - Parcel Stack Operations
 
-    private static func totalVolume(_ parcels: [VolumeParcel]) -> Double {
+    static func totalVolume(_ parcels: [VolumeParcel]) -> Double {
         parcels.reduce(0.0) { $0 + max(0.0, $1.volume_m3) }
     }
 

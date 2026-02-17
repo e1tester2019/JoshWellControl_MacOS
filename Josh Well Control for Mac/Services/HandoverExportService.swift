@@ -26,129 +26,89 @@ class HandoverExportService {
         let includeTasks: Bool
         let includeNotes: Bool
         let includeCompleted: Bool
+        let shiftType: ShiftType?  // nil = all shifts, .day/.night = filter by shift hours
     }
 
-    func generatePDF(options: ExportOptions) -> Data? {
-        let pageWidth: CGFloat = 612  // Letter size
-        let pageHeight: CGFloat = 792
-        let margin: CGFloat = 50
-        let contentWidth = pageWidth - 2 * margin
+    // MARK: - HTML Generation
 
-        var yPosition: CGFloat = pageHeight - margin
+    func generateHTML(options: ExportOptions) -> String {
+        let reportData = buildReportData(options: options)
+        return HandoverHTMLGenerator.shared.generateHTML(for: reportData)
+    }
 
-        let pdfData = NSMutableData()
-
-        #if os(macOS)
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData),
-              let pdfContext = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            return nil
-        }
-        #else
-        UIGraphicsBeginPDFContextToData(pdfData, CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight), nil)
-        guard let pdfContext = UIGraphicsGetCurrentContext() else {
-            UIGraphicsEndPDFContext()
-            return nil
-        }
-        #endif
-
-        func startNewPage() {
-            #if os(macOS)
-            pdfContext.beginPDFPage(nil)
-            #else
-            UIGraphicsBeginPDFPage()
-            #endif
-            yPosition = pageHeight - margin
-        }
-
-        func endPage() {
-            #if os(macOS)
-            pdfContext.endPDFPage()
-            #endif
-        }
-
-        func checkPageBreak(needed: CGFloat) {
-            if yPosition - needed < margin {
-                endPage()
-                startNewPage()
-            }
-        }
-
-        func drawText(_ text: String, at point: CGPoint, font: CTFont, color: CGColor = CGColor(gray: 0, alpha: 1)) {
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: color
-            ]
-            let attrString = NSAttributedString(string: text, attributes: attributes)
-            let line = CTLineCreateWithAttributedString(attrString)
-
-            pdfContext.saveGState()
-            pdfContext.textMatrix = .identity
-            pdfContext.translateBy(x: point.x, y: point.y)
-            pdfContext.scaleBy(x: 1, y: 1)
-            CTLineDraw(line, pdfContext)
-            pdfContext.restoreGState()
-        }
-
-        func drawWrappedText(_ text: String, at x: CGFloat, width: CGFloat, font: CTFont, color: CGColor = CGColor(gray: 0, alpha: 1), lineHeight: CGFloat = 14) -> CGFloat {
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: color
-            ]
-            let attrString = NSAttributedString(string: text, attributes: attributes)
-
-            let frameSetter = CTFramesetterCreateWithAttributedString(attrString)
-            let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(
-                frameSetter,
-                CFRange(location: 0, length: attrString.length),
-                nil,
-                CGSize(width: width, height: .greatestFiniteMagnitude),
-                nil
-            )
-
-            let requiredHeight = suggestedSize.height + 4
-            checkPageBreak(needed: requiredHeight)
-
-            let framePath = CGPath(rect: CGRect(x: x, y: yPosition - requiredHeight, width: width, height: requiredHeight), transform: nil)
-            let frame = CTFramesetterCreateFrame(frameSetter, CFRange(location: 0, length: attrString.length), framePath, nil)
-
-            pdfContext.saveGState()
-            CTFrameDraw(frame, pdfContext)
-            pdfContext.restoreGState()
-
-            return requiredHeight
-        }
-
-        // Start first page
-        startNewPage()
-
-        // Fonts
-        let titleFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 24, nil)
-        let headingFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 16, nil)
-        let subheadingFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 12, nil)
-        let bodyFont = CTFontCreateWithName("Helvetica" as CFString, 10, nil)
-        let smallFont = CTFontCreateWithName("Helvetica" as CFString, 9, nil)
-
-        // Title
-        drawText("Handover Report", at: CGPoint(x: margin, y: yPosition), font: titleFont)
-        yPosition -= 30
-
-        // Date range
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        let rangeText = "\(dateFormatter.string(from: options.startDate)) - \(dateFormatter.string(from: options.endDate))"
-        drawText(rangeText, at: CGPoint(x: margin, y: yPosition), font: bodyFont)
-        yPosition -= 20
-
-        // Generated date
-        let generatedText = "Generated: \(dateFormatter.string(from: Date()))"
-        drawText(generatedText, at: CGPoint(x: margin, y: yPosition), font: smallFont, color: CGColor(gray: 0.5, alpha: 1))
-        yPosition -= 30
-
-        // Adjust dates to include full days
+    private func buildReportData(options: ExportOptions) -> HandoverReportData {
         let calendar = Calendar.current
         let startOfStartDate = calendar.startOfDay(for: options.startDate)
         let endOfEndDate = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: options.endDate) ?? options.endDate
+
+        let settings = ShiftRotationSettings.shared
+
+        // Build shift hour filter if needed
+        let shiftFilter: ((Date) -> Bool)? = {
+            guard let shiftType = options.shiftType, shiftType != .off else { return nil }
+
+            let dayStartMinutes = settings.dayShiftStartHour * 60 + settings.dayShiftStartMinute
+            let nightStartMinutes = settings.nightShiftStartHour * 60 + settings.nightShiftStartMinute
+
+            return { date in
+                let components = calendar.dateComponents([.hour, .minute], from: date)
+                let minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+
+                if shiftType == .day {
+                    // Day shift: from dayStart to nightStart
+                    return minuteOfDay >= dayStartMinutes && minuteOfDay < nightStartMinutes
+                } else {
+                    // Night shift: from nightStart to dayStart (next day), wraps midnight
+                    return minuteOfDay >= nightStartMinutes || minuteOfDay < dayStartMinutes
+                }
+            }
+        }()
+
+        func filterByDate(_ date: Date) -> Bool {
+            date >= startOfStartDate && date <= endOfEndDate
+        }
+
+        func filterByShift(_ date: Date) -> Bool {
+            guard let filter = shiftFilter else { return true }
+            return filter(date)
+        }
+
+        func filterTask(_ task: WellTask) -> Bool {
+            guard filterByDate(task.createdAt) && filterByShift(task.createdAt) else { return false }
+            if !options.includeCompleted && (task.status == .completed || task.status == .cancelled) {
+                return false
+            }
+            return true
+        }
+
+        func filterNote(_ note: HandoverNote) -> Bool {
+            filterByDate(note.createdAt) && filterByShift(note.createdAt)
+        }
+
+        func makeTaskItem(_ task: WellTask) -> HandoverReportData.TaskItem {
+            HandoverReportData.TaskItem(
+                title: task.title,
+                description: task.taskDescription,
+                priority: task.priority.rawValue,
+                status: task.status.rawValue,
+                dueDate: task.dueDate,
+                createdAt: task.createdAt,
+                isOverdue: task.isOverdue,
+                author: task.author
+            )
+        }
+
+        func makeNoteItem(_ note: HandoverNote) -> HandoverReportData.NoteItem {
+            HandoverReportData.NoteItem(
+                title: note.title,
+                content: note.content,
+                category: note.category.rawValue,
+                priority: note.priority.rawValue,
+                author: note.author,
+                createdAt: note.createdAt,
+                isPinned: note.isPinned
+            )
+        }
 
         // Group wells by pad
         let wellsByPad = Dictionary(grouping: options.wells) { $0.pad?.name ?? "Unassigned" }
@@ -158,280 +118,97 @@ class HandoverExportService {
             return a < b
         }
 
+        var padGroups: [HandoverReportData.PadGroup] = []
+
         for padName in sortedPadNames {
             guard let padWells = wellsByPad[padName] else { continue }
-
-            checkPageBreak(needed: 40)
-
-            // Get the actual pad object if this isn't the "Unassigned" group
             let pad = padWells.first?.pad
 
-            // Pad header
-            pdfContext.saveGState()
-            pdfContext.setFillColor(CGColor(red: 0.9, green: 0.9, blue: 0.95, alpha: 1))
-            pdfContext.fill(CGRect(x: margin - 5, y: yPosition - 5, width: contentWidth + 10, height: 22))
-            pdfContext.restoreGState()
+            // Pad-level tasks and notes (assigned to pad but NOT to any well)
+            var padTasks: [HandoverReportData.TaskItem] = []
+            var padNotes: [HandoverReportData.NoteItem] = []
 
-            drawText("Pad: \(padName)", at: CGPoint(x: margin, y: yPosition), font: headingFont)
-            yPosition -= 30
-
-            // Render pad-only tasks and notes (items assigned to pad but NOT to any well)
             if let pad = pad {
-                // Filter pad tasks: only those assigned to pad but not to a well
                 if options.includeTasks {
-                    var padTasks = pad.padTasks.filter { task in
-                        task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate &&
-                        task.well == nil  // Only show if not assigned to a specific well
-                    }
-                    if !options.includeCompleted {
-                        padTasks = padTasks.filter { $0.status != .completed && $0.status != .cancelled }
-                    }
-                    padTasks.sort { $0.priority.sortOrder < $1.priority.sortOrder }
-
-                    if !padTasks.isEmpty {
-                        checkPageBreak(needed: 20)
-                        drawText("Pad Tasks (\(padTasks.count))", at: CGPoint(x: margin + 10, y: yPosition), font: subheadingFont, color: CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
-                        yPosition -= 16
-
-                        for task in padTasks {
-                            checkPageBreak(needed: 40)
-
-                            // Priority indicator
-                            let priorityColor: CGColor
-                            switch task.priority {
-                            case .critical: priorityColor = CGColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1)
-                            case .high: priorityColor = CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1)
-                            case .medium: priorityColor = CGColor(red: 0.8, green: 0.7, blue: 0.2, alpha: 1)
-                            case .low: priorityColor = CGColor(red: 0.3, green: 0.7, blue: 0.3, alpha: 1)
-                            }
-
-                            pdfContext.saveGState()
-                            pdfContext.setFillColor(priorityColor)
-                            pdfContext.fillEllipse(in: CGRect(x: margin + 15, y: yPosition - 3, width: 6, height: 6))
-                            pdfContext.restoreGState()
-
-                            // Task title, date, and status
-                            let taskDateText = dateFormatter.string(from: task.createdAt)
-                            let statusText = task.status == .completed ? " [DONE]" : (task.isOverdue ? " [OVERDUE]" : "")
-                            drawText("\(task.title) - \(taskDateText)\(statusText)", at: CGPoint(x: margin + 25, y: yPosition), font: bodyFont)
-                            yPosition -= 14
-
-                            // Task details
-                            if !task.taskDescription.isEmpty {
-                                let height = drawWrappedText(task.taskDescription, at: margin + 25, width: contentWidth - 35, font: smallFont, color: CGColor(gray: 0.4, alpha: 1))
-                                yPosition -= height
-                            }
-
-                            // Due date
-                            if let due = task.dueDate {
-                                let dueText = "Due: \(dateFormatter.string(from: due))"
-                                drawText(dueText, at: CGPoint(x: margin + 25, y: yPosition), font: smallFont, color: task.isOverdue ? CGColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1) : CGColor(gray: 0.5, alpha: 1))
-                                yPosition -= 12
-                            }
-
-                            yPosition -= 10  // Spacing between tasks
-                        }
-                    }
+                    padTasks = pad.padTasks
+                        .filter { $0.well == nil && filterTask($0) }
+                        .sorted { $0.priority.sortOrder < $1.priority.sortOrder }
+                        .map { makeTaskItem($0) }
                 }
 
-                // Filter pad notes: only those assigned to pad but not to a well
                 if options.includeNotes {
-                    let padNotes = pad.padNotes.filter { note in
-                        note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate &&
-                        note.well == nil  // Only show if not assigned to a specific well
-                    }.sorted { $0.isPinned && !$1.isPinned }
-
-                    if !padNotes.isEmpty {
-                        checkPageBreak(needed: 20)
-                        drawText("Pad Notes (\(padNotes.count))", at: CGPoint(x: margin + 10, y: yPosition), font: subheadingFont, color: CGColor(red: 0.2, green: 0.6, blue: 0.4, alpha: 1))
-                        yPosition -= 16
-
-                        for note in padNotes {
-                            checkPageBreak(needed: 50)
-
-                            // Category badge
-                            let categoryColor: CGColor
-                            switch note.category {
-                            case .safety: categoryColor = CGColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1)
-                            case .operations: categoryColor = CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
-                            case .equipment: categoryColor = CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1)
-                            case .personnel: categoryColor = CGColor(red: 0.6, green: 0.3, blue: 0.7, alpha: 1)
-                            case .handover: categoryColor = CGColor(red: 0.3, green: 0.7, blue: 0.3, alpha: 1)
-                            case .general: categoryColor = CGColor(gray: 0.5, alpha: 1)
-                            }
-
-                            // Note title with date
-                            let pinPrefix = note.isPinned ? "📌 " : ""
-                            let noteDateText = dateFormatter.string(from: note.createdAt)
-                            drawText("\(pinPrefix)\(note.title) - \(noteDateText) [\(note.category.rawValue)]", at: CGPoint(x: margin + 15, y: yPosition), font: bodyFont, color: categoryColor)
-                            yPosition -= 14
-
-                            // Note content
-                            if !note.content.isEmpty {
-                                let height = drawWrappedText(note.content, at: margin + 15, width: contentWidth - 25, font: smallFont, color: CGColor(gray: 0.3, alpha: 1))
-                                yPosition -= height
-                            }
-
-                            // Author
-                            if !note.author.isEmpty {
-                                drawText("By: \(note.author)", at: CGPoint(x: margin + 15, y: yPosition), font: smallFont, color: CGColor(gray: 0.5, alpha: 1))
-                                yPosition -= 12
-                            }
-
-                            yPosition -= 10  // Spacing between notes
-                        }
-                    }
+                    padNotes = pad.padNotes
+                        .filter { $0.well == nil && filterNote($0) }
+                        .sorted { $0.isPinned && !$1.isPinned }
+                        .map { makeNoteItem($0) }
                 }
-
-                yPosition -= 10
             }
 
-            for well in padWells.sorted(by: { $0.name < $1.name }) {
-                checkPageBreak(needed: 30)
+            // Well groups
+            let wellGroups: [HandoverReportData.WellGroup] = padWells.sorted(by: { $0.name < $1.name }).map { well in
+                var tasks: [HandoverReportData.TaskItem] = []
+                var notes: [HandoverReportData.NoteItem] = []
 
-                // Well header
-                drawText(well.name, at: CGPoint(x: margin + 10, y: yPosition), font: subheadingFont)
-                yPosition -= 18
-
-                // Filter tasks by date (all tasks assigned to this well)
                 if options.includeTasks {
-                    var tasks = (well.tasks ?? []).filter { task in
-                        task.createdAt >= startOfStartDate && task.createdAt <= endOfEndDate
-                    }
-                    if !options.includeCompleted {
-                        tasks = tasks.filter { $0.status != .completed && $0.status != .cancelled }
-                    }
-                    tasks.sort { $0.priority.sortOrder < $1.priority.sortOrder }
-
-                    if !tasks.isEmpty {
-                        checkPageBreak(needed: 20)
-                        drawText("Tasks (\(tasks.count))", at: CGPoint(x: margin + 20, y: yPosition), font: subheadingFont, color: CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
-                        yPosition -= 16
-
-                        for task in tasks {
-                            checkPageBreak(needed: 40)
-
-                            // Priority indicator
-                            let priorityColor: CGColor
-                            switch task.priority {
-                            case .critical: priorityColor = CGColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1)
-                            case .high: priorityColor = CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1)
-                            case .medium: priorityColor = CGColor(red: 0.8, green: 0.7, blue: 0.2, alpha: 1)
-                            case .low: priorityColor = CGColor(red: 0.3, green: 0.7, blue: 0.3, alpha: 1)
-                            }
-
-                            pdfContext.saveGState()
-                            pdfContext.setFillColor(priorityColor)
-                            pdfContext.fillEllipse(in: CGRect(x: margin + 25, y: yPosition - 3, width: 6, height: 6))
-                            pdfContext.restoreGState()
-
-                            // Task title, date, and status
-                            let taskDateText = dateFormatter.string(from: task.createdAt)
-                            let statusText = task.status == .completed ? " [DONE]" : (task.isOverdue ? " [OVERDUE]" : "")
-                            drawText("\(task.title) - \(taskDateText)\(statusText)", at: CGPoint(x: margin + 35, y: yPosition), font: bodyFont)
-                            yPosition -= 14
-
-                            // Task details
-                            if !task.taskDescription.isEmpty {
-                                let height = drawWrappedText(task.taskDescription, at: margin + 35, width: contentWidth - 45, font: smallFont, color: CGColor(gray: 0.4, alpha: 1))
-                                yPosition -= height
-                            }
-
-                            // Due date
-                            if let due = task.dueDate {
-                                let dueText = "Due: \(dateFormatter.string(from: due))"
-                                drawText(dueText, at: CGPoint(x: margin + 35, y: yPosition), font: smallFont, color: task.isOverdue ? CGColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1) : CGColor(gray: 0.5, alpha: 1))
-                                yPosition -= 12
-                            }
-
-                            yPosition -= 10  // Spacing between tasks
-                        }
-                    }
+                    tasks = (well.tasks ?? [])
+                        .filter { filterTask($0) }
+                        .sorted { $0.priority.sortOrder < $1.priority.sortOrder }
+                        .map { makeTaskItem($0) }
                 }
 
-                // Filter notes by date (all notes assigned to this well)
                 if options.includeNotes {
-                    let notes = (well.notes ?? []).filter { note in
-                        note.createdAt >= startOfStartDate && note.createdAt <= endOfEndDate
-                    }.sorted { $0.isPinned && !$1.isPinned }
-
-                    if !notes.isEmpty {
-                        checkPageBreak(needed: 20)
-                        drawText("Notes (\(notes.count))", at: CGPoint(x: margin + 20, y: yPosition), font: subheadingFont, color: CGColor(red: 0.2, green: 0.6, blue: 0.4, alpha: 1))
-                        yPosition -= 16
-
-                        for note in notes {
-                            checkPageBreak(needed: 50)
-
-                            // Category badge
-                            let categoryColor: CGColor
-                            switch note.category {
-                            case .safety: categoryColor = CGColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1)
-                            case .operations: categoryColor = CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
-                            case .equipment: categoryColor = CGColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1)
-                            case .personnel: categoryColor = CGColor(red: 0.6, green: 0.3, blue: 0.7, alpha: 1)
-                            case .handover: categoryColor = CGColor(red: 0.3, green: 0.7, blue: 0.3, alpha: 1)
-                            case .general: categoryColor = CGColor(gray: 0.5, alpha: 1)
-                            }
-
-                            // Note title with date
-                            let pinPrefix = note.isPinned ? "📌 " : ""
-                            let noteDateText = dateFormatter.string(from: note.createdAt)
-                            drawText("\(pinPrefix)\(note.title) - \(noteDateText) [\(note.category.rawValue)]", at: CGPoint(x: margin + 25, y: yPosition), font: bodyFont, color: categoryColor)
-                            yPosition -= 14
-
-                            // Note content
-                            if !note.content.isEmpty {
-                                let height = drawWrappedText(note.content, at: margin + 25, width: contentWidth - 35, font: smallFont, color: CGColor(gray: 0.3, alpha: 1))
-                                yPosition -= height
-                            }
-
-                            // Author
-                            if !note.author.isEmpty {
-                                drawText("By: \(note.author)", at: CGPoint(x: margin + 25, y: yPosition), font: smallFont, color: CGColor(gray: 0.5, alpha: 1))
-                                yPosition -= 12
-                            }
-
-                            yPosition -= 10  // Spacing between notes
-                        }
-                    }
+                    notes = (well.notes ?? [])
+                        .filter { filterNote($0) }
+                        .sorted { $0.isPinned && !$1.isPinned }
+                        .map { makeNoteItem($0) }
                 }
 
-                yPosition -= 10
+                return HandoverReportData.WellGroup(
+                    wellName: well.name,
+                    tasks: tasks,
+                    notes: notes
+                )
             }
 
-            yPosition -= 10
+            padGroups.append(HandoverReportData.PadGroup(
+                padName: padName,
+                padTasks: padTasks,
+                padNotes: padNotes,
+                wells: wellGroups
+            ))
         }
 
-        // End last page
-        endPage()
+        let shiftLabel = options.shiftType.map { $0.displayName }
 
-        #if os(macOS)
-        pdfContext.closePDF()
-        #else
-        UIGraphicsEndPDFContext()
-        #endif
-
-        return pdfData as Data
+        return HandoverReportData(
+            reportTitle: "Handover Report",
+            startDate: options.startDate,
+            endDate: options.endDate,
+            generatedDate: Date(),
+            shiftTypeFilter: shiftLabel,
+            padGroups: padGroups
+        )
     }
 
+    // MARK: - Export
+
     #if os(macOS)
-    func exportPDF(options: ExportOptions, modelContext: ModelContext? = nil) {
-        guard let pdfData = generatePDF(options: options) else { return }
+    func exportHTML(options: ExportOptions, modelContext: ModelContext? = nil) {
+        let htmlContent = generateHTML(options: options)
 
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.pdf]
-        savePanel.nameFieldStringValue = "Handover Report \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
+        let dateStr = Date().formatted(date: .abbreviated, time: .omitted)
+            .replacingOccurrences(of: " ", with: "_")
+        let baseName = "Handover_Report_\(dateStr)"
 
-        savePanel.begin { [weak self] response in
-            if response == .OK, let url = savePanel.url {
-                try? pdfData.write(to: url)
-                NSWorkspace.shared.open(url)
+        Task { @MainActor in
+            let success = await HTMLZipExporter.shared.exportZipped(
+                htmlContent: htmlContent,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
+            )
 
-                // Save archive if we have a model context
-                if let context = modelContext {
-                    self?.createArchive(options: options, pdfData: pdfData, modelContext: context)
-                }
+            if success, let context = modelContext {
+                self.createArchive(options: options, htmlContent: htmlContent, modelContext: context)
             }
         }
     }
@@ -439,17 +216,16 @@ class HandoverExportService {
 
     #if os(iOS)
     @MainActor
-    func exportPDF(options: ExportOptions, modelContext: ModelContext? = nil) {
-        guard let pdfData = generatePDF(options: options) else { return }
+    func exportHTML(options: ExportOptions, modelContext: ModelContext? = nil) {
+        let htmlContent = generateHTML(options: options)
 
-        // Save to temp file
-        let filename = "Handover Report \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
+        let dateStr = Date().formatted(date: .abbreviated, time: .omitted)
+        let filename = "Handover_Report_\(dateStr).html"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         do {
-            try pdfData.write(to: tempURL)
+            try htmlContent.data(using: .utf8)?.write(to: tempURL)
 
-            // Present share sheet
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                let window = windowScene.windows.first,
                let rootViewController = window.rootViewController {
@@ -467,13 +243,12 @@ class HandoverExportService {
 
                 rootViewController.present(activityVC, animated: true)
 
-                // Save archive if we have a model context
                 if let context = modelContext {
-                    self.createArchive(options: options, pdfData: pdfData, modelContext: context)
+                    self.createArchive(options: options, htmlContent: htmlContent, modelContext: context)
                 }
             }
         } catch {
-            print("Error exporting PDF: \(error)")
+            print("Error exporting HTML: \(error)")
         }
     }
     #endif
@@ -481,7 +256,7 @@ class HandoverExportService {
     // MARK: - Archive Creation
 
     /// Creates an archive of the handover report for future reference
-    func createArchive(options: ExportOptions, pdfData: Data? = nil, modelContext: ModelContext) {
+    func createArchive(options: ExportOptions, htmlContent: String? = nil, modelContext: ModelContext) {
         let calendar = Calendar.current
         let startOfStartDate = calendar.startOfDay(for: options.startDate)
         let endOfEndDate = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: options.endDate) ?? options.endDate
@@ -502,8 +277,8 @@ class HandoverExportService {
             padNames: padNames
         )
 
-        // Store PDF data (optional - can be large)
-        archive.pdfData = pdfData
+        // Store HTML content
+        archive.htmlData = htmlContent?.data(using: .utf8)
 
         // Collect and archive tasks
         var archivedTasks: [ArchivedTask] = []
@@ -567,4 +342,3 @@ class HandoverExportService {
         try? modelContext.save()
     }
 }
-

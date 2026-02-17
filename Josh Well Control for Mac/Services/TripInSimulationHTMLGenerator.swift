@@ -612,9 +612,9 @@ class TripInSimulationHTMLGenerator {
             if (index < 0 || index >= steps.length) return;
             const step = steps[index];
 
-            document.getElementById('current-depth').textContent = step.bitMD.toFixed(0) + ' m';
-            document.getElementById('info-md').textContent = step.bitMD.toFixed(0) + ' m';
-            document.getElementById('info-tvd').textContent = step.bitTVD.toFixed(0) + ' m';
+            document.getElementById('current-depth').textContent = step.md.toFixed(0) + ' m';
+            document.getElementById('info-md').textContent = step.md.toFixed(0) + ' m';
+            document.getElementById('info-tvd').textContent = step.tvd.toFixed(0) + ' m';
             document.getElementById('info-esd').textContent = step.esd.toFixed(0) + ' kg/m³';
             document.getElementById('info-choke').textContent = step.choke.toFixed(0) + ' kPa';
             document.getElementById('info-hp-ann').textContent = step.hpAnn.toFixed(0) + ' kPa';
@@ -623,7 +623,7 @@ class TripInSimulationHTMLGenerator {
             // True ΔP at float = (Ann HP + Choke) - String HP
             const trueDeltaP = (step.hpAnn + step.choke) - step.hpStr;
             document.getElementById('info-delta-p').textContent = trueDeltaP.toFixed(0) + ' kPa';
-            document.getElementById('info-float').textContent = step.floatState;
+            document.getElementById('info-float').textContent = step.fs;
             if (document.getElementById('info-surge')) {
                 document.getElementById('info-surge').textContent = step.surge.toFixed(0) + ' kPa';
                 document.getElementById('info-desd').textContent = step.desd.toFixed(0) + ' kg/m³';
@@ -649,34 +649,34 @@ class TripInSimulationHTMLGenerator {
             const wellboreWidth = w - leftMargin - rightMargin;
             const wellboreX = leftMargin;
 
-            const bitY = (step.bitMD / maxDepth) * h;
+            const bitY = (step.md / maxDepth) * h;
 
             // Consolidate adjacent layers with same color to avoid artifacts
             const consolidatedLayers = [];
-            step.layersPocket.forEach(layer => {
-                const color = layer.color || densityToColor(layer.rho);
+            step.lp.forEach(layer => {
+                const color = layer.c || densityToColor(layer.r);
                 if (consolidatedLayers.length > 0) {
                     const last = consolidatedLayers[consolidatedLayers.length - 1];
                     // Check if adjacent and same color (within small tolerance for MD gap)
-                    if (Math.abs(last.bottomMD - layer.topMD) < 1.0 && last.color === color) {
+                    if (Math.abs(last.b - layer.t) < 1.0 && last.c === color) {
                         // Merge: extend last layer's bottom
-                        last.bottomMD = layer.bottomMD;
+                        last.b = layer.b;
                         return;
                     }
                 }
                 consolidatedLayers.push({
-                    topMD: layer.topMD,
-                    bottomMD: layer.bottomMD,
-                    color: color
+                    t: layer.t,
+                    b: layer.b,
+                    c: color
                 });
             });
 
             // Draw consolidated pocket layers (annulus fluid)
             consolidatedLayers.forEach(layer => {
-                const y1 = (layer.topMD / maxDepth) * h;
-                const y2 = (layer.bottomMD / maxDepth) * h;
+                const y1 = (layer.t / maxDepth) * h;
+                const y2 = (layer.b / maxDepth) * h;
                 const layerH = Math.max(1, y2 - y1);
-                ctx.fillStyle = layer.color;
+                ctx.fillStyle = layer.c;
                 ctx.fillRect(wellboreX, y1, wellboreWidth, layerH);
             });
 
@@ -699,7 +699,7 @@ class TripInSimulationHTMLGenerator {
             // For non-floated: full mud column
             const pipeCapacity = Math.PI / 4 * pipeID_m * pipeID_m;  // m³/m
             const mudHeightM = step.cumFill / pipeCapacity;  // meters of mud
-            const fillLevelMD = Math.min(mudHeightM, step.bitMD);
+            const fillLevelMD = Math.min(mudHeightM, step.md);
             const fillY = (fillLevelMD / maxDepth) * h;
 
             // Use fill mud color if available, otherwise use density-based color
@@ -753,7 +753,7 @@ class TripInSimulationHTMLGenerator {
             ctx.fillStyle = '#e05040';
             ctx.font = '10px -apple-system, sans-serif';
             ctx.textAlign = 'left';
-            ctx.fillText('Bit: ' + step.bitMD.toFixed(0) + 'm', wellboreX + wellboreWidth + 5, bitY + 4);
+            ctx.fillText('Bit: ' + step.md.toFixed(0) + 'm', wellboreX + wellboreWidth + 5, bitY + 4);
         }
 
         function densityToColor(rho) {
@@ -796,7 +796,7 @@ class TripInSimulationHTMLGenerator {
         let charts = {};
 
         function initCharts() {
-            const depths = steps.map(s => s.bitMD);
+            const depths = steps.map(s => s.md);
             charts.esd = createChart('chart-esd', 'ESD @ Control vs Depth', depths, [
                 { data: steps.map(s => s.esd), label: 'ESD (kg/m³)', color: '#2196f3' }
             ]);
@@ -972,26 +972,16 @@ class TripInSimulationHTMLGenerator {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
+    private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
+    private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
+    private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+
     private func stepsToJSON(_ steps: [TripInSimulationViewModel.TripInStep]) -> String {
         var json = "["
         for (i, step) in steps.enumerated() {
             if i > 0 { json += "," }
             json += """
-            {
-                "bitMD": \(step.bitMD_m),
-                "bitTVD": \(step.bitTVD_m),
-                "esd": \(step.ESDAtControl_kgpm3),
-                "choke": \(step.requiredChokePressure_kPa),
-                "hpAnn": \(step.annulusPressureAtBit_kPa),
-                "hpStr": \(step.stringPressureAtBit_kPa),
-                "deltaP": \(step.differentialPressureAtBottom_kPa),
-                "cumFill": \(step.cumulativeFillVolume_m3),
-                "cumDisp": \(step.cumulativeDisplacementReturns_m3),
-                "surge": \(step.surgePressure_kPa),
-                "desd": \(step.dynamicESDAtControl_kgpm3),
-                "floatState": "\(step.floatState)",
-                "layersPocket": \(layersToJSON(step.layersPocket))
-            }
+            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDAtControl_kgpm3)),"choke":\(f0(step.requiredChokePressure_kPa)),"hpAnn":\(f0(step.annulusPressureAtBit_kPa)),"hpStr":\(f0(step.stringPressureAtBit_kPa)),"deltaP":\(f0(step.differentialPressureAtBottom_kPa)),"cumFill":\(f2(step.cumulativeFillVolume_m3)),"cumDisp":\(f2(step.cumulativeDisplacementReturns_m3)),"surge":\(f0(step.surgePressure_kPa)),"desd":\(f1(step.dynamicESDAtControl_kgpm3)),"fs":"\(step.floatState)","lp":\(layersToJSON(step.layersPocket))}
             """
         }
         json += "]"
@@ -1006,10 +996,8 @@ class TripInSimulationHTMLGenerator {
             let g = Int((layer.colorG ?? 0.5) * 255)
             let b = Int((layer.colorB ?? 0.5) * 255)
             let a = layer.colorA ?? 1.0
-            let colorStr = "\"rgba(\(r), \(g), \(b), \(a))\""
-            json += """
-            {"topMD": \(layer.topMD), "bottomMD": \(layer.bottomMD), "topTVD": \(layer.topTVD), "bottomTVD": \(layer.bottomTVD), "rho": \(layer.rho_kgpm3), "color": \(colorStr)}
-            """
+            let colorStr = "\"rgba(\(r),\(g),\(b),\(String(format: "%.2f", a)))\""
+            json += "{\"t\":\(f1(layer.topMD)),\"b\":\(f1(layer.bottomMD)),\"tt\":\(f1(layer.topTVD)),\"bt\":\(f1(layer.bottomTVD)),\"r\":\(f1(layer.rho_kgpm3)),\"c\":\(colorStr)}"
         }
         json += "]"
         return json

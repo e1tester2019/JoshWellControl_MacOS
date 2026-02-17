@@ -55,6 +55,12 @@ struct SuperSimOperation: Identifiable {
     var switchToActiveAfterDisplacement: Bool = false
     var useOverrideDisplacementVolume: Bool = false
     var overrideDisplacementVolume_m3: Double = 0
+    var holdSABPOpen: Bool = false
+    var eccentricityFactor: Double = 1.0
+    var fallbackTheta600: Double? = nil
+    var fallbackTheta300: Double? = nil
+    var useObservedPitGain: Bool = false
+    var observedInitialPitGain_m3: Double? = nil
 
     // MARK: - Trip In Config
 
@@ -140,6 +146,12 @@ struct SuperSimOperation: Identifiable {
             switchToActiveAfterDisplacement: switchToActiveAfterDisplacement,
             useOverrideDisplacementVolume: useOverrideDisplacementVolume,
             overrideDisplacementVolume_m3: overrideDisplacementVolume_m3,
+            holdSABPOpen: holdSABPOpen,
+            eccentricityFactor: eccentricityFactor,
+            fallbackTheta600: fallbackTheta600,
+            fallbackTheta300: fallbackTheta300,
+            useObservedPitGain: useObservedPitGain,
+            observedInitialPitGain_m3: observedInitialPitGain_m3,
             pipeOD_m: pipeOD_m, pipeID_m: pipeID_m,
             fillMudID: fillMudID,
             fillMudName: muds.first(where: { $0.id == fillMudID })?.name,
@@ -178,6 +190,12 @@ struct SuperSimOperation: Identifiable {
         op.switchToActiveAfterDisplacement = config.switchToActiveAfterDisplacement ?? false
         op.useOverrideDisplacementVolume = config.useOverrideDisplacementVolume ?? false
         op.overrideDisplacementVolume_m3 = config.overrideDisplacementVolume_m3 ?? 0
+        op.holdSABPOpen = config.holdSABPOpen ?? false
+        op.eccentricityFactor = config.eccentricityFactor ?? 1.0
+        op.fallbackTheta600 = config.fallbackTheta600
+        op.fallbackTheta300 = config.fallbackTheta300
+        op.useObservedPitGain = config.useObservedPitGain ?? false
+        op.observedInitialPitGain_m3 = config.observedInitialPitGain_m3
         op.pipeOD_m = config.pipeOD_m
         op.pipeID_m = config.pipeID_m
         op.fillMudID = config.fillMudID
@@ -233,6 +251,12 @@ struct SuperSimPreset: Codable, Identifiable {
         var switchToActiveAfterDisplacement: Bool?
         var useOverrideDisplacementVolume: Bool?
         var overrideDisplacementVolume_m3: Double?
+        var holdSABPOpen: Bool?
+        var eccentricityFactor: Double?
+        var fallbackTheta600: Double?
+        var fallbackTheta300: Double?
+        var useObservedPitGain: Bool?
+        var observedInitialPitGain_m3: Double?
         // Trip In
         var pipeOD_m: Double
         var pipeID_m: Double

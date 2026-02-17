@@ -24,7 +24,8 @@ enum AppContainer {
     // v13: Added ShiftEntry for shift calendar feature
     // v14: Added FormationTop for directional dashboard formation overlay
     // v15: Added surge pressure fields to TripInSimulationStep
-    private static let schemaVersion = 15
+    // v16: Added priorityRaw to HandoverNote, priority to ArchivedNote, htmlData to HandoverReportArchive
+    private static let schemaVersion = 16
     private static let schemaVersionKey = "AppContainerSchemaVersion"
 
     /// Tracks whether the app is running in a degraded state (in-memory only)

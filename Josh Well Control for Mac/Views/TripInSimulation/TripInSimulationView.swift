@@ -207,8 +207,11 @@ struct TripInSimulationView: View {
                     _ = viewModel.saveSimulation(to: project, context: modelContext)
                 }
 
-                Button("Export", systemImage: "doc.richtext") {
-                    exportHTMLReport()
+                Menu {
+                    Button("Export HTML") { exportHTMLReport() }
+                    Button("Export Zipped HTML") { exportZippedHTMLReport() }
+                } label: {
+                    Label("Export", systemImage: "doc.richtext")
                 }
 
                 Button("Circulate", systemImage: "arrow.up.arrow.down.circle") {
@@ -383,6 +386,86 @@ struct TripInSimulationView: View {
                 print("Failed to save HTML: \(error)")
             }
         }
+    }
+
+    private func exportZippedHTMLReport() {
+        let wellName = project.well?.name ?? "Unknown Well"
+        let reportData = buildTripInReportData()
+        let html = TripInSimulationHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let sanitizedWellName = wellName.replacingOccurrences(of: "/", with: "-")
+        let baseName = "TripInSimulation_\(sanitizedWellName)_\(dateStr)"
+
+        Task {
+            await HTMLZipExporter.shared.exportZipped(
+                htmlContent: html,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
+            )
+        }
+    }
+
+    private func buildTripInReportData() -> TripInSimulationReportData {
+        let wellName = project.well?.name ?? "Unknown Well"
+        let projectName = project.name
+
+        let fillMudName: String
+        var fillMudColorR: Double? = nil
+        var fillMudColorG: Double? = nil
+        var fillMudColorB: Double? = nil
+        if let mudID = viewModel.fillMudID,
+           let mud = (project.muds ?? []).first(where: { $0.id == mudID }) {
+            fillMudName = mud.name
+            fillMudColorR = mud.colorR
+            fillMudColorG = mud.colorG
+            fillMudColorB = mud.colorB
+        } else {
+            fillMudName = "Fill Mud"
+        }
+
+        let annulusSections = (project.annulus ?? []).map { section in
+            let length = section.bottomDepth_m - section.topDepth_m
+            return PDFSectionData(
+                name: section.name ?? "Section",
+                topMD: section.topDepth_m,
+                bottomMD: section.bottomDepth_m,
+                length: length,
+                innerDiameter: section.innerDiameter_m,
+                outerDiameter: viewModel.pipeOD_m,
+                capacity_m3_per_m: section.flowArea_m2,
+                displacement_m3_per_m: 0,
+                totalVolume: section.flowArea_m2 * length
+            )
+        }
+
+        return TripInSimulationReportData(
+            wellName: wellName,
+            projectName: projectName,
+            generatedDate: Date(),
+            startMD: viewModel.startBitMD_m,
+            endMD: viewModel.endBitMD_m,
+            controlMD: viewModel.controlMD_m,
+            stepSize: viewModel.step_m,
+            targetESD: viewModel.targetESD_kgpm3,
+            stringName: viewModel.stringName,
+            pipeOD_m: viewModel.pipeOD_m,
+            pipeID_m: viewModel.pipeID_m,
+            isFloatedCasing: viewModel.isFloatedCasing,
+            floatSubMD: viewModel.floatSubMD_m,
+            crackFloat: viewModel.crackFloat_kPa,
+            fillMudName: fillMudName,
+            fillMudDensity: viewModel.activeMudDensity_kgpm3,
+            baseMudDensity: viewModel.baseMudDensity_kgpm3,
+            fillMudColorR: fillMudColorR,
+            fillMudColorG: fillMudColorG,
+            fillMudColorB: fillMudColorB,
+            sourceName: viewModel.sourceSimulationName.isEmpty ? "Manual" : viewModel.sourceSimulationName,
+            annulusSections: annulusSections,
+            steps: viewModel.steps
+        )
     }
 
     private var depthSlider: some View {

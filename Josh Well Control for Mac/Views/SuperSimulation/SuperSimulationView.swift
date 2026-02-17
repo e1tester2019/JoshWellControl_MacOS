@@ -142,14 +142,19 @@ struct SuperSimulationView: View {
                         }
 
                         // Export HTML report
-                        Button {
-                            viewModel.exportHTMLReport(project: project)
+                        Menu {
+                            Button("Export HTML") {
+                                viewModel.exportHTMLReport(project: project)
+                            }
+                            Button("Export Zipped HTML") {
+                                viewModel.exportZippedHTMLReport(project: project)
+                            }
                         } label: {
                             Image(systemName: "doc.richtext")
                         }
-                        .buttonStyle(.borderless)
+                        .menuStyle(.borderlessButton)
                         .disabled(viewModel.totalGlobalSteps == 0)
-                        .help("Export HTML report")
+                        .help("Export report")
                     }
                 }
                 .padding(8)

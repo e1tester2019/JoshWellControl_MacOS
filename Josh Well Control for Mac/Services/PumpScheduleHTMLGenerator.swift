@@ -1212,26 +1212,16 @@ class PumpScheduleHTMLGenerator {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
+    private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
+    private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
+    private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+
     private func snapshotsToJSON(_ snapshots: [PumpScheduleReportData.StageSnapshot]) -> String {
         var json = "["
         for (i, snap) in snapshots.enumerated() {
             if i > 0 { json += "," }
             json += """
-            {
-                "stageName": "\(escapeHTML(snap.stageName))",
-                "stageIndex": \(snap.stageIndex),
-                "progress": \(snap.progress),
-                "pumpedVolume": \(snap.pumpedVolume_m3),
-                "cumulativePumped": \(snap.cumulativePumpedVolume_m3),
-                "ecd": \(snap.ecd_kgm3),
-                "bhp": \(snap.bhp_kPa),
-                "sbp": \(snap.sbp_kPa),
-                "tcp": \(snap.tcp_kPa),
-                "annulusFriction": \(snap.annulusFriction_kPa),
-                "stringFriction": \(snap.stringFriction_kPa),
-                "stringLayers": \(layersToJSON(snap.stringLayers)),
-                "annulusLayers": \(layersToJSON(snap.annulusLayers))
-            }
+            {"stageName":"\(escapeHTML(snap.stageName))","stageIndex":\(snap.stageIndex),"progress":\(f2(snap.progress)),"pumpedVolume":\(f2(snap.pumpedVolume_m3)),"cumulativePumped":\(f2(snap.cumulativePumpedVolume_m3)),"ecd":\(f1(snap.ecd_kgm3)),"bhp":\(f0(snap.bhp_kPa)),"sbp":\(f0(snap.sbp_kPa)),"tcp":\(f0(snap.tcp_kPa)),"annulusFriction":\(f0(snap.annulusFriction_kPa)),"stringFriction":\(f0(snap.stringFriction_kPa)),"stringLayers":\(layersToJSON(snap.stringLayers)),"annulusLayers":\(layersToJSON(snap.annulusLayers))}
             """
         }
         json += "]"
@@ -1242,9 +1232,7 @@ class PumpScheduleHTMLGenerator {
         var json = "["
         for (i, layer) in layers.enumerated() {
             if i > 0 { json += "," }
-            json += """
-            {"topMD": \(layer.topMD), "bottomMD": \(layer.bottomMD), "mudName": "\(escapeHTML(layer.mudName))", "density": \(layer.density_kgm3), "color": "\(layer.colorHex)"}
-            """
+            json += "{\"topMD\":\(f1(layer.topMD)),\"bottomMD\":\(f1(layer.bottomMD)),\"mudName\":\"\(escapeHTML(layer.mudName))\",\"density\":\(f1(layer.density_kgm3)),\"color\":\"\(layer.colorHex)\"}"
         }
         json += "]"
         return json

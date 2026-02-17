@@ -911,9 +911,9 @@ class TripSimulationHTMLGenerator {
             if (steps.length > 0) {
                 const s = steps[0];
                 debugLog('step[0] keys: ' + Object.keys(s).join(', '));
-                debugLog('layersAnnulus count: ' + (s.layersAnnulus ? s.layersAnnulus.length : 'undefined'));
-                debugLog('layersString count: ' + (s.layersString ? s.layersString.length : 'undefined'));
-                debugLog('layersPocket count: ' + (s.layersPocket ? s.layersPocket.length : 'undefined'));
+                debugLog('la count: ' + (s.la ? s.la.length : 'undefined'));
+                debugLog('ls count: ' + (s.ls ? s.ls.length : 'undefined'));
+                debugLog('lp count: ' + (s.lp ? s.lp.length : 'undefined'));
             }
 
             initSlider();
@@ -963,24 +963,24 @@ class TripSimulationHTMLGenerator {
             const step = steps[index];
 
             // Update info display
-            document.getElementById('current-depth').textContent = step.bitMD.toFixed(0) + ' m';
-            document.getElementById('info-md').textContent = step.bitMD.toFixed(0) + ' m';
+            document.getElementById('current-depth').textContent = step.md.toFixed(0) + ' m';
+            document.getElementById('info-md').textContent = step.md.toFixed(0) + ' m';
             document.getElementById('info-esd').textContent = step.esd.toFixed(0) + ' kg/m³';
-            document.getElementById('info-sabp').textContent = step.sabpStatic.toFixed(0) + ' kPa';
-            document.getElementById('info-float').textContent = step.floatState;
-            document.getElementById('info-backfill').textContent = step.stepBackfill.toFixed(3) + ' m³';
+            document.getElementById('info-sabp').textContent = step.ss.toFixed(0) + ' kPa';
+            document.getElementById('info-float').textContent = step.fs;
+            document.getElementById('info-backfill').textContent = step.sbf.toFixed(3) + ' m³';
 
             // Draw wellbore canvases
-            drawWellboreColumn('annulus-left', step.layersAnnulus, step.bitMD, 'annulus');
-            drawWellboreColumn('string-canvas', step.layersString, step.bitMD, 'string');
-            drawWellboreColumn('annulus-right', step.layersAnnulus, step.bitMD, 'annulus');
+            drawWellboreColumn('annulus-left', step.la, step.md, 'annulus');
+            drawWellboreColumn('string-canvas', step.ls, step.md, 'string');
+            drawWellboreColumn('annulus-right', step.la, step.md, 'annulus');
 
             // Draw pocket overlay
-            drawPocketOverlay(step.layersPocket, step.bitMD);
+            drawPocketOverlay(step.lp, step.md);
 
             // Draw depth scale markers (TVD on left, MD on right)
-            drawDepthScale('annulus-left', step.bitTVD, 'tvd');
-            drawDepthScale('annulus-right', step.bitMD, 'md');
+            drawDepthScale('annulus-left', step.tvd, 'tvd');
+            drawDepthScale('annulus-right', step.md, 'md');
 
             // Update chart marker if charts exist
             updateChartMarker(index);
@@ -1064,12 +1064,12 @@ class TripSimulationHTMLGenerator {
 
             // Draw layers (only above bit)
             layers.forEach(layer => {
-                if (layer.bottomMD > bitMD) return;
-                const y1 = (layer.topMD / maxDepth) * h;
-                const y2 = Math.min((layer.bottomMD / maxDepth) * h, bitY);
+                if (layer.b > bitMD) return;
+                const y1 = (layer.t / maxDepth) * h;
+                const y2 = Math.min((layer.b / maxDepth) * h, bitY);
                 const layerH = Math.max(1, y2 - y1);
 
-                ctx.fillStyle = layer.color || densityToColor(layer.rho);
+                ctx.fillStyle = layer.c || densityToColor(layer.r);
                 ctx.fillRect(0, y1, w, layerH);
             });
 
@@ -1120,11 +1120,11 @@ class TripSimulationHTMLGenerator {
 
             // Draw pocket layers full width (below bit)
             layers.forEach(layer => {
-                const y1 = (layer.topMD / maxDepth) * h;
-                const y2 = (layer.bottomMD / maxDepth) * h;
+                const y1 = (layer.t / maxDepth) * h;
+                const y2 = (layer.b / maxDepth) * h;
                 const layerH = Math.max(1, y2 - y1);
 
-                ctx.fillStyle = layer.color || densityToColor(layer.rho);
+                ctx.fillStyle = layer.c || densityToColor(layer.r);
                 ctx.fillRect(0, y1, w, layerH);
             });
 
@@ -1179,12 +1179,12 @@ class TripSimulationHTMLGenerator {
         let charts = {};
 
         function initCharts() {
-            const depths = steps.map(s => s.bitMD);
+            const depths = steps.map(s => s.md);
             const esds = steps.map(s => s.esd);
-            const sabpStatic = steps.map(s => s.sabpStatic);
-            const sabpDynamic = steps.map(s => s.sabpDynamic);
-            const tankDeltas = steps.map(s => s.tankDelta);
-            const backfills = steps.map(s => s.cumBackfill);
+            const sabpStatic = steps.map(s => s.ss);
+            const sabpDynamic = steps.map(s => s.sd);
+            const tankDeltas = steps.map(s => s.td);
+            const backfills = steps.map(s => s.cbf);
 
             charts.esd = createChart('chart-esd', 'ESD vs Depth', depths, [
                 { data: esds, label: 'ESD (kg/m³)', color: '#2196f3' }
@@ -1465,25 +1465,16 @@ class TripSimulationHTMLGenerator {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
+    private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
+    private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
+    private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+
     private func stepsToJSON(_ steps: [NumericalTripModel.TripStep]) -> String {
         var json = "["
         for (i, step) in steps.enumerated() {
             if i > 0 { json += "," }
             json += """
-            {
-                "bitMD": \(step.bitMD_m),
-                "bitTVD": \(step.bitTVD_m),
-                "esd": \(step.ESDatTD_kgpm3),
-                "sabpStatic": \(step.SABP_kPa),
-                "sabpDynamic": \(step.SABP_Dynamic_kPa),
-                "tankDelta": \(step.cumulativeSurfaceTankDelta_m3),
-                "cumBackfill": \(step.cumulativeBackfill_m3),
-                "stepBackfill": \(step.stepBackfill_m3),
-                "floatState": "\(step.floatState)",
-                "layersAnnulus": \(layersToJSON(step.layersAnnulus)),
-                "layersString": \(layersToJSON(step.layersString)),
-                "layersPocket": \(layersToJSON(step.layersPocket))
-            }
+            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDatTD_kgpm3)),"ss":\(f0(step.SABP_kPa)),"sd":\(f0(step.SABP_Dynamic_kPa)),"td":\(f2(step.cumulativeSurfaceTankDelta_m3)),"cbf":\(f2(step.cumulativeBackfill_m3)),"sbf":\(f2(step.stepBackfill_m3)),"fs":"\(step.floatState)","la":\(layersToJSON(step.layersAnnulus)),"ls":\(layersToJSON(step.layersString)),"lp":\(layersToJSON(step.layersPocket))}
             """
         }
         json += "]"
@@ -1496,13 +1487,11 @@ class TripSimulationHTMLGenerator {
             if i > 0 { json += "," }
             let colorStr: String
             if let c = layer.color {
-                colorStr = "\"rgba(\(Int(c.r * 255)), \(Int(c.g * 255)), \(Int(c.b * 255)), \(c.a))\""
+                colorStr = "\"rgba(\(Int(c.r * 255)),\(Int(c.g * 255)),\(Int(c.b * 255)),\(String(format: "%.2f", c.a)))\""
             } else {
                 colorStr = "null"
             }
-            json += """
-            {"topMD": \(layer.topMD), "bottomMD": \(layer.bottomMD), "rho": \(layer.rho_kgpm3), "color": \(colorStr)}
-            """
+            json += "{\"t\":\(f1(layer.topMD)),\"b\":\(f1(layer.bottomMD)),\"r\":\(f1(layer.rho_kgpm3)),\"c\":\(colorStr)}"
         }
         json += "]"
         return json

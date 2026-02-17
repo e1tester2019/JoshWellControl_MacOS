@@ -365,6 +365,7 @@ struct TripSimulationView: View {
                 Menu {
                     Button("Export PDF Report") { exportPDFReport() }
                     Button("Export HTML Report") { exportHTMLReport() }
+                    Button("Export Zipped HTML Report") { exportZippedHTMLReport() }
                     Divider()
                     Button("Export Project JSON") { exportProjectJSON() }
                 } label: {
@@ -1440,6 +1441,39 @@ struct TripSimulationView: View {
             if !success {
                 await MainActor.run {
                     exportErrorMessage = "Failed to save HTML report."
+                    showingExportErrorAlert = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Export Zipped HTML Report
+    private func exportZippedHTMLReport() {
+        guard !viewmodel.steps.isEmpty else {
+            exportErrorMessage = "Run simulation first before exporting."
+            showingExportErrorAlert = true
+            return
+        }
+
+        let reportData = buildReportData()
+        let htmlContent = TripSimulationHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "Trip").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let baseName = "TripSimulation_\(wellName)_\(dateStr)"
+
+        Task {
+            let success = await HTMLZipExporter.shared.exportZipped(
+                htmlContent: htmlContent,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
+            )
+
+            if !success {
+                await MainActor.run {
+                    exportErrorMessage = "Failed to save zipped report."
                     showingExportErrorAlert = true
                 }
             }

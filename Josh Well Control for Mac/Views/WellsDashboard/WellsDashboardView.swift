@@ -53,6 +53,7 @@ struct WellsDashboardView: View {
     @State private var exportIncludeTasks = true
     @State private var exportIncludeNotes = true
     @State private var exportIncludeCompleted = true
+    @State private var exportShiftType: ShiftType? = nil
 
     // Pad management
     @State private var editingPad: Pad?
@@ -324,7 +325,7 @@ struct WellsDashboardView: View {
             Button {
                 showingExportSheet = true
             } label: {
-                Label("Export PDF", systemImage: "square.and.arrow.up")
+                Label("Export Report", systemImage: "square.and.arrow.up")
             }
             .disabled(selectedWells.isEmpty)
 
@@ -405,6 +406,22 @@ struct WellsDashboardView: View {
                     Toggle("Completed/Cancelled Tasks", isOn: $exportIncludeCompleted)
                 }
 
+                Section("Shift Filter") {
+                    Picker("Shift Type", selection: $exportShiftType) {
+                        Text("All Shifts").tag(nil as ShiftType?)
+                        Text("Day Shift").tag(ShiftType.day as ShiftType?)
+                        Text("Night Shift").tag(ShiftType.night as ShiftType?)
+                    }
+                    .pickerStyle(.segmented)
+
+                    if let shiftType = exportShiftType {
+                        let settings = ShiftRotationSettings.shared
+                        Text("Filters to items created during \(shiftType.displayName.lowercased()) shift hours (\(formatShiftHours(settings, shiftType)))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Selected Wells (\(selectedWells.count))") {
                     ForEach(wellsByPad, id: \.padName) { group in
                         let groupWells = group.wells.filter { selectedWellIDs.contains($0.id) }
@@ -421,7 +438,7 @@ struct WellsDashboardView: View {
 
             HStack {
                 Spacer()
-                Button("Export PDF") {
+                Button("Export HTML") {
                     performExport()
                 }
                 .buttonStyle(.borderedProminent)
@@ -439,10 +456,19 @@ struct WellsDashboardView: View {
             endDate: exportEndDate,
             includeTasks: exportIncludeTasks,
             includeNotes: exportIncludeNotes,
-            includeCompleted: exportIncludeCompleted
+            includeCompleted: exportIncludeCompleted,
+            shiftType: exportShiftType
         )
-        HandoverExportService.shared.exportPDF(options: options, modelContext: modelContext)
+        HandoverExportService.shared.exportHTML(options: options, modelContext: modelContext)
         showingExportSheet = false
+    }
+
+    private func formatShiftHours(_ settings: ShiftRotationSettings, _ type: ShiftType) -> String {
+        if type == .day {
+            return String(format: "%02d:%02d – %02d:%02d", settings.dayShiftStartHour, settings.dayShiftStartMinute, settings.nightShiftStartHour, settings.nightShiftStartMinute)
+        } else {
+            return String(format: "%02d:%02d – %02d:%02d", settings.nightShiftStartHour, settings.nightShiftStartMinute, settings.dayShiftStartHour, settings.dayShiftStartMinute)
+        }
     }
 
     // MARK: - Tasks Section
@@ -812,6 +838,10 @@ struct NoteRowView: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
+                    Circle()
+                        .fill(notePriorityColor)
+                        .frame(width: 8, height: 8)
+
                     if note.isPinned {
                         Image(systemName: "pin.fill")
                             .font(.caption)
@@ -833,7 +863,7 @@ struct NoteRowView: View {
                 }
 
                 if !note.content.isEmpty {
-                    Text(note.content)
+                    MarkdownListView(content: note.content)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
@@ -875,6 +905,15 @@ struct NoteRowView: View {
         case .personnel: return .purple
         case .handover: return .green
         case .general: return .secondary
+        }
+    }
+
+    private var notePriorityColor: Color {
+        switch note.priority {
+        case .critical: return .red
+        case .high: return .orange
+        case .medium: return .yellow
+        case .low: return .green
         }
     }
 }

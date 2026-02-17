@@ -22,35 +22,64 @@ struct HandoverArchiveView: View {
     @State private var selectedArchive: HandoverReportArchive?
     @State private var searchText = ""
 
+    // Filters
+    @State private var filterStartDate: Date? = nil
+    @State private var filterEndDate: Date? = nil
+    @State private var filterWellName: String? = nil
+    @State private var showFilters = false
+
+    private var uniqueWellNames: [String] {
+        Array(Set(archives.flatMap { $0.wellNames })).sorted()
+    }
+
     private var filteredArchives: [HandoverReportArchive] {
-        if searchText.isEmpty {
-            return archives
+        var result = archives
+
+        if !searchText.isEmpty {
+            let search = searchText.lowercased()
+            result = result.filter { $0.reportTitle.lowercased().contains(search) }
         }
-        let search = searchText.lowercased()
-        return archives.filter { archive in
-            // Only search reportTitle to avoid JSON decoding overhead in filter
-            archive.reportTitle.lowercased().contains(search)
+
+        if let start = filterStartDate {
+            result = result.filter { $0.endDate >= start }
         }
+
+        if let end = filterEndDate {
+            result = result.filter { $0.startDate <= end }
+        }
+
+        if let wellName = filterWellName, !wellName.isEmpty {
+            result = result.filter { $0.wellNames.contains(wellName) }
+        }
+
+        return result
     }
 
     var body: some View {
         NavigationStack {
-            List {
-                if filteredArchives.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Archives", systemImage: "archivebox")
-                    } description: {
-                        Text("Exported handover reports will appear here")
+            VStack(spacing: 0) {
+                if showFilters {
+                    filterBar
+                    Divider()
+                }
+
+                List {
+                    if filteredArchives.isEmpty {
+                        ContentUnavailableView {
+                            Label("No Archives", systemImage: "archivebox")
+                        } description: {
+                            Text("Exported handover reports will appear here")
+                        }
+                    } else {
+                        ForEach(filteredArchives) { archive in
+                            ArchiveRow(archive: archive)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedArchive = archive
+                                }
+                        }
+                        .onDelete(perform: deleteArchives)
                     }
-                } else {
-                    ForEach(filteredArchives) { archive in
-                        ArchiveRow(archive: archive)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedArchive = archive
-                            }
-                    }
-                    .onDelete(perform: deleteArchives)
                 }
             }
             .searchable(text: $searchText, prompt: "Search archives...")
@@ -58,6 +87,14 @@ struct HandoverArchiveView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showFilters.toggle()
+                    } label: {
+                        Label("Filter", systemImage: showFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
                 }
             }
             .sheet(item: $selectedArchive) { archive in
@@ -67,6 +104,44 @@ struct HandoverArchiveView: View {
         #if os(macOS)
         .frame(minWidth: 600, minHeight: 500)
         #endif
+    }
+
+    private var filterBar: some View {
+        VStack(spacing: 8) {
+            HStack {
+                DatePicker("From", selection: Binding(
+                    get: { filterStartDate ?? Calendar.current.date(byAdding: .year, value: -1, to: Date())! },
+                    set: { filterStartDate = $0 }
+                ), displayedComponents: .date)
+
+                DatePicker("To", selection: Binding(
+                    get: { filterEndDate ?? Date() },
+                    set: { filterEndDate = $0 }
+                ), displayedComponents: .date)
+            }
+
+            HStack {
+                Picker("Well", selection: $filterWellName) {
+                    Text("All Wells").tag(nil as String?)
+                    ForEach(uniqueWellNames, id: \.self) { name in
+                        Text(name).tag(name as String?)
+                    }
+                }
+
+                Spacer()
+
+                Button("Clear Filters") {
+                    filterStartDate = nil
+                    filterEndDate = nil
+                    filterWellName = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.05))
     }
 
     private func deleteArchives(at offsets: IndexSet) {
@@ -126,7 +201,11 @@ struct ArchiveRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if archive.pdfData != nil {
+                if archive.htmlData != nil {
+                    Label("HTML", systemImage: "doc.richtext")
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                } else if archive.pdfData != nil {
                     Label("PDF", systemImage: "doc.fill")
                         .font(.caption2)
                         .foregroundStyle(.orange)
@@ -197,7 +276,15 @@ struct ArchiveDetailView: View {
                 }
 
                 #if os(macOS)
-                if archive.pdfData != nil {
+                if archive.htmlData != nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            reExportHTML()
+                        } label: {
+                            Label("Re-Export HTML", systemImage: "arrow.down.doc")
+                        }
+                    }
+                } else if archive.pdfData != nil {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             exportPDF()
@@ -241,6 +328,20 @@ struct ArchiveDetailView: View {
     }
 
     #if os(macOS)
+    private func reExportHTML() {
+        guard let htmlData = archive.htmlData,
+              let htmlContent = String(data: htmlData, encoding: .utf8) else { return }
+
+        let baseName = archive.reportTitle.replacingOccurrences(of: " ", with: "_")
+        Task {
+            await HTMLZipExporter.shared.exportZipped(
+                htmlContent: htmlContent,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
+            )
+        }
+    }
+
     private func exportPDF() {
         guard let pdfData = archive.pdfData else { return }
 
@@ -341,9 +442,23 @@ struct ArchivedNoteRow: View {
         }
     }
 
+    private var notePriorityColor: Color {
+        switch note.priority {
+        case "Critical": return .red
+        case "High": return .orange
+        case "Medium": return .yellow
+        case "Low": return .green
+        default: return .secondary
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
+                Circle()
+                    .fill(notePriorityColor)
+                    .frame(width: 8, height: 8)
+
                 Text(note.title)
                     .font(.headline)
 
@@ -357,7 +472,7 @@ struct ArchivedNoteRow: View {
             }
 
             if !note.content.isEmpty {
-                Text(note.content)
+                MarkdownListView(content: note.content)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(5)

@@ -23,8 +23,13 @@ struct PumpScheduleView: View {
             HStack {
                 PumpScheduleHeaderView(viewModel: viewModel, project: project)
                 Spacer()
-                Button("Export HTML Report") { exportHTMLReport() }
-                    .disabled(viewModel.stages.isEmpty)
+                Menu {
+                    Button("Export HTML Report") { exportHTMLReport() }
+                    Button("Export Zipped HTML Report") { exportZippedHTMLReport() }
+                } label: {
+                    Text("Export")
+                }
+                .disabled(viewModel.stages.isEmpty)
             }
             PumpScheduleStageInfoView(viewModel: viewModel, project: project)
 
@@ -103,6 +108,27 @@ struct PumpScheduleView: View {
                     showingExportErrorAlert = true
                 }
             }
+        }
+    }
+
+    // MARK: - Export Zipped HTML Report
+    private func exportZippedHTMLReport() {
+        guard !viewModel.stages.isEmpty else { return }
+        let reportData = buildReportData()
+        let htmlContent = PumpScheduleHTMLGenerator.shared.generateHTML(for: reportData)
+
+        let wellName = (project.well?.name ?? "PumpSchedule").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let baseName = "PumpSchedule_\(wellName)_\(dateStr)"
+
+        Task {
+            await HTMLZipExporter.shared.exportZipped(
+                htmlContent: htmlContent,
+                htmlFileName: "\(baseName).html",
+                zipFileName: "\(baseName).zip"
+            )
         }
     }
 

@@ -26,6 +26,7 @@ struct ShiftDaySummaryView: View {
     // State for note/task editors using item-based sheets to avoid race conditions
     @State private var noteEditorMode: NoteEditorMode?
     @State private var taskEditorMode: TaskEditorMode?
+    @State private var showingHandoverSummary = false
 
     private enum NoteEditorMode: Identifiable {
         case new(Date)
@@ -191,6 +192,9 @@ struct ShiftDaySummaryView: View {
                 TaskEditorView(task: task)
             }
         }
+        .sheet(isPresented: $showingHandoverSummary) {
+            HandoverSummaryView(selectedDate: selectedDate)
+        }
     }
 
     // MARK: - Shift Header Section
@@ -217,6 +221,14 @@ struct ShiftDaySummaryView: View {
                 .cornerRadius(8)
 
                 Spacer()
+
+                Button {
+                    showingHandoverSummary = true
+                } label: {
+                    Label("Summary", systemImage: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 Button("Edit", action: onEditShift)
                     .buttonStyle(.bordered)
@@ -379,7 +391,7 @@ struct ShiftDaySummaryView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
                                 Circle()
-                                    .fill(Color.orange)
+                                    .fill(notePriorityColor(note))
                                     .frame(width: 6, height: 6)
                                 Text(note.title)
                                     .fontWeight(.medium)
@@ -390,10 +402,12 @@ struct ShiftDaySummaryView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
-                            Text(note.content)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
+                            if !note.content.isEmpty {
+                                MarkdownListView(content: note.content)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                            }
                         }
                         .padding(8)
                         .background(Color.orange.opacity(0.1))
@@ -734,6 +748,15 @@ struct ShiftDaySummaryView: View {
 
         // Select the new task for editing
         onSelectTask?(newTask)
+    }
+
+    private func notePriorityColor(_ note: HandoverNote) -> Color {
+        switch note.priority {
+        case .critical: return .red
+        case .high: return .orange
+        case .medium: return .yellow
+        case .low: return .green
+        }
     }
 
     private func addNewNote() {

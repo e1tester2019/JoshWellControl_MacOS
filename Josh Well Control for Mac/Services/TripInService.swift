@@ -68,6 +68,9 @@ enum TripInService {
         let tvdSampler: TvdSampler
         // Surge pressure inputs (optional - empty profile = no surge)
         var surgeProfile: [SurgePressurePoint] = []
+        // Continuation support: start cumulative counters from existing values
+        var initialCumulativeFill_m3: Double = 0
+        var initialCumulativeDisplacement_m3: Double = 0
     }
 
     // MARK: - Surge Interpolation
@@ -100,8 +103,8 @@ enum TripInService {
             depths.append(input.endBitMD_m)
         }
 
-        var cumulativeFill: Double = 0
-        var cumulativeDisplacement: Double = 0
+        var cumulativeFill: Double = input.initialCumulativeFill_m3
+        var cumulativeDisplacement: Double = input.initialCumulativeDisplacement_m3
         let controlTVD = input.tvdSampler.tvd(of: input.controlMD_m)
         var steps: [TripInStepResult] = []
 

@@ -170,6 +170,40 @@ struct OperationConfigView: View {
                     }
                 }
             }
+            GridRow {
+                Text("Eccentricity:")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Factor", value: $operation.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+                    .help("Pipe eccentricity factor for swab calculation (1.0 = concentric)")
+            }
+            GridRow {
+                Text("")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Hold SABP open", isOn: $operation.holdSABPOpen)
+                    .controlSize(.small)
+                    .help("Keep surface annulus back-pressure at zero throughout the trip")
+            }
+            GridRow {
+                Text("")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Use observed pit gain", isOn: $operation.useObservedPitGain)
+                    .controlSize(.small)
+                    .help("Calibrate initial U-tube equalization to an observed pit gain value")
+            }
+            if operation.useObservedPitGain {
+                GridRow {
+                    Text("Observed Gain (m\u{00B3}):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("Gain", value: Binding(
+                        get: { operation.observedInitialPitGain_m3 ?? 0 },
+                        set: { operation.observedInitialPitGain_m3 = $0 }
+                    ), format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+            }
         }
         .onChange(of: operation.baseMudID) { _, newID in
             if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
@@ -379,6 +413,20 @@ struct OperationConfigView: View {
                 TextField("Crack", value: $operation.crackFloat_kPa, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+            }
+            GridRow {
+                Text("Eccentricity:")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Factor", value: $operation.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+                    .help("Pipe eccentricity factor for swab calculation (1.0 = concentric)")
+            }
+            GridRow {
+                Text("")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Hold SABP open", isOn: $operation.holdSABPOpen)
+                    .controlSize(.small)
             }
         }
         .onChange(of: operation.baseMudID) { _, newID in

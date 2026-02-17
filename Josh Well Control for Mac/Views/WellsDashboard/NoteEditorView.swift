@@ -26,6 +26,7 @@ struct NoteEditorView: View {
     @State private var category: NoteCategory = .general
     @State private var author: String = ""
     @State private var isPinned: Bool = false
+    @State private var priority: TaskPriority = .medium
     @State private var selectedWell: Well?
     @State private var selectedPad: Pad?
     @State private var createdDate: Date = Date()
@@ -98,10 +99,31 @@ struct NoteEditorView: View {
                     TextField("Title", text: $title)
                         .textFieldStyle(.roundedBorder)
 
-                    VStack(alignment: .leading) {
-                        Text("Content")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Content")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            Button {
+                                insertBulletList()
+                            } label: {
+                                Image(systemName: "list.bullet")
+                            }
+                            .help("Insert bullet list item")
+
+                            Button {
+                                insertNumberedList()
+                            } label: {
+                                Image(systemName: "list.number")
+                            }
+                            .help("Insert numbered list item")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
                         TextEditor(text: $content)
                             .frame(minHeight: 150)
                             .overlay(
@@ -124,6 +146,19 @@ struct NoteEditorView: View {
                                 Text(cat.rawValue)
                             }
                             .tag(cat)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Picker("Priority", selection: $priority) {
+                        ForEach(TaskPriority.allCases, id: \.self) { p in
+                            HStack {
+                                Circle()
+                                    .fill(priorityColor(for: p))
+                                    .frame(width: 8, height: 8)
+                                Text(p.rawValue)
+                            }
+                            .tag(p)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -192,6 +227,7 @@ struct NoteEditorView: View {
                 category = note.category
                 author = note.author
                 isPinned = note.isPinned
+                priority = note.priority
                 selectedWell = note.well
                 selectedPad = note.pad ?? note.well?.pad
                 createdDate = note.createdAt
@@ -223,6 +259,40 @@ struct NoteEditorView: View {
         }
     }
 
+    private func priorityColor(for priority: TaskPriority) -> Color {
+        switch priority {
+        case .critical: return .red
+        case .high: return .orange
+        case .medium: return .yellow
+        case .low: return .green
+        }
+    }
+
+    private func insertBulletList() {
+        if content.isEmpty || content.hasSuffix("\n") {
+            content += "- "
+        } else {
+            content += "\n- "
+        }
+    }
+
+    private func insertNumberedList() {
+        let lines = content.components(separatedBy: "\n")
+        let lastNumber = lines.reversed().first { $0.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil }
+        let nextNum: Int
+        if let last = lastNumber, let num = Int(last.prefix(while: { $0.isNumber })) {
+            nextNum = num + 1
+        } else {
+            nextNum = 1
+        }
+
+        if content.isEmpty || content.hasSuffix("\n") {
+            content += "\(nextNum). "
+        } else {
+            content += "\n\(nextNum). "
+        }
+    }
+
     private func saveNote() {
         guard !isSaving else { return }
         isSaving = true
@@ -237,6 +307,7 @@ struct NoteEditorView: View {
                 content: content
             )
             note.category = category
+            note.priority = priority
             note.author = author
             note.isPinned = isPinned
             // Update the created date (allows backdating)
@@ -250,6 +321,7 @@ struct NoteEditorView: View {
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content,
                 category: category,
+                priority: priority,
                 author: author,
                 isPinned: isPinned
             )
