@@ -95,13 +95,11 @@ final class AppStateService {
 
     // MARK: - Mark Well Accessed
 
-    /// Updates the lastAccessedAt timestamp for a well
-    /// - Parameters:
-    ///   - well: The well being accessed
-    ///   - context: ModelContext for saving
+    /// Updates the lastAccessedAt timestamp for a well.
+    /// Only touches `lastAccessedAt` — NOT `updatedAt` — to avoid invalidating
+    /// @Query(sort: \Well.updatedAt) and triggering a full re-render cascade.
     func markAccessed(_ well: Well, context: ModelContext) {
         well.lastAccessedAt = .now
-        well.updatedAt = .now
         try? context.save()
     }
 

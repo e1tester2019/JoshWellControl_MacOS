@@ -8,6 +8,10 @@
 import Foundation
 import SwiftData
 
+extension Notification.Name {
+    static let syncHealthWarning = Notification.Name("AppSyncHealthWarning")
+}
+
 enum AppContainer {
     // Schema version history (for reference only - SwiftData handles migrations automatically)
     // v2: Changed [Date] and [String] arrays to JSON-encoded Data for CloudKit compatibility
@@ -25,8 +29,11 @@ enum AppContainer {
     // v14: Added FormationTop for directional dashboard formation overlay
     // v15: Added surge pressure fields to TripInSimulationStep
     // v16: Added priorityRaw to HandoverNote, priority to ArchivedNote, htmlData to HandoverReportArchive
-    private static let schemaVersion = 16
+    // v17: Removed simulation result persistence; inputs-only
+    // v18: Added tripSpeed_m_per_min to TripInSimulation
+    private static let schemaVersion = 18
     private static let schemaVersionKey = "AppContainerSchemaVersion"
+    private static let resetPendingKey = "AppContainerResetPending"
 
     /// Tracks whether the app is running in a degraded state (in-memory only)
     static var isRunningInMemory: Bool = false
@@ -48,6 +55,15 @@ enum AppContainer {
     /// Manually reset local data store. Call this from settings if user chooses to reset.
     /// Data will resync from CloudKit after reset.
     static func resetLocalStore() {
+        // Set flag for deferred cleanup on next launch (in case files are locked by active container)
+        UserDefaults.standard.set(true, forKey: resetPendingKey)
+        // Also try immediate cleanup
+        performFileCleanup()
+        print("🗑️ Local store reset complete. Restart the app to resync from CloudKit.")
+    }
+
+    /// Remove all SQLite store files, WAL/SHM companions, and CloudKit metadata.
+    private static func performFileCleanup() {
         let fm = FileManager.default
         guard let base = try? fm.url(for: .applicationSupportDirectory,
                                      in: .userDomainMask,
@@ -57,10 +73,13 @@ enum AppContainer {
             return
         }
 
-        // Remove SwiftData store files
-        let file = base.appendingPathComponent("default.store", isDirectory: false)
+        // Remove SwiftData store files + SQLite companions (-wal, -shm)
+        for suffix in ["", "-wal", "-shm"] {
+            let url = base.appendingPathComponent("default.store\(suffix)", isDirectory: false)
+            try? fm.removeItem(at: url)
+        }
+        // Also try as directory (SwiftData sometimes uses directory stores)
         let dir = base.appendingPathComponent("default.store", isDirectory: true)
-        try? fm.removeItem(at: file)
         try? fm.removeItem(at: dir)
 
         // Remove CloudKit metadata to force full resync
@@ -69,14 +88,19 @@ enum AppContainer {
 
         // Reset schema version so it logs on next launch
         UserDefaults.standard.removeObject(forKey: schemaVersionKey)
-
-        print("🗑️ Local store reset complete. Restart the app to resync from CloudKit.")
     }
 
     static func make(cloudKitContainerID: String? = nil) -> ModelContainer {
         // Reset state
         isRunningInMemory = false
         lastContainerError = nil
+
+        // Deferred reset: if a reset was requested last session, clean up before creating container
+        if UserDefaults.standard.bool(forKey: resetPendingKey) {
+            UserDefaults.standard.set(false, forKey: resetPendingKey)
+            performFileCleanup()
+            print("🧹 Deferred store reset completed before container creation.")
+        }
 
         // Log schema version (informational only)
         logSchemaVersion()
@@ -126,9 +150,7 @@ enum AppContainer {
             Pad.self,
             HandoverReportArchive.self,
             TripSimulation.self,
-            TripSimulationStep.self,
             TripInSimulation.self,
-            TripInSimulationStep.self,
             MPDSheet.self,
             MPDReading.self,
             // Look Ahead Scheduler
@@ -181,7 +203,25 @@ enum AppContainer {
                     // One-time migrations
                     migrateExpenseReceiptFlags(context: ctx)
                     migrateRentalsToEquipmentRegistry(context: ctx)
-                    migrateSimulationsToFrozenInputs(context: ctx)
+
+                    // Orphan scan (runs every launch to catch sync-induced orphans)
+                    let diagnosis = OrphanRepairService.quickDiagnose(context: ctx)
+                    if diagnosis.hasOrphans {
+                        print(diagnosis.summary)
+                    }
+                }
+
+                // Schedule sync health check — if still 0 records after 30s, warn
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(30))
+                    let ctx = container.mainContext
+                    let projectCount = (try? ctx.fetchCount(FetchDescriptor<ProjectState>())) ?? 0
+                    if projectCount == 0 {
+                        print("⚠️ [Sync Health] WARNING: 0 projects after 30s — sync may be stalled")
+                        NotificationCenter.default.post(name: .syncHealthWarning, object: nil)
+                    } else {
+                        print("✅ [Sync Health] OK: \(projectCount) projects loaded")
+                    }
                 }
 
                 return container
@@ -206,7 +246,12 @@ enum AppContainer {
                 let ctx = container.mainContext
                 migrateExpenseReceiptFlags(context: ctx)
                 migrateRentalsToEquipmentRegistry(context: ctx)
-                migrateSimulationsToFrozenInputs(context: ctx)
+
+                // Orphan scan (runs every launch to catch sync-induced orphans)
+                let diagnosis = OrphanRepairService.quickDiagnose(context: ctx)
+                if diagnosis.hasOrphans {
+                    print(diagnosis.summary)
+                }
             }
 
             return container
@@ -365,35 +410,3 @@ private func migrateRentalsToEquipmentRegistry(context: ModelContext) {
     }
 }
 
-private let simulationFrozenInputsMigrationKey = "hasRunSimulationFrozenInputsMigration_v1"
-
-/// Migration: Freeze inputs for existing simulations and clear layer data to reduce storage.
-/// This ensures simulations remain valid even if project data changes, and dramatically reduces database size.
-@MainActor
-private func migrateSimulationsToFrozenInputs(context: ModelContext) {
-    // Only run this migration once
-    guard !UserDefaults.standard.bool(forKey: simulationFrozenInputsMigrationKey) else {
-        return
-    }
-
-    print("🔄 Starting simulation migration (freezing inputs, clearing layer data)...")
-
-    // First estimate how much storage we'll save
-    let estimate = SimulationMigrationService.estimateStorageSavings(context: context)
-    if estimate.totalSimulations > 0 {
-        print("📊 Found \(estimate.totalSimulations) simulations with \(estimate.formattedTotal) of layer data")
-    }
-
-    // Run the migration
-    let result = SimulationMigrationService.migrateAllSimulations(context: context)
-
-    // Log results
-    print(result.summary)
-
-    if result.saveSucceeded {
-        UserDefaults.standard.set(true, forKey: simulationFrozenInputsMigrationKey)
-        print("✅ Simulation migration complete")
-    } else {
-        print("⚠️ Simulation migration had issues - will retry on next launch")
-    }
-}

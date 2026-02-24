@@ -105,22 +105,4 @@ final class TvdSampler: Sendable {
         self.isUsingPlan = false
     }
 
-    /// Initialize from frozen survey snapshots
-    init(frozenSurveys: [FrozenSurvey]) {
-        let sorted = frozenSurveys.sorted { $0.md < $1.md }
-        var mdArr: [Double] = []
-        var tvdArr: [Double] = []
-        var lastMD = -Double.greatestFiniteMagnitude
-
-        for s in sorted {
-            guard s.md > lastMD else { continue }
-            mdArr.append(s.md)
-            tvdArr.append(s.tvd)
-            lastMD = s.md
-        }
-
-        self.md = mdArr
-        self.tvd = tvdArr
-        self.isUsingPlan = false
-    }
 }

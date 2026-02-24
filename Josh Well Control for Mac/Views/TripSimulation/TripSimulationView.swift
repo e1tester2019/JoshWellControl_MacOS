@@ -22,6 +22,24 @@ struct KVRow: Identifiable {
     let value: String
 }
 
+// MARK: - ViewModel Cache
+
+/// Cache to persist TripSimulationView.ViewModel across view switches
+enum TripSimViewModelCache {
+    @MainActor
+    private static var cache: [UUID: TripSimulationView.ViewModel] = [:]
+
+    @MainActor
+    static func get(for projectID: UUID) -> TripSimulationView.ViewModel {
+        if let existing = cache[projectID] {
+            return existing
+        }
+        let newVM = TripSimulationView.ViewModel()
+        cache[projectID] = newVM
+        return newVM
+    }
+}
+
 /// A compact SwiftUI front‑end over the NumericalTripModel.
 /// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.
 struct TripSimulationView: View {
@@ -34,41 +52,25 @@ struct TripSimulationView: View {
     /// Optional closure to navigate to another view (e.g., Trip In). Provided by parent content view.
     var navigateToView: ((ViewSelection) -> Void)?
 
-    // Query saved simulations for this project
-    @Query private var allSimulations: [TripSimulation]
-    private var savedSimulations: [TripSimulation] {
-        allSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    @State private var viewmodel = ViewModel()
+    @State private var viewmodel: ViewModel
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
 
     // Consolidated sheet state
     private enum SheetType: Identifiable {
-        case save
         case optimizer
         case pumpSchedule
         case circulation
-        case frozenInputs(TripSimulation)
 
         var id: String {
             switch self {
-            case .save: return "save"
             case .optimizer: return "optimizer"
             case .pumpSchedule: return "pumpSchedule"
             case .circulation: return "circulation"
-            case .frozenInputs(let sim): return "frozenInputs-\(sim.id)"
             }
         }
     }
     @State private var activeSheet: SheetType?
-
-    // Save dialog state
-    @State private var saveSimulationName = ""
-    @State private var selectedSavedSimulation: TripSimulation?
-    @State private var selectedSimulationsForDelete: Set<TripSimulation.ID> = []
-    @State private var isEditingSimulations = false
 
     // Pump Schedule sheet state
     @State private var pumpScheduleVM = PumpScheduleViewModel()
@@ -80,6 +82,12 @@ struct TripSimulationView: View {
     @State private var optimizerManualHeelMD: Double? = nil
     @State private var optimizerObservedSlugDrop: Double? = nil
     @State private var optimizerResult: TripOptimizerResult? = nil
+
+    init(project: ProjectState, navigateToView: ((ViewSelection) -> Void)? = nil) {
+        self.project = project
+        self.navigateToView = navigateToView
+        _viewmodel = State(initialValue: TripSimViewModelCache.get(for: project.id))
+    }
 
     // MARK: - Body
     var body: some View {
@@ -94,12 +102,13 @@ struct TripSimulationView: View {
             if let state = OperationHandoffService.shared.pendingTripOutState {
                 OperationHandoffService.shared.pendingTripOutState = nil
                 viewmodel.importFromWellboreState(state, project: project)
-            } else {
-                viewmodel.bootstrap(from: project)
             }
-        }
-        .onChange(of: project) { _, newProject in
-            viewmodel.bootstrap(from: newProject)
+            // Load saved inputs if available, otherwise bootstrap from project
+            else if viewmodel.steps.isEmpty && viewmodel.startBitMD_m == 0 {
+                if !viewmodel.loadSavedInputs(project: project) {
+                    viewmodel.bootstrap(from: project)
+                }
+            }
         }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
@@ -114,16 +123,12 @@ struct TripSimulationView: View {
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .save:
-                saveSimulationSheet
             case .optimizer:
                 tripOptimizerSheet
             case .pumpSchedule:
                 pumpScheduleSheet
             case .circulation:
                 circulationSheet
-            case .frozenInputs(let sim):
-                FrozenInputsDetailView(simulation: sim, currentProject: project)
             }
         }
     }
@@ -377,16 +382,14 @@ struct TripSimulationView: View {
                         .controlSize(.small)
                 }
 
-                // Save button
+                // Save inputs silently to project
                 Button {
-                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
-                    activeSheet = .save
+                    viewmodel.saveInputs(project: project, context: modelContext)
                 } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
+                    Label("Save Inputs", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(viewmodel.steps.isEmpty)
 
                 Menu {
                     Button("Export PDF Report") { exportPDFReport() }
@@ -978,34 +981,6 @@ struct TripSimulationView: View {
             project: project,
             tvdSampler: tvdSampler
         )
-    }
-
-    // MARK: - Save Simulation Sheet
-    private var saveSimulationSheet: some View {
-        VStack(spacing: 16) {
-            Text("Save Simulation")
-                .font(.headline)
-
-            TextField("Simulation Name", text: $saveSimulationName)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 300)
-
-            HStack {
-                Button("Cancel") {
-                    activeSheet = nil
-                }
-                .buttonStyle(.bordered)
-
-                Button("Save") {
-                    if let _ = viewmodel.saveSimulation(name: saveSimulationName, project: project, context: modelContext) {
-                        activeSheet = nil
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(saveSimulationName.isEmpty)
-            }
-        }
-        .padding(24)
     }
 
     private var backfillMudBinding: Binding<UUID?> {
@@ -1676,13 +1651,6 @@ struct TripSimulationView: View {
 
             GeometryReader { geo in
             HStack(spacing: 12) {
-                // SAVED SIMULATIONS SIDEBAR
-                if !savedSimulations.isEmpty {
-                    savedSimulationsList
-                        .frame(width: 160)
-                    Divider()
-                }
-
                 // LEFT COLUMN: Steps (top) + Details (bottom when shown)
                 GeometryReader { g in
                     VStack(spacing: 8) {
@@ -1720,147 +1688,6 @@ struct TripSimulationView: View {
             }
         }
         } // VStack (provenance banner + content)
-    }
-
-    // MARK: - Saved Simulations List
-    private var savedSimulationsList: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Header with edit button
-            HStack {
-                Text("Saved Simulations")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(isEditingSimulations ? "Done" : "Edit") {
-                    isEditingSimulations.toggle()
-                    if !isEditingSimulations {
-                        selectedSimulationsForDelete.removeAll()
-                    }
-                }
-                .font(.caption)
-                .buttonStyle(.borderless)
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 4)
-
-            if isEditingSimulations {
-                // Multi-select mode
-                List(selection: $selectedSimulationsForDelete) {
-                    ForEach(savedSimulations) { sim in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(sim.name)
-                                .font(.callout)
-                                .lineLimit(1)
-                            Text(sim.createdAt, style: .date)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selectedSimulationsForDelete.contains(sim.id) {
-                                selectedSimulationsForDelete.remove(sim.id)
-                            } else {
-                                selectedSimulationsForDelete.insert(sim.id)
-                            }
-                        }
-                        .tag(sim.id)
-                    }
-                }
-                .listStyle(.sidebar)
-
-                // Delete controls
-                HStack(spacing: 8) {
-                    Button("All") {
-                        selectedSimulationsForDelete = Set(savedSimulations.map { $0.id })
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-
-                    Button("None") {
-                        selectedSimulationsForDelete.removeAll()
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-
-                    Spacer()
-
-                    Button {
-                        deleteSelectedSimulations()
-                    } label: {
-                        Label("\(selectedSimulationsForDelete.count)", systemImage: "trash")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .disabled(selectedSimulationsForDelete.isEmpty)
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 4)
-            } else {
-                // Normal single-select mode
-                List(selection: $selectedSavedSimulation) {
-                    ForEach(savedSimulations) { sim in
-                        HStack(spacing: 6) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(sim.name)
-                                    .font(.callout)
-                                    .lineLimit(1)
-                                HStack(spacing: 4) {
-                                    Text(sim.createdAt, style: .date)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                    if sim.hasFrozenInputs {
-                                        Image(systemName: "snowflake")
-                                            .font(.caption2)
-                                            .foregroundStyle(.blue)
-                                            .help("Has frozen inputs")
-                                    }
-                                }
-                            }
-                            Spacer()
-                            // Staleness indicator
-                            if sim.isStale(comparedTo: project) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
-                                    .help("Geometry has changed since simulation")
-                            }
-                        }
-                        .tag(sim)
-                        .contextMenu {
-                            Button("Load") {
-                                viewmodel.loadSimulation(sim, project: project)
-                            }
-                            Button {
-                                activeSheet = .frozenInputs(sim)
-                            } label: {
-                                Label("View Frozen Inputs", systemImage: "snowflake")
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                viewmodel.deleteSimulation(sim, context: modelContext)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.sidebar)
-                .onChange(of: selectedSavedSimulation) { _, newSim in
-                    if let sim = newSim {
-                        viewmodel.loadSimulation(sim, project: project)
-                    }
-                }
-            }
-        }
-    }
-
-    private func deleteSelectedSimulations() {
-        let toDelete = savedSimulations.filter { selectedSimulationsForDelete.contains($0.id) }
-        for sim in toDelete {
-            viewmodel.deleteSimulation(sim, context: modelContext)
-        }
-        selectedSimulationsForDelete.removeAll()
-        isEditingSimulations = false
     }
 
     // MARK: - Selection helpers

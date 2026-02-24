@@ -684,7 +684,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = L.bottomMD
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = max(0.0, tvdBot - tvdTop)
+                let dTVD = tvdBot - tvdTop // allow negative in toe-up wells
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 var row = LayerRow(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: 0, color: L.color)
                 row.pv_cP = L.pv_cP
@@ -701,7 +701,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = min(bitMD, L.bottomMD)
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = max(0.0, tvdBot - tvdTop)
+                let dTVD = tvdBot - tvdTop // allow negative in toe-up wells
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 let vol = (sideLabel == "Annulus") ? geom.volumeInAnnulus_m3(a, b) : geom.volumeInString_m3(a, b)
                 var row = LayerRow(side: sideLabel, topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
@@ -713,7 +713,7 @@ final class NumericalTripModel: @unchecked Sendable {
         }
         func sum(_ rows: [LayerRow]) -> Totals {
             var tvd = 0.0, dP = 0.0
-            for r in rows { tvd += max(0, r.bottomTVD - r.topTVD); dP += r.deltaHydroStatic_kPa }
+            for r in rows { tvd += r.bottomTVD - r.topTVD; dP += r.deltaHydroStatic_kPa }
             return Totals(count: rows.count, tvd_m: tvd, deltaP_kPa: dP)
         }
         func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil, pv_cP: Double = 0, yp_Pa: Double = 0) {

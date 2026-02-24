@@ -12,12 +12,7 @@ import Combine
 
 struct PadDashboardView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Pad.name) private var allPads: [Pad]
-    @Query(sort: \JobCode.name) private var jobCodes: [JobCode]
-    @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
-    @Query(sort: \Well.name) private var allWells: [Well]
     @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
-    @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
     @Bindable var pad: Pad
 
     // Optional navigation callback for wells (to navigate in main view, not sheet)
@@ -64,55 +59,7 @@ struct PadDashboardView: View {
         (pad.wells ?? []).reduce(0) { $0 + ($1.projects?.count ?? 0) }
     }
 
-    // All rentals from wells on this pad
-    private var allPadRentals: [RentalItem] {
-        (pad.wells ?? []).flatMap { $0.rentals ?? [] }
-            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
-    }
-
-    private var onLocationRentals: [RentalItem] {
-        allPadRentals.filter { $0.onLocation && !$0.invoiced }
-    }
-
-    private var totalRentalCost: Double {
-        allPadRentals.reduce(0) { $0 + $1.totalCost }
-    }
-
-    private var uninvoicedRentalCost: Double {
-        allPadRentals.filter { !$0.invoiced }.reduce(0) { $0 + $1.totalCost }
-    }
-
-    // All material transfers from wells on this pad
-    private var allPadTransfers: [MaterialTransfer] {
-        (pad.wells ?? []).flatMap { $0.transfers ?? [] }
-            .sorted { $0.date > $1.date }
-    }
-
-    private var pendingTransfers: [MaterialTransfer] {
-        allPadTransfers.filter { !$0.isShippedBack }
-    }
-
-    private var totalTransferItems: Int {
-        allPadTransfers.reduce(0) { $0 + ($1.items?.count ?? 0) }
-    }
-
-    // All work days from wells on this pad
-    private var allPadWorkDays: [WorkDay] {
-        (pad.wells ?? []).flatMap { $0.workDays ?? [] }
-            .sorted { $0.startDate > $1.startDate }
-    }
-
-    private var totalPadWorkDays: Int {
-        allPadWorkDays.reduce(0) { $0 + $1.dayCount }
-    }
-
-    private var totalPadEarnings: Double {
-        allPadWorkDays.reduce(0) { $0 + $1.totalEarnings }
-    }
-
-    private var uninvoicedPadEarnings: Double {
-        allPadWorkDays.filter { !$0.isInvoiced }.reduce(0) { $0 + $1.totalEarnings }
-    }
+    // Aggregation helpers — computed once per section body via local lets (see each section)
 
     var body: some View {
         ScrollView {
@@ -178,13 +125,9 @@ struct PadDashboardView: View {
         } message: {
             Text("Are you sure you want to delete \"\(pad.name)\"? Wells assigned to this pad will be unassigned but not deleted.")
         }
-        // Navigation sheets
+        // Navigation sheets — wrapper views hold @Query so queries only run when sheet opens
         .sheet(item: $selectedRental) { rental in
-            RentalDetailEditor(rental: rental, allEquipment: allEquipment)
-                .environment(\.locale, Locale(identifier: "en_GB"))
-                #if os(macOS)
-                .standardSheetSize(.large)
-                #endif
+            RentalEditorSheetContent(rental: rental)
         }
         .sheet(item: $selectedTransfer) { transfer in
             if let well = transfer.well {
@@ -201,26 +144,14 @@ struct PadDashboardView: View {
             WellDashboardView(well: well)
         }
         .sheet(item: $selectedLookAheadTask) { task in
-            LookAheadTaskEditorView(
-                schedule: task.schedule,
-                task: task,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: allWells
-            )
+            LookAheadEditorSheetContent(schedule: task.schedule, task: task)
         }
         .sheet(isPresented: $showingAddLookAheadTask) {
-            LookAheadTaskEditorView(
-                schedule: activeSchedule,
-                task: nil,
-                jobCodes: jobCodes,
-                vendors: vendors,
-                wells: allWells
-            )
+            LookAheadEditorSheetContent(schedule: activeSchedule, task: nil)
         }
         #if os(macOS)
         .sheet(isPresented: $showingOnLocationReport) {
-            PadRentalsOnLocationReportPreview(pad: pad, rentals: onLocationRentals)
+            OnLocationReportSheetContent(pad: pad)
         }
         #endif
     }
@@ -507,20 +438,26 @@ struct PadDashboardView: View {
     // MARK: - Rentals Section
 
     private var rentalsSection: some View {
-        WellSection(
+        let allRentals = (pad.wells ?? []).flatMap { $0.rentals ?? [] }
+            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        let onLocation = allRentals.filter { $0.onLocation && !$0.invoiced }
+        let totalCost = allRentals.reduce(0) { $0 + $1.totalCost }
+        let uninvoicedCost = allRentals.filter { !$0.invoiced }.reduce(0) { $0 + $1.totalCost }
+
+        return WellSection(
             title: "Rentals",
             icon: "bag",
-            subtitle: "\(onLocationRentals.count) on location • \(allPadRentals.count) total"
+            subtitle: "\(onLocation.count) on location • \(allRentals.count) total"
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 // Summary stats
-                if !allPadRentals.isEmpty {
+                if !allRentals.isEmpty {
                     HStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Total Cost")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text(totalRentalCost, format: .currency(code: "CAD"))
+                            Text(totalCost, format: .currency(code: "CAD"))
                                 .font(.headline)
                                 .fontWeight(.bold)
                         }
@@ -529,10 +466,10 @@ struct PadDashboardView: View {
                             Text("Uninvoiced")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text(uninvoicedRentalCost, format: .currency(code: "CAD"))
+                            Text(uninvoicedCost, format: .currency(code: "CAD"))
                                 .font(.headline)
                                 .fontWeight(.bold)
-                                .foregroundStyle(uninvoicedRentalCost > 0 ? .orange : .green)
+                                .foregroundStyle(uninvoicedCost > 0 ? .orange : .green)
                         }
 
                         Spacer()
@@ -542,14 +479,14 @@ struct PadDashboardView: View {
                             showingOnLocationReport = true
                         }
                         .buttonStyle(.borderless)
-                        .disabled(onLocationRentals.isEmpty)
+                        .disabled(onLocation.isEmpty)
                         #endif
                     }
                     .padding(.bottom, 8)
 
                     Divider()
 
-                    PaginatedList(items: allPadRentals, pageSize: 5) { rental in
+                    PaginatedList(items: allRentals, pageSize: 5) { rental in
                         Button {
                             selectedRental = rental
                         } label: {
@@ -567,13 +504,18 @@ struct PadDashboardView: View {
     // MARK: - Transfers Section
 
     private var transfersSection: some View {
-        WellSection(
+        let allTransfers = (pad.wells ?? []).flatMap { $0.transfers ?? [] }
+            .sorted { $0.date > $1.date }
+        let pending = allTransfers.filter { !$0.isShippedBack }
+        let totalItems = allTransfers.reduce(0) { $0 + ($1.items?.count ?? 0) }
+
+        return WellSection(
             title: "Material Transfers",
             icon: "arrow.left.arrow.right.circle",
-            subtitle: "\(pendingTransfers.count) pending • \(totalTransferItems) items"
+            subtitle: "\(pending.count) pending • \(totalItems) items"
         ) {
-            if !allPadTransfers.isEmpty {
-                PaginatedList(items: allPadTransfers, pageSize: 5) { transfer in
+            if !allTransfers.isEmpty {
+                PaginatedList(items: allTransfers, pageSize: 5) { transfer in
                     Button {
                         selectedTransfer = transfer
                     } label: {
@@ -590,10 +532,16 @@ struct PadDashboardView: View {
     // MARK: - Work Days Section
 
     private var workDaysSection: some View {
-        WellSection(
+        let allWorkDays = (pad.wells ?? []).flatMap { $0.workDays ?? [] }
+            .sorted { $0.startDate > $1.startDate }
+        let totalDays = allWorkDays.reduce(0) { $0 + $1.dayCount }
+        let totalEarnings = allWorkDays.reduce(0) { $0 + $1.totalEarnings }
+        let uninvoicedEarnings = allWorkDays.filter { !$0.isInvoiced }.reduce(0) { $0 + $1.totalEarnings }
+
+        return WellSection(
             title: "Work Days",
             icon: "calendar.badge.clock",
-            subtitle: "\(totalPadWorkDays) day(s) • \(totalPadEarnings.formatted(.currency(code: "CAD")))"
+            subtitle: "\(totalDays) day(s) • \(totalEarnings.formatted(.currency(code: "CAD")))"
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 // Summary stats
@@ -602,7 +550,7 @@ struct PadDashboardView: View {
                         Text("Total Days")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("\(totalPadWorkDays)")
+                        Text("\(totalDays)")
                             .font(.title2)
                             .fontWeight(.semibold)
                     }
@@ -611,7 +559,7 @@ struct PadDashboardView: View {
                         Text("Total Earnings")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(totalPadEarnings.formatted(.currency(code: "CAD")))
+                        Text(totalEarnings.formatted(.currency(code: "CAD")))
                             .font(.title2)
                             .fontWeight(.semibold)
                             .foregroundStyle(.green)
@@ -621,18 +569,18 @@ struct PadDashboardView: View {
                         Text("Uninvoiced")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(uninvoicedPadEarnings.formatted(.currency(code: "CAD")))
+                        Text(uninvoicedEarnings.formatted(.currency(code: "CAD")))
                             .font(.title2)
                             .fontWeight(.semibold)
-                            .foregroundStyle(uninvoicedPadEarnings > 0 ? .orange : .green)
+                            .foregroundStyle(uninvoicedEarnings > 0 ? .orange : .green)
                     }
                 }
                 .padding(.bottom, 8)
 
-                if !allPadWorkDays.isEmpty {
+                if !allWorkDays.isEmpty {
                     Divider()
 
-                    PaginatedList(items: allPadWorkDays, pageSize: 5) { workDay in
+                    PaginatedList(items: allWorkDays, pageSize: 5) { workDay in
                         PadWorkDayRow(workDay: workDay)
                     }
                 } else {
@@ -841,6 +789,71 @@ struct PadDashboardView: View {
         }
     }
 }
+
+// MARK: - Sheet Wrapper Views (deferred @Query)
+
+/// Wraps RentalDetailEditor so the @Query for equipment only runs when the sheet is presented.
+struct RentalEditorSheetContent: View {
+    @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
+    let rental: RentalItem
+
+    var body: some View {
+        RentalDetailEditor(rental: rental, allEquipment: allEquipment)
+            .environment(\.locale, Locale(identifier: "en_GB"))
+            #if os(macOS)
+            .standardSheetSize(.large)
+            #endif
+    }
+}
+
+/// Wraps LookAheadTaskEditorView so @Query for jobCodes/vendors/wells only runs when the sheet is presented.
+struct LookAheadEditorSheetContent: View {
+    @Query(sort: \JobCode.name) private var jobCodes: [JobCode]
+    @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
+    @Query(sort: \Well.name) private var allWells: [Well]
+    let schedule: LookAheadSchedule?
+    let task: LookAheadTask?
+    var preselectedWell: Well? = nil
+
+    var body: some View {
+        LookAheadTaskEditorView(
+            schedule: schedule,
+            task: task,
+            jobCodes: jobCodes,
+            vendors: vendors,
+            wells: allWells,
+            preselectedWell: preselectedWell
+        )
+    }
+}
+
+/// Wraps CloseOutWellSheet so the @Query for allWells only runs when the sheet is presented.
+struct CloseOutSheetContent: View {
+    @Query(sort: \Well.name) private var allWells: [Well]
+    let sourceWell: Well
+    let equipment: [RentalEquipment]
+
+    var body: some View {
+        CloseOutWellSheet(sourceWell: sourceWell, equipment: equipment, allWells: allWells)
+    }
+}
+
+#if os(macOS)
+/// Wraps PadRentalsOnLocationReportPreview so the aggregation only runs when the sheet is presented.
+private struct OnLocationReportSheetContent: View {
+    let pad: Pad
+
+    private var onLocationRentals: [RentalItem] {
+        (pad.wells ?? []).flatMap { $0.rentals ?? [] }
+            .filter { $0.onLocation && !$0.invoiced }
+            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+    }
+
+    var body: some View {
+        PadRentalsOnLocationReportPreview(pad: pad, rentals: onLocationRentals)
+    }
+}
+#endif
 
 // MARK: - Pad Summary Card
 

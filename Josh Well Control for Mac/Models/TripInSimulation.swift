@@ -2,16 +2,15 @@
 //  TripInSimulation.swift
 //  Josh Well Control for Mac
 //
-//  Simulates running pipe (casing/liner) INTO a well after stripping out.
-//  Tracks fill volume, displacement returns, ESD at control depth, and required choke pressure.
-//  Supports floated casing with air in lower section.
+//  Persists trip-in simulation input configurations.
+//  Results are computed on-the-fly when the user clicks Run.
 //
 
 import Foundation
 import SwiftData
 
-/// Represents a trip-in simulation for running casing/pipe into the well.
-/// Can import initial pocket state from a saved trip-out simulation.
+/// Represents a trip-in simulation input configuration.
+/// Results are computed at runtime — only inputs are persisted.
 @Model
 final class TripInSimulation {
     var id: UUID = UUID()
@@ -32,9 +31,6 @@ final class TripInSimulation {
 
     /// Name of source simulation (snapshot at creation)
     var sourceSimulationName: String = ""
-
-    /// Snapshot of initial pocket layers (JSON encoded)
-    var initialPocketLayersData: Data?
 
     // MARK: - Depth Inputs
 
@@ -90,62 +86,12 @@ final class TripInSimulation {
     /// Base mud density in annulus at start (kg/m³)
     var baseMudDensity_kgpm3: Double = 1200
 
-    // MARK: - Computed Results Summary
-
-    /// Total fill volume pumped to fill pipe (m³)
-    var totalFillVolume_m3: Double = 0
-
-    /// Total displacement returns received (m³)
-    var totalDisplacementReturns_m3: Double = 0
-
-    /// Maximum choke pressure required (kPa)
-    var maxChokePressure_kPa: Double = 0
-
-    /// Minimum ESD at control depth (kg/m³)
-    var minESDAtControl_kgpm3: Double = 0
-
-    /// Maximum ESD at control depth (kg/m³)
-    var maxESDAtControl_kgpm3: Double = 0
-
-    /// Maximum differential pressure at casing bottom for floated casing (kPa)
-    var maxDifferentialPressure_kPa: Double = 0
-
-    /// Depth where ESD first drops below target (m), or nil if never
-    var depthBelowTarget_m: Double?
-
-    // MARK: - Frozen Inputs (self-contained simulation state)
-
-    /// Compressed JSON of FrozenSimulationInputs - captures annulus geometry and muds
-    /// at the time the simulation was run
-    var frozenInputsData: Data?
-
-    /// Hash of inputs when simulation was created (for quick staleness check)
-    var inputStateHash: String?
-
-    /// Whether this simulation has frozen inputs
-    @Transient var hasFrozenInputs: Bool {
-        frozenInputsData != nil
-    }
-
-    /// Decoded frozen inputs
-    @Transient var frozenInputs: FrozenSimulationInputs? {
-        get {
-            guard let data = frozenInputsData else { return nil }
-            return FrozenSimulationInputs.fromCompressedData(data)
-        }
-        set {
-            frozenInputsData = newValue?.toCompressedData()
-            inputStateHash = newValue?.inputHash
-        }
-    }
+    /// Trip speed (m/min) for surge/swab calculations
+    var tripSpeed_m_per_min: Double = 0
 
     // MARK: - Relationships
 
-    /// Steps for this simulation
-    @Relationship(deleteRule: .cascade, inverse: \TripInSimulationStep.simulation)
-    var steps: [TripInSimulationStep]?
-
-    /// Back-reference to the owning project (kept for backwards compatibility)
+    /// Back-reference to the owning project
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?
 
@@ -154,16 +100,6 @@ final class TripInSimulation {
     var well: Well?
 
     // MARK: - Computed Properties
-
-    /// Sorted steps by depth (shallowest first for trip-in)
-    @Transient var sortedSteps: [TripInSimulationStep] {
-        (steps ?? []).sorted { $0.stepIndex < $1.stepIndex }
-    }
-
-    /// Number of steps
-    @Transient var stepCount: Int {
-        steps?.count ?? 0
-    }
 
     /// Trip length (meters)
     @Transient var tripLength_m: Double {
@@ -178,17 +114,6 @@ final class TripInSimulation {
     /// Pipe displacement per meter (m³/m) - steel volume
     @Transient var pipeDisplacement_m3pm: Double {
         .pi / 4.0 * (pipeOD_m * pipeOD_m - pipeID_m * pipeID_m)
-    }
-
-    /// Decoded initial pocket layers
-    @Transient var initialPocketLayers: [TripLayerSnapshot] {
-        get {
-            guard let data = initialPocketLayersData else { return [] }
-            return (try? JSONDecoder().decode([TripLayerSnapshot].self, from: data)) ?? []
-        }
-        set {
-            initialPocketLayersData = try? JSONEncoder().encode(newValue)
-        }
     }
 
     // MARK: - Initializer
@@ -212,6 +137,7 @@ final class TripInSimulation {
         activeMudDensity_kgpm3: Double = 1200,
         targetESD_kgpm3: Double = 1200,
         baseMudDensity_kgpm3: Double = 1200,
+        tripSpeed_m_per_min: Double = 0,
         project: ProjectState? = nil,
         well: Well? = nil
     ) {
@@ -233,83 +159,9 @@ final class TripInSimulation {
         self.activeMudDensity_kgpm3 = activeMudDensity_kgpm3
         self.targetESD_kgpm3 = targetESD_kgpm3
         self.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
+        self.tripSpeed_m_per_min = tripSpeed_m_per_min
         self.project = project
         self.well = well
-    }
-
-    // MARK: - Step Management
-
-    /// Add a step to this simulation
-    func addStep(_ step: TripInSimulationStep) {
-        if steps == nil { steps = [] }
-        step.simulation = self
-        steps?.append(step)
-    }
-
-    /// Update summary results from steps
-    func updateSummaryResults() {
-        guard let allSteps = steps, !allSteps.isEmpty else { return }
-
-        if let lastStep = allSteps.max(by: { $0.stepIndex < $1.stepIndex }) {
-            totalFillVolume_m3 = lastStep.cumulativeFillVolume_m3
-            totalDisplacementReturns_m3 = lastStep.cumulativeDisplacementReturns_m3
-        }
-
-        maxChokePressure_kPa = allSteps.map { $0.requiredChokePressure_kPa }.max() ?? 0
-        minESDAtControl_kgpm3 = allSteps.map { $0.ESDAtControl_kgpm3 }.min() ?? 0
-        maxESDAtControl_kgpm3 = allSteps.map { $0.ESDAtControl_kgpm3 }.max() ?? 0
-        maxDifferentialPressure_kPa = allSteps.map { $0.differentialPressureAtBottom_kPa }.max() ?? 0
-
-        // Find first depth where ESD drops below target
-        if let firstBelow = allSteps.sorted(by: { $0.stepIndex < $1.stepIndex })
-            .first(where: { $0.ESDAtControl_kgpm3 < targetESD_kgpm3 }) {
-            depthBelowTarget_m = firstBelow.bitMD_m
-        } else {
-            depthBelowTarget_m = nil
-        }
-
-        updatedAt = .now
-    }
-
-    /// Import pocket state from a trip-out simulation
-    func importPocketsFrom(simulation: TripSimulation) {
-        sourceSimulationID = simulation.id
-        sourceSimulationName = simulation.name
-
-        // Get the final step (deepest pulled out = shallowest bit = last step)
-        if let finalStep = simulation.sortedSteps.last {
-            initialPocketLayers = finalStep.layersPocket
-        }
-
-        // Copy relevant parameters
-        controlMD_m = simulation.shoeMD_m
-        baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
-        targetESD_kgpm3 = simulation.targetESDAtTD_kgpm3
-    }
-
-    // MARK: - Frozen Input Management
-
-    /// Freeze the current project state into this simulation
-    @MainActor
-    func freezeInputs(from project: ProjectState, fillMud: MudProperties?) {
-        let frozen = FrozenSimulationInputs(from: project, backfillMud: fillMud, activeMud: project.activeMud)
-        self.frozenInputs = frozen
-        self.well = project.well
-    }
-
-    /// Check if the simulation is stale
-    @MainActor
-    func isStale(comparedTo project: ProjectState) -> Bool {
-        guard let frozen = frozenInputs else { return true }
-        let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
-        return frozen.isStale(comparedTo: project, backfillMud: fillMud, activeMud: project.activeMud)
-    }
-
-    /// Clear all step layer data to reduce storage
-    func clearStepLayerData() {
-        for step in (steps ?? []) {
-            step.layersPocketData = nil
-        }
     }
 }
 
@@ -340,16 +192,8 @@ extension TripInSimulation {
             "activeMudDensity_kgpm3": activeMudDensity_kgpm3,
             "targetESD_kgpm3": targetESD_kgpm3,
             "baseMudDensity_kgpm3": baseMudDensity_kgpm3,
-            // Summary results
-            "totalFillVolume_m3": totalFillVolume_m3,
-            "totalDisplacementReturns_m3": totalDisplacementReturns_m3,
-            "maxChokePressure_kPa": maxChokePressure_kPa,
-            "minESDAtControl_kgpm3": minESDAtControl_kgpm3,
-            "maxESDAtControl_kgpm3": maxESDAtControl_kgpm3,
-            "maxDifferentialPressure_kPa": maxDifferentialPressure_kPa,
-            "depthBelowTarget_m": depthBelowTarget_m as Any,
-            // Steps
-            "steps": sortedSteps.map { $0.exportDictionary }
+            "tripSpeed_m_per_min": tripSpeed_m_per_min,
+            "fillMudID": fillMudID?.uuidString as Any
         ]
     }
 }

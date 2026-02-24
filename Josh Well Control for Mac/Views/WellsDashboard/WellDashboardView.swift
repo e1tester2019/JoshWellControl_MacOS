@@ -11,9 +11,6 @@ import SwiftData
 struct WellDashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Pad.name) private var allPads: [Pad]
-    @Query(sort: \JobCode.name) private var jobCodes: [JobCode]
-    @Query(sort: \Vendor.companyName) private var vendors: [Vendor]
-    @Query(sort: \Well.name) private var allWells: [Well]
     @Query(filter: #Predicate<LookAheadSchedule> { $0.isActive }, sort: \LookAheadSchedule.updatedAt, order: .reverse) private var activeSchedules: [LookAheadSchedule]
     @Query(sort: \RentalEquipment.name) private var allEquipment: [RentalEquipment]
     @Bindable var well: Well
@@ -133,11 +130,7 @@ struct WellDashboardView: View {
             case .editProject(let project):
                 ProjectDashboardView(project: project)
             case .editRental(let rental):
-                RentalDetailEditor(rental: rental, allEquipment: allEquipment)
-                    .environment(\.locale, Locale(identifier: "en_GB"))
-                    #if os(macOS)
-                    .standardSheetSize(.large)
-                    #endif
+                RentalEditorSheetContent(rental: rental)
             case .editTransfer(let transfer):
                 MaterialTransferEditorView(well: well, transfer: transfer)
             case .editNote(let note):
@@ -145,28 +138,11 @@ struct WellDashboardView: View {
             case .editTask(let task):
                 TaskEditorView(well: well, task: task)
             case .editLookAheadTask(let task):
-                LookAheadTaskEditorView(
-                    schedule: task.schedule,
-                    task: task,
-                    jobCodes: jobCodes,
-                    vendors: vendors,
-                    wells: allWells
-                )
+                LookAheadEditorSheetContent(schedule: task.schedule, task: task)
             case .addLookAheadTask:
-                LookAheadTaskEditorView(
-                    schedule: activeSchedule,
-                    task: nil,
-                    jobCodes: jobCodes,
-                    vendors: vendors,
-                    wells: allWells,
-                    preselectedWell: well
-                )
+                LookAheadEditorSheetContent(schedule: activeSchedule, task: nil, preselectedWell: well)
             case .closeOut:
-                CloseOutWellSheet(
-                    sourceWell: well,
-                    equipment: equipmentOnWell,
-                    allWells: allWells
-                )
+                CloseOutSheetContent(sourceWell: well, equipment: equipmentOnWell)
             }
         }
         .alert("Delete Well?", isPresented: $showingDeleteConfirmation) {
@@ -868,23 +844,15 @@ struct WellDashboardView: View {
 
     // MARK: - Work Days Section
 
-    private var sortedWorkDays: [WorkDay] {
-        (well.workDays ?? []).sorted { $0.startDate > $1.startDate }
-    }
-
-    private var totalWorkDays: Int {
-        (well.workDays ?? []).reduce(0) { $0 + $1.dayCount }
-    }
-
-    private var totalEarnings: Double {
-        (well.workDays ?? []).reduce(0) { $0 + $1.totalEarnings }
-    }
-
     private var workDaysSection: some View {
-        WellSection(
+        let workDays = (well.workDays ?? []).sorted { $0.startDate > $1.startDate }
+        let totalDays = workDays.reduce(0) { $0 + $1.dayCount }
+        let earnings = workDays.reduce(0) { $0 + $1.totalEarnings }
+
+        return WellSection(
             title: "Work Days",
             icon: "calendar.badge.clock",
-            subtitle: "\(totalWorkDays) day(s) • \(totalEarnings.formatted(.currency(code: "CAD")))"
+            subtitle: "\(totalDays) day(s) • \(earnings.formatted(.currency(code: "CAD")))"
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 // Summary stats
@@ -893,7 +861,7 @@ struct WellDashboardView: View {
                         Text("Total Days")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("\(totalWorkDays)")
+                        Text("\(totalDays)")
                             .font(.title2)
                             .fontWeight(.semibold)
                     }
@@ -902,7 +870,7 @@ struct WellDashboardView: View {
                         Text("Total Earnings")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(totalEarnings.formatted(.currency(code: "CAD")))
+                        Text(earnings.formatted(.currency(code: "CAD")))
                             .font(.title2)
                             .fontWeight(.semibold)
                             .foregroundStyle(.green)
@@ -922,7 +890,7 @@ struct WellDashboardView: View {
                 Divider()
 
                 // Recent work days list
-                if !sortedWorkDays.isEmpty {
+                if !workDays.isEmpty {
                     VStack(spacing: 0) {
                         // Header row
                         HStack {
@@ -938,7 +906,7 @@ struct WellDashboardView: View {
 
                         Divider()
 
-                        PaginatedList(items: sortedWorkDays, pageSize: 5) { workDay in
+                        PaginatedList(items: workDays, pageSize: 5) { workDay in
                             HStack {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(workDay.dateRangeString)

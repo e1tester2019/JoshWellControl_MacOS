@@ -27,6 +27,13 @@ struct MacOSOptimizedContentView: View {
     @State private var showCommandPalette = false
     @State private var quickNoteManager = QuickNoteManager.shared
     @State private var isBusinessUnlocked = false
+    @State private var taskCountDebounce: Task<Void, Never>?
+
+    /// Wells filtered to the selected pad. Shows all wells if no pad is selected.
+    private var wellsForPad: [Well] {
+        guard let pad = selectedPad else { return wells }
+        return wells.filter { $0.pad?.id == pad.id }
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -64,7 +71,7 @@ struct MacOSOptimizedContentView: View {
                 )
 
                 EnhancedWellPicker(
-                    wells: wells,
+                    wells: wellsForPad,
                     selectedWell: $selectedWell,
                     selectedProject: $selectedProject,
                     modelContext: modelContext
@@ -128,6 +135,12 @@ struct MacOSOptimizedContentView: View {
         .onChange(of: selectedPad) { _, newPad in
             // Update quick note context with pad
             quickNoteManager.currentPad = newPad
+            // If current well isn't on this pad, select the first well on it
+            if let pad = newPad, selectedWell?.pad?.id != pad.id {
+                let padWells = wells.filter { $0.pad?.id == pad.id }
+                selectedWell = padWells.first
+                selectedProject = selectedWell?.projects?.first
+            }
         }
         .onChange(of: selectedProject) { _, newProject in
             AppStateService.shared.save(well: selectedWell, project: newProject, viewRaw: selectedView.rawValue)
@@ -138,8 +151,13 @@ struct MacOSOptimizedContentView: View {
             AppStateService.shared.save(well: selectedWell, project: selectedProject, viewRaw: newView.rawValue)
         }
         .onChange(of: wells) { _, newWells in
-            // Update task counts when wells change
-            quickNoteManager.updateTaskCounts(from: newWells)
+            // Debounce task count updates to avoid O(wells*tasks) on every sync mutation
+            taskCountDebounce?.cancel()
+            taskCountDebounce = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                quickNoteManager.updateTaskCounts(from: newWells)
+            }
         }
     }
 

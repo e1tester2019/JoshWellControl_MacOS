@@ -11,6 +11,24 @@ import SwiftData
 import UniformTypeIdentifiers
 import UIKit
 
+// MARK: - ViewModel Cache (iOS)
+
+/// Cache to persist TripSimulationViewIOS.ViewModel across view switches
+enum TripSimViewModelCacheIOS {
+    @MainActor
+    private static var cache: [UUID: TripSimulationViewIOS.ViewModel] = [:]
+
+    @MainActor
+    static func get(for projectID: UUID) -> TripSimulationViewIOS.ViewModel {
+        if let existing = cache[projectID] {
+            return existing
+        }
+        let newVM = TripSimulationViewIOS.ViewModel()
+        cache[projectID] = newVM
+        return newVM
+    }
+}
+
 /// A compact SwiftUI front‑end over the NumericalTripModel.
 /// Shows inputs, a steps table, an interactive detail (accordion), and a simple 2‑column mud visualization.
 struct TripSimulationViewIOS: View {
@@ -20,20 +38,14 @@ struct TripSimulationViewIOS: View {
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
 
-    // Query saved simulations for this project
-    @Query private var allSimulations: [TripSimulation]
-    private var savedSimulations: [TripSimulation] {
-        allSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    @State private var viewmodel = ViewModel()
+    @State private var viewmodel: ViewModel
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
 
-    // Save dialog state
-    @State private var showingSaveDialog = false
-    @State private var saveSimulationName = ""
-    @State private var showingSavedSimulations = false
+    init(project: ProjectState) {
+        self.project = project
+        _viewmodel = State(initialValue: TripSimViewModelCacheIOS.get(for: project.id))
+    }
 
     // MARK: - Body
     var body: some View {
@@ -49,9 +61,13 @@ struct TripSimulationViewIOS: View {
                 landscapeLayout(geo: geo)
             }
         }
-        .onAppear { viewmodel.bootstrap(from: project) }
-        .onChange(of: project) { _, newProject in
-            viewmodel.bootstrap(from: newProject)
+        .onAppear {
+            // Only bootstrap if viewmodel is fresh (no steps and no loaded state)
+            if viewmodel.steps.isEmpty && viewmodel.startBitMD_m == 0 {
+                if !viewmodel.loadSavedInputs(project: project) {
+                    viewmodel.bootstrap(from: project)
+                }
+            }
         }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
@@ -390,25 +406,13 @@ struct TripSimulationViewIOS: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                // Save button
+                // Save inputs button
                 Button {
-                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
-                    showingSaveDialog = true
+                    viewmodel.saveInputs(project: project, context: modelContext)
                 } label: {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
-                .disabled(viewmodel.steps.isEmpty)
-
-                // Load saved simulations
-                if !savedSimulations.isEmpty {
-                    Button {
-                        showingSavedSimulations = true
-                    } label: {
-                        Image(systemName: "folder")
-                    }
-                    .buttonStyle(.bordered)
-                }
 
                 Menu {
                     Button("Export PDF Report") {
@@ -425,86 +429,6 @@ struct TripSimulationViewIOS: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .buttonStyle(.bordered)
-            }
-        }
-        .sheet(isPresented: $showingSaveDialog) {
-            saveSimulationSheet
-        }
-        .sheet(isPresented: $showingSavedSimulations) {
-            savedSimulationsSheet
-        }
-    }
-
-    // MARK: - Save Simulation Sheet
-    private var saveSimulationSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Simulation Name") {
-                    TextField("Name", text: $saveSimulationName)
-                }
-
-                Section {
-                    Button("Save Simulation") {
-                        if let _ = viewmodel.saveSimulation(name: saveSimulationName, project: project, context: modelContext) {
-                            showingSaveDialog = false
-                        }
-                    }
-                    .disabled(saveSimulationName.isEmpty)
-                }
-            }
-            .navigationTitle("Save Simulation")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingSaveDialog = false
-                    }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    // MARK: - Saved Simulations Sheet
-    private var savedSimulationsSheet: some View {
-        NavigationStack {
-            List {
-                ForEach(savedSimulations) { sim in
-                    Button {
-                        viewmodel.loadSimulation(sim, project: project)
-                        showingSavedSimulations = false
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(sim.name)
-                                .font(.headline)
-                            HStack {
-                                Text(sim.createdAt, style: .date)
-                                Text(sim.createdAt, style: .time)
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            Text("\(sim.stepCount) steps • Max SABP: \(String(format: "%.0f", sim.maxSABP_kPa)) kPa")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            viewmodel.deleteSimulation(sim, context: modelContext)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Saved Simulations")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        showingSavedSimulations = false
-                    }
-                }
             }
         }
     }
@@ -674,25 +598,13 @@ struct TripSimulationViewIOS: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                // Save button
+                // Save inputs button
                 Button {
-                    saveSimulationName = "Trip \(DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short))"
-                    showingSaveDialog = true
+                    viewmodel.saveInputs(project: project, context: modelContext)
                 } label: {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
-                .disabled(viewmodel.steps.isEmpty)
-
-                // Load saved simulations
-                if !savedSimulations.isEmpty {
-                    Button {
-                        showingSavedSimulations = true
-                    } label: {
-                        Image(systemName: "folder")
-                    }
-                    .buttonStyle(.bordered)
-                }
 
                 Menu {
                     Button("Export PDF Report") {

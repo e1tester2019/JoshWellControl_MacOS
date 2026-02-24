@@ -11,10 +11,6 @@ import SwiftUI
 
 @Observable
 class TripInSimulationViewModel {
-    // MARK: - Current Simulation
-
-    var currentSimulation: TripInSimulation?
-
     // MARK: - Input Parameters
 
     // Source trip-out simulation
@@ -181,7 +177,6 @@ class TripInSimulationViewModel {
 
     enum SourceType: String {
         case none = "None"
-        case tripSimulation = "Trip Simulation"
         case wellboreState = "Wellbore State"
     }
 
@@ -189,94 +184,6 @@ class TripInSimulationViewModel {
 
     // Initial pocket layers imported from source
     var importedPocketLayers: [TripLayerSnapshot] = []
-
-    // MARK: - Import from Trip Simulation
-
-    /// Import pocket layers by querying for just the final step (no JSON cache needed)
-    func importFromTripSimulation(_ simulation: TripSimulation, project: ProjectState, context: ModelContext) {
-        let totalStart = CFAbsoluteTimeGetCurrent()
-        print("🔄 Starting import from: \(simulation.name)")
-
-        var t = CFAbsoluteTimeGetCurrent()
-        sourceType = .tripSimulation
-        sourceSimulationID = simulation.id
-        sourceSimulationName = simulation.name
-        controlMD_m = simulation.shoeMD_m
-        baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
-        targetESD_kgpm3 = simulation.targetESDAtTD_kgpm3
-        endBitMD_m = simulation.startBitMD_m
-        startBitMD_m = simulation.endMD_m
-        print("📋 Copied parameters: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
-
-        // Query for just the final step
-        t = CFAbsoluteTimeGetCurrent()
-        let simID = simulation.id
-        var descriptor = FetchDescriptor<TripSimulationStep>(
-            predicate: #Predicate { step in
-                step.simulation?.id == simID
-            },
-            sortBy: [SortDescriptor(\.stepIndex, order: .reverse)]
-        )
-        descriptor.fetchLimit = 1
-        print("📝 Built descriptor: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
-
-        do {
-            t = CFAbsoluteTimeGetCurrent()
-            let steps = try context.fetch(descriptor)
-            print("🔍 Fetch query: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
-
-            if let finalStep = steps.first {
-                print("✅ Got final step (index \(finalStep.stepIndex))")
-
-                // Check both layer types
-                let pocketLayers = finalStep.layersPocket
-                let annulusLayers = finalStep.layersAnnulus
-
-                print("📦 Pocket layers: \(pocketLayers.count)")
-
-                // Analyze layer structure
-                let topMDs = pocketLayers.map { $0.topMD }
-                let bottomMDs = pocketLayers.map { $0.bottomMD }
-                let uniqueTopMDs = Set(topMDs)
-                let uniqueBottomMDs = Set(bottomMDs)
-                print("   Unique topMD values: \(uniqueTopMDs.count), bottomMD values: \(uniqueBottomMDs.count)")
-                if let minTop = topMDs.min(), let maxTop = topMDs.max() {
-                    print("   TopMD range: \(String(format: "%.1f", minTop)) to \(String(format: "%.1f", maxTop))")
-                }
-                if let minBottom = bottomMDs.min(), let maxBottom = bottomMDs.max() {
-                    print("   BottomMD range: \(String(format: "%.1f", minBottom)) to \(String(format: "%.1f", maxBottom))")
-                }
-
-                // Show first few and last few layers
-                for (i, layer) in pocketLayers.prefix(3).enumerated() {
-                    print("   [\(i)] \(String(format: "%.1f", layer.topMD))-\(String(format: "%.1f", layer.bottomMD))m, ρ=\(String(format: "%.0f", layer.rho_kgpm3)), vol=\(String(format: "%.3f", layer.volume_m3))m³")
-                }
-                if pocketLayers.count > 6 {
-                    print("   ... (\(pocketLayers.count - 6) more) ...")
-                }
-                for (i, layer) in pocketLayers.suffix(3).enumerated() {
-                    let idx = pocketLayers.count - 3 + i
-                    print("   [\(idx)] \(String(format: "%.1f", layer.topMD))-\(String(format: "%.1f", layer.bottomMD))m, ρ=\(String(format: "%.0f", layer.rho_kgpm3)), vol=\(String(format: "%.3f", layer.volume_m3))m³")
-                }
-
-                print("📦 Annulus layers: \(annulusLayers.count)")
-                if let first = annulusLayers.first, let last = annulusLayers.last {
-                    print("   First: \(String(format: "%.0f", first.topMD))-\(String(format: "%.0f", first.bottomMD))m, ρ=\(String(format: "%.0f", first.rho_kgpm3))")
-                    print("   Last: \(String(format: "%.0f", last.topMD))-\(String(format: "%.0f", last.bottomMD))m, ρ=\(String(format: "%.0f", last.rho_kgpm3))")
-                }
-
-                // Use pocket layers as requested
-                importedPocketLayers = pocketLayers
-                print("💾 Imported \(importedPocketLayers.count) pocket layers")
-            } else {
-                print("⚠️ No steps found for simulation")
-            }
-        } catch {
-            print("❌ Failed to fetch final step: \(error)")
-        }
-
-        print("✅ Import complete, total: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - totalStart))s")
-    }
 
     // MARK: - Import from Wellbore State Snapshot
 
@@ -314,8 +221,6 @@ class TripInSimulationViewModel {
         switch sourceType {
         case .none:
             return "No source selected"
-        case .tripSimulation:
-            return sourceSimulationName.isEmpty ? "Trip Simulation" : sourceSimulationName
         case .wellboreState:
             return sourceSimulationName.isEmpty ? "Wellbore State" : sourceSimulationName
         }
@@ -445,95 +350,49 @@ class TripInSimulationViewModel {
         stepSlider = Double(selectedIndex)
     }
 
-    // MARK: - Save Simulation
+    // MARK: - Persistence
 
-    func saveSimulation(to project: ProjectState, context: ModelContext) -> TripInSimulation {
-        let simulation = TripInSimulation(
-            name: "Trip In - \(stringName)",
-            sourceSimulationID: sourceSimulationID,
-            sourceSimulationName: sourceSimulationName,
-            startBitMD_m: startBitMD_m,
-            endBitMD_m: endBitMD_m,
-            controlMD_m: controlMD_m,
-            step_m: step_m,
-            stringName: stringName,
-            pipeOD_m: pipeOD_m,
-            pipeID_m: pipeID_m,
-            pipeWeight_kgm: pipeWeight_kgm,
-            isFloatedCasing: isFloatedCasing,
-            floatSubMD_m: floatSubMD_m,
-            crackFloat_kPa: crackFloat_kPa,
-            fillMudID: fillMudID,
-            activeMudDensity_kgpm3: activeMudDensity_kgpm3,
-            targetESD_kgpm3: targetESD_kgpm3,
-            baseMudDensity_kgpm3: baseMudDensity_kgpm3,
-            project: project
-        )
-
-        // Add steps
-        print("💾 Saving \(steps.count) steps")
-        for step in steps {
-            let savedStep = TripInSimulationStep(
-                stepIndex: step.stepIndex,
-                bitMD_m: step.bitMD_m,
-                bitTVD_m: step.bitTVD_m,
-                stepFillVolume_m3: step.stepFillVolume_m3,
-                cumulativeFillVolume_m3: step.cumulativeFillVolume_m3,
-                expectedFillClosed_m3: step.expectedFillClosed_m3,
-                expectedFillOpen_m3: step.expectedFillOpen_m3,
-                stepDisplacementReturns_m3: step.stepDisplacementReturns_m3,
-                cumulativeDisplacementReturns_m3: step.cumulativeDisplacementReturns_m3,
-                ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
-                ESDAtBit_kgpm3: step.ESDAtBit_kgpm3,
-                requiredChokePressure_kPa: step.requiredChokePressure_kPa,
-                isBelowTarget: step.isBelowTarget,
-                differentialPressureAtBottom_kPa: step.differentialPressureAtBottom_kPa,
-                annulusPressureAtBit_kPa: step.annulusPressureAtBit_kPa,
-                stringPressureAtBit_kPa: step.stringPressureAtBit_kPa,
-                floatState: step.floatState,
-                surgePressure_kPa: step.surgePressure_kPa,
-                surgeECD_kgm3: step.surgeECD_kgm3,
-                dynamicESDAtControl_kgpm3: step.dynamicESDAtControl_kgpm3,
-                mudDensityAtControl_kgpm3: step.mudDensityAtControl_kgpm3
-            )
-            // Save all layer types
-            savedStep.layersAnnulus = step.layersAnnulus
-            savedStep.layersString = step.layersString
-            savedStep.layersPocket = step.layersPocket
-
-            if step.stepIndex == 0 || step.stepIndex == steps.count - 1 {
-                print("   Step \(step.stepIndex): \(step.layersPocket.count) pocket layers, HP Ann=\(step.annulusPressureAtBit_kPa)")
-            }
-
-            simulation.addStep(savedStep)
+    /// Save/upsert the current inputs to the project's single TripInSimulation.
+    func saveInputs(project: ProjectState, context: ModelContext) {
+        let simulation: TripInSimulation
+        if let existing = project.tripInSimulations?.first {
+            simulation = existing
+        } else {
+            simulation = TripInSimulation()
+            simulation.project = project
+            simulation.well = project.well
+            context.insert(simulation)
+            if project.tripInSimulations == nil { project.tripInSimulations = [] }
+            project.tripInSimulations?.append(simulation)
         }
 
-        simulation.updateSummaryResults()
-        context.insert(simulation)
-
-        // Freeze inputs for data integrity - ensures simulation remains valid if project changes
-        let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
-        simulation.freezeInputs(from: project, fillMud: fillMud)
-
-        // Clear step layer data to reduce storage (layers can be recomputed from frozen inputs)
-        simulation.clearStepLayerData()
-
-        if project.tripInSimulations == nil {
-            project.tripInSimulations = []
-        }
-        project.tripInSimulations?.append(simulation)
+        simulation.sourceSimulationID = sourceSimulationID
+        simulation.sourceSimulationName = sourceSimulationName
+        simulation.startBitMD_m = startBitMD_m
+        simulation.endBitMD_m = endBitMD_m
+        simulation.controlMD_m = controlMD_m
+        simulation.step_m = step_m
+        simulation.stringName = stringName
+        simulation.pipeOD_m = pipeOD_m
+        simulation.pipeID_m = pipeID_m
+        simulation.pipeWeight_kgm = pipeWeight_kgm
+        simulation.isFloatedCasing = isFloatedCasing
+        simulation.floatSubMD_m = floatSubMD_m
+        simulation.crackFloat_kPa = crackFloat_kPa
+        simulation.fillMudID = fillMudID
+        simulation.activeMudDensity_kgpm3 = activeMudDensity_kgpm3
+        simulation.targetESD_kgpm3 = targetESD_kgpm3
+        simulation.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
+        simulation.tripSpeed_m_per_min = tripSpeed_m_per_min
+        simulation.updatedAt = .now
 
         try? context.save()
-        currentSimulation = simulation
-        return simulation
     }
 
-    // MARK: - Load Simulation
-
-    func loadSimulation(_ simulation: TripInSimulation) {
-        currentSimulation = simulation
-
-        // Load parameters
+    /// Load saved inputs from the project's TripInSimulation. Returns true if inputs were loaded.
+    @discardableResult
+    func loadSavedInputs(project: ProjectState) -> Bool {
+        guard let simulation = project.tripInSimulations?.first else { return false }
         sourceSimulationID = simulation.sourceSimulationID
         sourceSimulationName = simulation.sourceSimulationName
         startBitMD_m = simulation.startBitMD_m
@@ -551,79 +410,8 @@ class TripInSimulationViewModel {
         activeMudDensity_kgpm3 = simulation.activeMudDensity_kgpm3
         targetESD_kgpm3 = simulation.targetESD_kgpm3
         baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
-
-        // Load steps - explicitly access the steps array to ensure SwiftData faults in the data
-        let savedSteps = simulation.steps ?? []
-        print("📥 Loading simulation '\(simulation.name)' with \(savedSteps.count) steps")
-
-        steps = savedSteps.sorted { $0.stepIndex < $1.stepIndex }.map { step in
-            // Explicitly access layersPocketData to ensure it's faulted in
-            let pocketLayers = step.layersPocket
-            let annulusLayers = step.layersAnnulus
-            let stringLayers = step.layersString
-
-            if step.stepIndex == 0 || step.stepIndex == savedSteps.count - 1 {
-                print("   Step \(step.stepIndex): \(pocketLayers.count) pocket layers, HP Ann=\(step.annulusPressureAtBit_kPa), HP Str=\(step.stringPressureAtBit_kPa)")
-            }
-
-            return TripInStep(
-                stepIndex: step.stepIndex,
-                bitMD_m: step.bitMD_m,
-                bitTVD_m: step.bitTVD_m,
-                stepFillVolume_m3: step.stepFillVolume_m3,
-                cumulativeFillVolume_m3: step.cumulativeFillVolume_m3,
-                expectedFillClosed_m3: step.expectedFillClosed_m3,
-                expectedFillOpen_m3: step.expectedFillOpen_m3,
-                stepDisplacementReturns_m3: step.stepDisplacementReturns_m3,
-                cumulativeDisplacementReturns_m3: step.cumulativeDisplacementReturns_m3,
-                ESDAtControl_kgpm3: step.ESDAtControl_kgpm3,
-                ESDAtBit_kgpm3: step.ESDAtBit_kgpm3,
-                requiredChokePressure_kPa: step.requiredChokePressure_kPa,
-                isBelowTarget: step.isBelowTarget,
-                differentialPressureAtBottom_kPa: step.differentialPressureAtBottom_kPa,
-                annulusPressureAtBit_kPa: step.annulusPressureAtBit_kPa,
-                stringPressureAtBit_kPa: step.stringPressureAtBit_kPa,
-                floatState: step.floatState,
-                mudDensityAtControl_kgpm3: step.mudDensityAtControl_kgpm3,
-                surgePressure_kPa: step.surgePressure_kPa,
-                surgeECD_kgm3: step.surgeECD_kgm3,
-                dynamicESDAtControl_kgpm3: step.dynamicESDAtControl_kgpm3,
-                layersAnnulus: annulusLayers,
-                layersString: stringLayers,
-                layersPocket: pocketLayers
-            )
-        }
-
-        print("📥 Loaded \(steps.count) steps")
-        if let firstStep = steps.first {
-            print("   First step pocket layers: \(firstStep.layersPocket.count)")
-        }
-
-        circulationHistory.removeAll()
-        selectedIndex = 0
-        stepSlider = 0
-    }
-
-    // MARK: - Clear
-
-    func clear() {
-        currentSimulation = nil
-        steps.removeAll()
-        circulationHistory.removeAll()
-        selectedIndex = 0
-        stepSlider = 0
-    }
-
-    // MARK: - Delete Simulation
-
-    /// Delete a saved simulation
-    func deleteSimulation(_ simulation: TripInSimulation, context: ModelContext) {
-        // If this is the currently loaded simulation, clear the view
-        if currentSimulation?.id == simulation.id {
-            clear()
-        }
-        context.delete(simulation)
-        try? context.save()
+        tripSpeed_m_per_min = simulation.tripSpeed_m_per_min
+        return true
     }
 
     // MARK: - Wellbore State Export

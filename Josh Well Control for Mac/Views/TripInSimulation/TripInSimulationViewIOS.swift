@@ -13,20 +13,7 @@ struct TripInSimulationViewIOS: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var project: ProjectState
 
-    @Query private var allTripSimulations: [TripSimulation]
-    @Query private var allTripInSimulations: [TripInSimulation]
-    private var savedTripOutSimulations: [TripSimulation] {
-        allTripSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var savedTripInSimulations: [TripInSimulation] {
-        allTripInSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
     @State private var viewModel: TripInSimulationViewModel
-    @State private var showingSourcePicker = false
-    @State private var showingSaveSheet = false
-    @State private var showingLoadSheet = false
     @State private var selectedTab = 0
 
     init(project: ProjectState) {
@@ -40,9 +27,6 @@ struct TripInSimulationViewIOS: View {
             Picker("View", selection: $selectedTab) {
                 Text("Setup").tag(0)
                 Text("Results").tag(1)
-                if !savedTripInSimulations.isEmpty {
-                    Text("Saved").tag(2)
-                }
             }
             .pickerStyle(.segmented)
             .padding()
@@ -55,12 +39,6 @@ struct TripInSimulationViewIOS: View {
                 // Results tab
                 resultsView
                     .tag(1)
-
-                // Saved simulations tab
-                if !savedTripInSimulations.isEmpty {
-                    savedSimulationsView
-                        .tag(2)
-                }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
@@ -74,10 +52,8 @@ struct TripInSimulationViewIOS: View {
                     }
                     .disabled(viewModel.isRunning)
 
-                    if !viewModel.steps.isEmpty {
-                        Button("Save Simulation", systemImage: "square.and.arrow.down") {
-                            showingSaveSheet = true
-                        }
+                    Button("Save Inputs", systemImage: "square.and.arrow.down") {
+                        viewModel.saveInputs(project: project, context: modelContext)
                     }
 
                     Button("Clear Results", systemImage: "trash") {
@@ -89,15 +65,15 @@ struct TripInSimulationViewIOS: View {
                 }
             }
         }
-        .sheet(isPresented: $showingSourcePicker) {
-            sourcePickerSheet
-        }
-        .sheet(isPresented: $showingSaveSheet) {
-            saveSimulationSheet
-        }
         .onAppear {
-            if viewModel.endBitMD_m == 0 {
-                viewModel.bootstrap(from: project)
+            // Check for pending wellbore state handoff from Trip Out
+            if let state = OperationHandoffService.shared.pendingTripInState {
+                OperationHandoffService.shared.pendingTripInState = nil
+                viewModel.importFromWellboreState(state, project: project)
+            } else if viewModel.steps.isEmpty && viewModel.endBitMD_m == 0 {
+                if !viewModel.loadSavedInputs(project: project) {
+                    viewModel.bootstrap(from: project)
+                }
             }
         }
     }
@@ -106,29 +82,6 @@ struct TripInSimulationViewIOS: View {
 
     private var setupView: some View {
         Form {
-            // Source section
-            Section("Source") {
-                Button {
-                    showingSourcePicker = true
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Import From")
-                                .foregroundStyle(.secondary)
-                            Text(viewModel.sourceDisplayName)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .foregroundStyle(.primary)
-
-                if viewModel.sourceType != .none {
-                    LabeledContent("Imported Layers", value: "\(viewModel.importedPocketLayers.count)")
-                }
-            }
-
             // Depths section
             Section("Depths") {
                 LabeledContent("Start MD") {
@@ -333,7 +286,7 @@ struct TripInSimulationViewIOS: View {
             ], spacing: 4) {
                 metricCell("Fill Vol", value: String(format: "%.3f", step.stepFillVolume_m3), unit: "m³")
                 metricCell("Cum Fill", value: String(format: "%.3f", step.cumulativeFillVolume_m3), unit: "m³")
-                metricCell("ESD@Ctrl", value: String(format: "%.0f", step.ESDAtControl_kgpm3), unit: "kg/m³")
+                metricCell("ESD@Ctrl", value: String(format: "%.1f", step.ESDAtControl_kgpm3), unit: "kg/m³")
                 metricCell("Choke P", value: String(format: "%.0f", step.requiredChokePressure_kPa), unit: "kPa")
             }
 
@@ -368,143 +321,11 @@ struct TripInSimulationViewIOS: View {
         }
     }
 
-    // MARK: - Saved Simulations View
-
-    private var savedSimulationsView: some View {
-        List {
-            ForEach(savedTripInSimulations) { simulation in
-                Button {
-                    loadSimulation(simulation)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(simulation.name)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        HStack(spacing: 12) {
-                            Text("\(Int(simulation.startBitMD_m))m → \(Int(simulation.endBitMD_m))m")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(simulation.stepCount) steps")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(simulation.createdAt, style: .date)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        modelContext.delete(simulation)
-                        try? modelContext.save()
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-            }
-        }
-        .overlay {
-            if savedTripInSimulations.isEmpty {
-                ContentUnavailableView("No Saved Simulations", systemImage: "folder")
-            }
-        }
-    }
-
-    // MARK: - Source Picker Sheet
-
-    private var sourcePickerSheet: some View {
-        NavigationStack {
-            List {
-                Section("Trip Out Simulations") {
-                    if savedTripOutSimulations.isEmpty {
-                        Text("No saved trip simulations")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(savedTripOutSimulations) { sim in
-                            Button {
-                                viewModel.importFromTripSimulation(sim, project: project, context: modelContext)
-                                showingSourcePicker = false
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(sim.name)
-                                        .foregroundStyle(.primary)
-                                    Text("\(Int(sim.startBitMD_m))m → \(Int(sim.endMD_m))m • \(sim.stepCount) steps")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
-
-            }
-            .navigationTitle("Select Source")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingSourcePicker = false
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Save Simulation Sheet
-
-    @State private var saveSimulationName = ""
-
-    private var saveSimulationSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Simulation Name") {
-                    TextField("Name", text: $saveSimulationName)
-                }
-
-                Section("Details") {
-                    LabeledContent("Steps", value: "\(viewModel.steps.count)")
-                    LabeledContent("Start MD", value: "\(Int(viewModel.startBitMD_m))m")
-                    LabeledContent("End MD", value: "\(Int(viewModel.endBitMD_m))m")
-                }
-            }
-            .navigationTitle("Save Simulation")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingSaveSheet = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveSimulation()
-                    }
-                    .disabled(saveSimulationName.isEmpty)
-                }
-            }
-            .onAppear {
-                saveSimulationName = "Trip In \(Date.now.formatted(date: .abbreviated, time: .shortened))"
-            }
-        }
-    }
-
     // MARK: - Actions
 
     private func runSimulation() {
         viewModel.runSimulation(project: project)
         selectedTab = 1 // Switch to results
-    }
-
-    private func loadSimulation(_ simulation: TripInSimulation) {
-        viewModel.loadSimulation(simulation)
-        selectedTab = 1 // Switch to results
-    }
-
-    private func saveSimulation() {
-        _ = viewModel.saveSimulation(to: project, context: modelContext)
-        showingSaveSheet = false
-        selectedTab = 2 // Switch to saved
     }
 }
 #endif // os(iOS)

@@ -244,11 +244,8 @@ class CirculationService {
             if layerBottom > layerTop && layerTop < atDepthMD {
                 let topTVD = tvdSampler.tvd(of: layerTop)
                 let bottomTVD = tvdSampler.tvd(of: layerBottom)
-                let tvdInterval = bottomTVD - topTVD
-
-                if tvdInterval > 0 {
-                    totalPressure_kPa += layer.rho_kgpm3 * 0.00981 * tvdInterval
-                }
+                let tvdInterval = bottomTVD - topTVD // allow negative in toe-up wells
+                totalPressure_kPa += layer.rho_kgpm3 * 0.00981 * tvdInterval
             }
         }
 

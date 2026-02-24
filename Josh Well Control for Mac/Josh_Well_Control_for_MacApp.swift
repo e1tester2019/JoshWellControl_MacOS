@@ -44,6 +44,7 @@ struct Josh_Well_Control_for_MacApp: App {
         Settings {
             AppSettingsView()
         }
+        .modelContainer(container)
 
         Window("Documentation", id: "documentation") {
             DocumentationView()
@@ -71,6 +72,7 @@ struct OpenDocumentationButton: View {
 
 #if os(macOS)
 struct AppSettingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var showResetConfirmation = false
     @State private var resetComplete = false
 
@@ -80,8 +82,13 @@ struct AppSettingsView: View {
                 .tabItem {
                     Label("Data", systemImage: "cylinder.split.1x2")
                 }
+
+            diagnosticsTab
+                .tabItem {
+                    Label("Diagnostics", systemImage: "stethoscope")
+                }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 450, height: 500)
     }
 
     private var dataSettingsTab: some View {
@@ -156,13 +163,27 @@ struct AppSettingsView: View {
         .padding()
         .alert("Reset Local Data?", isPresented: $showResetConfirmation) {
             Button("Cancel", role: .cancel) { }
-            Button("Reset", role: .destructive) {
+            Button("Reset & Restart", role: .destructive) {
                 AppContainer.resetLocalStore()
                 resetComplete = true
+                // Auto-exit after 2 seconds to ensure clean restart
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         } message: {
-            Text("This will delete the local data store. Your data will resync from iCloud when you restart the app.\n\nMake sure you have a good internet connection before restarting.")
+            Text("This will delete the local data store and restart the app. Your data will resync from iCloud.\n\nMake sure you have a good internet connection.")
         }
+    }
+
+    private var diagnosticsTab: some View {
+        Form {
+            DuplicateWellsSection(modelContext: modelContext)
+            DataBackupSection(modelContext: modelContext)
+            OrphanDiagnosticsSection(modelContext: modelContext)
+        }
+        .formStyle(.grouped)
+        .padding()
     }
 }
 #endif

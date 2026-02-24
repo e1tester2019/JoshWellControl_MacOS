@@ -27,6 +27,7 @@ struct iPadOptimizedContentView: View {
     @State private var showRenameWell = false
     @State private var showRenameProject = false
     @State private var quickNoteManager = QuickNoteManager.shared
+    @State private var taskCountDebounce: Task<Void, Never>?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -74,7 +75,12 @@ struct iPadOptimizedContentView: View {
             quickNoteManager.updateContext(well: selectedWell, project: newProject)
         }
         .onChange(of: wells) { _, newWells in
-            quickNoteManager.updateTaskCounts(from: newWells)
+            taskCountDebounce?.cancel()
+            taskCountDebounce = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                quickNoteManager.updateTaskCounts(from: newWells)
+            }
         }
     }
 

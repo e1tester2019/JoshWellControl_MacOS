@@ -39,30 +39,16 @@ struct TripInSimulationView: View {
     /// Optional closure to navigate to another view (e.g., Trip Out). Provided by parent content view.
     var navigateToView: ((ViewSelection) -> Void)?
 
-    @Query private var allTripSimulations: [TripSimulation]
-    @Query private var allTripInSimulations: [TripInSimulation]
-    private var savedTripOutSimulations: [TripSimulation] {
-        allTripSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var savedTripInSimulations: [TripInSimulation] {
-        allTripInSimulations.filter { $0.project?.id == project.id }.sorted { $0.createdAt > $1.createdAt }
-    }
-
     // Bind to cached ViewModel - initialized from cache
     @State private var viewModel: TripInSimulationViewModel
 
     // Consolidated sheet state
     private enum SheetType: Identifiable {
-        case sourcePicker
-        case frozenInputs(TripInSimulation)
         case circulateOutSchedule
         case pumpSchedule
 
         var id: String {
             switch self {
-            case .sourcePicker: return "sourcePicker"
-            case .frozenInputs(let sim): return "frozenInputs-\(sim.id)"
             case .circulateOutSchedule: return "circulateOutSchedule"
             case .pumpSchedule: return "pumpSchedule"
             }
@@ -70,18 +56,7 @@ struct TripInSimulationView: View {
     }
     @State private var activeSheet: SheetType?
 
-    @State private var showingSaveDialog = false
-    @State private var saveError: String?
     @State private var showDetails = false
-
-    // Rename dialog state
-    @State private var showingRenameDialog = false
-    @State private var simulationToRename: TripInSimulation?
-    @State private var renameText = ""
-
-    // Batch delete state
-    @State private var selectedSimulationsForDelete: Set<TripInSimulation.ID> = []
-    @State private var isEditingSimulations = false
 
     // Pump Schedule sheet state
     @State private var pumpScheduleVM = PumpScheduleViewModel()
@@ -120,22 +95,15 @@ struct TripInSimulationView: View {
                 OperationHandoffService.shared.pendingTripInState = nil
                 viewModel.importFromWellboreState(state, project: project)
             }
-            // Only bootstrap if viewModel is fresh (no loaded simulation and no steps)
-            else if viewModel.currentSimulation == nil && viewModel.steps.isEmpty {
-                viewModel.bootstrap(from: project)
+            // Only bootstrap if viewModel is fresh (no steps and no imported state)
+            else if viewModel.steps.isEmpty && viewModel.endBitMD_m == 0 {
+                if !viewModel.loadSavedInputs(project: project) {
+                    viewModel.bootstrap(from: project)
+                }
             }
-        }
-        .alert("Save Error", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(saveError ?? "Unknown error")
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .sourcePicker:
-                sourceSimulationPicker
-            case .frozenInputs(let sim):
-                FrozenInputsDetailViewTripIn(simulation: sim, currentProject: project)
             case .circulateOutSchedule:
                 circulateOutScheduleSheet
             case .pumpSchedule:
@@ -151,19 +119,6 @@ struct TripInSimulationView: View {
             // Title
             Text("Trip-In Simulation")
                 .font(.headline)
-
-            Divider().frame(height: 24)
-
-            // Source simulation picker
-            Button {
-                activeSheet = .sourcePicker
-            } label: {
-                HStack {
-                    Image(systemName: "arrow.up.doc")
-                    Text(viewModel.sourceType == .none ? "Import Pocket State" : viewModel.sourceDisplayName)
-                }
-            }
-            .controlSize(.small)
 
             Spacer()
 
@@ -206,12 +161,15 @@ struct TripInSimulationView: View {
             .controlSize(.small)
             .disabled(viewModel.isRunning)
 
-            if !viewModel.steps.isEmpty {
-                Button("Save", systemImage: "square.and.arrow.down") {
-                    _ = viewModel.saveSimulation(to: project, context: modelContext)
-                }
-                .controlSize(.small)
+            // Save Inputs button
+            Button {
+                viewModel.saveInputs(project: project, context: modelContext)
+            } label: {
+                Label("Save Inputs", systemImage: "square.and.arrow.down")
+            }
+            .controlSize(.small)
 
+            if !viewModel.steps.isEmpty {
                 Menu {
                     Button("Export HTML") { exportHTMLReport() }
                     Button("Export Zipped HTML") { exportZippedHTMLReport() }
@@ -516,16 +474,9 @@ struct TripInSimulationView: View {
 
     private var content: some View {
         HSplitView {
-            // Left: Input parameters + saved simulations
-            VStack(spacing: 0) {
-                ScrollView {
-                    inputParametersPanel
-                }
-
-                Divider()
-
-                savedSimulationsList
-                    .frame(maxHeight: 160)
+            // Left: Input parameters
+            ScrollView {
+                inputParametersPanel
             }
             .frame(width: 280)
 
@@ -564,7 +515,10 @@ struct TripInSimulationView: View {
                         .frame(maxHeight: .infinity)
 
                     if let step = viewModel.selectedStep {
-                        Text(String(format: "ESD @ Control: %.1f kg/m³", step.ESDAtControl_kgpm3))
+                        let controlTVD = tvdSampler.tvd(of: viewModel.controlMD_m)
+                        let chokeContrib = controlTVD > 0 ? step.requiredChokePressure_kPa / (0.00981 * controlTVD) : 0
+                        let effectiveESD = step.ESDAtControl_kgpm3 + chokeContrib
+                        Text(String(format: "ESD @ Control: %.1f kg/m³", effectiveESD))
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
                             .padding(.top, 4)
                     }
@@ -727,35 +681,6 @@ struct TripInSimulationView: View {
                         .foregroundStyle(.tertiary)
                         .font(.caption2)
                 } else {
-                    // Only show first 5 layers to avoid rendering thousands of views
-                    let previewLayers = Array(viewModel.importedPocketLayers.prefix(5))
-                    ForEach(Array(previewLayers.enumerated()), id: \.offset) { _, layer in
-                        HStack {
-                            Circle()
-                                .fill(layer.rho_kgpm3 < viewModel.targetESD_kgpm3 ? Color.orange : Color.blue)
-                                .frame(width: 8, height: 8)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(String(format: "%.0f", layer.topMD)) - \(String(format: "%.0f", layer.bottomMD))m")
-                                    .font(.caption)
-                                Text("\(String(format: "%.0f", layer.rho_kgpm3)) kg/m³")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("\(String(format: "%.1f", layer.bottomMD - layer.topMD))m")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-
-                    if viewModel.importedPocketLayers.count > 5 {
-                        Text("+ \(viewModel.importedPocketLayers.count - 5) more layers...")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Divider()
-
                     LabeledContent("Total Layers") {
                         Text("\(viewModel.importedPocketLayers.count)")
                             .foregroundStyle(.secondary)
@@ -924,11 +849,11 @@ struct TripInSimulationView: View {
 
     private var esdColumn: some TableColumnContent<TripInSimulationViewModel.TripInStep, Never> {
         TableColumn("ESD") { (step: TripInSimulationViewModel.TripInStep) in
-            Text(String(format: "%.0f", step.ESDAtControl_kgpm3))
+            Text(String(format: "%.1f", step.ESDAtControl_kgpm3))
                 .monospacedDigit()
                 .foregroundColor(step.isBelowTarget ? .red : nil)
         }
-        .width(55)
+        .width(60)
     }
 
     private var surgeColumn: some TableColumnContent<TripInSimulationViewModel.TripInStep, Never> {
@@ -1105,232 +1030,6 @@ struct TripInSimulationView: View {
         }
         .padding(12)
         .frame(width: 280)
-    }
-
-    // MARK: - Saved Simulations List
-
-    private var savedSimulationsList: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Header with edit button
-            HStack {
-                Text("Saved Simulations")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(isEditingSimulations ? "Done" : "Edit") {
-                    isEditingSimulations.toggle()
-                    if !isEditingSimulations {
-                        selectedSimulationsForDelete.removeAll()
-                    }
-                }
-                .font(.caption)
-                .buttonStyle(.borderless)
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 4)
-
-            if isEditingSimulations {
-                // Multi-select mode
-                List(selection: $selectedSimulationsForDelete) {
-                    ForEach(savedTripInSimulations) { simulation in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(simulation.name)
-                                .font(.caption)
-                            Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selectedSimulationsForDelete.contains(simulation.id) {
-                                selectedSimulationsForDelete.remove(simulation.id)
-                            } else {
-                                selectedSimulationsForDelete.insert(simulation.id)
-                            }
-                        }
-                        .tag(simulation.id)
-                    }
-                }
-                .listStyle(.sidebar)
-
-                // Delete controls
-                HStack(spacing: 8) {
-                    Button("All") {
-                        selectedSimulationsForDelete = Set(savedTripInSimulations.map { $0.id })
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-
-                    Button("None") {
-                        selectedSimulationsForDelete.removeAll()
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-
-                    Spacer()
-
-                    Button {
-                        deleteSelectedSimulations()
-                    } label: {
-                        Label("\(selectedSimulationsForDelete.count)", systemImage: "trash")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .disabled(selectedSimulationsForDelete.isEmpty)
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 4)
-            } else {
-                // Normal single-select mode
-                List(savedTripInSimulations, selection: Binding(
-                    get: { viewModel.currentSimulation?.id },
-                    set: { newID in
-                        if let id = newID, let sim = savedTripInSimulations.first(where: { $0.id == id }) {
-                            viewModel.loadSimulation(sim)
-                        }
-                    }
-                )) { simulation in
-                    HStack(spacing: 6) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(simulation.name)
-                                .font(.caption)
-                            HStack(spacing: 4) {
-                                Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                if simulation.hasFrozenInputs {
-                                    Image(systemName: "snowflake")
-                                        .font(.caption2)
-                                        .foregroundStyle(.blue)
-                                        .help("Has frozen inputs")
-                                }
-                            }
-                        }
-                        Spacer()
-                        // Staleness indicator
-                        if simulation.isStale(comparedTo: project) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .help("Geometry has changed since simulation")
-                        }
-                    }
-                    .tag(simulation.id)
-                    .contextMenu {
-                        Button("Rename...", systemImage: "pencil") {
-                            simulationToRename = simulation
-                            renameText = simulation.name
-                            showingRenameDialog = true
-                        }
-                        Button {
-                            activeSheet = .frozenInputs(simulation)
-                        } label: {
-                            Label("View Frozen Inputs", systemImage: "snowflake")
-                        }
-                        Divider()
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            deleteSimulation(simulation)
-                        }
-                    }
-                }
-                .listStyle(.plain)
-            }
-        }
-        .alert("Rename Simulation", isPresented: $showingRenameDialog) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) {
-                simulationToRename = nil
-            }
-            Button("Rename") {
-                if let sim = simulationToRename {
-                    sim.name = renameText
-                    sim.updatedAt = .now
-                    try? modelContext.save()
-                }
-                simulationToRename = nil
-            }
-        } message: {
-            Text("Enter a new name for this simulation")
-        }
-    }
-
-    private func deleteSelectedSimulations() {
-        let toDelete = savedTripInSimulations.filter { selectedSimulationsForDelete.contains($0.id) }
-        for sim in toDelete {
-            viewModel.deleteSimulation(sim, context: modelContext)
-        }
-        selectedSimulationsForDelete.removeAll()
-        isEditingSimulations = false
-    }
-
-    private func deleteSimulation(_ simulation: TripInSimulation) {
-        viewModel.deleteSimulation(simulation, context: modelContext)
-    }
-
-    // MARK: - Source Picker
-
-    private var sourceSimulationPicker: some View {
-        NavigationStack {
-            simulationsList
-                .navigationTitle("Import Pocket State")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            activeSheet = nil
-                        }
-                    }
-                }
-        }
-        .frame(width: 450, height: 550)
-    }
-
-    private var simulationsList: some View {
-        Group {
-            if savedTripOutSimulations.isEmpty {
-                ContentUnavailableView(
-                    "No Trip Simulations",
-                    systemImage: "arrow.up.circle",
-                    description: Text("Run a trip simulation first to import pocket state")
-                )
-            } else {
-                List(savedTripOutSimulations) { simulation in
-                    Button {
-                        importSimulation(simulation)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(simulation.name)
-                                .font(.headline)
-                            HStack {
-                                Text("TD: \(String(format: "%.0f", simulation.startBitMD_m))m")
-                                Text("•")
-                                Text("Shoe: \(String(format: "%.0f", simulation.shoeMD_m))m")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                            Text(simulation.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private func importSimulation(_ simulation: TripSimulation) {
-        print("🖱️ Button pressed")
-        let t = CFAbsoluteTimeGetCurrent()
-
-        viewModel.importFromTripSimulation(simulation, project: project, context: modelContext)
-        print("⏱️ After import: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
-
-        activeSheet = nil
-        print("⏱️ After dismiss: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - t))s")
     }
 
     // MARK: - Visualization
