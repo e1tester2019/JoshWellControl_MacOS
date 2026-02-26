@@ -13,10 +13,8 @@ struct ShiftDaySummaryView: View {
 
     let selectedDate: Date
     var onEditShift: () -> Void
-    var onSelectTask: ((LookAheadTask) -> Void)?
 
     @Query private var shiftEntries: [ShiftEntry]
-    @Query private var lookAheadTasks: [LookAheadTask]
     @Query private var handoverNotes: [HandoverNote]
     @Query private var wellTasks: [WellTask]
     @Query private var workDays: [WorkDay]
@@ -54,14 +52,12 @@ struct ShiftDaySummaryView: View {
 
     private let calendar = Calendar.current
 
-    init(selectedDate: Date, onEditShift: @escaping () -> Void, onSelectTask: ((LookAheadTask) -> Void)? = nil) {
+    init(selectedDate: Date, onEditShift: @escaping () -> Void) {
         self.selectedDate = selectedDate
         self.onEditShift = onEditShift
-        self.onSelectTask = onSelectTask
 
         // Initialize queries - filtering will be done in computed properties
         _shiftEntries = Query(sort: \ShiftEntry.date)
-        _lookAheadTasks = Query(sort: \LookAheadTask.startTime)
         _handoverNotes = Query(sort: \HandoverNote.createdAt, order: .reverse)
         _wellTasks = Query(sort: \WellTask.dueDate)
         _workDays = Query(sort: \WorkDay.startDate)
@@ -77,18 +73,14 @@ struct ShiftDaySummaryView: View {
     }
 
     private var currentShiftType: ShiftType {
-        shiftEntry?.shiftType ?? ShiftRotationSettings.shared.expectedShiftType(for: selectedDate)
-    }
-
-    private var lookAheadTasksForDay: [LookAheadTask] {
-        let dayStart = calendar.startOfDay(for: selectedDate)
-        let dayEnd = dayStart.addingTimeInterval(24 * 60 * 60)
-
-        return lookAheadTasks.filter { task in
-            task.status != .cancelled &&
-            task.startTime < dayEnd &&
-            task.endTime > dayStart
-        }.sorted { $0.startTime < $1.startTime }
+        if let entry = shiftEntry {
+            return entry.shiftType
+        }
+        // If no ShiftEntry but a WorkDay covers this date, treat as Day shift
+        if !workDaysForDay.isEmpty {
+            return .day
+        }
+        return ShiftRotationSettings.shared.expectedShiftType(for: selectedDate)
     }
 
     private var notesForDay: [HandoverNote] {
@@ -142,39 +134,34 @@ struct ShiftDaySummaryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
                 // Date and Shift Header
                 shiftHeaderSection
 
-                Divider()
-
-                // LookAhead Section
-                lookAheadSection
-
-                Divider()
-
                 // Handover Notes Section
-                handoverNotesSection
-
-                Divider()
+                CalendarCard {
+                    handoverNotesSection
+                }
 
                 // Tasks Section
-                tasksSection
-
-                Divider()
+                CalendarCard {
+                    tasksSection
+                }
 
                 // Work Logged Section
-                workLoggedSection
-
-                Divider()
+                CalendarCard {
+                    workLoggedSection
+                }
 
                 // Expenses Section
-                expensesSection
+                CalendarCard {
+                    expensesSection
+                }
             }
             .padding()
         }
         #if os(macOS)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.ultraThinMaterial)
         #endif
         .sheet(item: $noteEditorMode) { mode in
             switch mode {
@@ -208,17 +195,22 @@ struct ShiftDaySummaryView: View {
 
             // Shift Type Badge
             HStack {
-                Label {
+                HStack(spacing: 6) {
+                    Image(systemName: currentShiftType.icon)
                     Text("\(currentShiftType.displayName) Shift")
                         .fontWeight(.medium)
-                } icon: {
-                    Image(systemName: currentShiftType.icon)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(shiftBadgeColor)
                 .foregroundColor(.white)
-                .cornerRadius(8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    LinearGradient(
+                        colors: ShiftColorPalette.gradient(for: currentShiftType),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(10)
 
                 Spacer()
 
@@ -253,99 +245,6 @@ struct ShiftDaySummaryView: View {
                         .foregroundColor(.secondary)
                 }
             }
-        }
-    }
-
-    // MARK: - LookAhead Section
-
-    private var lookAheadSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "list.bullet.clipboard")
-                    .foregroundColor(.blue)
-                Text("LookAhead")
-                    .font(.headline)
-                Spacer()
-                Text("\(lookAheadTasksForDay.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Button(action: addNewTask) {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundColor(.blue)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if lookAheadTasksForDay.isEmpty {
-                HStack {
-                    Text("No scheduled items")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .italic()
-                    Spacer()
-                    Button("Add Task") {
-                        addNewTask()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            } else {
-                ForEach(lookAheadTasksForDay) { task in
-                    Button(action: { onSelectTask?(task) }) {
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(statusColor(for: task.status))
-                                .frame(width: 8, height: 8)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(task.name)
-                                    .lineLimit(1)
-                                    .foregroundColor(.primary)
-
-                                HStack(spacing: 6) {
-                                    Text(task.timeRangeFormatted)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-
-                                    if let jobCode = task.jobCode {
-                                        Text(jobCode.code)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 1)
-                                            .background(Color.secondary.opacity(0.2))
-                                            .cornerRadius(3)
-                                    }
-
-                                    Text(task.status.rawValue)
-                                        .font(.caption2)
-                                        .foregroundColor(statusColor(for: task.status))
-                                }
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(8)
-                        .background(statusColor(for: task.status).opacity(0.1))
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
         }
     }
 
@@ -691,13 +590,7 @@ struct ShiftDaySummaryView: View {
         return formatter.string(from: selectedDate)
     }
 
-    private var shiftBadgeColor: Color {
-        switch currentShiftType {
-        case .day: return .blue
-        case .night: return .purple
-        case .off: return .gray
-        }
-    }
+    // shiftBadgeColor now handled by ShiftColorPalette
 
     private func formattedCurrency(_ amount: Double) -> String {
         let formatter = NumberFormatter()
@@ -707,48 +600,6 @@ struct ShiftDaySummaryView: View {
     }
 
     // MARK: - Actions
-
-    private func addNewTask() {
-        // Calculate a sensible start time for the new task
-        let newStartTime: Date
-        if let lastTask = lookAheadTasksForDay.last {
-            // Start after the last task
-            newStartTime = lastTask.endTime
-        } else {
-            // Default to 8:00 AM on the selected day, or current time if today
-            let dayStart = calendar.startOfDay(for: selectedDate)
-            let defaultStart = dayStart.addingTimeInterval(8 * 60 * 60) // 8:00 AM
-            if calendar.isDateInToday(selectedDate) && Date() > defaultStart {
-                // If today and past 8 AM, start at next 15-minute interval
-                let now = Date()
-                let minutes = calendar.component(.minute, from: now)
-                let roundedMinutes = ((minutes / 15) + 1) * 15
-                newStartTime = calendar.date(bySettingHour: calendar.component(.hour, from: now),
-                                             minute: roundedMinutes % 60,
-                                             second: 0,
-                                             of: selectedDate) ?? now
-            } else {
-                newStartTime = defaultStart
-            }
-        }
-
-        // Create a new task with default values
-        let newTask = LookAheadTask(
-            name: "New Task",
-            estimatedDuration_min: 60
-        )
-        newTask.startTime = newStartTime
-
-        // Assign to the current well if one is set on the shift
-        if let well = shiftEntry?.well {
-            newTask.well = well
-        }
-
-        modelContext.insert(newTask)
-
-        // Select the new task for editing
-        onSelectTask?(newTask)
-    }
 
     private func notePriorityColor(_ note: HandoverNote) -> Color {
         switch note.priority {

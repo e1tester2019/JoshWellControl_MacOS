@@ -503,31 +503,13 @@ struct ShiftRotationSetupView: View {
     private func generateSchedule() {
         guard settings.rotationStartDate != nil else { return }
 
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        // First fetch existing entries to avoid duplicates
-        let descriptor = FetchDescriptor<ShiftEntry>(sortBy: [SortDescriptor(\ShiftEntry.date)])
-        let existingEntries = (try? modelContext.fetch(descriptor)) ?? []
-        let existingDates = Set(existingEntries.map { calendar.startOfDay(for: $0.date) })
-
-        // Generate entries for each day
-        for dayOffset in 0..<daysToGenerate {
-            guard let date = calendar.date(byAdding: .day, value: dayOffset, to: today) else {
-                continue
-            }
-
-            let dayStart = calendar.startOfDay(for: date)
-
-            // Skip if entry already exists for this date
-            if existingDates.contains(dayStart) {
-                continue
-            }
-
-            let expectedType = settings.expectedShiftType(for: date)
-            let entry = ShiftEntry(date: dayStart, shiftType: expectedType)
-            modelContext.insert(entry)
-        }
+        ShiftWorkDayService.bulkCreateShiftsWithWorkDays(
+            settings: settings,
+            days: daysToGenerate,
+            client: nil,
+            well: nil,
+            context: modelContext
+        )
 
         do {
             try modelContext.save()

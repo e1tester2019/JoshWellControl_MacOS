@@ -2,8 +2,8 @@
 //  ShiftCalendarView.swift
 //  Josh Well Control for Mac
 //
-//  Main calendar view for shift tracking on macOS with spanning LookAhead tasks.
-//  Supports month, week, and day view modes.
+//  Main calendar view for shift tracking on macOS.
+//  Supports month, timeline, week, and day view modes.
 //
 
 import SwiftUI
@@ -35,94 +35,129 @@ struct ShiftCalendarView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Query(sort: \ShiftEntry.date) private var allShifts: [ShiftEntry]
+    @Query(sort: \WorkDay.startDate) private var allWorkDays: [WorkDay]
     @Query(sort: \Client.companyName) private var clients: [Client]
     @Query(filter: #Predicate<Well> { !$0.isArchived }, sort: \Well.name) private var wells: [Well]
-    @Query(sort: \LookAheadTask.startTime) private var lookAheadTasks: [LookAheadTask]
 
     @State private var selectedDate: Date = Date()
     @State private var displayedMonth: Date = Date()
     @State private var viewMode: CalendarViewMode = .month
     @State private var showingSettings = false
     @State private var showingEditor = false
-    @State private var selectedTask: LookAheadTask?
 
     private let calendar = Calendar.current
+
+    /// O(1) shift lookup dictionary — rebuilt when allShifts changes
+    private var shiftDictionary: [Date: ShiftEntry] {
+        var dict: [Date: ShiftEntry] = [:]
+        for entry in allShifts {
+            let dayStart = calendar.startOfDay(for: entry.date)
+            dict[dayStart] = entry
+        }
+        return dict
+    }
+
+    /// O(1) work day lookup — maps every date covered by a WorkDay to that WorkDay.
+    /// Handles multi-day WorkDays by expanding startDate...endDate into individual dates.
+    private var workDayDictionary: [Date: WorkDay] {
+        var dict: [Date: WorkDay] = [:]
+        for workDay in allWorkDays {
+            let start = calendar.startOfDay(for: workDay.startDate)
+            let end = calendar.startOfDay(for: workDay.endDate)
+            // Single-day or multi-day WorkDay
+            var current = start
+            while current <= end {
+                dict[current] = workDay
+                guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+                current = next
+            }
+        }
+        return dict
+    }
 
     var body: some View {
         HSplitView {
             // Calendar Grid
             VStack(spacing: 0) {
-                // Header with navigation and view mode
                 calendarHeader
 
                 Divider()
 
-                // Calendar content based on view mode
                 switch viewMode {
                 case .month:
                     MonthCalendarView(
                         displayedMonth: displayedMonth,
                         selectedDate: $selectedDate,
-                        selectedTask: $selectedTask,
                         showingEditor: $showingEditor,
-                        lookAheadTasks: lookAheadTasks,
                         shiftTypeForDate: shiftType(for:),
-                        hasWorkDayForDate: hasWorkDay(for:)
+                        hasWorkDayForDate: hasWorkDay(for:),
+                        isConfirmedShift: isConfirmedShift(for:)
                     )
                 case .timeline:
                     TimelineCalendarView(
                         selectedDate: $selectedDate,
-                        selectedTask: $selectedTask,
                         showingEditor: $showingEditor,
-                        lookAheadTasks: lookAheadTasks,
+                        allShifts: allShifts,
                         shiftTypeForDate: shiftType(for:),
-                        hasWorkDayForDate: hasWorkDay(for:)
+                        hasWorkDayForDate: hasWorkDay(for:),
+                        shiftEntryForDate: shiftEntry(for:),
+                        workDayForDate: workDay(for:)
                     )
                 case .week:
                     WeekCalendarView(
                         selectedDate: $selectedDate,
-                        selectedTask: $selectedTask,
                         showingEditor: $showingEditor,
-                        lookAheadTasks: lookAheadTasks,
                         shiftTypeForDate: shiftType(for:),
-                        hasWorkDayForDate: hasWorkDay(for:)
+                        hasWorkDayForDate: hasWorkDay(for:),
+                        shiftEntryForDate: shiftEntry(for:),
+                        workDayForDate: workDay(for:)
                     )
                 case .day:
                     DayCalendarView(
                         selectedDate: $selectedDate,
-                        selectedTask: $selectedTask,
-                        lookAheadTasks: lookAheadTasks,
-                        shiftTypeForDate: shiftType(for:)
+                        shiftTypeForDate: shiftType(for:),
+                        shiftEntryForDate: shiftEntry(for:),
+                        workDayForDate: workDay(for:)
                     )
                 }
             }
             .frame(minWidth: 500)
 
-            // Sidebar - show task editor or day summary
-            if let task = selectedTask {
-                LookAheadTaskSidebarView(
-                    task: task,
-                    onClose: { selectedTask = nil },
-                    onDelete: { selectedTask = nil },
-                    onTimingChanged: { changedTask, oldEndTime in
-                        adjustTaskChainFromSidebar(task: changedTask, oldEndTime: oldEndTime)
-                    }
-                )
-                .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
-            } else {
-                ShiftDaySummaryView(
-                    selectedDate: selectedDate,
-                    onEditShift: { showingEditor = true },
-                    onSelectTask: { task in selectedTask = task }
-                )
-                .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
-            }
+            // Sidebar — always show day summary
+            ShiftDaySummaryView(
+                selectedDate: selectedDate,
+                onEditShift: { showingEditor = true }
+            )
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
         }
         .sheet(isPresented: $showingSettings) {
             ShiftRotationSetupView()
         }
         .sheet(isPresented: $showingEditor) {
             ShiftEditorView(date: selectedDate)
+        }
+        // Keyboard shortcuts (hidden buttons for menu-bar shortcuts)
+        .background {
+            Group {
+                Button("") { goToToday() }
+                    .keyboardShortcut("t", modifiers: .command)
+                Button("") { showingEditor = true }
+                    .keyboardShortcut("e", modifiers: .command)
+                Button("") { viewMode = .month }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("") { viewMode = .timeline }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("") { viewMode = .week }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("") { viewMode = .day }
+                    .keyboardShortcut("4", modifiers: .command)
+                Button("") { navigatePrevious() }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { navigateNext() }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
         }
         .onAppear {
             Task {
@@ -135,19 +170,16 @@ struct ShiftCalendarView: View {
 
     private var calendarHeader: some View {
         HStack {
-            // Previous button
             Button(action: navigatePrevious) {
                 Image(systemName: "chevron.left")
             }
             .buttonStyle(.plain)
 
-            // Date title
             Text(headerTitle)
                 .font(.title2)
                 .fontWeight(.semibold)
                 .frame(minWidth: 200)
 
-            // Next button
             Button(action: navigateNext) {
                 Image(systemName: "chevron.right")
             }
@@ -155,7 +187,6 @@ struct ShiftCalendarView: View {
 
             Spacer()
 
-            // View mode picker
             Picker("View", selection: $viewMode) {
                 ForEach(CalendarViewMode.allCases, id: \.self) { mode in
                     Label(mode.rawValue, systemImage: mode.icon)
@@ -167,13 +198,11 @@ struct ShiftCalendarView: View {
 
             Spacer().frame(width: 16)
 
-            // Today button
             Button(action: goToToday) {
                 Text("Today")
             }
             .buttonStyle(.bordered)
 
-            // Settings
             Button(action: { showingSettings = true }) {
                 Image(systemName: "gearshape")
             }
@@ -212,43 +241,47 @@ struct ShiftCalendarView: View {
     }
 
     private func navigatePrevious() {
-        switch viewMode {
-        case .month:
-            if let newDate = calendar.date(byAdding: .month, value: -1, to: displayedMonth) {
-                displayedMonth = newDate
-            }
-        case .timeline:
-            if let newDate = calendar.date(byAdding: .day, value: -7, to: selectedDate) {
-                selectedDate = newDate
-            }
-        case .week:
-            if let newDate = calendar.date(byAdding: .weekOfYear, value: -1, to: selectedDate) {
-                selectedDate = newDate
-            }
-        case .day:
-            if let newDate = calendar.date(byAdding: .day, value: -1, to: selectedDate) {
-                selectedDate = newDate
+        withAnimation(CalendarAnimation.monthTransition) {
+            switch viewMode {
+            case .month:
+                if let newDate = calendar.date(byAdding: .month, value: -1, to: displayedMonth) {
+                    displayedMonth = newDate
+                }
+            case .timeline:
+                if let newDate = calendar.date(byAdding: .day, value: -7, to: selectedDate) {
+                    selectedDate = newDate
+                }
+            case .week:
+                if let newDate = calendar.date(byAdding: .weekOfYear, value: -1, to: selectedDate) {
+                    selectedDate = newDate
+                }
+            case .day:
+                if let newDate = calendar.date(byAdding: .day, value: -1, to: selectedDate) {
+                    selectedDate = newDate
+                }
             }
         }
     }
 
     private func navigateNext() {
-        switch viewMode {
-        case .month:
-            if let newDate = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
-                displayedMonth = newDate
-            }
-        case .timeline:
-            if let newDate = calendar.date(byAdding: .day, value: 7, to: selectedDate) {
-                selectedDate = newDate
-            }
-        case .week:
-            if let newDate = calendar.date(byAdding: .weekOfYear, value: 1, to: selectedDate) {
-                selectedDate = newDate
-            }
-        case .day:
-            if let newDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
-                selectedDate = newDate
+        withAnimation(CalendarAnimation.monthTransition) {
+            switch viewMode {
+            case .month:
+                if let newDate = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
+                    displayedMonth = newDate
+                }
+            case .timeline:
+                if let newDate = calendar.date(byAdding: .day, value: 7, to: selectedDate) {
+                    selectedDate = newDate
+                }
+            case .week:
+                if let newDate = calendar.date(byAdding: .weekOfYear, value: 1, to: selectedDate) {
+                    selectedDate = newDate
+                }
+            case .day:
+                if let newDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
+                    selectedDate = newDate
+                }
             }
         }
     }
@@ -258,44 +291,47 @@ struct ShiftCalendarView: View {
         selectedDate = Date()
     }
 
-    // MARK: - Shift Helpers
+    // MARK: - Shift Helpers (O(1) via dictionary)
 
     private func shiftType(for date: Date) -> ShiftType {
         let dayStart = calendar.startOfDay(for: date)
-        if let entry = allShifts.first(where: { calendar.isDate($0.date, inSameDayAs: dayStart) }) {
+        if let entry = shiftDictionary[dayStart] {
             return entry.shiftType
+        }
+        // If no ShiftEntry but a WorkDay covers this date, treat as Day shift
+        if workDayDictionary[dayStart] != nil {
+            return .day
         }
         return ShiftRotationSettings.shared.expectedShiftType(for: date)
     }
 
     private func hasWorkDay(for date: Date) -> Bool {
         let dayStart = calendar.startOfDay(for: date)
-        if let entry = allShifts.first(where: { calendar.isDate($0.date, inSameDayAs: dayStart) }) {
-            return entry.workDay != nil
+        // Check ShiftEntry's linked WorkDay first, then standalone WorkDays
+        if shiftDictionary[dayStart]?.workDay != nil {
+            return true
         }
-        return false
+        return workDayDictionary[dayStart] != nil
     }
 
-    /// Adjust task chain when timing is changed from the sidebar editor
-    private func adjustTaskChainFromSidebar(task: LookAheadTask, oldEndTime: Date) {
-        let newEndTime = task.endTime
-
-        // Calculate how much the end time shifted
-        let delta = newEndTime.timeIntervalSince(oldEndTime)
-
-        guard abs(delta) > 1 else { return }  // Ignore tiny changes
-
-        // Find and shift all tasks that started at or after the old end time
-        let sortedTasks = lookAheadTasks
-            .filter { $0.id != task.id && $0.status != .cancelled }
-            .sorted { $0.startTime < $1.startTime }
-
-        for otherTask in sortedTasks {
-            // If this task starts at or after where the changed task ended
-            if otherTask.startTime >= oldEndTime || otherTask.startTime >= newEndTime - delta {
-                otherTask.startTime = otherTask.startTime.addingTimeInterval(delta)
-            }
+    private func isConfirmedShift(for date: Date) -> Bool {
+        let dayStart = calendar.startOfDay(for: date)
+        // Confirmed if there's a ShiftEntry OR a WorkDay covering this date
+        if shiftDictionary[dayStart] != nil {
+            return true
         }
+        return workDayDictionary[dayStart] != nil
+    }
+
+    private func shiftEntry(for date: Date) -> ShiftEntry? {
+        let dayStart = calendar.startOfDay(for: date)
+        return shiftDictionary[dayStart]
+    }
+
+    private func workDay(for date: Date) -> WorkDay? {
+        let dayStart = calendar.startOfDay(for: date)
+        // Prefer ShiftEntry's linked WorkDay, fall back to standalone
+        return shiftDictionary[dayStart]?.workDay ?? workDayDictionary[dayStart]
     }
 }
 
@@ -304,11 +340,10 @@ struct ShiftCalendarView: View {
 private struct MonthCalendarView: View {
     let displayedMonth: Date
     @Binding var selectedDate: Date
-    @Binding var selectedTask: LookAheadTask?
     @Binding var showingEditor: Bool
-    let lookAheadTasks: [LookAheadTask]
     let shiftTypeForDate: (Date) -> ShiftType
     let hasWorkDayForDate: (Date) -> Bool
+    let isConfirmedShift: (Date) -> Bool
 
     private let calendar = Calendar.current
     private let daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -335,11 +370,10 @@ private struct MonthCalendarView: View {
                         MonthWeekRow(
                             week: week,
                             selectedDate: $selectedDate,
-                            selectedTask: $selectedTask,
                             showingEditor: $showingEditor,
-                            tasks: tasksForWeek(week),
                             shiftTypeForDate: shiftTypeForDate,
-                            hasWorkDayForDate: hasWorkDayForDate
+                            hasWorkDayForDate: hasWorkDayForDate,
+                            isConfirmedShift: isConfirmedShift
                         )
                     }
                 }
@@ -381,381 +415,6 @@ private struct MonthCalendarView: View {
 
         return weeks
     }
-
-    private func tasksForWeek(_ week: [Date?]) -> [(task: LookAheadTask, startCol: Int, endCol: Int)] {
-        let validDates = week.compactMap { $0 }
-        guard let weekStart = validDates.first,
-              let weekEnd = validDates.last else {
-            return []
-        }
-
-        let weekStartDay = calendar.startOfDay(for: weekStart)
-        let weekEndDay = calendar.startOfDay(for: weekEnd).addingTimeInterval(24 * 60 * 60 - 1)
-
-        var result: [(task: LookAheadTask, startCol: Int, endCol: Int)] = []
-
-        for task in lookAheadTasks {
-            guard task.status != .cancelled else { continue }
-
-            let taskStart = task.startTime
-            let taskEnd = task.endTime
-
-            if taskStart <= weekEndDay && taskEnd >= weekStartDay {
-                var startCol = 0
-                var endCol = 6
-
-                for (col, date) in week.enumerated() {
-                    if let date = date {
-                        let dayEnd = calendar.startOfDay(for: date).addingTimeInterval(24 * 60 * 60 - 1)
-                        if taskStart <= dayEnd {
-                            startCol = col
-                            break
-                        }
-                    }
-                }
-
-                for (col, date) in week.enumerated().reversed() {
-                    if let date = date {
-                        let dayStart = calendar.startOfDay(for: date)
-                        if taskEnd >= dayStart {
-                            endCol = col
-                            break
-                        }
-                    }
-                }
-
-                while startCol < week.count && week[startCol] == nil {
-                    startCol += 1
-                }
-                while endCol >= 0 && week[endCol] == nil {
-                    endCol -= 1
-                }
-
-                if startCol <= endCol {
-                    result.append((task: task, startCol: startCol, endCol: endCol))
-                }
-            }
-        }
-
-        return result
-    }
-}
-
-// MARK: - Timeline Calendar View
-
-private struct TimelineCalendarView: View {
-    @Binding var selectedDate: Date
-    @Binding var selectedTask: LookAheadTask?
-    @Binding var showingEditor: Bool
-    let lookAheadTasks: [LookAheadTask]
-    let shiftTypeForDate: (Date) -> ShiftType
-    let hasWorkDayForDate: (Date) -> Bool
-
-    private let calendar = Calendar.current
-    private let dayColumnWidth: CGFloat = 120
-    private let rowHeight: CGFloat = 36
-
-    // Visible days (7 days starting from selectedDate)
-    private var visibleDays: [Date] {
-        (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: selectedDate)) }
-    }
-
-    // Tasks that overlap with the visible range
-    private var visibleTasks: [LookAheadTask] {
-        guard let rangeStart = visibleDays.first,
-              let rangeEnd = visibleDays.last else { return [] }
-        let rangeEndOfDay = calendar.startOfDay(for: rangeEnd).addingTimeInterval(24 * 60 * 60 - 1)
-
-        return lookAheadTasks.filter { task in
-            task.status != .cancelled &&
-            task.startTime <= rangeEndOfDay &&
-            task.endTime >= rangeStart
-        }.sorted { $0.startTime < $1.startTime }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Day headers with navigation hints
-            HStack(spacing: 0) {
-                // Left scroll indicator
-                Button(action: scrollLeft) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                        .frame(width: 30)
-                }
-                .buttonStyle(.plain)
-                .help("Previous 7 days")
-
-                // Day columns header
-                ForEach(visibleDays, id: \.self) { day in
-                    TimelineDayHeader(
-                        date: day,
-                        isToday: calendar.isDateInToday(day),
-                        shiftType: shiftTypeForDate(day),
-                        hasWorkDay: hasWorkDayForDate(day)
-                    )
-                    .frame(width: dayColumnWidth)
-                    .onTapGesture(count: 2) {
-                        selectedDate = day
-                        showingEditor = true
-                    }
-                }
-
-                // Right scroll indicator
-                Button(action: scrollRight) {
-                    Image(systemName: "chevron.right")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                        .frame(width: 30)
-                }
-                .buttonStyle(.plain)
-                .help("Next 7 days")
-            }
-            .padding(.vertical, 8)
-            .background(Color(NSColor.controlBackgroundColor))
-
-            Divider()
-
-            // Task rows
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    if visibleTasks.isEmpty {
-                        ContentUnavailableView {
-                            Label("No Tasks", systemImage: "calendar.badge.checkmark")
-                        } description: {
-                            Text("No tasks scheduled for this period")
-                        }
-                        .frame(height: 200)
-                    } else {
-                        ForEach(visibleTasks, id: \.id) { task in
-                            TimelineTaskRow(
-                                task: task,
-                                visibleDays: visibleDays,
-                                dayColumnWidth: dayColumnWidth,
-                                isSelected: selectedTask?.id == task.id,
-                                onTap: { selectedTask = task }
-                            )
-                            .frame(height: rowHeight)
-                            Divider()
-                        }
-                    }
-                }
-                .padding(.leading, 30) // Align with day columns (accounting for left button)
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 50)
-                .onEnded { value in
-                    if value.translation.width > 50 {
-                        scrollLeft()
-                    } else if value.translation.width < -50 {
-                        scrollRight()
-                    }
-                }
-        )
-    }
-
-    private func scrollLeft() {
-        if let newDate = calendar.date(byAdding: .day, value: -1, to: selectedDate) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedDate = newDate
-            }
-        }
-    }
-
-    private func scrollRight() {
-        if let newDate = calendar.date(byAdding: .day, value: 1, to: selectedDate) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedDate = newDate
-            }
-        }
-    }
-}
-
-// MARK: - Timeline Day Header
-
-private struct TimelineDayHeader: View {
-    let date: Date
-    let isToday: Bool
-    let shiftType: ShiftType
-    let hasWorkDay: Bool
-
-    private let calendar = Calendar.current
-
-    var body: some View {
-        VStack(spacing: 4) {
-            // Day of week
-            Text(dayOfWeek)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            // Day number
-            Text("\(calendar.component(.day, from: date))")
-                .font(.system(size: 16, weight: isToday ? .bold : .medium))
-                .foregroundColor(isToday ? .white : .primary)
-                .frame(width: 28, height: 28)
-                .background(isToday ? Color.accentColor : Color.clear)
-                .clipShape(Circle())
-
-            // Shift badge
-            HStack(spacing: 2) {
-                Text(shiftType.displayName.prefix(1))
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.white)
-                if hasWorkDay {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .font(.system(size: 7))
-                        .foregroundColor(.white)
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(shiftColor)
-            .cornerRadius(4)
-        }
-    }
-
-    private var dayOfWeek: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
-    }
-
-    private var shiftColor: Color {
-        switch shiftType {
-        case .day: return Color.blue.opacity(0.8)
-        case .night: return Color.purple.opacity(0.8)
-        case .off: return Color.gray.opacity(0.5)
-        }
-    }
-}
-
-// MARK: - Timeline Task Row
-
-private struct TimelineTaskRow: View {
-    let task: LookAheadTask
-    let visibleDays: [Date]
-    let dayColumnWidth: CGFloat
-    let isSelected: Bool
-    let onTap: () -> Void
-
-    private let calendar = Calendar.current
-
-    var body: some View {
-        GeometryReader { geometry in
-            let totalWidth = CGFloat(visibleDays.count) * dayColumnWidth
-            let (startOffset, barWidth) = calculateBarPosition(totalWidth: totalWidth)
-
-            ZStack(alignment: .leading) {
-                // Background grid lines for each day
-                HStack(spacing: 0) {
-                    ForEach(0..<visibleDays.count, id: \.self) { index in
-                        Rectangle()
-                            .fill(Color.clear)
-                            .frame(width: dayColumnWidth)
-                            .overlay(alignment: .leading) {
-                                if index > 0 {
-                                    Rectangle()
-                                        .fill(Color.secondary.opacity(0.1))
-                                        .frame(width: 1)
-                                }
-                            }
-                    }
-                }
-
-                // Task bar
-                HStack(spacing: 4) {
-                    // Status indicator
-                    Circle()
-                        .fill(taskColor)
-                        .frame(width: 8, height: 8)
-
-                    // Task name
-                    Text(task.name)
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
-
-                    // Job code if available
-                    if let jobCode = task.jobCode {
-                        Text(jobCode.code)
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(jobCode.color.opacity(0.3))
-                            .cornerRadius(3)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    // Duration
-                    Text(formatDuration(task.estimatedDuration_min))
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(width: max(barWidth, 80))
-                .background(taskColor.opacity(isSelected ? 0.4 : 0.2))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(isSelected ? taskColor : taskColor.opacity(0.5), lineWidth: isSelected ? 2 : 1)
-                )
-                .offset(x: startOffset)
-                .onTapGesture {
-                    onTap()
-                }
-            }
-        }
-    }
-
-    private func calculateBarPosition(totalWidth: CGFloat) -> (offset: CGFloat, width: CGFloat) {
-        guard let firstDay = visibleDays.first,
-              let lastDay = visibleDays.last else {
-            return (0, dayColumnWidth)
-        }
-
-        let rangeStart = calendar.startOfDay(for: firstDay)
-        let rangeEnd = calendar.startOfDay(for: lastDay).addingTimeInterval(24 * 60 * 60)
-        let totalSeconds = rangeEnd.timeIntervalSince(rangeStart)
-
-        // Calculate task position relative to visible range
-        let taskStart = max(task.startTime, rangeStart)
-        let taskEnd = min(task.endTime, rangeEnd)
-
-        let startOffset = taskStart.timeIntervalSince(rangeStart) / totalSeconds * Double(totalWidth)
-        let endOffset = taskEnd.timeIntervalSince(rangeStart) / totalSeconds * Double(totalWidth)
-        let barWidth = endOffset - startOffset
-
-        return (CGFloat(startOffset), CGFloat(barWidth))
-    }
-
-    private func formatDuration(_ minutes: Double) -> String {
-        let hours = Int(minutes) / 60
-        let mins = Int(minutes) % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
-        }
-        return "\(mins)m"
-    }
-
-    private var taskColor: Color {
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
-    }
 }
 
 // MARK: - Month Week Row
@@ -763,101 +422,36 @@ private struct TimelineTaskRow: View {
 private struct MonthWeekRow: View {
     let week: [Date?]
     @Binding var selectedDate: Date
-    @Binding var selectedTask: LookAheadTask?
     @Binding var showingEditor: Bool
-    let tasks: [(task: LookAheadTask, startCol: Int, endCol: Int)]
     let shiftTypeForDate: (Date) -> ShiftType
     let hasWorkDayForDate: (Date) -> Bool
+    let isConfirmedShift: (Date) -> Bool
 
     private let calendar = Calendar.current
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !tasks.isEmpty {
-                VStack(spacing: 2) {
-                    ForEach(Array(tasks.enumerated()), id: \.element.task.id) { _, item in
-                        taskBar(for: item)
-                            .onTapGesture {
-                                selectedTask = item.task
-                            }
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 1) {
+            ForEach(Array(week.enumerated()), id: \.offset) { _, date in
+                if let date = date {
+                    MonthDayCell(
+                        date: date,
+                        shiftType: shiftTypeForDate(date),
+                        isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
+                        isToday: calendar.isDateInToday(date),
+                        hasWorkDay: hasWorkDayForDate(date),
+                        isConfirmed: isConfirmedShift(date)
+                    )
+                    .onTapGesture { selectedDate = date }
+                    .onTapGesture(count: 2) {
+                        selectedDate = date
+                        showingEditor = true
                     }
-                }
-                .padding(.horizontal, 2)
-                .padding(.top, 2)
-            }
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 1) {
-                ForEach(Array(week.enumerated()), id: \.offset) { _, date in
-                    if let date = date {
-                        MonthDayCell(
-                            date: date,
-                            shiftType: shiftTypeForDate(date),
-                            isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                            isToday: calendar.isDateInToday(date),
-                            hasWorkDay: hasWorkDayForDate(date)
-                        )
-                        .onTapGesture { selectedDate = date }
-                        .onTapGesture(count: 2) {
-                            selectedDate = date
-                            showingEditor = true
-                        }
-                    } else {
-                        Color.clear.frame(height: 60)
-                    }
+                } else {
+                    Color.clear.frame(height: 60)
                 }
             }
         }
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-    }
-
-    private func taskBar(for item: (task: LookAheadTask, startCol: Int, endCol: Int)) -> some View {
-        GeometryReader { geometry in
-            let cellWidth = geometry.size.width / 7
-            let startX = CGFloat(item.startCol) * cellWidth
-            let width = CGFloat(item.endCol - item.startCol + 1) * cellWidth - 4
-
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(taskColor(for: item.task))
-                    .frame(width: 6, height: 6)
-                Text(item.task.name)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-                if let jobCode = item.task.jobCode {
-                    Text(jobCode.code)
-                        .font(.system(size: 8, weight: .medium))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(jobCode.color.opacity(0.3))
-                        .cornerRadius(3)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 6)
-            .frame(width: width, height: 18)
-            .background(taskColor(for: item.task).opacity(0.2))
-            .cornerRadius(4)
-            .offset(x: startX + 2)
-        }
-        .frame(height: 18)
-    }
-
-    private func taskColor(for task: LookAheadTask) -> Color {
-        // Use job code color if available, otherwise fall back to status color
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
     }
 }
 
@@ -869,48 +463,223 @@ private struct MonthDayCell: View {
     let isSelected: Bool
     let isToday: Bool
     let hasWorkDay: Bool
+    let isConfirmed: Bool
+
+    @State private var isHovered = false
 
     private let calendar = Calendar.current
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text("\(calendar.component(.day, from: date))")
-                .font(.system(size: 14, weight: isToday ? .bold : .regular))
-                .foregroundColor(isToday ? .white : .primary)
-                .frame(width: 24, height: 24)
-                .background(isToday ? Color.accentColor : Color.clear)
-                .clipShape(Circle())
+        VStack(spacing: 0) {
+            VStack(spacing: 4) {
+                // Day number
+                Text("\(calendar.component(.day, from: date))")
+                    .font(.system(size: 16, weight: isToday ? .bold : .regular, design: .rounded))
+                    .foregroundColor(isToday ? .white : .primary)
+                    .frame(width: 28, height: 28)
+                    .background(isToday ? Color.accentColor : Color.clear)
+                    .clipShape(Circle())
 
-            HStack(spacing: 2) {
-                Text(shiftType.displayName.prefix(1))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white)
-                if hasWorkDay {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(.white)
+                // Work day indicator
+                HStack(spacing: 3) {
+                    if hasWorkDay {
+                        Image(systemName: "briefcase.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(ShiftColorPalette.color(for: shiftType))
+                    }
+                    ShiftBadge(shiftType, confirmed: isConfirmed, compact: true)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(shiftBadgeColor)
-            .cornerRadius(4)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+
+            // Bottom confirmation bar
+            ShiftConfirmationBar(shiftType: shiftType, isConfirmed: isConfirmed)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 60)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(
+            ShiftCellBackground(shiftType: shiftType, isSelected: isSelected, isToday: isToday)
+        )
+        .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
+        .animation(CalendarAnimation.cellSelection, value: isSelected)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var accessibilityDescription: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        let dateStr = formatter.string(from: date)
+        var description = "\(dateStr), \(shiftType.displayName) Shift"
+        if !isConfirmed {
+            description += " (predicted)"
+        }
+        if hasWorkDay {
+            description += ", work logged"
+        }
+        if isToday {
+            description += ", today"
+        }
+        return description
+    }
+}
+
+// MARK: - Timeline Calendar View
+
+private struct TimelineCalendarView: View {
+    @Binding var selectedDate: Date
+    @Binding var showingEditor: Bool
+    let allShifts: [ShiftEntry]
+    let shiftTypeForDate: (Date) -> ShiftType
+    let hasWorkDayForDate: (Date) -> Bool
+    let shiftEntryForDate: (Date) -> ShiftEntry?
+    let workDayForDate: (Date) -> WorkDay?
+
+    private let calendar = Calendar.current
+
+    private var visibleDays: [Date] {
+        (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: selectedDate)) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Day columns
+            HStack(spacing: 0) {
+                ForEach(visibleDays, id: \.self) { day in
+                    timelineDayColumn(for: day)
+                        .frame(maxWidth: .infinity)
+                        .onTapGesture { selectedDate = day }
+                        .onTapGesture(count: 2) {
+                            selectedDate = day
+                            showingEditor = true
+                        }
+                }
+            }
+        }
+    }
+
+    private func timelineDayColumn(for date: Date) -> some View {
+        let shift = shiftTypeForDate(date)
+        let entry = shiftEntryForDate(date)
+        let isToday = calendar.isDateInToday(date)
+        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+
+        return VStack(spacing: 0) {
+            // Day header
+            VStack(spacing: 4) {
+                Text(dayOfWeek(date))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("\(calendar.component(.day, from: date))")
+                    .font(.system(size: 18, weight: isToday ? .bold : .medium, design: .rounded))
+                    .foregroundColor(isToday ? .white : .primary)
+                    .frame(width: 32, height: 32)
+                    .background(isToday ? Color.accentColor : Color.clear)
+                    .clipShape(Circle())
+
+                // Shift type badge
+                ShiftBadge(shift, confirmed: true)
+            }
+            .padding(.vertical, 12)
+            .background(Color(NSColor.controlBackgroundColor))
+
+            Divider()
+
+            // Work details
+            VStack(alignment: .leading, spacing: 8) {
+                if let entry = entry {
+                    if let client = entry.client {
+                        Label(client.companyName, systemImage: "building.2")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    if let well = entry.well {
+                        Label(well.name, systemImage: "oilcan.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    if let workDay = entry.workDay {
+                        HStack {
+                            Image(systemName: "dollarsign.circle.fill")
+                                .foregroundColor(.green)
+                            Text(formattedCurrency(workDay.totalEarnings))
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+
+                        if workDay.totalMileage > 0 {
+                            Label("\(Int(workDay.totalMileage)) km", systemImage: "car.fill")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if !entry.notes.isEmpty {
+                        Label("Has notes", systemImage: "note.text")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                } else if let wd = workDayForDate(date) {
+                    // Standalone WorkDay (no ShiftEntry)
+                    if let client = wd.client {
+                        Label(client.companyName, systemImage: "building.2")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    if let well = wd.well {
+                        Label(well.name, systemImage: "oilcan.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    HStack {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundColor(.green)
+                        Text(formattedCurrency(wd.totalEarnings))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                } else if shift != .off {
+                    Text("Not confirmed")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(ShiftColorPalette.color(for: shift).opacity(0.06))
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.15), lineWidth: isSelected ? 2 : 0.5)
         )
     }
 
-    private var shiftBadgeColor: Color {
-        switch shiftType {
-        case .day: return Color.blue.opacity(0.8)
-        case .night: return Color.purple.opacity(0.8)
-        case .off: return Color.gray.opacity(0.5)
-        }
+    private func dayOfWeek(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
+
+    private func formattedCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = "$"
+        return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
     }
 }
 
@@ -918,11 +687,11 @@ private struct MonthDayCell: View {
 
 private struct WeekCalendarView: View {
     @Binding var selectedDate: Date
-    @Binding var selectedTask: LookAheadTask?
     @Binding var showingEditor: Bool
-    let lookAheadTasks: [LookAheadTask]
     let shiftTypeForDate: (Date) -> ShiftType
     let hasWorkDayForDate: (Date) -> Bool
+    let shiftEntryForDate: (Date) -> ShiftEntry?
+    let workDayForDate: (Date) -> WorkDay?
 
     private let calendar = Calendar.current
     private let hourHeight: CGFloat = 60
@@ -957,7 +726,7 @@ private struct WeekCalendarView: View {
 
                     // Day columns
                     ForEach(weekDays, id: \.self) { day in
-                        weekDayColumn(for: day, weekDays: weekDays)
+                        weekDayColumn(for: day)
                     }
                 }
             }
@@ -976,6 +745,7 @@ private struct WeekCalendarView: View {
         let dayNum = calendar.component(.day, from: date)
         let isToday = calendar.isDateInToday(date)
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+        let shift = shiftTypeForDate(date)
 
         return VStack(spacing: 4) {
             Text(dayName)
@@ -989,13 +759,12 @@ private struct WeekCalendarView: View {
                 .background(isToday ? Color.accentColor : Color.clear)
                 .clipShape(Circle())
 
-            // Shift badge
-            Text(shiftTypeForDate(date).displayName.prefix(1))
+            Text(shift.displayName.prefix(1))
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(shiftColor(for: shiftTypeForDate(date)))
+                .background(ShiftColorPalette.color(for: shift))
                 .cornerRadius(3)
         }
         .frame(maxWidth: .infinity)
@@ -1004,9 +773,8 @@ private struct WeekCalendarView: View {
         .onTapGesture { selectedDate = date }
     }
 
-    private func weekDayColumn(for date: Date, weekDays: [Date]) -> some View {
-        let dayTasks = tasksForDay(date)
-        let isLastDayOfWeek = calendar.isDate(date, inSameDayAs: weekDays.last ?? date)
+    private func weekDayColumn(for date: Date) -> some View {
+        let shift = shiftTypeForDate(date)
 
         return ZStack(alignment: .topLeading) {
             // Hour lines
@@ -1021,66 +789,94 @@ private struct WeekCalendarView: View {
                 }
             }
 
-            // Task blocks
-            ForEach(dayTasks, id: \.id) { task in
-                // Only show resize handle on the day where the task ends (or last day of week if it extends beyond)
-                let taskEndsToday = calendar.isDate(task.endTime, inSameDayAs: date)
-                let showResizeHandle = taskEndsToday || (task.endTime > (weekDays.last ?? date) && isLastDayOfWeek)
+            // Shift block (if working)
+            if shift != .off {
+                shiftBlock(for: date, shift: shift)
+            }
 
-                ResizableWeekTaskBlock(
-                    task: task,
-                    displayDate: date,
-                    hourHeight: hourHeight,
-                    showResizeHandle: showResizeHandle,
-                    onTap: { selectedTask = task },
-                    onResizeEnded: { newDuration in
-                        adjustTaskChain(task: task, newDuration: newDuration)
-                    }
-                )
+            // Current time indicator
+            if calendar.isDateInToday(date) {
+                currentTimeIndicator
             }
         }
         .frame(maxWidth: .infinity)
-        .onTapGesture {
-            selectedDate = date
-        }
+        .onTapGesture { selectedDate = date }
         .onTapGesture(count: 2) {
             selectedDate = date
             showingEditor = true
         }
     }
 
-    private func tasksForDay(_ date: Date) -> [LookAheadTask] {
-        let dayStart = calendar.startOfDay(for: date)
-        let dayEnd = dayStart.addingTimeInterval(24 * 60 * 60)
+    private func shiftBlock(for date: Date, shift: ShiftType) -> some View {
+        let settings = ShiftRotationSettings.shared
+        let startHour: Double
+        let endHour: Double
 
-        return lookAheadTasks.filter { task in
-            task.status != .cancelled &&
-            task.startTime < dayEnd &&
-            task.endTime > dayStart
+        if shift == .day {
+            startHour = Double(settings.dayShiftStartHour) + Double(settings.dayShiftStartMinute) / 60
+            endHour = Double(settings.nightShiftStartHour) + Double(settings.nightShiftStartMinute) / 60
+        } else {
+            startHour = Double(settings.nightShiftStartHour) + Double(settings.nightShiftStartMinute) / 60
+            endHour = 24.0
         }
-    }
 
-    /// Adjust task duration and shift all subsequent tasks to maintain the chain
-    private func adjustTaskChain(task: LookAheadTask, newDuration: Double) {
-        let oldEndTime = task.endTime
-        task.estimatedDuration_min = newDuration
-        let newEndTime = task.endTime
+        let topOffset = startHour * hourHeight
+        let blockHeight = (endHour - startHour) * hourHeight
 
-        // Calculate how much the end time shifted
-        let delta = newEndTime.timeIntervalSince(oldEndTime)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("\(shift.displayName) Shift")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(ShiftColorPalette.color(for: shift))
 
-        // Find and shift all tasks that started at or after the old end time
-        // Sort by start time to process in order
-        let sortedTasks = lookAheadTasks
-            .filter { $0.id != task.id && $0.status != .cancelled }
-            .sorted { $0.startTime < $1.startTime }
+            if let entry = shiftEntryForDate(date), let client = entry.client {
+                Text(client.companyName)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            } else if let wd = workDayForDate(date), let client = wd.client {
+                Text(client.companyName)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
 
-        for otherTask in sortedTasks {
-            // If this task starts at or after where the resized task ended
-            if otherTask.startTime >= oldEndTime || otherTask.startTime >= newEndTime - delta {
-                otherTask.startTime = otherTask.startTime.addingTimeInterval(delta)
+            if let entry = shiftEntryForDate(date), let workDay = entry.workDay {
+                Text(formattedCurrency(workDay.totalEarnings))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.green)
+            } else if let wd = workDayForDate(date) {
+                Text(formattedCurrency(wd.totalEarnings))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.green)
             }
         }
+        .padding(6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: blockHeight, alignment: .top)
+        .background(ShiftColorPalette.color(for: shift).opacity(0.1))
+        .cornerRadius(4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(ShiftColorPalette.color(for: shift).opacity(0.3), lineWidth: 1)
+        )
+        .padding(.horizontal, 2)
+        .offset(y: topOffset)
+    }
+
+    private var currentTimeIndicator: some View {
+        let now = Date()
+        let currentHour = Double(calendar.component(.hour, from: now)) + Double(calendar.component(.minute, from: now)) / 60
+        let yOffset = currentHour * hourHeight
+
+        return HStack(spacing: 0) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+            Rectangle()
+                .fill(Color.red)
+                .frame(height: 1)
+        }
+        .offset(y: yOffset - 4)
     }
 
     private func formatHour(_ hour: Int) -> String {
@@ -1094,29 +890,11 @@ private struct WeekCalendarView: View {
         return "\(hour):00"
     }
 
-    private func shiftColor(for type: ShiftType) -> Color {
-        switch type {
-        case .day: return Color.blue.opacity(0.8)
-        case .night: return Color.purple.opacity(0.8)
-        case .off: return Color.gray.opacity(0.5)
-        }
-    }
-
-    private func taskColor(for task: LookAheadTask) -> Color {
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
+    private func formattedCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = "$"
+        return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
     }
 }
 
@@ -1124,534 +902,218 @@ private struct WeekCalendarView: View {
 
 private struct DayCalendarView: View {
     @Binding var selectedDate: Date
-    @Binding var selectedTask: LookAheadTask?
-    let lookAheadTasks: [LookAheadTask]
     let shiftTypeForDate: (Date) -> ShiftType
+    let shiftEntryForDate: (Date) -> ShiftEntry?
+    let workDayForDate: (Date) -> WorkDay?
 
     private let calendar = Calendar.current
-    private let hourHeight: CGFloat = 60
 
     var body: some View {
-        let dayTasks = tasksForDay()
+        let shift = shiftTypeForDate(selectedDate)
+        let entry = shiftEntryForDate(selectedDate)
 
-        VStack(spacing: 0) {
-            // Day header
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(shiftTypeForDate(selectedDate).displayName + " Shift")
-                        .font(.headline)
-                        .foregroundColor(shiftColor(for: shiftTypeForDate(selectedDate)))
-                    Text("\(dayTasks.count) task\(dayTasks.count == 1 ? "" : "s") scheduled")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Shift type banner
+                HStack {
+                    Image(systemName: shift.icon)
+                        .font(.title2)
+                    Text("\(shift.displayName) Shift")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Spacer()
                 }
-                Spacer()
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
+                .foregroundColor(.white)
+                .padding()
+                .background(
+                    LinearGradient(
+                        colors: ShiftColorPalette.gradient(for: shift),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .cornerRadius(12)
 
-            // Time grid
-            ScrollView {
-                HStack(alignment: .top, spacing: 0) {
-                    // Time labels
-                    VStack(spacing: 0) {
-                        ForEach(0..<24, id: \.self) { hour in
-                            Text(formatHour(hour))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 60, height: hourHeight, alignment: .topTrailing)
-                                .padding(.trailing, 8)
-                        }
-                    }
+                // Key metrics
+                if let entry = entry {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        if let workDay = entry.workDay {
+                            metricCard(
+                                title: "Earnings",
+                                value: formattedCurrency(workDay.totalEarnings),
+                                icon: "dollarsign.circle.fill",
+                                color: .green
+                            )
 
-                    // Main column
-                    ZStack(alignment: .topLeading) {
-                        // Hour lines
-                        VStack(spacing: 0) {
-                            ForEach(0..<24, id: \.self) { _ in
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.1))
-                                    .frame(height: hourHeight)
-                                    .overlay(alignment: .top) {
-                                        Divider()
-                                    }
-                            }
+                            metricCard(
+                                title: "Mileage",
+                                value: workDay.totalMileage > 0 ? "\(Int(workDay.totalMileage)) km" : "—",
+                                icon: "car.fill",
+                                color: .blue
+                            )
                         }
 
-                        // Task blocks - now using local state management
-                        ForEach(dayTasks, id: \.id) { task in
-                            ResizableTaskBlock(
-                                task: task,
-                                selectedDate: selectedDate,
-                                hourHeight: hourHeight,
-                                onTap: { selectedTask = task },
-                                onResizeEnded: { newDuration in
-                                    adjustTaskChain(task: task, newDuration: newDuration)
-                                }
+                        if let client = entry.client {
+                            metricCard(
+                                title: "Client",
+                                value: client.companyName,
+                                icon: "building.2",
+                                color: .purple
+                            )
+                        }
+
+                        if let well = entry.well {
+                            metricCard(
+                                title: "Well",
+                                value: well.name,
+                                icon: "oilcan.fill",
+                                color: .orange
                             )
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
 
-    private func tasksForDay() -> [LookAheadTask] {
-        let dayStart = calendar.startOfDay(for: selectedDate)
-        let dayEnd = dayStart.addingTimeInterval(24 * 60 * 60)
-
-        return lookAheadTasks.filter { task in
-            task.status != .cancelled &&
-            task.startTime < dayEnd &&
-            task.endTime > dayStart
-        }
-    }
-
-    /// Adjust task duration and shift all subsequent tasks to maintain the chain
-    private func adjustTaskChain(task: LookAheadTask, newDuration: Double) {
-        let oldEndTime = task.endTime
-        task.estimatedDuration_min = newDuration
-        let newEndTime = task.endTime
-
-        // Calculate how much the end time shifted
-        let delta = newEndTime.timeIntervalSince(oldEndTime)
-
-        // Find and shift all tasks that started at or after the old end time
-        // Sort by start time to process in order
-        let sortedTasks = lookAheadTasks
-            .filter { $0.id != task.id && $0.status != .cancelled }
-            .sorted { $0.startTime < $1.startTime }
-
-        for otherTask in sortedTasks {
-            // If this task starts at or after where the resized task ended
-            if otherTask.startTime >= oldEndTime || otherTask.startTime >= newEndTime - delta {
-                otherTask.startTime = otherTask.startTime.addingTimeInterval(delta)
-            }
-        }
-    }
-
-    private func taskColor(for task: LookAheadTask) -> Color {
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func formatHour(_ hour: Int) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-        var components = DateComponents()
-        components.hour = hour
-        if let date = Calendar.current.date(from: components) {
-            return formatter.string(from: date)
-        }
-        return "\(hour):00"
-    }
-
-    private func shiftColor(for type: ShiftType) -> Color {
-        switch type {
-        case .day: return .blue
-        case .night: return .purple
-        case .off: return .gray
-        }
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
-    }
-}
-
-// MARK: - Resizable Week Task Block
-
-private struct ResizableWeekTaskBlock: View {
-    let task: LookAheadTask
-    let displayDate: Date
-    let hourHeight: CGFloat
-    let showResizeHandle: Bool
-    let onTap: () -> Void
-    let onResizeEnded: (Double) -> Void
-
-    // Use @GestureState for smooth gesture tracking - auto-resets when gesture ends
-    @GestureState private var dragOffset: CGFloat = 0
-
-    private let calendar = Calendar.current
-    private let minimumHeight: CGFloat = 20
-    private let minimumDuration: Double = 15
-    private let snapInterval: Double = 15
-
-    // Computed: whether we're currently dragging
-    private var isDragging: Bool { dragOffset != 0 }
-
-    var body: some View {
-        let dayStart = calendar.startOfDay(for: displayDate)
-        let dayEnd = dayStart.addingTimeInterval(24 * 60 * 60)
-
-        let blockStart = max(task.startTime, dayStart)
-        let blockEnd = min(task.endTime, dayEnd)
-
-        let startMinutes = blockStart.timeIntervalSince(dayStart) / 60
-        let baseDurationMinutes = blockEnd.timeIntervalSince(blockStart) / 60
-
-        let topOffset = CGFloat(startMinutes) / 60 * hourHeight
-        let baseHeight = max(minimumHeight, CGFloat(baseDurationMinutes) / 60 * hourHeight)
-
-        // Calculate maximum height (can't extend past end of day)
-        let maxHeightForDay = CGFloat((24 * 60 - startMinutes) / 60) * hourHeight
-        let clampedDragOffset = min(dragOffset, maxHeightForDay - baseHeight)
-        let currentHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
-
-        // Calculate max duration (task can't extend past midnight of display day)
-        let maxDurationForDay = dayEnd.timeIntervalSince(task.startTime) / 60
-
-        // Calculate snapped duration for display (computed, not stored)
-        let snappedDuration: Double = {
-            let newHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
-            let rawDuration = calculateRawDuration(from: newHeight, baseHeight: baseHeight)
-            let capped = min(rawDuration, maxDurationForDay)
-            return max(minimumDuration, round(capped / snapInterval) * snapInterval)
-        }()
-
-        let color = taskColor(for: task)
-
-        return VStack(spacing: 0) {
-            // Content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.name)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(2)
-
-                if !isDragging, let jobCode = task.jobCode {
-                    Text(jobCode.code)
-                        .font(.system(size: 8))
-                        .foregroundColor(color)
-                }
-            }
-            .padding(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: 0)
-
-            // Resize handle
-            if showResizeHandle {
-                VStack(spacing: 2) {
-                    if isDragging {
-                        Text(formatEndTime(task.startTime.addingTimeInterval(snappedDuration * 60)))
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 1) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Circle()
-                                .fill(Color.white.opacity(0.8))
-                                .frame(width: 3, height: 3)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: isDragging ? 24 : 12)
-                .background(isDragging ? color : color.opacity(0.15))
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 1)
-                        .updating($dragOffset) { value, state, _ in
-                            // Only update the gesture state - no other state changes
-                            state = value.translation.height
-                        }
-                        .onEnded { value in
-                            let clampedOffset = min(value.translation.height, maxHeightForDay - baseHeight)
-                            let finalHeight = max(minimumHeight, min(baseHeight + clampedOffset, maxHeightForDay))
-                            let rawDuration = calculateNewTotalDuration(from: finalHeight, baseHeight: baseHeight)
-                            // Cap duration so task can't extend past end of display day
-                            let cappedDuration = min(rawDuration, maxDurationForDay)
-                            onResizeEnded(max(minimumDuration, cappedDuration))
-                        }
-                )
-                #if os(macOS)
-                .onHover { hovering in
-                    if hovering {
-                        NSCursor.resizeUpDown.push()
-                    } else {
-                        NSCursor.pop()
-                    }
-                }
-                #endif
-            }
-        }
-        .frame(height: currentHeight)
-        .background(color.opacity(isDragging ? 0.5 : 0.3))
-        .cornerRadius(4)
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(isDragging ? color : color.opacity(0.5), lineWidth: isDragging ? 2 : 1)
-        )
-        .padding(.horizontal, 2)
-        .offset(y: topOffset)
-        .onTapGesture {
-            onTap()
-        }
-    }
-
-    private func calculateRawDuration(from newBlockHeight: CGFloat, baseHeight: CGFloat) -> Double {
-        let dayStart = calendar.startOfDay(for: displayDate)
-        let newBlockDuration = Double(newBlockHeight / hourHeight * 60)
-
-        if task.startTime < dayStart {
-            let priorDuration = dayStart.timeIntervalSince(task.startTime) / 60
-            return priorDuration + newBlockDuration
-        } else {
-            return newBlockDuration
-        }
-    }
-
-    private func calculateNewTotalDuration(from newBlockHeight: CGFloat, baseHeight: CGFloat) -> Double {
-        let rawDuration = calculateRawDuration(from: newBlockHeight, baseHeight: baseHeight)
-        return round(rawDuration / snapInterval) * snapInterval
-    }
-
-    private func formatEndTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        if !calendar.isDate(date, inSameDayAs: task.startTime) {
-            formatter.dateFormat = "MMM d, h:mm a"
-        } else {
-            formatter.dateFormat = "h:mm a"
-        }
-        return "→ " + formatter.string(from: date)
-    }
-
-    private func taskColor(for task: LookAheadTask) -> Color {
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
-    }
-}
-
-// MARK: - Resizable Task Block (Day View)
-
-private struct ResizableTaskBlock: View {
-    let task: LookAheadTask
-    let selectedDate: Date
-    let hourHeight: CGFloat
-    let onTap: () -> Void
-    let onResizeEnded: (Double) -> Void
-
-    // Use @GestureState for smooth gesture tracking - auto-resets when gesture ends
-    @GestureState private var dragOffset: CGFloat = 0
-
-    private let calendar = Calendar.current
-    private let minimumHeight: CGFloat = 30
-    private let minimumDuration: Double = 15
-    private let snapInterval: Double = 15
-
-    // Computed: whether we're currently dragging
-    private var isDragging: Bool { dragOffset != 0 }
-
-    var body: some View {
-        let dayStart = calendar.startOfDay(for: selectedDate)
-        let dayEnd = dayStart.addingTimeInterval(24 * 60 * 60)
-
-        let blockStart = max(task.startTime, dayStart)
-        let blockEnd = min(task.endTime, dayEnd)
-
-        let startMinutes = blockStart.timeIntervalSince(dayStart) / 60
-        let baseDurationMinutes = blockEnd.timeIntervalSince(blockStart) / 60
-
-        let topOffset = CGFloat(startMinutes) / 60 * hourHeight
-        let baseHeight = max(minimumHeight, CGFloat(baseDurationMinutes) / 60 * hourHeight)
-
-        // Calculate maximum height (can't extend past end of day)
-        let maxHeightForDay = CGFloat((24 * 60 - startMinutes) / 60) * hourHeight
-        let clampedDragOffset = min(dragOffset, maxHeightForDay - baseHeight)
-        let currentHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
-
-        // Calculate max duration (task can't extend past midnight of display day)
-        let maxDurationForDay = dayEnd.timeIntervalSince(task.startTime) / 60
-
-        // Calculate snapped duration for display (computed, not stored)
-        let snappedDuration: Double = {
-            let newHeight = max(minimumHeight, min(baseHeight + clampedDragOffset, maxHeightForDay))
-            let rawDuration = Double(newHeight / hourHeight * 60)
-            let capped = min(rawDuration, maxDurationForDay)
-            return max(minimumDuration, round(capped / snapInterval) * snapInterval)
-        }()
-
-        let color = taskColor(for: task)
-
-        return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Rectangle()
-                    .fill(color)
-                    .frame(width: 4)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(2)
-
-                    HStack(spacing: 8) {
-                        if isDragging {
-                            Text(formatEndDateTime(task.startTime.addingTimeInterval(snappedDuration * 60)))
-                                .font(.caption)
-                                .foregroundColor(.orange)
-                                .fontWeight(.medium)
-                            Text(formatDuration(snappedDuration))
-                                .font(.system(size: 9))
-                                .foregroundColor(.orange)
-                        } else {
-                            Text(task.timeRangeFormatted)
-                                .font(.caption)
+                    // Notes
+                    if !entry.notes.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Notes", systemImage: "note.text")
+                                .font(.headline)
+                            Text(entry.notes)
+                                .font(.body)
                                 .foregroundColor(.secondary)
                         }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                    }
 
-                        if !isDragging, let jobCode = task.jobCode {
-                            Text(jobCode.code)
-                                .font(.system(size: 9, weight: .medium))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(jobCode.color.opacity(0.3))
-                                .cornerRadius(3)
+                    // Invoice status
+                    if let workDay = entry.workDay, workDay.isInvoiced {
+                        HStack {
+                            Label("Invoiced", systemImage: "doc.text.fill")
+                                .foregroundColor(.blue)
+                            if workDay.isPaid {
+                                Label("Paid", systemImage: "checkmark.seal.fill")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        .font(.callout)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                    }
+                } else if let wd = workDayForDate(selectedDate) {
+                    // Standalone WorkDay (no ShiftEntry)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        metricCard(
+                            title: "Earnings",
+                            value: formattedCurrency(wd.totalEarnings),
+                            icon: "dollarsign.circle.fill",
+                            color: .green
+                        )
+
+                        metricCard(
+                            title: "Mileage",
+                            value: wd.totalMileage > 0 ? "\(Int(wd.totalMileage)) km" : "—",
+                            icon: "car.fill",
+                            color: .blue
+                        )
+
+                        if let client = wd.client {
+                            metricCard(
+                                title: "Client",
+                                value: client.companyName,
+                                icon: "building.2",
+                                color: .purple
+                            )
                         }
 
-                        if !isDragging {
-                            Text(task.status.rawValue)
-                                .font(.system(size: 9))
-                                .foregroundColor(statusColor(for: task.status))
+                        if let well = wd.well {
+                            metricCard(
+                                title: "Well",
+                                value: well.name,
+                                icon: "oilcan.fill",
+                                color: .orange
+                            )
                         }
                     }
-                }
 
-                Spacer()
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: 0)
-
-            // Resize handle
-            VStack(spacing: 2) {
-                if isDragging {
-                    HStack(spacing: 2) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Circle().fill(Color.white).frame(width: 4, height: 4)
+                    if wd.isInvoiced {
+                        HStack {
+                            Label("Invoiced", systemImage: "doc.text.fill")
+                                .foregroundColor(.blue)
+                            if wd.isPaid {
+                                Label("Paid", systemImage: "checkmark.seal.fill")
+                                    .foregroundColor(.green)
+                            }
                         }
+                        .font(.callout)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
                     }
+                } else if shift != .off {
+                    VStack(spacing: 12) {
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("Predicted from rotation")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Double-click or use the sidebar to confirm this shift")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
                 } else {
-                    HStack(spacing: 2) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Circle().fill(color.opacity(0.5)).frame(width: 4, height: 4)
-                        }
+                    VStack(spacing: 12) {
+                        Image(systemName: "house.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("Day Off")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 16)
-            .background(isDragging ? color : color.opacity(0.1))
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 1)
-                    .updating($dragOffset) { value, state, _ in
-                        // Only update the gesture state - no other state changes
-                        state = value.translation.height
-                    }
-                    .onEnded { value in
-                        let clampedOffset = min(value.translation.height, maxHeightForDay - baseHeight)
-                        let newHeight = max(minimumHeight, min(baseHeight + clampedOffset, maxHeightForDay))
-                        let rawDuration = Double(newHeight / hourHeight * 60)
-                        // Cap duration so task can't extend past end of display day
-                        let cappedDuration = min(rawDuration, maxDurationForDay)
-                        let finalDuration = max(minimumDuration, round(cappedDuration / snapInterval) * snapInterval)
-                        onResizeEnded(finalDuration)
-                    }
-            )
-            #if os(macOS)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.resizeUpDown.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-            #endif
-        }
-        .frame(height: currentHeight)
-        .background(color.opacity(isDragging ? 0.2 : 0.1))
-        .cornerRadius(6)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isDragging ? color : Color.clear, lineWidth: 2)
-        )
-        .padding(.horizontal, 8)
-        .offset(y: topOffset)
-        .onTapGesture {
-            onTap()
+            .padding()
         }
     }
 
-    private func calculateDuration(from height: CGFloat) -> Double {
-        return Double(height / hourHeight * 60)
-    }
-
-    private func snapDuration(_ duration: Double) -> Double {
-        return round(duration / snapInterval) * snapInterval
-    }
-
-    private func formatDuration(_ minutes: Double) -> String {
-        let hours = Int(minutes) / 60
-        let mins = Int(minutes) % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
+    private func metricCard(title: String, value: String, icon: String, color: Color) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(color)
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.callout)
+                .fontWeight(.medium)
+                .lineLimit(1)
         }
-        return "\(mins) min"
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 
-    private func formatEndDateTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        if !calendar.isDate(date, inSameDayAs: task.startTime) {
-            formatter.dateFormat = "→ MMM d, h:mm a"
-        } else {
-            formatter.dateFormat = "→ h:mm a"
-        }
-        return formatter.string(from: date)
-    }
-
-    private func taskColor(for task: LookAheadTask) -> Color {
-        if let jobCode = task.jobCode {
-            return jobCode.color
-        }
-        return statusColor(for: task.status)
-    }
-
-    private func statusColor(for status: LookAheadTaskStatus) -> Color {
-        switch status {
-        case .scheduled: return .blue
-        case .inProgress: return .orange
-        case .completed: return .green
-        case .delayed: return .red
-        case .cancelled: return .gray
-        }
+    private func formattedCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = "$"
+        return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
     }
 }
 
 #Preview {
     ShiftCalendarView()
-        .modelContainer(for: [ShiftEntry.self, Client.self, Well.self, WorkDay.self, LookAheadTask.self])
+        .modelContainer(for: [ShiftEntry.self, Client.self, Well.self, WorkDay.self])
 }
 #endif

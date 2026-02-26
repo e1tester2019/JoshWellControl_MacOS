@@ -17,11 +17,13 @@ struct ShiftEditorView: View {
     @Query(sort: \Client.companyName) private var clients: [Client]
     @Query(filter: #Predicate<Well> { !$0.isArchived }, sort: \Well.name) private var wells: [Well]
     @Query(sort: \Pad.name) private var pads: [Pad]
+    @Query(sort: \ShiftEntry.date, order: .reverse) private var allShiftEntries: [ShiftEntry]
 
     @State private var shiftType: ShiftType = .off
     @State private var selectedClient: Client?
     @State private var selectedPad: Pad?
     @State private var selectedWell: Well?
+    @State private var isPredicted = false
 
     /// Wells filtered by selected pad
     private var filteredWells: [Well] {
@@ -54,7 +56,7 @@ struct ShiftEditorView: View {
             #endif
         }
         #if os(macOS)
-        .frame(width: 500, height: 600)
+        .frame(width: 420, height: 520)
         #endif
     }
 
@@ -73,9 +75,64 @@ struct ShiftEditorView: View {
 
             Divider()
 
+            // Quick Confirm banner (for new entries with auto-filled data)
+            if existingShiftEntry == nil && shiftType != .off && selectedClient != nil {
+                HStack(spacing: 12) {
+                    Image(systemName: shiftType.icon)
+                        .foregroundColor(.white)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(shiftType.displayName) Shift")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+
+                        HStack(spacing: 4) {
+                            if let client = selectedClient {
+                                Text(client.companyName)
+                            }
+                            if let well = selectedWell {
+                                Text("—")
+                                Text(well.name)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.9))
+                    }
+
+                    Spacer()
+
+                    Button("Quick Save") {
+                        saveShift()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    LinearGradient(
+                        colors: shiftType == .day ? [.blue, .cyan] : [.purple, .indigo],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+            }
+
             // Form content
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // Predicted label
+                    if isPredicted && existingShiftEntry == nil {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wand.and.stars")
+                                .foregroundColor(.orange)
+                            Text("Predicted from rotation — Save to confirm")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
                     // Date Display
                     formRow(label: "Date") {
                         Text(dateString)
@@ -84,18 +141,16 @@ struct ShiftEditorView: View {
 
                     Divider()
 
-                    // Shift Type
+                    // Shift Type — three tappable cards
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Shift Type")
                             .font(.headline)
 
-                        Picker("", selection: $shiftType) {
+                        HStack(spacing: 8) {
                             ForEach(ShiftType.allCases, id: \.self) { type in
-                                Text(type.displayName).tag(type)
+                                shiftTypeCard(type)
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                     }
 
                     // Client & Well Assignment (only for working shifts)
@@ -127,7 +182,6 @@ struct ShiftEditorView: View {
                                 .labelsHidden()
                                 .frame(width: 200)
                                 .onChange(of: selectedPad) { _, newPad in
-                                    // Clear well selection if it's not in the new pad
                                     if let well = selectedWell, let pad = newPad {
                                         if well.pad?.id != pad.id {
                                             selectedWell = nil
@@ -162,23 +216,24 @@ struct ShiftEditorView: View {
 
                         Divider()
 
-                        // Mileage
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Mileage (km)")
-                                .font(.headline)
+                        // Mileage — collapsed by default
+                        DisclosureGroup("Mileage (km)") {
+                            VStack(spacing: 8) {
+                                mileageRow(label: "To Location", value: $mileageToLocation)
+                                mileageRow(label: "From Location", value: $mileageFromLocation)
+                                mileageRow(label: "In Field", value: $mileageInField)
+                                mileageRow(label: "Commute", value: $mileageCommute)
 
-                            mileageRow(label: "To Location", value: $mileageToLocation)
-                            mileageRow(label: "From Location", value: $mileageFromLocation)
-                            mileageRow(label: "In Field", value: $mileageInField)
-                            mileageRow(label: "Commute", value: $mileageCommute)
-
-                            if totalMileage > 0 {
-                                formRow(label: "Total") {
-                                    Text("\(Int(totalMileage)) km")
-                                        .fontWeight(.semibold)
+                                if totalMileage > 0 {
+                                    formRow(label: "Total") {
+                                        Text("\(Int(totalMileage)) km")
+                                            .fontWeight(.semibold)
+                                    }
                                 }
                             }
+                            .padding(.top, 4)
                         }
+                        .font(.headline)
                     }
 
                     Divider()
@@ -290,6 +345,37 @@ struct ShiftEditorView: View {
                 hasLoadedData = true
             }
         }
+    }
+
+    private func shiftTypeCard(_ type: ShiftType) -> some View {
+        let isActive = shiftType == type
+        let color: Color = {
+            switch type {
+            case .day: return .blue
+            case .night: return .purple
+            case .off: return .gray
+            }
+        }()
+
+        return Button(action: { shiftType = type }) {
+            VStack(spacing: 6) {
+                Image(systemName: type.icon)
+                    .font(.title3)
+                Text(type.displayName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(isActive ? color.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+            .foregroundColor(isActive ? color : .secondary)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isActive ? color : Color.secondary.opacity(0.2), lineWidth: isActive ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -534,21 +620,15 @@ struct ShiftEditorView: View {
     private func loadExistingData() {
         let dayStart = calendar.startOfDay(for: date)
 
-        // Fetch existing shift entry for this date
-        let descriptor = FetchDescriptor<ShiftEntry>(
-            predicate: #Predicate<ShiftEntry> { entry in
-                entry.date >= dayStart
-            }
-        )
-
-        if let entries = try? modelContext.fetch(descriptor),
-           let entry = entries.first(where: { calendar.isDate($0.date, inSameDayAs: dayStart) }) {
+        // Check if there's an existing shift entry for this date
+        if let entry = allShiftEntries.first(where: { calendar.isDate($0.date, inSameDayAs: dayStart) }) {
             existingShiftEntry = entry
             shiftType = entry.shiftType
             selectedClient = entry.client
             selectedWell = entry.well
-            selectedPad = entry.well?.pad  // Set pad from existing well
+            selectedPad = entry.well?.pad
             notes = entry.notes
+            isPredicted = false
 
             // Load mileage from associated WorkDay if exists
             if let workDay = entry.workDay {
@@ -558,8 +638,16 @@ struct ShiftEditorView: View {
                 mileageCommute = workDay.mileageCommute
             }
         } else {
-            // No existing entry, use expected shift type from rotation
+            // No existing entry — use rotation prediction and auto-fill from last entry
             shiftType = ShiftRotationSettings.shared.expectedShiftType(for: date)
+            isPredicted = true
+
+            // Auto-fill client/pad/well from most recent shift with a client
+            if let lastEntry = allShiftEntries.first(where: { $0.client != nil }) {
+                selectedClient = lastEntry.client
+                selectedPad = lastEntry.well?.pad
+                selectedWell = lastEntry.well
+            }
         }
     }
 
@@ -584,36 +672,18 @@ struct ShiftEditorView: View {
         shiftEntry.notes = notes
         shiftEntry.updatedAt = Date.now
 
-        // Handle WorkDay creation/update/deletion
-        if shiftType != .off && selectedClient != nil {
-            // Need a WorkDay
-            let workDay: WorkDay
-            if let existing = shiftEntry.workDay {
-                workDay = existing
-            } else {
-                workDay = WorkDay(startDate: dayStart, endDate: dayStart)
-                modelContext.insert(workDay)
-                shiftEntry.workDay = workDay
-            }
-
-            // Update WorkDay
-            workDay.startDate = dayStart
-            workDay.endDate = dayStart
-            workDay.client = selectedClient
-            workDay.well = selectedWell
-            workDay.mileageToLocation = mileageToLocation
-            workDay.mileageFromLocation = mileageFromLocation
-            workDay.mileageInField = mileageInField
-            workDay.mileageCommute = mileageCommute
-            workDay.notes = notes
-
-        } else if let existingWorkDay = shiftEntry.workDay {
-            // Shift changed to off or no client - remove WorkDay if not invoiced
-            if !existingWorkDay.isInvoiced {
-                modelContext.delete(existingWorkDay)
-                shiftEntry.workDay = nil
-            }
-        }
+        // Auto-sync WorkDay via service
+        ShiftWorkDayService.ensureWorkDay(
+            for: shiftEntry,
+            client: selectedClient,
+            well: selectedWell,
+            mileageToLocation: mileageToLocation,
+            mileageFromLocation: mileageFromLocation,
+            mileageInField: mileageInField,
+            mileageCommute: mileageCommute,
+            notes: notes,
+            context: modelContext
+        )
 
         do {
             try modelContext.save()

@@ -203,6 +203,7 @@ enum AppContainer {
                     // One-time migrations
                     migrateExpenseReceiptFlags(context: ctx)
                     migrateRentalsToEquipmentRegistry(context: ctx)
+                    ShiftWorkDayService.migrateOrphanShifts(context: ctx)
 
                     // Orphan scan (runs every launch to catch sync-induced orphans)
                     let diagnosis = OrphanRepairService.quickDiagnose(context: ctx)
@@ -246,6 +247,7 @@ enum AppContainer {
                 let ctx = container.mainContext
                 migrateExpenseReceiptFlags(context: ctx)
                 migrateRentalsToEquipmentRegistry(context: ctx)
+                ShiftWorkDayService.migrateOrphanShifts(context: ctx)
 
                 // Orphan scan (runs every launch to catch sync-induced orphans)
                 let diagnosis = OrphanRepairService.quickDiagnose(context: ctx)
