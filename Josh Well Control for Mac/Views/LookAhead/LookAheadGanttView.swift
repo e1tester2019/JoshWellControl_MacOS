@@ -38,8 +38,9 @@ struct LookAheadGanttView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var pixelsPerHour: CGFloat = GanttLayout.defaultZoom
-    @State private var scrollProxy: ScrollViewProxy?
-    @State private var scrollToTaskID: UUID?
+    @State private var timelineScrollView: NSScrollView?
+    @State private var labelScrollView: NSScrollView?
+    @State private var scrollObserver: NSObjectProtocol?
 
     private var tasks: [LookAheadTask] { schedule.sortedTasks }
 
@@ -121,9 +122,9 @@ struct LookAheadGanttView: View {
     // MARK: - Main Content
 
     private var ganttContent: some View {
-        ScrollView(.vertical) {
-            HStack(alignment: .top, spacing: 0) {
-                // Fixed label column
+        HStack(alignment: .top, spacing: 0) {
+            // Fixed label column — scrolls vertically only
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     // Header spacer
                     Color.clear.frame(height: GanttLayout.headerHeight)
@@ -142,72 +143,70 @@ struct LookAheadGanttView: View {
                         }
                     }
                 }
-                .frame(width: GanttLayout.labelColumnWidth)
-                .background(Color(nsColor: .controlBackgroundColor))
+                .background(ScrollViewFinder(key: "labels", scrollView: $labelScrollView))
+            }
+            .frame(width: GanttLayout.labelColumnWidth)
+            .background(Color(nsColor: .controlBackgroundColor))
 
-                Divider()
+            Divider()
 
-                // Scrollable timeline
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        ZStack(alignment: .topLeading) {
-                            // Grid background
-                            GanttGridBackground(
-                                timelineStart: timelineStart,
-                                timelineEnd: timelineEnd,
-                                pixelsPerHour: pixelsPerHour,
-                                rowCount: tasks.count,
-                                totalWidth: totalTimelineWidth
-                            )
+            // Timeline — scrolls both directions
+            ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                ZStack(alignment: .topLeading) {
+                    // Grid background
+                    GanttGridBackground(
+                        timelineStart: timelineStart,
+                        timelineEnd: timelineEnd,
+                        pixelsPerHour: pixelsPerHour,
+                        rowCount: tasks.count,
+                        totalWidth: totalTimelineWidth
+                    )
 
-                            VStack(alignment: .leading, spacing: 0) {
-                                // Time header
-                                GanttTimelineHeader(
-                                    timelineStart: timelineStart,
-                                    timelineEnd: timelineEnd,
-                                    pixelsPerHour: pixelsPerHour
-                                )
-                                .frame(height: GanttLayout.headerHeight)
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Time header
+                        GanttTimelineHeader(
+                            timelineStart: timelineStart,
+                            timelineEnd: timelineEnd,
+                            pixelsPerHour: pixelsPerHour
+                        )
+                        .frame(height: GanttLayout.headerHeight)
 
-                                // Task bars
-                                ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
-                                    GanttTaskBar(
-                                        task: task,
-                                        timelineStart: timelineStart,
-                                        pixelsPerHour: pixelsPerHour,
-                                        isSelected: viewModel.selectedTask?.id == task.id,
-                                        onSelect: {
-                                            viewModel.selectedTask = task
-                                        },
-                                        onEdit: { onEditTask(task) },
-                                        onResize: { newDuration in
-                                            viewModel.updateDuration(task, newDuration: newDuration, context: modelContext)
-                                        },
-                                        onStart: { onStartTask(task) },
-                                        onComplete: { onCompleteTask(task) },
-                                        onDelay: { onDelayTask(task) },
-                                        onDelete: { onDeleteTask(task) }
-                                    )
-                                    .frame(height: GanttLayout.rowHeight)
-                                    .padding(.vertical, GanttLayout.rowSpacing / 2)
-                                    .id(task.id)
-                                }
-                            }
-
-                            // Now line
-                            GanttNowIndicator(
+                        // Task bars
+                        ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+                            GanttTaskBar(
+                                task: task,
                                 timelineStart: timelineStart,
                                 pixelsPerHour: pixelsPerHour,
-                                totalHeight: GanttLayout.headerHeight + CGFloat(tasks.count) * GanttLayout.rowPitch
+                                isSelected: viewModel.selectedTask?.id == task.id,
+                                onSelect: {
+                                    viewModel.selectedTask = task
+                                },
+                                onEdit: { onEditTask(task) },
+                                onResize: { newDuration in
+                                    viewModel.updateDuration(task, newDuration: newDuration, context: modelContext)
+                                },
+                                onStart: { onStartTask(task) },
+                                onComplete: { onCompleteTask(task) },
+                                onDelay: { onDelayTask(task) },
+                                onDelete: { onDeleteTask(task) }
                             )
+                            .frame(height: GanttLayout.rowHeight)
+                            .padding(.vertical, GanttLayout.rowSpacing / 2)
                         }
-                        .frame(width: totalTimelineWidth)
-                        .id("ganttTimeline")
                     }
-                    .onAppear {
-                        scrollProxy = proxy
-                    }
+
+                    // Now line
+                    GanttNowIndicator(
+                        timelineStart: timelineStart,
+                        pixelsPerHour: pixelsPerHour,
+                        totalHeight: GanttLayout.headerHeight + CGFloat(tasks.count) * GanttLayout.rowPitch
+                    )
                 }
+                .frame(width: totalTimelineWidth)
+                .background(ScrollViewFinder(key: "timeline", scrollView: $timelineScrollView))
+            }
+            .onChange(of: timelineScrollView) {
+                syncVerticalScroll()
             }
         }
     }
@@ -224,19 +223,103 @@ struct LookAheadGanttView: View {
 
     // MARK: - Helpers
 
+    private func xPosition(for date: Date) -> CGFloat {
+        CGFloat(date.timeIntervalSince(timelineStart) / 3600) * pixelsPerHour
+    }
+
     private func scrollToTask(_ task: LookAheadTask) {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            scrollProxy?.scrollTo(task.id, anchor: .leading)
-        }
+        guard let index = tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        let targetX = xPosition(for: task.startTime) - 20
+        let targetY = GanttLayout.headerHeight + CGFloat(index) * GanttLayout.rowPitch - 20
+        scrollTo(x: targetX, y: targetY)
     }
 
     private func scrollToNow() {
-        // Find the task closest to now and scroll to it
         let now = Date.now
         if let currentTask = tasks.first(where: { $0.startTime <= now && $0.endTime > now })
             ?? tasks.first(where: { $0.startTime > now }) {
             scrollToTask(currentTask)
+        } else {
+            let targetX = xPosition(for: now) - 20
+            scrollTo(x: targetX, y: nil)
         }
+    }
+
+    private func scrollTo(x: CGFloat?, y: CGFloat?) {
+        guard let scrollView = timelineScrollView,
+              let docView = scrollView.documentView else { return }
+
+        let currentOrigin = scrollView.contentView.bounds.origin
+        let maxX = max(0, docView.frame.width - scrollView.contentSize.width)
+        let maxY = max(0, docView.frame.height - scrollView.contentSize.height)
+
+        let newX = x != nil ? max(0, min(x!, maxX)) : currentOrigin.x
+        let newY = y != nil ? max(0, min(y!, maxY)) : currentOrigin.y
+
+        // Animate with a smooth spring-like curve scaled to distance
+        let dx = abs(newX - currentOrigin.x)
+        let dy = abs(newY - currentOrigin.y)
+        let distance = sqrt(dx * dx + dy * dy)
+        let duration = min(0.8, max(0.25, Double(distance) / 1500))
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1.0)
+            context.allowsImplicitAnimation = true
+            scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: newX, y: newY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    /// Sync vertical scroll of timeline → label column
+    private func syncVerticalScroll() {
+        guard let timeline = timelineScrollView, let labels = labelScrollView else { return }
+        // Remove old observer
+        if let obs = scrollObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        // Observe timeline vertical scroll and mirror to labels
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: timeline.contentView,
+            queue: .main
+        ) { _ in
+            let timelineY = timeline.contentView.bounds.origin.y
+            let labelOrigin = labels.contentView.bounds.origin
+            if abs(labelOrigin.y - timelineY) > 0.5 {
+                labels.contentView.setBoundsOrigin(NSPoint(x: labelOrigin.x, y: timelineY))
+            }
+        }
+        timeline.contentView.postsBoundsChangedNotifications = true
+    }
+}
+
+// MARK: - NSScrollView Finder
+
+private struct ScrollViewFinder: NSViewRepresentable {
+    let key: String
+    @Binding var scrollView: NSScrollView?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.frame = .zero
+        DispatchQueue.main.async {
+            self.scrollView = findScrollView(in: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private func findScrollView(in view: NSView) -> NSScrollView? {
+        var current: NSView? = view
+        while let v = current {
+            if let sv = v as? NSScrollView {
+                return sv
+            }
+            current = v.superview
+        }
+        return nil
     }
 }
 
@@ -519,8 +602,11 @@ private struct GanttTaskBar: View {
     }
 
     var body: some View {
-        barShape
-            .offset(x: barX)
+        HStack(spacing: 0) {
+            Color.clear.frame(width: barX, height: 1)
+            barShape
+            Spacer(minLength: 0)
+        }
     }
 
     private var barShape: some View {
