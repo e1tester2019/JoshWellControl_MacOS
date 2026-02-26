@@ -274,11 +274,9 @@ struct LookAheadGanttView: View {
     /// Sync vertical scroll of timeline → label column
     private func syncVerticalScroll() {
         guard let timeline = timelineScrollView, let labels = labelScrollView else { return }
-        // Remove old observer
         if let obs = scrollObserver {
             NotificationCenter.default.removeObserver(obs)
         }
-        // Observe timeline vertical scroll and mirror to labels
         scrollObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: timeline.contentView,
