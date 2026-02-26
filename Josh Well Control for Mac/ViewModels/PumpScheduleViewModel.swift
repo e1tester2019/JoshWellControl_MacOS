@@ -310,7 +310,7 @@ class PumpScheduleViewModel {
 
     /// Create a VolumeParcel from SwiftUI Color + MudProperties (UI boundary adapter).
     private func makeParcel(volume: Double, color: Color, mud: MudProperties?) -> VolumeParcel {
-        let nsColor = NSColor(color)
+        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color).usingColorSpace(.deviceRGB) ?? .gray
         return VolumeParcel(
             volume_m3: volume,
             colorR: Double(nsColor.redComponent),
@@ -999,7 +999,7 @@ class PumpScheduleViewModel {
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
         let annulusLayers = stacks.annulus.map { seg -> TripLayerSnapshot in
-            let nsColor = NSColor(seg.color)
+            let nsColor = NSColor(seg.color).usingColorSpace(.sRGB) ?? NSColor(seg.color).usingColorSpace(.deviceRGB) ?? .gray
             return TripLayerSnapshot(
                 side: "Annulus", topMD: seg.top, bottomMD: seg.bottom,
                 topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
@@ -1016,7 +1016,7 @@ class PumpScheduleViewModel {
         }
 
         let stringLayers = stacks.string.map { seg -> TripLayerSnapshot in
-            let nsColor = NSColor(seg.color)
+            let nsColor = NSColor(seg.color).usingColorSpace(.sRGB) ?? NSColor(seg.color).usingColorSpace(.deviceRGB) ?? .gray
             return TripLayerSnapshot(
                 side: "String", topMD: seg.top, bottomMD: seg.bottom,
                 topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
