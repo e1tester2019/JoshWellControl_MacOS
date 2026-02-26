@@ -14,6 +14,11 @@ enum TaskGroupingMode: String, CaseIterable {
     case bySequence = "Timeline"
 }
 
+enum LookAheadViewMode: String, CaseIterable {
+    case list = "List"
+    case gantt = "Timeline"
+}
+
 struct LookAheadListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LookAheadSchedule.createdAt, order: .reverse) private var schedules: [LookAheadSchedule]
@@ -29,6 +34,9 @@ struct LookAheadListView: View {
     // Multi-select
     @State private var selectedTaskIDs: Set<UUID> = []
     @State private var isSelectionMode = false
+
+    // View mode
+    @State private var viewMode: LookAheadViewMode = .list
 
     // Grouping
     @State private var groupingMode: TaskGroupingMode = .byDate
@@ -128,8 +136,21 @@ struct LookAheadListView: View {
     private var mainContent: some View {
         #if os(macOS)
         HSplitView {
-            taskList
-                .frame(minWidth: 400)
+            if viewMode == .gantt, let schedule = selectedSchedule {
+                LookAheadGanttView(
+                    schedule: schedule,
+                    viewModel: viewModel,
+                    onEditTask: { task in activeSheet = .editTask(task) },
+                    onStartTask: { task in startTask(task) },
+                    onCompleteTask: { task in activeSheet = .completeTask(task) },
+                    onDelayTask: { task in delayTask(task) },
+                    onDeleteTask: { task in viewModel.deleteTask(task, context: modelContext) }
+                )
+                .frame(minWidth: 600)
+            } else {
+                taskList
+                    .frame(minWidth: 400)
+            }
             if showAnalytics {
                 analyticsPanel
                     .frame(minWidth: 300, maxWidth: 400)
@@ -589,13 +610,24 @@ struct LookAheadListView: View {
         }
 
         ToolbarItem {
-            Picker("Group", selection: $groupingMode) {
-                ForEach(TaskGroupingMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
+            Picker("View", selection: $viewMode) {
+                Label("List", systemImage: "list.bullet").tag(LookAheadViewMode.list)
+                Label("Timeline", systemImage: "chart.bar.xaxis").tag(LookAheadViewMode.gantt)
             }
             .pickerStyle(.segmented)
-            .frame(width: 220)
+            .frame(width: 140)
+        }
+
+        if viewMode == .list {
+            ToolbarItem {
+                Picker("Group", selection: $groupingMode) {
+                    ForEach(TaskGroupingMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+            }
         }
 
         ToolbarItem {
