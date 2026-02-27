@@ -310,7 +310,7 @@ struct MacOSSidebarView: View {
     private let fluidViews: [ViewSelection] = [.mudCheck, .mixingCalc, .mudPlacement]
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab, .tripSimulation, .tripInSimulation, .mpdTracking, .superSimulation]
     private let schedulingViews: [ViewSelection] = [.shiftCalendar, .lookAheadScheduler, .vendors, .jobCodes]
-    private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
+    private let operationsViews: [ViewSelection] = [.equipmentHub]
 
     // Business sections
     private let incomeViews: [ViewSelection] = [.workDays, .invoices, .clients]
@@ -607,6 +607,8 @@ struct MacOSDetailView: View {
             VendorListView()
         case .jobCodes:
             JobCodeListView()
+        case .equipmentHub:
+            EquipmentHubView()
         case .equipmentRegistry:
             RentalEquipmentListView()
 

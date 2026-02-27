@@ -42,7 +42,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
     case vendors
     case jobCodes
 
-    // Operations - Other
+    // Operations - Equipment Hub
+    case equipmentHub
     case rentals
     case transfers
     case equipmentRegistry
@@ -132,6 +133,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return .dividendsCat
         case .companyStatement, .expenseReport, .payrollReport:
             return .reports
+        case .equipmentHub:
+            return .operations
         case .rentals, .transfers, .equipmentRegistry:
             return .more
         }
@@ -167,6 +170,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .lookAheadScheduler: return "Look Ahead"
         case .vendors: return "Vendors"
         case .jobCodes: return "Job Codes"
+        case .equipmentHub: return "Equipment & Materials"
         case .rentals: return "Rentals"
         case .transfers: return "Material Transfers"
         case .equipmentRegistry: return "Equipment Registry"
@@ -212,6 +216,7 @@ enum ViewSelection: String, CaseIterable, Identifiable {
         case .lookAheadScheduler: return "calendar.badge.clock"
         case .vendors: return "person.2.badge.gearshape"
         case .jobCodes: return "list.bullet.rectangle"
+        case .equipmentHub: return "shippingbox.and.arrow.backward.fill"
         case .rentals: return "bag.fill"
         case .transfers: return "arrow.left.arrow.right.circle.fill"
         case .equipmentRegistry: return "shippingbox.fill"
@@ -301,6 +306,8 @@ enum ViewSelection: String, CaseIterable, Identifiable {
             return "Manage service providers and contacts"
         case .jobCodes:
             return "Task categories with learned duration estimates"
+        case .equipmentHub:
+            return "Unified equipment registry, rentals, and material transfers"
         case .rentals:
             return "Equipment rental tracking"
         case .transfers:

@@ -783,7 +783,7 @@ private struct UsageHistoryRow: View {
 
 // MARK: - Equipment Editor Sheet
 
-private struct EquipmentEditorSheet: View {
+struct EquipmentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Well.name) private var wells: [Well]
     let equipment: RentalEquipment?
@@ -912,7 +912,7 @@ private struct EquipmentEditorSheet: View {
 
 // MARK: - Issue Log Sheet
 
-private struct IssueLogSheet: View {
+struct IssueLogSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Bindable var equipment: RentalEquipment
@@ -981,7 +981,7 @@ private struct IssueLogSheet: View {
 }
 // MARK: - Bulk Equipment Edit Sheet
 
-private struct BulkEquipmentEditSheet: View {
+struct BulkEquipmentEditSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -1110,7 +1110,7 @@ private struct BulkEquipmentEditSheet: View {
 
 // MARK: - Send to Location Sheet
 
-private struct SendToLocationSheet: View {
+struct SendToLocationSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Well.name) private var wells: [Well]
@@ -1256,7 +1256,7 @@ private struct SendToLocationSheet: View {
 
 // MARK: - Equipment Import Sheet
 
-private struct EquipmentImportSheet: View {
+struct EquipmentImportSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
