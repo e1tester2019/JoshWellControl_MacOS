@@ -328,6 +328,7 @@ extension TripSimulationView {
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
+        shoeMD_m: shoeMD_m,
         startBitMD_m: startBitMD_m,
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,
@@ -721,6 +722,7 @@ extension TripSimulationViewIOS {
       let input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
+        shoeMD_m: shoeMD_m,
         startBitMD_m: startBitMD_m,
         endMD_m: endMD_m,
         crackFloat_kPa: crackFloat_kPa,

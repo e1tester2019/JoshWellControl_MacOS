@@ -1453,6 +1453,7 @@ struct TripSimulationView: View {
         let dateStr = dateFormatter.string(from: Date())
         let baseName = "TripSimulation_\(wellName)_\(dateStr)"
 
+        #if os(macOS)
         Task {
             let success = await HTMLZipExporter.shared.exportZipped(
                 htmlContent: htmlContent,
@@ -1467,6 +1468,7 @@ struct TripSimulationView: View {
                 }
             }
         }
+        #endif
     }
 
     // MARK: - Build Report Data Helper
@@ -2041,6 +2043,81 @@ struct TripSimulationView: View {
                                     .foregroundStyle(s.cumulativeSurfaceTankDelta_m3 >= 0 ? .green : .red)
                             }
                             gridRow("Slug contribution", format3(s.cumulativeSlugContribution_m3) + " m³")
+                        }
+                        .padding(.top, 4)
+                    }
+                    DisclosureGroup("Pocket Mud Inventory") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                                GridRow {
+                                    Text("Source Contributions").foregroundStyle(.secondary).fontWeight(.semibold)
+                                    Text("")
+                                }
+                                ForEach(s.pocketSourceInventory) { entry in
+                                    gridRow("\(format0(entry.density_kgpm3)) kg/m³", format3(entry.volume_m3) + " m³")
+                                }
+                            }
+                            Divider()
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                                GridRow {
+                                    Text("Pocket Hydrostatic").foregroundStyle(.secondary).fontWeight(.semibold)
+                                    Text("")
+                                    Text("")
+                                }
+                                GridRow {
+                                    Text("Density").font(.caption).foregroundStyle(.secondary)
+                                    Text("TVD Height").font(.caption).foregroundStyle(.secondary)
+                                    Text("Hydrostatic").font(.caption).foregroundStyle(.secondary)
+                                }
+                                ForEach(s.pocketHydrostaticSummary) { entry in
+                                    GridRow {
+                                        Text("\(format0(entry.density_kgpm3)) kg/m³")
+                                        Text(format1(entry.tvdHeight_m) + " m")
+                                        Text(format0(entry.hydrostatic_kPa) + " kPa")
+                                    }
+                                }
+                                Divider()
+                                GridRow {
+                                    Text("Total").fontWeight(.semibold)
+                                    Text(format1(s.pocketHydrostaticSummary.reduce(0) { $0 + $1.tvdHeight_m }) + " m")
+                                        .fontWeight(.semibold)
+                                    Text(format0(s.pocketHydrostaticSummary.reduce(0) { $0 + $1.hydrostatic_kPa }) + " kPa")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            if viewmodel.shoeMD_m > 0 {
+                                let controlSummary = s.hydrostaticToControl(controlTVD: controlTVD)
+                                if !controlSummary.isEmpty {
+                                    Divider()
+                                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                                        GridRow {
+                                            Text("HP to Control (\(format0(controlTVD)) m TVD)").foregroundStyle(.secondary).fontWeight(.semibold)
+                                            Text("")
+                                            Text("")
+                                        }
+                                        GridRow {
+                                            Text("Density").font(.caption).foregroundStyle(.secondary)
+                                            Text("TVD Height").font(.caption).foregroundStyle(.secondary)
+                                            Text("Hydrostatic").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        ForEach(controlSummary) { entry in
+                                            GridRow {
+                                                Text("\(format0(entry.density_kgpm3)) kg/m³")
+                                                Text(format1(entry.tvdHeight_m) + " m")
+                                                Text(format0(entry.hydrostatic_kPa) + " kPa")
+                                            }
+                                        }
+                                        Divider()
+                                        GridRow {
+                                            Text("Total").fontWeight(.semibold)
+                                            Text(format1(controlSummary.reduce(0) { $0 + $1.tvdHeight_m }) + " m")
+                                                .fontWeight(.semibold)
+                                            Text(format0(controlSummary.reduce(0) { $0 + $1.hydrostatic_kPa }) + " kPa")
+                                                .fontWeight(.semibold)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         .padding(.top, 4)
                     }

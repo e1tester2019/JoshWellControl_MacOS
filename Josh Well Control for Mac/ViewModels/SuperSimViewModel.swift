@@ -502,6 +502,7 @@ class SuperSimViewModel {
         var input = NumericalTripModel.TripInput(
             tvdOfMd: { md in tvdSampler.tvd(of: md) },
             shoeTVD_m: shoeTVD,
+            shoeMD_m: op.controlMD_m,
             startBitMD_m: op.startMD_m,
             endMD_m: op.endMD_m,
             crackFloat_kPa: op.crackFloat_kPa,
@@ -878,6 +879,7 @@ class SuperSimViewModel {
         var input = NumericalTripModel.TripInput(
             tvdOfMd: { md in tvdSampler.tvd(of: md) },
             shoeTVD_m: shoeTVD,
+            shoeMD_m: op.controlMD_m,
             startBitMD_m: op.startMD_m,
             endMD_m: op.endMD_m,
             crackFloat_kPa: op.crackFloat_kPa,
@@ -1969,6 +1971,7 @@ class SuperSimViewModel {
         let dateStr = dateFormatter.string(from: Date())
         let baseName = "SuperSimulation_\(wellName)_\(dateStr)"
 
+        #if os(macOS)
         Task {
             await HTMLZipExporter.shared.exportZipped(
                 htmlContent: html,
@@ -1976,6 +1979,7 @@ class SuperSimViewModel {
                 zipFileName: "\(baseName).zip"
             )
         }
+        #endif
     }
 }
 

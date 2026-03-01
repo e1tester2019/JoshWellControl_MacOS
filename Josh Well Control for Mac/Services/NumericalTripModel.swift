@@ -292,6 +292,21 @@ final class NumericalTripModel: @unchecked Sendable {
         var deltaP_kPa: Double
     }
 
+    /// Volume of a single mud density within a wellbore region.
+    struct MudInventoryEntry: Identifiable {
+        let id = UUID()
+        var density_kgpm3: Double          // Rounded to nearest 1 kg/m³
+        var volume_m3: Double
+        var region: String                 // "String", "Annulus", or "Pocket"
+    }
+
+    struct PocketHydrostaticEntry: Identifiable {
+        let id = UUID()
+        var density_kgpm3: Double          // Blended density (rounded to nearest 1 kg/m³)
+        var tvdHeight_m: Double            // Total TVD height occupied by this density
+        var hydrostatic_kPa: Double        // Total hydrostatic contribution
+    }
+
     struct TripStep: Identifiable {
         let id = UUID()
         var bitMD_m: Double
@@ -317,6 +332,15 @@ final class NumericalTripModel: @unchecked Sendable {
         var surfaceTankDelta_m3: Double = 0         // Net tank change this step (pitGain - backfill, + = gain)
         var cumulativeSurfaceTankDelta_m3: Double = 0  // Cumulative net tank change
 
+        // Pocket inflow tracking — mud exiting the bit
+        var pocketInflow_m3: Double = 0                // Total volume entering pocket this step
+        var pocketInflowDensity_kgpm3: Double = 0      // Mass-weighted average density of pocket inflow
+        var pocketFromAnnulus_m3: Double = 0            // Volume from annulus bottom this step
+        var pocketFromAnnulusDensity_kgpm3: Double = 0  // Density of annulus contribution
+        var pocketFromString_m3: Double = 0             // Volume from string bottom this step (float open only)
+        var pocketFromStringDensity_kgpm3: Double = 0   // Density of string contribution
+        var cumulativePocketInflow_m3: Double = 0       // Running total pocket inflow
+
         // Snapshots for UI/debug
         var layersPocket: [LayerRow]
         var layersAnnulus: [LayerRow]
@@ -324,14 +348,57 @@ final class NumericalTripModel: @unchecked Sendable {
         var totalsPocket: Totals
         var totalsAnnulus: Totals
         var totalsString: Totals
+
+        // MARK: - Mud Inventory (pre-blend source contributions)
+
+        /// Cumulative volume of each original mud density that was carved to fill the pocket.
+        /// Tracks source contributions before blending — shows how much of each density
+        /// from the string and annulus ended up in the pocket over the course of the trip.
+        var pocketSourceInventory: [MudInventoryEntry] = []
+
+        /// Pocket layers grouped by blended density — total TVD height and hydrostatic per density.
+        var pocketHydrostaticSummary: [PocketHydrostaticEntry] {
+            hydrostaticSummary(layers: layersPocket, toTVD: .infinity)
+        }
+
+        /// Full hydrostatic from surface to control TVD (annulus + pocket combined).
+        func hydrostaticToControl(controlTVD: Double) -> [PocketHydrostaticEntry] {
+            hydrostaticSummary(layers: layersAnnulus + layersPocket, toTVD: controlTVD)
+        }
+
+        /// Build hydrostatic summary from arbitrary layers, clipped to a maximum TVD.
+        private func hydrostaticSummary(layers: [LayerRow], toTVD maxTVD: Double) -> [PocketHydrostaticEntry] {
+            var heights: [Int: Double] = [:]
+            var pressures: [Int: Double] = [:]
+            for layer in layers {
+                let top = layer.topTVD
+                let bot = min(layer.bottomTVD, maxTVD)
+                guard bot > top + 1e-9 else { continue }
+                let fullHeight = max(1e-9, layer.bottomTVD - layer.topTVD)
+                let clippedHeight = bot - top
+                let frac = clippedHeight / fullHeight
+                let key = Int(round(layer.rho_kgpm3))
+                heights[key, default: 0] += clippedHeight
+                pressures[key, default: 0] += layer.deltaHydroStatic_kPa * frac
+            }
+            return heights.keys.sorted().map { key in
+                PocketHydrostaticEntry(
+                    density_kgpm3: Double(key),
+                    tvdHeight_m: heights[key] ?? 0,
+                    hydrostatic_kPa: pressures[key] ?? 0
+                )
+            }
+        }
     }
 
     struct TripInput: @unchecked Sendable {
         var tvdOfMd: @Sendable (Double)->Double
         var shoeTVD_m: Double
+        var shoeMD_m: Double = 0             // Control point MD; 0 = use startBitMD_m (TD)
         var startBitMD_m: Double
         var endMD_m: Double
         var crackFloat_kPa: Double
+        var noFloat: Bool = false              // When true, float is always open (continuous drain)
         var step_m: Double = 10.0
         var baseMudDensity_kgpm3: Double
         var backfillDensity_kgpm3: Double
@@ -410,7 +477,10 @@ final class NumericalTripModel: @unchecked Sendable {
         let step = max(0.1, input.step_m)
         let tvdOfMd = input.tvdOfMd
         let tdTVD = tvdOfMd(input.startBitMD_m)
-        let targetP_TD_kPa = input.targetESDAtTD_kgpm3 * NumericalTripModel.g * tdTVD / 1000.0
+        // Control point: use shoe/control MD if set, otherwise fall back to TD
+        let controlMD = input.shoeMD_m > 0 ? input.shoeMD_m : input.startBitMD_m
+        let controlTVD = tvdOfMd(controlMD)
+        let targetP_control_kPa = input.targetESDAtTD_kgpm3 * NumericalTripModel.g * controlTVD / 1000.0
 
         // Stacks
         let stringStack = Stack(side: .string, geom: geom, tvdOfMd: tvdOfMd)
@@ -612,13 +682,31 @@ final class NumericalTripModel: @unchecked Sendable {
                 pocket.append(Layer(rho: l.rho_kgpm3, topMD: top, bottomMD: l.bottomMD, color: color, pv_cP: l.pv_cP ?? 0, yp_Pa: l.yp_Pa ?? 0))
             }
         }
+        // Helper: hydrostatic pressure from surface to controlMD through annulus + pocket
+        func hydrostaticAtControl(currentBitMD: Double) -> Double {
+            // Annulus contribution (surface to min(controlMD, currentBitMD))
+            var P = annulusStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: min(controlMD, currentBitMD))
+            // If control depth is below the bit, add pocket contribution from bit to controlMD
+            if controlMD > currentBitMD {
+                for L in pocket {
+                    let a = max(L.topMD, currentBitMD)
+                    let b = min(L.bottomMD, controlMD)
+                    guard b > a else { continue }
+                    let dH = max(0.0, tvdOfMd(b) - tvdOfMd(a))
+                    P += L.rho * NumericalTripModel.g * dH / 1000.0
+                }
+            }
+            return P
+        }
+
         let initPocketRows = snapshotPocket(pocket, bitMD: bitMD)
         let initAnnRows = snapshotStack(annulusStack, bitMD: bitMD)
         let initStrRows = snapshotStack(stringStack, bitMD: bitMD)
         let initTotPocket = sum(initPocketRows)
         let initTotAnn = sum(initAnnRows)
         let initTotStr = sum(initStrRows)
-        let initSabpRaw = max(0.0, targetP_TD_kPa - initTotPocket.deltaP_kPa - initTotAnn.deltaP_kPa)
+        let initHydroAtControl = hydrostaticAtControl(currentBitMD: bitMD)
+        let initSabpRaw = max(0.0, targetP_control_kPa - initHydroAtControl)
         // Respect HoldSABPOpen for the initial state as well
         if input.holdSABPOpen {
             sabp_kPa = 0.0
@@ -633,6 +721,7 @@ final class NumericalTripModel: @unchecked Sendable {
         var cumulativeSlugContribution_m3: Double = 0.0
         var cumulativePitGain_m3: Double = 0.0
         var cumulativeSurfaceTankDelta_m3: Double = 0.0
+        var cumulativePocketInflow_m3: Double = 0.0
 
         // Track slug contribution from initial equalization phase
         // When slug drains from string, it pushes annulus fluid up and out at surface (pit gain)
@@ -684,9 +773,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = L.bottomMD
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = tvdBot - tvdTop // allow negative in toe-up wells
+                let dTVD = max(0.0, tvdBot - tvdTop)
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
-                var row = LayerRow(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: 0, color: L.color)
+                let vol = geom.volumeInAnnulus_m3(a, b)
+                var row = LayerRow(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
                 row.pv_cP = L.pv_cP
                 row.yp_Pa = L.yp_Pa
                 rows.append(row)
@@ -701,7 +791,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = min(bitMD, L.bottomMD)
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = tvdBot - tvdTop // allow negative in toe-up wells
+                let dTVD = max(0.0, tvdBot - tvdTop)
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 let vol = (sideLabel == "Annulus") ? geom.volumeInAnnulus_m3(a, b) : geom.volumeInString_m3(a, b)
                 var row = LayerRow(side: sideLabel, topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
@@ -713,7 +803,7 @@ final class NumericalTripModel: @unchecked Sendable {
         }
         func sum(_ rows: [LayerRow]) -> Totals {
             var tvd = 0.0, dP = 0.0
-            for r in rows { tvd += r.bottomTVD - r.topTVD; dP += r.deltaHydroStatic_kPa }
+            for r in rows { tvd += max(0, r.bottomTVD - r.topTVD); dP += r.deltaHydroStatic_kPa }
             return Totals(count: rows.count, tvd_m: tvd, deltaP_kPa: dP)
         }
         func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil, pv_cP: Double = 0, yp_Pa: Double = 0) {
@@ -766,6 +856,13 @@ final class NumericalTripModel: @unchecked Sendable {
         var stepInternalCount: Int = 0      // Total internal steps in this output step
         var stepOpenCount: Int = 0          // Number of internal steps where float was OPEN
         var stepSwabAccum_kPa: Double = 0   // Accumulated swab pressure for averaging
+        // Pocket inflow accumulators
+        var stepPocketFromAnnulus_m3: Double = 0.0
+        var stepPocketFromAnnulusMass_kg: Double = 0.0
+        var stepPocketFromString_m3: Double = 0.0
+        var stepPocketFromStringMass_kg: Double = 0.0
+        // Cumulative pre-blend source contributions to pocket (density rounded to kg/m³ → volume m³)
+        var pocketSourceBuckets: [Int: Double] = [:]
 
         // Float valve tolerance: allows float to open when string pressure exceeds
         // annulus pressure by more than this threshold. Accounts for numerical
@@ -921,7 +1018,7 @@ final class NumericalTripModel: @unchecked Sendable {
             // Carve @ bottom for this step
             var lenA = 0.0, volA = 0.0, massA = 0.0
 
-            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?, blendedPV_cP: Double, blendedYP_Pa: Double) {
+            func takeBottomByLen(_ stack: Stack, isAnnulus: Bool, lenReq: Double) -> (len: Double, mass: Double, vol: Double, blendedColor: ColorRGBA?, blendedPV_cP: Double, blendedYP_Pa: Double, pieces: [(rho: Double, vol: Double)]) {
                 var remaining = lenReq
                 var totLen = 0.0, totVol = 0.0, totMass = 0.0
                 // For color blending: track volume-weighted color components
@@ -929,6 +1026,8 @@ final class NumericalTripModel: @unchecked Sendable {
                 var colorVol = 0.0
                 // For PV/YP blending: volume-weighted
                 var pvAccum = 0.0, ypAccum = 0.0, rheoVol = 0.0
+                // Per-density pieces (pre-blend source tracking)
+                var pieces: [(rho: Double, vol: Double)] = []
 
                 while remaining > 1e-9, !stack.layers.isEmpty {
                     var last = stack.layers.removeLast()
@@ -940,6 +1039,11 @@ final class NumericalTripModel: @unchecked Sendable {
                     let segVol = isAnnulus ? stack.geom.volumeInAnnulus_m3(segTop, segBot) : stack.geom.volumeInString_m3(segTop, segBot)
                     let segMass = last.rho * segVol
                     totLen += take; totVol += segVol; totMass += segMass
+
+                    // Record this piece's original density and volume
+                    if segVol > 1e-12 {
+                        pieces.append((rho: last.rho, vol: segVol))
+                    }
 
                     // Accumulate volume-weighted color
                     if let c = last.color {
@@ -973,7 +1077,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let blendedPV = rheoVol > 1e-12 ? pvAccum / rheoVol : 0.0
                 let blendedYP = rheoVol > 1e-12 ? ypAccum / rheoVol : 0.0
 
-                return (totLen, totMass, totVol, blendedColor, blendedPV, blendedYP)
+                return (totLen, totMass, totVol, blendedColor, blendedPV, blendedYP, pieces)
             }
 
             var colorA: ColorRGBA? = nil
@@ -996,9 +1100,15 @@ final class NumericalTripModel: @unchecked Sendable {
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
                 pvA = a.blendedPV_cP; ypA = a.blendedYP_Pa
 
+                // Record pre-blend source pieces
+                for p in s.pieces { pocketSourceBuckets[Int(round(p.rho)), default: 0] += p.vol }
+                for p in a.pieces { pocketSourceBuckets[Int(round(p.rho)), default: 0] += p.vol }
+
                 // Steel displacement goes to annulus side (added to pocket)
                 let vSteel = geom.steelDisplacement_m2(oldBitMD) * dL
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
+                // Steel displacement uses the same density as the annulus bottom
+                if vSteel > 1e-12 { pocketSourceBuckets[Int(round(rhoA)), default: 0] += vSteel }
                 massA += rhoA * vSteel
                 volA += vSteel
 
@@ -1016,9 +1126,14 @@ final class NumericalTripModel: @unchecked Sendable {
                 lenA = a.len; volA = a.vol; massA = a.mass; colorA = a.blendedColor
                 pvA = a.blendedPV_cP; ypA = a.blendedYP_Pa
 
+                // Record pre-blend source pieces
+                for p in a.pieces { pocketSourceBuckets[Int(round(p.rho)), default: 0] += p.vol }
+
                 // Full pipe OD volume (not just steel) - the void left by the pipe
                 let vOD = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)
                 let rhoA = (volA > 1e-12) ? massA/volA : input.baseMudDensity_kgpm3
+                // OD displacement uses the same density as the annulus bottom
+                if vOD > 1e-12 { pocketSourceBuckets[Int(round(rhoA)), default: 0] += vOD }
                 massA += rhoA * vOD
                 volA += vOD
 
@@ -1031,6 +1146,12 @@ final class NumericalTripModel: @unchecked Sendable {
             }
 
             let rhoMix = (vPocket > 1e-12) ? (mPocket / vPocket) : input.baseMudDensity_kgpm3
+
+            // Accumulate pocket inflow tracking
+            stepPocketFromAnnulus_m3 += volA
+            stepPocketFromAnnulusMass_kg += massA
+            stepPocketFromString_m3 += volS
+            stepPocketFromStringMass_kg += massS
 
             // Blend PV/YP for mixed pocket (volume-weighted)
             let mixedPV: Double
@@ -1164,11 +1285,12 @@ final class NumericalTripModel: @unchecked Sendable {
                 let totAnn = sum(annRows)
                 let totString = sum(strRows)
 
-                // SABP target (hold closed-loop TD pressure if not HoldSABPOpen)
+                // SABP target (hold closed-loop pressure at control depth if not HoldSABPOpen)
                 // Average swab from all 1m internal steps (uses actual float state at each position)
                 let swab_kPa = stepInternalCount > 0 ? stepSwabAccum_kPa / Double(stepInternalCount) : 0.0
 
-                let sabpRaw = max(0.0, targetP_TD_kPa - totPocket.deltaP_kPa - totAnn.deltaP_kPa)
+                let hydroAtControl = hydrostaticAtControl(currentBitMD: bitMD)
+                let sabpRaw = max(0.0, targetP_control_kPa - hydroAtControl)
                 if input.holdSABPOpen {
                     sabp_kPa = 0.0
                 } else {
@@ -1185,6 +1307,8 @@ final class NumericalTripModel: @unchecked Sendable {
                 cumulativeBackfill_m3 += stepBackfill_m3
                 cumulativeSlugContribution_m3 += stepSlugContribution_m3
                 cumulativePitGain_m3 += stepPitGain_m3
+                let stepPocketInflow = stepPocketFromAnnulus_m3 + stepPocketFromString_m3
+                cumulativePocketInflow_m3 += stepPocketInflow
 
                 // Calculate surface tank delta (positive = tank gained, negative = tank used)
                 // Pit gain increases tank, backfill decreases tank
@@ -1200,6 +1324,12 @@ final class NumericalTripModel: @unchecked Sendable {
                 } else {
                     stepFloatState = "OPEN \(openPercent)%"
                 }
+
+                // Pocket inflow densities (mass-weighted averages for this recording step)
+                let stepPocketFromAnnulusDensity = stepPocketFromAnnulus_m3 > 1e-12 ? stepPocketFromAnnulusMass_kg / stepPocketFromAnnulus_m3 : 0
+                let stepPocketFromStringDensity = stepPocketFromString_m3 > 1e-12 ? stepPocketFromStringMass_kg / stepPocketFromString_m3 : 0
+                let stepPocketTotalMass = stepPocketFromAnnulusMass_kg + stepPocketFromStringMass_kg
+                let stepPocketInflowDensity = stepPocketInflow > 1e-12 ? stepPocketTotalMass / stepPocketInflow : 0
 
                 results.append(TripStep(bitMD_m: bitMD,
                                         bitTVD_m: bitTVD,
@@ -1221,12 +1351,20 @@ final class NumericalTripModel: @unchecked Sendable {
                                         cumulativePitGain_m3: cumulativePitGain_m3,
                                         surfaceTankDelta_m3: stepTankDelta,
                                         cumulativeSurfaceTankDelta_m3: cumulativeSurfaceTankDelta_m3,
+                                        pocketInflow_m3: stepPocketInflow,
+                                        pocketInflowDensity_kgpm3: stepPocketInflowDensity,
+                                        pocketFromAnnulus_m3: stepPocketFromAnnulus_m3,
+                                        pocketFromAnnulusDensity_kgpm3: stepPocketFromAnnulusDensity,
+                                        pocketFromString_m3: stepPocketFromString_m3,
+                                        pocketFromStringDensity_kgpm3: stepPocketFromStringDensity,
+                                        cumulativePocketInflow_m3: cumulativePocketInflow_m3,
                                         layersPocket: pocketRows,
                                         layersAnnulus: annRows,
                                         layersString: strRows,
                                         totalsPocket: totPocket,
                                         totalsAnnulus: totAnn,
-                                        totalsString: totString))
+                                        totalsString: totString,
+                                        pocketSourceInventory: pocketSourceBuckets.map { MudInventoryEntry(density_kgpm3: Double($0.key), volume_m3: $0.value, region: "Pocket") }.sorted { $0.density_kgpm3 < $1.density_kgpm3 }))
 
                 // Reset step-level accumulators for next recording interval
                 stepBackfill_m3 = 0.0
@@ -1238,6 +1376,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 stepInternalCount = 0
                 stepOpenCount = 0
                 stepSwabAccum_kPa = 0
+                stepPocketFromAnnulus_m3 = 0.0
+                stepPocketFromAnnulusMass_kg = 0.0
+                stepPocketFromString_m3 = 0.0
+                stepPocketFromStringMass_kg = 0.0
             }
         }
 
