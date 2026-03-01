@@ -187,4 +187,11 @@ enum EquipmentHubLayout {
     static let boardColumnSpacing: CGFloat = 12
     static let sidebarPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 12
+
+    #if os(iOS)
+    static let iOSKPIGridSpacing: CGFloat = 10
+    static let iOSRowVerticalPadding: CGFloat = 4
+    static let iOSListInsets: CGFloat = 16
+    static let iOSTabPickerInsets = EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
+    #endif
 }

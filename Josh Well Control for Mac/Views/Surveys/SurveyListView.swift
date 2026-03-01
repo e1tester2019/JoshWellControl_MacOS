@@ -1,7 +1,9 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+#if os(macOS)
 import AppKit
+#endif
 
 // MARK: - Survey List / Editor
 struct SurveyListView: View {
@@ -287,6 +289,7 @@ extension SurveyListView {
                 csv += fields.joined(separator: ",") + "\n"
             }
 
+            #if os(macOS)
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.commaSeparatedText]
             panel.nameFieldStringValue = "\(project?.well?.name ?? "Surveys").csv"
@@ -294,6 +297,7 @@ extension SurveyListView {
             if panel.runModal() == .OK, let url = panel.url {
                 try? csv.write(to: url, atomically: true, encoding: .utf8)
             }
+            #endif
         }
 
         func handleImport(_ result: Result<[URL], Error>, existingSurveys: [SurveyStation]) {

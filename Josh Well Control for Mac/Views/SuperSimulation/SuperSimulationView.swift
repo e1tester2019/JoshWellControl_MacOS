@@ -9,6 +9,7 @@
 import SwiftUI
 import SwiftData
 
+#if os(macOS)
 struct SuperSimulationView: View {
     @Bindable var project: ProjectState
     @State private var viewModel = SuperSimViewModel()
@@ -484,3 +485,4 @@ struct OperationDetailView: View {
         }
     }
 }
+#endif

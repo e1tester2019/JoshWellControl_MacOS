@@ -123,6 +123,7 @@ struct PumpScheduleView: View {
         let dateStr = dateFormatter.string(from: Date())
         let baseName = "PumpSchedule_\(wellName)_\(dateStr)"
 
+        #if os(macOS)
         Task {
             await HTMLZipExporter.shared.exportZipped(
                 htmlContent: htmlContent,
@@ -130,6 +131,7 @@ struct PumpScheduleView: View {
                 zipFileName: "\(baseName).zip"
             )
         }
+        #endif
     }
 
     // MARK: - Build Report Data

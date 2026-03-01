@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+#if os(macOS)
 // MARK: - Documentation Types
 
 enum DocumentationType: String, CaseIterable, Identifiable {
@@ -619,3 +620,5 @@ For the complete technical documentation, see the full SPE paper in the Document
         .frame(width: 900, height: 600)
 }
 #endif
+
+#endif // os(macOS)

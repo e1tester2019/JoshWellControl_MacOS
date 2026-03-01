@@ -34,13 +34,15 @@ struct CementJobSimulationView: View {
 
             HStack(alignment: .top, spacing: 16) {
                 // Left panel: Stage list and controls
-                VStack(spacing: 12) {
-                    tankVolumeSection
-                    lossZoneSection
-                    pumpRateSection
-                    stageListSection
-                    returnSummarySection
-                    jobReportSection
+                ScrollView {
+                    VStack(spacing: 12) {
+                        tankVolumeSection
+                        lossZoneSection
+                        pumpRateSection
+                        stageListSection
+                        returnSummarySection
+                        jobReportSection
+                    }
                 }
                 .frame(width: 320)
 

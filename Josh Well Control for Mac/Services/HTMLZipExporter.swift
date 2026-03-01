@@ -7,6 +7,7 @@
 
 import Foundation
 
+#if os(macOS)
 @MainActor
 class HTMLZipExporter {
     static let shared = HTMLZipExporter()
@@ -51,3 +52,4 @@ class HTMLZipExporter {
         }
     }
 }
+#endif

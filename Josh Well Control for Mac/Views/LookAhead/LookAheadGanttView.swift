@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 
+#if os(macOS)
 // MARK: - Layout Constants
 
 private enum GanttLayout {
@@ -764,4 +765,5 @@ private struct GanttTaskBar: View {
         return "\(mins)m"
     }
 }
+#endif
 

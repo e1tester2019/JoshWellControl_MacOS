@@ -7,9 +7,25 @@
 
 import Foundation
 import SwiftUI
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Observation
 import SwiftData
+
+/// Extract RGBA components from a SwiftUI Color in a cross-platform way.
+private func colorComponents(_ color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+    #if os(macOS)
+    let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color).usingColorSpace(.deviceRGB) ?? .gray
+    return (Double(nsColor.redComponent), Double(nsColor.greenComponent), Double(nsColor.blueComponent), Double(nsColor.alphaComponent))
+    #else
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+    return (Double(r), Double(g), Double(b), Double(a))
+    #endif
+}
 
 @Observable
 class PumpScheduleViewModel {
@@ -310,13 +326,13 @@ class PumpScheduleViewModel {
 
     /// Create a VolumeParcel from SwiftUI Color + MudProperties (UI boundary adapter).
     private func makeParcel(volume: Double, color: Color, mud: MudProperties?) -> VolumeParcel {
-        let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color).usingColorSpace(.deviceRGB) ?? .gray
+        let c = colorComponents(color)
         return VolumeParcel(
             volume_m3: volume,
-            colorR: Double(nsColor.redComponent),
-            colorG: Double(nsColor.greenComponent),
-            colorB: Double(nsColor.blueComponent),
-            colorA: Double(nsColor.alphaComponent),
+            colorR: c.r,
+            colorG: c.g,
+            colorB: c.b,
+            colorA: c.a,
             rho_kgpm3: mud?.density_kgm3 ?? 1200,
             mudID: mud?.id,
             pv_cP: (mud?.pv_Pa_s ?? 0) * 1000,
@@ -999,15 +1015,15 @@ class PumpScheduleViewModel {
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
         let annulusLayers = stacks.annulus.map { seg -> TripLayerSnapshot in
-            let nsColor = NSColor(seg.color).usingColorSpace(.sRGB) ?? NSColor(seg.color).usingColorSpace(.deviceRGB) ?? .gray
+            let c = colorComponents(seg.color)
             return TripLayerSnapshot(
                 side: "Annulus", topMD: seg.top, bottomMD: seg.bottom,
                 topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
                 rho_kgpm3: seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3,
                 deltaHydroStatic_kPa: 0,
                 volume_m3: geom.volumeInAnnulus_m3(seg.top, seg.bottom),
-                colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
-                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent),
+                colorR: c.r, colorG: c.g,
+                colorB: c.b, colorA: c.a,
                 pv_cP: (seg.mud?.pv_Pa_s ?? 0) * 1000,
                 yp_Pa: seg.mud?.yp_Pa ?? 0,
                 dial600: seg.mud?.dial600,
@@ -1016,15 +1032,15 @@ class PumpScheduleViewModel {
         }
 
         let stringLayers = stacks.string.map { seg -> TripLayerSnapshot in
-            let nsColor = NSColor(seg.color).usingColorSpace(.sRGB) ?? NSColor(seg.color).usingColorSpace(.deviceRGB) ?? .gray
+            let c = colorComponents(seg.color)
             return TripLayerSnapshot(
                 side: "String", topMD: seg.top, bottomMD: seg.bottom,
                 topTVD: project.tvd(of: seg.top), bottomTVD: project.tvd(of: seg.bottom),
                 rho_kgpm3: seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3,
                 deltaHydroStatic_kPa: 0,
                 volume_m3: geom.volumeInString_m3(seg.top, seg.bottom),
-                colorR: Double(nsColor.redComponent), colorG: Double(nsColor.greenComponent),
-                colorB: Double(nsColor.blueComponent), colorA: Double(nsColor.alphaComponent),
+                colorR: c.r, colorG: c.g,
+                colorB: c.b, colorA: c.a,
                 pv_cP: (seg.mud?.pv_Pa_s ?? 0) * 1000,
                 yp_Pa: seg.mud?.yp_Pa ?? 0,
                 dial600: seg.mud?.dial600,

@@ -195,9 +195,10 @@ class APLCalculationService {
         // Convert PV from cP to Pa·s
         let pv_Pa_s = plasticViscosity_cP / 1000.0
 
-        // Bingham plastic friction gradient (Pa/m)
-        let yieldTerm = (4.0 * yieldPoint_Pa) / hydraulicDiameter
-        let viscousTerm = (8.0 * pv_Pa_s * velocity_m_per_s) / pow(hydraulicDiameter, 2)
+        // Bingham plastic friction gradient for slot-flow annulus (Pa/m)
+        // API RP 13D: dP/dL = 6·YP/(Dh-Dp) + 48·PV·V/(Dh-Dp)²
+        let yieldTerm = (6.0 * yieldPoint_Pa) / hydraulicDiameter
+        let viscousTerm = (48.0 * pv_Pa_s * velocity_m_per_s) / pow(hydraulicDiameter, 2)
         let gradient_Pa_per_m = yieldTerm + viscousTerm
 
         // Total APL in kPa

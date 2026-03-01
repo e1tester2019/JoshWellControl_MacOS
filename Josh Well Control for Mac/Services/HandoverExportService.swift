@@ -200,6 +200,7 @@ class HandoverExportService {
             .replacingOccurrences(of: " ", with: "_")
         let baseName = "Handover_Report_\(dateStr)"
 
+        #if os(macOS)
         Task { @MainActor in
             let success = await HTMLZipExporter.shared.exportZipped(
                 htmlContent: htmlContent,
@@ -211,6 +212,7 @@ class HandoverExportService {
                 self.createArchive(options: options, htmlContent: htmlContent, modelContext: context)
             }
         }
+        #endif
     }
     #endif
 

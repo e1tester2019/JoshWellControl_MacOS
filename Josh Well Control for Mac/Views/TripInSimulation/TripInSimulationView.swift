@@ -366,6 +366,7 @@ struct TripInSimulationView: View {
         let sanitizedWellName = wellName.replacingOccurrences(of: "/", with: "-")
         let baseName = "TripInSimulation_\(sanitizedWellName)_\(dateStr)"
 
+        #if os(macOS)
         Task {
             await HTMLZipExporter.shared.exportZipped(
                 htmlContent: html,
@@ -373,6 +374,7 @@ struct TripInSimulationView: View {
                 zipFileName: "\(baseName).zip"
             )
         }
+        #endif
     }
 
     private func buildTripInReportData() -> TripInSimulationReportData {

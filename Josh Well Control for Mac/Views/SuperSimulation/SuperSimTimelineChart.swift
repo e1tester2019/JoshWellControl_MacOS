@@ -9,6 +9,7 @@
 import SwiftUI
 import Charts
 
+#if os(macOS)
 struct SuperSimTimelineChart: View {
     @Bindable var viewModel: SuperSimViewModel
 
@@ -586,3 +587,4 @@ struct SuperSimTimelineChart: View {
         .frame(minHeight: 200)
     }
 }
+#endif

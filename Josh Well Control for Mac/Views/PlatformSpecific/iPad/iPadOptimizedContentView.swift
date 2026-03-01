@@ -187,7 +187,7 @@ struct iPadSidebarView: View {
     private let analysisViews: [ViewSelection] = [.pressureWindow, .pumpSchedule, .cementJob, .swabbing, .surgeSwab]
     private let simulationViews: [ViewSelection] = [.tripSimulation, .tripInSimulation, .mpdTracking]
     private let directionalViews: [ViewSelection] = [.directionalPlanning]
-    private let operationsViews: [ViewSelection] = [.rentals, .transfers, .equipmentRegistry]
+    private let operationsViews: [ViewSelection] = [.equipmentHub]
     private let lookAheadViews: [ViewSelection] = [.lookAheadScheduler, .vendors, .jobCodes]
 
     // Business sections
@@ -500,6 +500,8 @@ struct iPadDetailView: View {
                     TripInSimulationViewIOS(project: project)
                 case .mpdTracking:
                     MPDTrackingView(project: project)
+                case .superSimulation:
+                    Text("Super Simulation is not yet available on iPad")
                 case .directionalPlanning:
                     DirectionalDashboardView(project: project)
                 case .lookAheadScheduler:
@@ -508,6 +510,8 @@ struct iPadDetailView: View {
                     VendorListView()
                 case .jobCodes:
                     JobCodeListView()
+                case .equipmentHub:
+                    EquipmentHubViewIOS()
                 case .rentals:
                     if let well = selectedWell {
                         RentalItemsView(well: well)

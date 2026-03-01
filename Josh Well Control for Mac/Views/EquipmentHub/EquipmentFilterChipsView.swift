@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+#if os(macOS)
 struct EquipmentFilterChipsView: View {
     @Bindable var vm: EquipmentHubViewModel
     let categories: [RentalCategory]
@@ -104,3 +105,4 @@ struct EquipmentFilterChipsView: View {
         }
     }
 }
+#endif

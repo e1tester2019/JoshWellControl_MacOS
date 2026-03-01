@@ -93,6 +93,11 @@ class CementJobSimulationViewModel {
         // Rheology for APL calculations
         let plasticViscosity_cP: Double
         let yieldPoint_Pa: Double
+        // Fann viscometer data for Power Law model (from stage's mud)
+        let dial600: Double?
+        let dial300: Double?
+        let n_annulus: Double?
+        let K_annulus: Double?
 
         // Runtime tracking
         var tankVolumeAfter_m3: Double?
@@ -219,6 +224,11 @@ class CementJobSimulationViewModel {
         // Rheology for APL calculations
         var plasticViscosity_cP: Double = 20.0
         var yieldPoint_Pa: Double = 8.0
+        // Fann viscometer data for Power Law model (matches pump schedule)
+        var dial600: Double? = nil
+        var dial300: Double? = nil
+        var n_annulus: Double? = nil
+        var K_annulus: Double? = nil
     }
 
     var stringStack: [FluidSegment] = []
@@ -299,6 +309,7 @@ class CementJobSimulationViewModel {
         pumpRate_m3_per_min = job.defaultPumpRate_m3_per_min
 
         for stage in job.sortedStages {
+            let stageMud = stage.mud
             let simStage = SimulationStage(
                 id: stage.id,
                 sourceStage: stage,
@@ -310,7 +321,11 @@ class CementJobSimulationViewModel {
                 isOperation: stage.stageType == .operation,
                 operationType: stage.operationType,
                 plasticViscosity_cP: stage.plasticViscosity_cP,
-                yieldPoint_Pa: stage.yieldPoint_Pa
+                yieldPoint_Pa: stage.yieldPoint_Pa,
+                dial600: stageMud?.dial600,
+                dial300: stageMud?.dial300,
+                n_annulus: stageMud?.n_annulus,
+                K_annulus: stageMud?.K_annulus
             )
             stages.append(simStage)
         }
@@ -602,12 +617,12 @@ class CementJobSimulationViewModel {
         // Convert PV from cP to Pa·s
         let pv_Pa_s = plasticViscosity_cP / 1000.0
 
-        // Bingham plastic friction gradient for laminar flow in annulus:
-        // dP/dL = (4 × YP) / (D_h - D_p) + (8 × PV × V) / (D_h - D_p)²
+        // Bingham plastic friction gradient for slot-flow annulus (API RP 13D):
+        // dP/dL = (6 × YP) / (D_h - D_p) + (48 × PV × V) / (D_h - D_p)²
         // Result in Pa/m, convert to kPa/m
 
-        let yieldTerm = (4.0 * yieldPoint_Pa) / hydraulicDiameter
-        let viscousTerm = (8.0 * pv_Pa_s * velocity_m_per_s) / pow(hydraulicDiameter, 2)
+        let yieldTerm = (6.0 * yieldPoint_Pa) / hydraulicDiameter
+        let viscousTerm = (48.0 * pv_Pa_s * velocity_m_per_s) / pow(hydraulicDiameter, 2)
 
         return (yieldTerm + viscousTerm) / 1000.0  // kPa/m
     }
@@ -627,51 +642,83 @@ class CementJobSimulationViewModel {
         let annulusSections = project.annulus ?? []
         let drillStrings = project.drillString ?? []
 
+        let aplService = APLCalculationService.shared
         var totalAPL_kPa = 0.0
-        let flowRate_m3_per_s = pumpRate_m3_per_min / 60.0
 
-        // For simplicity, use average rheology from parcels weighted by volume
+        // Volume-weighted average rheology from parcels
         var totalVolume = 0.0
         var weightedPV = 0.0
         var weightedYP = 0.0
+        var weightedDial600 = 0.0
+        var weightedDial300 = 0.0
+        var dialVolume = 0.0
+        var weightedN = 0.0
+        var weightedK = 0.0
+        var knVolume = 0.0
 
         for parcel in aboveZoneParcels {
             guard parcel.volume_m3 > 1e-9 else { continue }
             totalVolume += parcel.volume_m3
             weightedPV += parcel.plasticViscosity_cP * parcel.volume_m3
             weightedYP += parcel.yieldPoint_Pa * parcel.volume_m3
+            if let n = parcel.n_annulus, let k = parcel.K_annulus {
+                weightedN += n * parcel.volume_m3
+                weightedK += k * parcel.volume_m3
+                knVolume += parcel.volume_m3
+            } else if let d600 = parcel.dial600, let d300 = parcel.dial300, d600 > 0, d300 > 0 {
+                weightedDial600 += d600 * parcel.volume_m3
+                weightedDial300 += d300 * parcel.volume_m3
+                dialVolume += parcel.volume_m3
+            }
         }
 
-        let avgPV = totalVolume > 0 ? weightedPV / totalVolume : 20.0
-        let avgYP = totalVolume > 0 ? weightedYP / totalVolume : 8.0
-
         // Calculate APL for each geometry section above loss zone
+        // Uses same priority as pump schedule: explicit K/n → Power Law from dials → Bingham
         for section in annulusSections {
-            // Only consider sections above the loss zone
             let sectionTop = section.topDepth_m
             let sectionBottom = min(section.bottomDepth_m, lossZoneDepth_m)
 
             guard sectionBottom > sectionTop else { continue }
             let sectionLength = sectionBottom - sectionTop
 
-            // Get geometry
             let holeID = section.innerDiameter_m
-            let pipeOD = drillStrings.first?.outerDiameter_m ?? 0.127  // Default 5" pipe
+            let midDepth = (sectionTop + sectionBottom) / 2
+            var pipeOD = drillStrings.first?.outerDiameter_m ?? 0.127
+            for ds in drillStrings {
+                if midDepth >= ds.topDepth_m && midDepth <= ds.bottomDepth_m {
+                    pipeOD = ds.outerDiameter_m
+                    break
+                }
+            }
 
-            // Calculate velocity and friction
-            let area_m2 = Double.pi / 4.0 * (pow(holeID, 2) - pow(pipeOD, 2))
-            guard area_m2 > 1e-9 else { continue }
-
-            let velocity_m_per_s = flowRate_m3_per_s / area_m2
-            let frictionGrad = binghamFrictionGradient(
-                velocity_m_per_s: velocity_m_per_s,
-                holeDiameter_m: holeID,
-                pipeDiameter_m: pipeOD,
-                plasticViscosity_cP: avgPV,
-                yieldPoint_Pa: avgYP
-            )
-
-            totalAPL_kPa += frictionGrad * sectionLength
+            if knVolume > totalVolume * 0.5 {
+                // Use explicit K/n (matches pump schedule priority 1)
+                let avgN = weightedN / knVolume
+                let avgK = weightedK / knVolume
+                totalAPL_kPa += aplService.aplFromKN(
+                    length_m: sectionLength, flowRate_m3_per_min: pumpRate_m3_per_min,
+                    holeDiameter_m: holeID, pipeDiameter_m: pipeOD,
+                    K: avgK, n: avgN
+                )
+            } else if dialVolume > totalVolume * 0.5 {
+                // Use Power Law from Fann dials (matches pump schedule priority 2)
+                let avgD600 = weightedDial600 / dialVolume
+                let avgD300 = weightedDial300 / dialVolume
+                totalAPL_kPa += aplService.aplPowerLaw(
+                    length_m: sectionLength, flowRate_m3_per_min: pumpRate_m3_per_min,
+                    holeDiameter_m: holeID, pipeDiameter_m: pipeOD,
+                    dial600: avgD600, dial300: avgD300
+                )
+            } else {
+                // Fallback to corrected Bingham
+                let avgPV = totalVolume > 0 ? weightedPV / totalVolume : 20.0
+                let avgYP = totalVolume > 0 ? weightedYP / totalVolume : 8.0
+                totalAPL_kPa += aplService.aplBingham(
+                    length_m: sectionLength, flowRate_m3_per_min: pumpRate_m3_per_min,
+                    holeDiameter_m: holeID, pipeDiameter_m: pipeOD,
+                    plasticViscosity_cP: avgPV, yieldPoint_Pa: avgYP
+                )
+            }
         }
 
         return totalAPL_kPa
@@ -735,13 +782,32 @@ class CementJobSimulationViewModel {
         let activeName = activeMud?.name ?? "Mud"
         let activeDensity = activeMud?.density_kgm3 ?? 1200.0
 
+        // Read actual mud rheology (matches pump schedule approach)
+        let mudPV_cP = activeMud?.pv_mPa_s ?? 20.0
+        let mudYP_Pa = activeMud?.yp_Pa ?? 8.0
+        let mudDial600 = activeMud?.dial600
+        let mudDial300 = activeMud?.dial300
+        let mudN = activeMud?.n_annulus
+        let mudK = activeMud?.K_annulus
+
         // String and annulus capacities
         let stringCapacity_m3 = geom.volumeInString_m3(0, floatCollarDepth_m)
         let annulusCapacity_m3 = geom.volumeInAnnulus_m3(0, shoeDepth_m)
 
+        // Helper to create a mud parcel with actual rheology
+        func mudParcel(volume: Double) -> VolumeParcel {
+            VolumeParcel(
+                volume_m3: volume, color: activeColor, name: activeName,
+                density_kgm3: activeDensity,
+                plasticViscosity_cP: mudPV_cP, yieldPoint_Pa: mudYP_Pa,
+                dial600: mudDial600, dial300: mudDial300,
+                n_annulus: mudN, K_annulus: mudK
+            )
+        }
+
         // Initialize string with active mud (ordered shallow -> deep)
         var stringParcels: [VolumeParcel] = [
-            VolumeParcel(volume_m3: stringCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+            mudParcel(volume: stringCapacity_m3)
         ]
 
         var expelledAtBit: [VolumeParcel] = []
@@ -774,7 +840,11 @@ class CementJobSimulationViewModel {
                         density_kgm3: stage.density_kgm3,
                         isCement: isCement,
                         plasticViscosity_cP: stage.plasticViscosity_cP,
-                        yieldPoint_Pa: stage.yieldPoint_Pa
+                        yieldPoint_Pa: stage.yieldPoint_Pa,
+                        dial600: stage.dial600,
+                        dial300: stage.dial300,
+                        n_annulus: stage.n_annulus,
+                        K_annulus: stage.K_annulus
                     ),
                     capacity_m3: stringCapacity_m3,
                     expelled: &expelledAtBit
@@ -794,10 +864,10 @@ class CementJobSimulationViewModel {
 
             // Initialize both sections with active mud
             var belowZoneParcels: [VolumeParcel] = [
-                VolumeParcel(volume_m3: belowZoneCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+                mudParcel(volume: belowZoneCapacity_m3)
             ]
             var aboveZoneParcels: [VolumeParcel] = [
-                VolumeParcel(volume_m3: aboveZoneCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+                mudParcel(volume: aboveZoneCapacity_m3)
             ]
 
             var lostToFormation: [VolumeParcel] = []
@@ -1186,7 +1256,7 @@ class CementJobSimulationViewModel {
 
             // Start with annulus full of active fluid (mud)
             var annulusParcels: [VolumeParcel] = [
-                VolumeParcel(volume_m3: annulusCapacity_m3, color: activeColor, name: activeName, density_kgm3: activeDensity)
+                mudParcel(volume: annulusCapacity_m3)
             ]
             var overflowAtSurface: [VolumeParcel] = []
 

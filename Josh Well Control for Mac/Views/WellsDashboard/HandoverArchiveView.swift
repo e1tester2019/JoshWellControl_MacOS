@@ -333,6 +333,7 @@ struct ArchiveDetailView: View {
               let htmlContent = String(data: htmlData, encoding: .utf8) else { return }
 
         let baseName = archive.reportTitle.replacingOccurrences(of: " ", with: "_")
+        #if os(macOS)
         Task {
             await HTMLZipExporter.shared.exportZipped(
                 htmlContent: htmlContent,
@@ -340,6 +341,7 @@ struct ArchiveDetailView: View {
                 zipFileName: "\(baseName).zip"
             )
         }
+        #endif
     }
 
     private func exportPDF() {

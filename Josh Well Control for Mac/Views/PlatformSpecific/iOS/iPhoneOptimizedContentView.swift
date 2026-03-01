@@ -211,23 +211,9 @@ struct iPhoneOptimizedContentView: View {
 
             Section("Equipment") {
                 NavigationLink {
-                    AllMaterialTransfersViewIOS()
+                    EquipmentHubViewIOS()
                 } label: {
-                    Label("Material Transfers", systemImage: "shippingbox")
-                }
-
-                if let well = selectedWell {
-                    NavigationLink {
-                        RentalItemsViewIOS(well: well)
-                    } label: {
-                        Label(ViewSelection.rentals.title, systemImage: ViewSelection.rentals.icon)
-                    }
-                }
-
-                NavigationLink {
-                    RentalEquipmentListViewIOS()
-                } label: {
-                    Label(ViewSelection.equipmentRegistry.title, systemImage: ViewSelection.equipmentRegistry.icon)
+                    Label(ViewSelection.equipmentHub.title, systemImage: ViewSelection.equipmentHub.icon)
                 }
             }
 

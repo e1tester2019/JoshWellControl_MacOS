@@ -436,7 +436,7 @@ private struct UsageHistoryRowIOS: View {
 
 // MARK: - Equipment Editor
 
-private struct EquipmentEditorViewIOS: View {
+struct EquipmentEditorViewIOS: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Well.name) private var wells: [Well]
@@ -568,7 +568,7 @@ private struct EquipmentEditorViewIOS: View {
 
 // MARK: - Issue Log Sheet
 
-private struct IssueLogSheetIOS: View {
+struct IssueLogSheetIOS: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Bindable var equipment: RentalEquipment
