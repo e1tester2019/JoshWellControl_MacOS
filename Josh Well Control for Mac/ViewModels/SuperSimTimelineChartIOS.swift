@@ -2,8 +2,8 @@
 //  SuperSimTimelineChartIOS.swift
 //  Josh Well Control for Mac
 //
-//  iOS/iPadOS optimized timeline chart for Super Simulation.
-//  Supports touch interaction, pinch zoom, and adaptive layout.
+//  iOS/iPadOS timeline chart for Super Simulation.
+//  Matches macOS chart: operation bands with labels, slider tooltip, consistent colors/legend.
 //
 
 import SwiftUI
@@ -13,24 +13,24 @@ import Charts
 
 struct SuperSimTimelineChartIOS: View {
     @Bindable var viewModel: SuperSimViewModel
-    
+
     enum ChartType: String, CaseIterable {
         case esd = "ESD"
         case backPressure = "Back Pressure"
         case pumpRate = "Pump Rate"
     }
-    
+
     @State private var chartType: ChartType = .esd
     @State private var showLegend: Bool = false
     @State private var zoomLevel: Double = 1.0
     @State private var scrollPosition: Int = 0
     @State private var isDraggingScrubber: Bool = false
-    
+
     @Environment(\.horizontalSizeClass) var sizeClass
-    
+
     var body: some View {
-        VStack(spacing: 12) {
-            // Header with chart type selector
+        VStack(spacing: 8) {
+            // Chart type selector
             HStack {
                 Picker("Chart Type", selection: $chartType) {
                     ForEach(ChartType.allCases, id: \.self) { type in
@@ -38,38 +38,44 @@ struct SuperSimTimelineChartIOS: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                
+
                 Button {
-                    showLegend.toggle()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showLegend.toggle()
+                    }
                 } label: {
                     Image(systemName: showLegend ? "info.circle.fill" : "info.circle")
                         .imageScale(.large)
                 }
             }
             .padding(.horizontal)
-            
+
             // Legend (collapsible)
             if showLegend {
-                legendView
+                legend
                     .padding(.horizontal)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            
-            // Current value card (always visible when data exists)
+
+            // Current value card
             let data = viewModel.timelineChartData
             if !data.isEmpty {
                 currentValueCard(data)
                     .padding(.horizontal)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            
+
             if data.isEmpty {
                 emptyPlaceholder
             } else {
-                // Chart
-                chartView(data)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
+                switch chartType {
+                case .esd:
+                    esdChart(data)
+                case .backPressure:
+                    backPressureChart(data)
+                case .pumpRate:
+                    pumpRateChart(data)
+                }
+
                 // Zoom controls for iPad
                 if sizeClass == .regular {
                     zoomControls
@@ -77,83 +83,138 @@ struct SuperSimTimelineChartIOS: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: showLegend)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.globalStepSliderValue)
     }
-    
-    // MARK: - Chart View
-    
-    @ViewBuilder
-    private func chartView(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
-        switch chartType {
-        case .esd:
-            esdChart(data)
-        case .backPressure:
-            backPressureChart(data)
-        case .pumpRate:
-            pumpRateChart(data)
+
+    // MARK: - Operation Ranges
+
+    private var operationRanges: [(start: Int, end: Int, type: OperationType, label: String)] {
+        viewModel.operationRanges
+    }
+
+    // MARK: - Operation Background Bands (with labels)
+
+    @ChartContentBuilder
+    private func operationBands(yMin: Double, yMax: Double) -> some ChartContent {
+        ForEach(Array(operationRanges.enumerated()), id: \.offset) { _, range in
+            RectangleMark(
+                xStart: .value("Start", range.start),
+                xEnd: .value("End", range.end),
+                yStart: .value("YMin", yMin),
+                yEnd: .value("YMax", yMax)
+            )
+            .foregroundStyle(bandColor(range.type))
+
+            // Label at top of band
+            RuleMark(x: .value("Mid", (range.start + range.end) / 2))
+                .foregroundStyle(.clear)
+                .annotation(position: .top, alignment: .center) {
+                    Text(range.label)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
         }
     }
-    
+
+    private func bandColor(_ type: OperationType) -> Color {
+        switch type {
+        case .tripOut: return .blue.opacity(0.08)
+        case .tripIn: return .green.opacity(0.08)
+        case .circulate: return .orange.opacity(0.08)
+        case .reamOut: return .purple.opacity(0.08)
+        case .reamIn: return .pink.opacity(0.08)
+        }
+    }
+
+    // MARK: - Slider Mark with Tooltip
+
+    @ChartContentBuilder
+    private func sliderMark(_ data: [SuperSimViewModel.TimelineChartPoint], chartType: ChartType) -> some ChartContent {
+        let sliderIdx = Int(viewModel.globalStepSliderValue.rounded())
+        if sliderIdx >= 0, sliderIdx < data.count {
+            let point = data[sliderIdx]
+            let totalSteps = max(1, data.count)
+            let nearLeftEdge = Double(sliderIdx) < Double(totalSteps) * 0.15
+            RuleMark(x: .value("Slider", sliderIdx))
+                .foregroundStyle(Color.accentColor.opacity(0.5))
+                .lineStyle(StrokeStyle(lineWidth: 2))
+                .annotation(position: nearLeftEdge ? .topTrailing : .topLeading,
+                            alignment: nearLeftEdge ? .trailing : .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(point.operationLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        switch chartType {
+                        case .esd:
+                            Text("Mud: \(String(format: "%.1f", point.ESDAtControl_kgpm3)) kg/m\u{00B3}")
+                                .font(.caption2.bold())
+                            if point.SABP_kPa > 0 {
+                                Text("+ BP: \(String(format: "%.1f", point.totalESD_kgpm3)) kg/m\u{00B3}")
+                                    .font(.caption2)
+                                    .foregroundStyle(.cyan)
+                            }
+                        case .backPressure:
+                            Text("S: \(String(format: "%.0f", point.SABP_kPa)) kPa")
+                                .font(.caption2.bold())
+                            Text("D: \(String(format: "%.0f", point.dynamicSABP_kPa)) kPa")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        case .pumpRate:
+                            Text("Rate: \(String(format: "%.2f", point.pumpRate_m3perMin)) m\u{00B3}/min")
+                                .font(.caption2.bold())
+                            Text("APL: \(String(format: "%.0f", point.apl_kPa)) kPa")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("MD: \(String(format: "%.0f", point.bitMD_m))m")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(4)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color(uiColor: .systemBackground).shadow(.drop(radius: 2))))
+                }
+        }
+    }
+
     // MARK: - ESD Chart
-    
+
     private func esdChart(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
         let allValues = data.flatMap { [$0.ESDAtControl_kgpm3, $0.totalESD_kgpm3] }
         let yMin = (allValues.min() ?? 0) - 20
         let yMax = (allValues.max() ?? 2000) + 20
-        
+
         return Chart {
-            operationBands(data, yMin: yMin, yMax: yMax)
-            
-            // Mud column (ESD without back pressure)
+            operationBands(yMin: yMin, yMax: yMax)
+
+            // Mud column line
             ForEach(data) { point in
                 LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("Mud Column", point.ESDAtControl_kgpm3)
+                    y: .value("Mud Column (kg/m\u{00B3})", point.ESDAtControl_kgpm3),
+                    series: .value("Series", "Mud Column")
                 )
-                .foregroundStyle(.blue)
-                .lineStyle(StrokeStyle(lineWidth: 2))
+                .foregroundStyle(Color.primary)
                 .interpolationMethod(.linear)
+                .lineStyle(StrokeStyle(lineWidth: 2))
             }
-            
-            // Mud + BP (total ESD including back pressure)
+
+            // Mud + BP line (dashed)
             ForEach(data) { point in
                 LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("Mud + BP", point.totalESD_kgpm3)
+                    y: .value("Mud + BP (kg/m\u{00B3})", point.totalESD_kgpm3),
+                    series: .value("Series", "Mud + BP")
                 )
                 .foregroundStyle(.cyan)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
                 .interpolationMethod(.linear)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
             }
-            
-            // Slider position indicator
-            sliderIndicator(data)
+
+            sliderMark(data, chartType: .esd)
         }
-        .chartXScale(domain: 0...max(1, data.count - 1))
+        .chartXAxisLabel("Step")
+        .chartYAxisLabel("ESD (kg/m\u{00B3})")
+        .chartXScale(domain: 0...max(1, data.last?.globalIndex ?? 1))
         .chartYScale(domain: yMin...yMax)
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Double.self) {
-                        Text(String(format: "%.0f", v))
-                            .font(.caption)
-                    }
-                }
-            }
-        }
-        .chartXAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        Text("\(v)")
-                            .font(.caption)
-                    }
-                }
-            }
-        }
         .chartScrollableAxes(.horizontal)
         .chartXVisibleDomain(length: visibleDomainLength(data))
         .chartScrollPosition(x: $scrollPosition)
@@ -161,66 +222,49 @@ struct SuperSimTimelineChartIOS: View {
             scrubberOverlay(proxy: proxy, data: data)
         }
         .frame(height: UIDevice.current.userInterfaceIdiom == .phone ? 300 : 400)
+        .padding(.horizontal, 4)
     }
-    
+
     // MARK: - Back Pressure Chart
-    
+
     private func backPressureChart(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
         let allSABP = data.flatMap { [$0.SABP_kPa, $0.dynamicSABP_kPa] }
         let yMin = max(0, (allSABP.min() ?? 0) - 50)
         let yMax = (allSABP.max() ?? 1000) + 50
-        
+
         return Chart {
-            operationBands(data, yMin: yMin, yMax: yMax)
-            
+            operationBands(yMin: yMin, yMax: yMax)
+
             // Static SABP
             ForEach(data) { point in
                 LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("Static", point.SABP_kPa)
+                    y: .value("Static SABP (kPa)", point.SABP_kPa),
+                    series: .value("Series", "Static")
                 )
                 .foregroundStyle(.red)
-                .lineStyle(StrokeStyle(lineWidth: 2))
                 .interpolationMethod(.linear)
+                .lineStyle(StrokeStyle(lineWidth: 2))
             }
-            
-            // Dynamic SABP
+
+            // Dynamic SABP (dashed)
             ForEach(data) { point in
                 LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("Dynamic", point.dynamicSABP_kPa)
+                    y: .value("Dynamic SABP (kPa)", point.dynamicSABP_kPa),
+                    series: .value("Series", "Dynamic")
                 )
-                .foregroundStyle(.orange)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 2]))
+                .foregroundStyle(.red.opacity(0.5))
                 .interpolationMethod(.linear)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
             }
-            
-            sliderIndicator(data)
+
+            sliderMark(data, chartType: .backPressure)
         }
-        .chartXScale(domain: 0...max(1, data.count - 1))
+        .chartXAxisLabel("Step")
+        .chartYAxisLabel("SABP (kPa)")
+        .chartXScale(domain: 0...max(1, data.last?.globalIndex ?? 1))
         .chartYScale(domain: yMin...yMax)
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Double.self) {
-                        Text(String(format: "%.0f", v))
-                            .font(.caption)
-                    }
-                }
-            }
-        }
-        .chartXAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        Text("\(v)")
-                            .font(.caption)
-                    }
-                }
-            }
-        }
         .chartScrollableAxes(.horizontal)
         .chartXVisibleDomain(length: visibleDomainLength(data))
         .chartScrollPosition(x: $scrollPosition)
@@ -228,42 +272,51 @@ struct SuperSimTimelineChartIOS: View {
             scrubberOverlay(proxy: proxy, data: data)
         }
         .frame(height: UIDevice.current.userInterfaceIdiom == .phone ? 300 : 400)
+        .padding(.horizontal, 4)
     }
-    
+
     // MARK: - Pump Rate Chart
-    
+
     private func pumpRateChart(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
         let allRates = data.map(\.pumpRate_m3perMin)
-        let rateMin = 0.0
+        let rateMin = max(0, (allRates.min() ?? 0) - 0.1)
         let rateMax = (allRates.max() ?? 1.5) + 0.1
-        
+
+        let allAPL = data.map(\.apl_kPa)
+        let aplMax = max(1, (allAPL.max() ?? 100) * 1.1)
+
         return Chart {
-            operationBands(data, yMin: rateMin, yMax: rateMax)
-            
-            // Pump rate
+            operationBands(yMin: rateMin, yMax: rateMax)
+
+            // Pump rate line
             ForEach(data) { point in
                 LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("Pump Rate", point.pumpRate_m3perMin)
+                    y: .value("Pump Rate (m\u{00B3}/min)", point.pumpRate_m3perMin),
+                    series: .value("Series", "Pump Rate")
                 )
                 .foregroundStyle(.purple)
+                .interpolationMethod(.linear)
                 .lineStyle(StrokeStyle(lineWidth: 2))
-                .interpolationMethod(.linear)
             }
-            
-            // APL as area
+
+            // APL normalized to pump rate scale (dashed)
+            let scale = aplMax > 0.001 ? rateMax / aplMax : 0
             ForEach(data) { point in
-                AreaMark(
+                LineMark(
                     x: .value("Step", point.globalIndex),
-                    y: .value("APL", min(point.apl_kPa / 200, rateMax)) // Normalize APL to fit
+                    y: .value("APL (normalized)", point.apl_kPa * scale),
+                    series: .value("Series", "APL")
                 )
-                .foregroundStyle(.indigo.opacity(0.2))
+                .foregroundStyle(.indigo)
                 .interpolationMethod(.linear)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
             }
-            
-            sliderIndicator(data)
+
+            sliderMark(data, chartType: .pumpRate)
         }
-        .chartXScale(domain: 0...max(1, data.count - 1))
+        .chartXAxisLabel("Step")
+        .chartXScale(domain: 0...max(1, data.last?.globalIndex ?? 1))
         .chartYScale(domain: rateMin...rateMax)
         .chartYAxis {
             AxisMarks(position: .leading) { value in
@@ -271,18 +324,16 @@ struct SuperSimTimelineChartIOS: View {
                 AxisValueLabel {
                     if let v = value.as(Double.self) {
                         Text(String(format: "%.2f", v))
-                            .font(.caption)
+                            .foregroundStyle(.purple)
                     }
                 }
             }
-        }
-        .chartXAxis {
-            AxisMarks { value in
-                AxisGridLine()
+            AxisMarks(position: .trailing) { value in
                 AxisValueLabel {
-                    if let v = value.as(Int.self) {
-                        Text("\(v)")
-                            .font(.caption)
+                    if let v = value.as(Double.self) {
+                        let aplValue = aplMax > 0.001 ? v / rateMax * aplMax : 0
+                        Text(String(format: "%.0f", aplValue))
+                            .foregroundStyle(.indigo)
                     }
                 }
             }
@@ -294,47 +345,146 @@ struct SuperSimTimelineChartIOS: View {
             scrubberOverlay(proxy: proxy, data: data)
         }
         .frame(height: UIDevice.current.userInterfaceIdiom == .phone ? 300 : 400)
-    }
-    
-    // MARK: - Chart Components
-    
-    @ChartContentBuilder
-    private func operationBands(_ data: [SuperSimViewModel.TimelineChartPoint], yMin: Double, yMax: Double) -> some ChartContent {
-        let ranges = viewModel.operationRanges
-        ForEach(Array(ranges.enumerated()), id: \.offset) { _, range in
-            RectangleMark(
-                xStart: .value("Start", range.start),
-                xEnd: .value("End", range.end + 1),
-                yStart: .value("YMin", yMin),
-                yEnd: .value("YMax", yMax)
-            )
-            .foregroundStyle(bandColor(range.type))
-            .opacity(0.15)
+        .padding(.horizontal, 4)
+        .overlay(alignment: .topLeading) {
+            Text("Pump Rate (m\u{00B3}/min)")
+                .font(.caption2)
+                .foregroundStyle(.purple)
+                .padding(.leading, 8)
+                .padding(.top, 2)
+        }
+        .overlay(alignment: .topTrailing) {
+            Text("APL (kPa)")
+                .font(.caption2)
+                .foregroundStyle(.indigo)
+                .padding(.trailing, 8)
+                .padding(.top, 2)
         }
     }
-    
-    @ChartContentBuilder
-    private func sliderIndicator(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some ChartContent {
+
+    // MARK: - Legend
+
+    @ViewBuilder
+    private var legend: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Legend")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            // Operation type bands
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
+                legendSwatch(color: .blue.opacity(0.1), label: "Trip Out", style: .fill)
+                legendSwatch(color: .green.opacity(0.1), label: "Trip In", style: .fill)
+                legendSwatch(color: .orange.opacity(0.1), label: "Circulate", style: .fill)
+                legendSwatch(color: .purple.opacity(0.1), label: "Ream Out", style: .fill)
+                legendSwatch(color: .pink.opacity(0.1), label: "Ream In", style: .fill)
+            }
+
+            Divider()
+
+            // Line colors (match macOS)
+            HStack(spacing: 12) {
+                switch chartType {
+                case .esd:
+                    legendSwatch(color: .primary, label: "Mud Column", style: .line)
+                    legendSwatch(color: .cyan, label: "Mud + BP", style: .dashed)
+                case .backPressure:
+                    legendSwatch(color: .red, label: "Static", style: .line)
+                    legendSwatch(color: .red.opacity(0.5), label: "Dynamic", style: .dashed)
+                case .pumpRate:
+                    legendSwatch(color: .purple, label: "Pump Rate", style: .line)
+                    legendSwatch(color: .indigo, label: "APL", style: .dashed)
+                }
+            }
+        }
+        .padding()
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private enum SwatchStyle { case fill, line, dashed }
+
+    private func legendSwatch(color: Color, label: String, style: SwatchStyle) -> some View {
+        HStack(spacing: 3) {
+            switch style {
+            case .fill:
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color)
+                    .frame(width: 12, height: 10)
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(color.opacity(0.5), lineWidth: 0.5))
+            case .line:
+                Rectangle().fill(color).frame(width: 12, height: 2)
+            case .dashed:
+                HStack(spacing: 1) {
+                    Rectangle().fill(color).frame(width: 4, height: 2)
+                    Rectangle().fill(color).frame(width: 4, height: 2)
+                }
+                .frame(width: 12)
+            }
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Current Value Card
+
+    private func currentValueCard(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
         let sliderIdx = Int(viewModel.globalStepSliderValue.rounded())
-        if sliderIdx >= 0, sliderIdx < data.count {
-            RuleMark(x: .value("Slider", sliderIdx))
-                .foregroundStyle(Color.accentColor.opacity(0.6))
-                .lineStyle(StrokeStyle(lineWidth: 2))
+        guard sliderIdx >= 0, sliderIdx < data.count else {
+            return AnyView(EmptyView())
         }
+        let point = data[sliderIdx]
+
+        return AnyView(
+            HStack(spacing: 12) {
+                // Operation badge
+                Text(point.operationLabel)
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(bandColor(point.operationType).opacity(3))
+                    .clipShape(Capsule())
+
+                Text("MD: \(String(format: "%.0f", point.bitMD_m))m")
+                    .font(.caption)
+                    .monospacedDigit()
+
+                Spacer()
+
+                // Values based on chart type
+                switch chartType {
+                case .esd:
+                    Text("Mud: \(String(format: "%.1f", point.ESDAtControl_kgpm3))")
+                        .font(.caption.monospacedDigit())
+                    if point.SABP_kPa > 0 {
+                        Text("+ BP: \(String(format: "%.1f", point.totalESD_kgpm3))")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.cyan)
+                    }
+                case .backPressure:
+                    Text("S: \(String(format: "%.0f", point.SABP_kPa))")
+                        .font(.caption.monospacedDigit())
+                    Text("D: \(String(format: "%.0f", point.dynamicSABP_kPa))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                case .pumpRate:
+                    Text("Rate: \(String(format: "%.2f", point.pumpRate_m3perMin))")
+                        .font(.caption.monospacedDigit())
+                    Text("APL: \(String(format: "%.0f", point.apl_kPa))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        )
     }
-    
-    private func bandColor(_ type: OperationType) -> Color {
-        switch type {
-        case .tripOut: return .blue
-        case .tripIn: return .green
-        case .circulate: return .orange
-        case .reamOut: return .purple
-        case .reamIn: return .pink
-        }
-    }
-    
-    // MARK: - Scrubber Overlay (Enhanced for direct chart interaction)
-    
+
+    // MARK: - Scrubber Overlay (touch drag)
+
     private func scrubberOverlay(proxy: ChartProxy, data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
         GeometryReader { geo in
             Rectangle()
@@ -344,13 +494,11 @@ struct SuperSimTimelineChartIOS: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             isDraggingScrubber = true
-                            let location = value.location
                             if let plotFrame = proxy.plotFrame {
                                 let plotOrigin = geo[plotFrame].origin
-                                let x = location.x - plotOrigin.x
+                                let x = value.location.x - plotOrigin.x
                                 if let stepValue: Int = proxy.value(atX: x) {
                                     let step = max(0, min(stepValue, data.count - 1))
-                                    // Update slider to enable scrubbing
                                     viewModel.globalStepSliderValue = Double(step)
                                 }
                             }
@@ -361,196 +509,16 @@ struct SuperSimTimelineChartIOS: View {
                 )
         }
     }
-    
-    // MARK: - Info Views
-    
-    // Current value card - always visible, shows slider position
-    private func currentValueCard(_ data: [SuperSimViewModel.TimelineChartPoint]) -> some View {
-        let sliderIdx = Int(viewModel.globalStepSliderValue.rounded())
-        guard sliderIdx >= 0, sliderIdx < data.count else {
-            return AnyView(EmptyView())
-        }
-        let point = data[sliderIdx]
-        
-        return AnyView(
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Current Position")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("Step \(sliderIdx) of \(data.count - 1)")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                
-                HStack {
-                    // Operation label
-                    Text(point.operationLabel)
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(bandColor(point.operationType).opacity(0.3))
-                        .clipShape(Capsule())
-                    
-                    Spacer()
-                    
-                    // MD
-                    Text("MD: \(String(format: "%.0f", point.bitMD_m)) m")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-                
-                // Values based on chart type
-                HStack(spacing: 16) {
-                    switch chartType {
-                    case .esd:
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Mud Column")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("\(String(format: "%.1f", point.ESDAtControl_kgpm3)) kg/m³")
-                                .font(.callout.bold().monospacedDigit())
-                                .foregroundStyle(.blue)
-                        }
-                        if point.SABP_kPa > 0 {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Mud + BP")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text("\(String(format: "%.1f", point.totalESD_kgpm3)) kg/m³")
-                                    .font(.callout.bold().monospacedDigit())
-                                    .foregroundStyle(.cyan)
-                            }
-                        }
-                        
-                    case .backPressure:
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Static SABP")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("\(String(format: "%.0f", point.SABP_kPa)) kPa")
-                                .font(.callout.bold().monospacedDigit())
-                                .foregroundStyle(.red)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Dynamic SABP")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("\(String(format: "%.0f", point.dynamicSABP_kPa)) kPa")
-                                .font(.callout.bold().monospacedDigit())
-                                .foregroundStyle(.orange)
-                        }
-                        
-                    case .pumpRate:
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Pump Rate")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("\(String(format: "%.2f", point.pumpRate_m3perMin)) m³/min")
-                                .font(.callout.bold().monospacedDigit())
-                                .foregroundStyle(.purple)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("APL")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("\(String(format: "%.0f", point.apl_kPa)) kPa")
-                                .font(.callout.bold().monospacedDigit())
-                                .foregroundStyle(.indigo)
-                        }
-                    }
-                    Spacer()
-                }
-            }
-            .padding(12)
-            .background(Color.accentColor.opacity(0.1))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.accentColor.opacity(0.3), lineWidth: 2)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        )
-    }
-    
-    private var legendView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Legend")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            
-            // Operation types
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
-                legendItem(color: .blue, label: "Trip Out")
-                legendItem(color: .green, label: "Trip In")
-                legendItem(color: .orange, label: "Circulate")
-                legendItem(color: .purple, label: "Ream Out")
-                legendItem(color: .pink, label: "Ream In")
-            }
-            
-            Divider()
-            
-            // Lines
-            switch chartType {
-            case .esd:
-                HStack(spacing: 12) {
-                    legendLine(color: .blue, label: "Mud Column", dashed: false)
-                    legendLine(color: .cyan, label: "Mud + BP", dashed: true)
-                }
-            case .backPressure:
-                HStack(spacing: 12) {
-                    legendLine(color: .red, label: "Static", dashed: false)
-                    legendLine(color: .orange, label: "Dynamic", dashed: true)
-                }
-            case .pumpRate:
-                HStack(spacing: 12) {
-                    legendLine(color: .purple, label: "Pump Rate", dashed: false)
-                    legendLine(color: .indigo.opacity(0.5), label: "APL (scaled)", dashed: false)
-                }
-            }
-        }
-        .padding()
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-    
-    private func legendItem(color: Color, label: String) -> some View {
-        HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(color.opacity(0.3))
-                .frame(width: 16, height: 12)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-    
-    private func legendLine(color: Color, label: String, dashed: Bool) -> some View {
-        HStack(spacing: 4) {
-            if dashed {
-                HStack(spacing: 2) {
-                    Rectangle().fill(color).frame(width: 6, height: 2)
-                    Rectangle().fill(color).frame(width: 6, height: 2)
-                }
-                .frame(width: 16)
-            } else {
-                Rectangle().fill(color).frame(width: 16, height: 2)
-            }
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-    
+
+    // MARK: - Zoom & Helpers
+
     private var zoomControls: some View {
         HStack {
             Text("Zoom:")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            
             Slider(value: $zoomLevel, in: 0.2...1.0, step: 0.1)
                 .frame(maxWidth: 200)
-            
             Text("\(Int((1.0 / zoomLevel).rounded()))x")
                 .font(.caption)
                 .monospacedDigit()
@@ -558,16 +526,19 @@ struct SuperSimTimelineChartIOS: View {
                 .frame(width: 40)
         }
     }
-    
+
+    private func visibleDomainLength(_ data: [SuperSimViewModel.TimelineChartPoint]) -> Int {
+        let total = data.count
+        return max(20, Int(Double(total) * zoomLevel))
+    }
+
     private var emptyPlaceholder: some View {
         VStack(spacing: 16) {
             Image(systemName: "chart.xyaxis.line")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            
             Text("No Data")
                 .font(.headline)
-            
             Text("Run operations to see the timeline chart.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -575,21 +546,6 @@ struct SuperSimTimelineChartIOS: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
-    }
-    
-    // MARK: - Helpers
-    
-    private func visibleDomainLength(_ data: [SuperSimViewModel.TimelineChartPoint]) -> Int {
-        let total = data.count
-        return max(20, Int(Double(total) * zoomLevel))
-    }
-}
-
-// MARK: - Array Safe Subscript
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
 
