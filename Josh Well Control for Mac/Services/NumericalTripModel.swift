@@ -314,6 +314,7 @@ final class NumericalTripModel: @unchecked Sendable {
         var SABP_kPa: Double
         var SABP_kPa_Raw: Double
         var ESDatTD_kgpm3: Double
+        var ESDatControl_kgpm3: Double = 0
         var ESDatBit_kgpm3: Double
         var backfillRemaining_m3: Double
         var swabDropToBit_kPa: Double
@@ -716,6 +717,7 @@ final class NumericalTripModel: @unchecked Sendable {
         let initBitTVD = tvdOfMd(bitMD)
         let initESD_TD = (initTotPocket.deltaP_kPa + initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
         let initESD_Bit = max(0.0, (initTotAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(initBitTVD, 1e-9))
+        let initESD_Control = controlTVD > 1e-9 ? (initHydroAtControl + sabp_kPa) / 0.00981 / controlTVD : 0
         // Volume tracking - cumulative values
         var cumulativeBackfill_m3: Double = 0.0
         var cumulativeSlugContribution_m3: Double = 0.0
@@ -739,6 +741,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 SABP_kPa: sabp_kPa,
                 SABP_kPa_Raw: initSabpRaw,
                 ESDatTD_kgpm3: initESD_TD,
+                ESDatControl_kgpm3: initESD_Control,
                 ESDatBit_kgpm3: initESD_Bit,
                 backfillRemaining_m3: max(0.0, input.fixedBackfillVolume_m3),
                 swabDropToBit_kPa: 0.0,
@@ -1301,6 +1304,7 @@ final class NumericalTripModel: @unchecked Sendable {
 
                 let bitTVD = tvdOfMd(bitMD)
                 let esdTD = (totPocket.deltaP_kPa + totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / tdTVD
+                let esdControl = controlTVD > 1e-9 ? (hydroAtControl + sabp_kPa) / 0.00981 / controlTVD : 0
                 let esdBit = max(0.0, (totAnn.deltaP_kPa + sabp_kPa) / 0.00981 / max(bitTVD, 1e-9))
 
                 // Update cumulative volume tracking
@@ -1336,6 +1340,7 @@ final class NumericalTripModel: @unchecked Sendable {
                                         SABP_kPa: sabp_kPa,
                                         SABP_kPa_Raw: sabpRaw,
                                         ESDatTD_kgpm3: esdTD,
+                                        ESDatControl_kgpm3: esdControl,
                                         ESDatBit_kgpm3: esdBit,
                                         backfillRemaining_m3: max(0.0, backfillRemaining),
                                         swabDropToBit_kPa: swab_kPa,

@@ -9,14 +9,35 @@
 import SwiftUI
 import SwiftData
 
+/// Cache to persist SuperSimViewModel across view switches
+enum SuperSimViewModelCache {
+    @MainActor
+    private static var cache: [UUID: SuperSimViewModel] = [:]
+
+    @MainActor
+    static func get(for projectID: UUID) -> SuperSimViewModel {
+        if let existing = cache[projectID] {
+            return existing
+        }
+        let newVM = SuperSimViewModel()
+        cache[projectID] = newVM
+        return newVM
+    }
+}
+
 #if os(macOS)
 struct SuperSimulationView: View {
     @Bindable var project: ProjectState
-    @State private var viewModel = SuperSimViewModel()
+    @State private var viewModel: SuperSimViewModel
     @State private var showAddOperation = false
     @State private var showSavePreset = false
     @State private var showLoadPreset = false
     @State private var presetName: String = ""
+
+    init(project: ProjectState) {
+        self.project = project
+        _viewModel = State(initialValue: SuperSimViewModelCache.get(for: project.id))
+    }
 
     var body: some View {
         HSplitView {
@@ -188,6 +209,11 @@ struct SuperSimulationView: View {
                 )
             }
         }
+        .loadingOverlay(
+            isShowing: viewModel.isRunning,
+            message: viewModel.progressMessage,
+            progress: viewModel.operationProgress > 0 ? viewModel.operationProgress : nil
+        )
         .onAppear {
             if viewModel.initialState == nil {
                 viewModel.bootstrap(from: project)

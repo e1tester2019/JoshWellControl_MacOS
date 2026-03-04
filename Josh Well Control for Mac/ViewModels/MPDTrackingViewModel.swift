@@ -344,6 +344,49 @@ class MPDTrackingViewModel {
         boundSheet = nil
     }
 
+    // MARK: - UI Helpers
+
+    /// Whether we can add a reading (have a valid sheet)
+    var canAddReading: Bool {
+        boundSheet != nil
+    }
+
+    /// Available sheets for this project
+    var availableSheets: [MPDSheet] {
+        boundProject?.mpdSheets ?? []
+    }
+
+    /// Export readings to CSV
+    func exportReadings() {
+        guard let sheet = boundSheet else { return }
+        // TODO: Implement CSV export functionality
+        // For now, just generate CSV string
+        let csv = generateCSV(for: sheet.sortedReadings)
+        print("CSV Export:\n\(csv)")
+    }
+
+    /// Generate CSV from readings
+    private func generateCSV(for readings: [MPDReading]) -> String {
+        var csv = "Timestamp,Flow Rate (m³/min),Density Out (kg/m³),Choke Friction (kPa),Circulating,Shut-In Pressure (kPa),ECD Heel,ECD Bit,ECD Toe,ESD Heel,ESD Bit,ESD Toe,Notes\n"
+        
+        for reading in readings {
+            let timestamp = ISO8601DateFormatter().string(from: reading.timestamp)
+            csv += "\(timestamp),\(reading.flowRate_m3_per_min),\(reading.densityOut_kgm3),\(reading.chokeFriction_kPa),\(reading.isCirculating),\(reading.shutInPressure_kPa),\(reading.ecdAtHeel_kgm3),\(reading.ecdAtBit_kgm3),\(reading.ecdAtToe_kgm3),\(reading.esdAtHeel_kgm3),\(reading.esdAtBit_kgm3),\(reading.esdAtToe_kgm3),\"\(reading.notes)\"\n"
+        }
+        
+        return csv
+    }
+
+    /// Clear all readings from current sheet
+    func clearAllReadings() {
+        guard let context = context, let sheet = boundSheet, let readings = sheet.readings else { return }
+        for reading in readings {
+            context.delete(reading)
+        }
+        sheet.updatedAt = Date.now
+        try? context.save()
+    }
+
     // MARK: - Helpers
 
     /// TVD at heel

@@ -89,6 +89,9 @@ final class TripInSimulation {
     /// Trip speed (m/min) for surge/swab calculations
     var tripSpeed_m_per_min: Double = 0
 
+    /// Eccentricity factor for surge/swab (1.0 = concentric, >1.0 = eccentric)
+    var eccentricityFactor: Double = 1.2
+
     // MARK: - Relationships
 
     /// Back-reference to the owning project

@@ -34,6 +34,8 @@ enum TripSimViewModelCacheIOS {
 struct TripSimulationViewIOS: View {
     // MARK: - Environment
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) var sizeClass
+    @Environment(\.verticalSizeClass) var vSizeClass
 
     // You typically have a selected project bound in higher views. If not, you can inject a specific instance here.
     @Bindable var project: ProjectState
@@ -41,6 +43,9 @@ struct TripSimulationViewIOS: View {
     @State private var viewmodel: ViewModel
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
+    @State private var selectedTab = 0
+    @State private var showHandoffConfirmation = false
+    @State private var showConfigPanel = true
 
     init(project: ProjectState) {
         self.project = project
@@ -49,16 +54,65 @@ struct TripSimulationViewIOS: View {
 
     // MARK: - Body
     var body: some View {
-        GeometryReader { geo in
-            let isPortrait = geo.size.height > geo.size.width
-            let isNarrow = geo.size.width < 700
-            
-            if isPortrait || isNarrow {
-                // PORTRAIT or NARROW: Stack everything vertically
-                portraitLayout(geo: geo)
+        Group {
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                // iPhone: Tab-based navigation
+                phoneLayout
             } else {
-                // LANDSCAPE: Side-by-side layout with visualization on right
-                landscapeLayout(geo: geo)
+                // iPad: Adaptive layout based on orientation
+                if sizeClass == .regular && vSizeClass == .regular {
+                    iPadLandscapeLayout
+                } else {
+                    iPadPortraitLayout
+                }
+            }
+        }
+        .loadingOverlay(
+            isShowing: viewmodel.isRunning,
+            message: viewmodel.progressMessage,
+            progress: viewmodel.progressValue > 0 ? viewmodel.progressValue : nil
+        )
+        .navigationTitle("Trip Simulation")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button("Run Simulation", systemImage: "play.fill") {
+                        viewmodel.runSimulation(project: project)
+                    }
+                    .disabled(viewmodel.isRunning)
+                    
+                    Divider()
+                    
+                    Button("Save Inputs", systemImage: "square.and.arrow.down") {
+                        viewmodel.saveInputs(project: project, context: modelContext)
+                    }
+                    
+                    Divider()
+                    
+                    Button("Export PDF Report", systemImage: "doc.richtext") {
+                        exportPDFReport()
+                    }
+                    .disabled(viewmodel.steps.isEmpty)
+                    
+                    Button("Export HTML Report", systemImage: "doc.badge.gearshape") {
+                        exportHTMLReport()
+                    }
+                    .disabled(viewmodel.steps.isEmpty)
+                    
+                    Button("Export Project JSON", systemImage: "curlybraces") {
+                        exportProjectJSON()
+                    }
+
+                    Divider()
+
+                    Button("Hand Off to Trip In", systemImage: "arrow.right.circle") {
+                        handoffToTripIn()
+                    }
+                    .disabled(viewmodel.steps.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
         }
         .onAppear {
@@ -75,58 +129,738 @@ struct TripSimulationViewIOS: View {
         .alert("Export Error", isPresented: $showingExportErrorAlert, actions: { Button("OK", role: .cancel) {} }) {
             Text(exportErrorMessage)
         }
+        .alert("Handoff Ready", isPresented: $showHandoffConfirmation) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Wellbore state saved. Navigate to Trip In Simulation to continue.")
+        }
     }
     
-    // MARK: - Portrait Layout
-    private func portraitLayout(geo: GeometryProxy) -> some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                // Header inputs - compact for portrait
-                VStack(alignment: .leading, spacing: 12) {
-                    compactHeaderInputs
+    // MARK: - iPhone Layout (Tabbed)
+    
+    private var phoneLayout: some View {
+        TabView(selection: $selectedTab) {
+            // Tab 1: Configuration
+            configurationView
+                .tabItem {
+                    Label("Config", systemImage: "slider.horizontal.3")
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                
-                Divider()
-                
-                // Visualization section
-                VStack(spacing: 12) {
-                    if !viewmodel.steps.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Bit Depth")
-                                .font(.headline)
-                                .padding(.horizontal, 16)
-                            
-                            HStack(spacing: 8) {
-                                Slider(
-                                    value: Binding(
-                                        get: { viewmodel.stepSlider },
-                                        set: { newVal in
-                                            viewmodel.stepSlider = newVal
-                                            let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
-                                            viewmodel.selectedIndex = idx
-                                        }
-                                    ),
-                                    in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
-                                )
-                                Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
-                                    .frame(width: 80, alignment: .trailing)
-                                    .monospacedDigit()
-                                    .font(.system(.body, design: .monospaced))
+                .tag(0)
+            
+            // Tab 2: Steps Table
+            stepsTableView
+                .tabItem {
+                    Label("Steps", systemImage: "tablecells")
+                }
+                .tag(1)
+            
+            // Tab 3: Wellbore Visualization
+            visualizationView
+                .tabItem {
+                    Label("Wellbore", systemImage: "cylinder.split.1x2")
+                }
+                .tag(2)
+            
+            // Tab 4: Details (only if enabled and step selected)
+            if viewmodel.showDetails && viewmodel.selectedIndex != nil {
+                detailsView
+                    .tabItem {
+                        Label("Details", systemImage: "info.circle")
+                    }
+                    .tag(3)
+            }
+        }
+        .safeAreaPadding(.bottom, 49)
+    }
+    
+    // MARK: - iPad Portrait Layout (Stacked with Segmented Control)
+    
+    private var iPadPortraitLayout: some View {
+        VStack(spacing: 0) {
+            // Segmented control for view switching
+            Picker("View", selection: $selectedTab) {
+                Text("Config").tag(0)
+                Text("Steps").tag(1)
+                Text("Wellbore").tag(2)
+                if viewmodel.showDetails && viewmodel.selectedIndex != nil {
+                    Text("Details").tag(3)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+            
+            // Content area
+            Group {
+                switch selectedTab {
+                case 0:
+                    configurationView
+                case 1:
+                    stepsTableView
+                case 2:
+                    visualizationView
+                case 3:
+                    detailsView
+                default:
+                    configurationView
+                }
+            }
+        }
+    }
+    
+    // MARK: - iPad Landscape Layout (Split View)
+    
+    private var iPadLandscapeLayout: some View {
+        GeometryReader { geo in
+            let sideWidth = geo.size.width * 0.35
+            HStack(spacing: 0) {
+                // Left side: Config OR Wellbore snapshot (toggled)
+                if showConfigPanel {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Bit / Range Section
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Bit / Range")
+                                    .font(.headline)
+
+                                VStack(spacing: 10) {
+                                    cleanNumberField("Start MD", value: $viewmodel.startBitMD_m, suffix: "m", note: "(\(Int(startTVD)) TVD)")
+                                    cleanNumberField("End MD", value: $viewmodel.endMD_m, suffix: "m", note: "(\(Int(endTVD)) TVD)")
+                                    cleanNumberField("Control MD", value: controlMDBinding, suffix: "m", note: "(\(Int(controlTVD)) TVD)")
+                                    cleanNumberField("Step", value: $viewmodel.step_m, suffix: "m")
+                                }
                             }
-                            .padding(.horizontal, 16)
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(12)
+
+                            // Fluids Section
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Fluids")
+                                    .font(.headline)
+
+                                VStack(spacing: 10) {
+                                    cleanMudPicker(
+                                        label: "Base mud",
+                                        selection: Binding(
+                                            get: { project.activeMud?.id },
+                                            set: { _ in }
+                                        ),
+                                        onSelect: { newID in
+                                            if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
+                                                (project.muds ?? []).forEach { $0.isActive = false }
+                                                m.isActive = true
+                                                viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
+                                            }
+                                        }
+                                    )
+
+                                    cleanMudPicker(
+                                        label: "Backfill mud",
+                                        selection: $viewmodel.backfillMudID,
+                                        onSelect: { newID in
+                                            let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                                            if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                                viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                                            } else {
+                                                viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                                            }
+                                        }
+                                    )
+
+                                    cleanNumberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3, suffix: "kg/m³")
+                                }
+                            }
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(12)
+
+                            // Choke / Float Section
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Choke / Float")
+                                    .font(.headline)
+
+                                VStack(spacing: 10) {
+                                    cleanNumberField("Crack Float", value: $viewmodel.crackFloat_kPa, suffix: "kPa")
+                                    cleanNumberField("Initial SABP", value: $viewmodel.initialSABP_kPa, suffix: "kPa")
+                                    Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
+                                        .font(.subheadline)
+                                }
+                            }
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(12)
+
+                            // Options
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Options")
+                                    .font(.headline)
+
+                                VStack(spacing: 10) {
+                                    cleanNumberField("Trip Speed", value: tripSpeedBinding_mpm, suffix: "m/min", note: tripSpeedDirectionText)
+
+                                    HStack {
+                                        Text("Eccentricity")
+                                            .font(.subheadline)
+                                            .frame(width: 100, alignment: .leading)
+
+                                        TextField("", value: $viewmodel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                                            .textFieldStyle(.roundedBorder)
+                                            .keyboardType(.decimalPad)
+                                            .frame(maxWidth: .infinity)
+                                            .multilineTextAlignment(.trailing)
+
+                                        Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                                            .labelsHidden()
+                                    }
+
+                                    Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
+                                        .font(.subheadline)
+                                    Toggle("Show details", isOn: $viewmodel.showDetails)
+                                        .font(.subheadline)
+                                }
+                            }
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(12)
+
+                            // Slug Calibration
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Slug Calibration")
+                                    .font(.headline)
+
+                                VStack(spacing: 10) {
+                                    if viewmodel.calculatedInitialPitGain_m3 > 0 {
+                                        HStack {
+                                            Text("Calculated:")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+
+                                            Spacer()
+
+                                            Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
+                                                .font(.subheadline)
+                                                .monospacedDigit()
+
+                                            Button {
+                                                viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
+                                            } label: {
+                                                Image(systemName: "arrow.right.circle.fill")
+                                            }
+                                        }
+
+                                        Divider()
+                                    }
+
+                                    Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
+                                        .font(.subheadline)
+
+                                    HStack {
+                                        Text("Observed:")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+
+                                        TextField("", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                                            .textFieldStyle(.roundedBorder)
+                                            .keyboardType(.decimalPad)
+                                            .disabled(!viewmodel.useObservedPitGain)
+                                            .multilineTextAlignment(.trailing)
+
+                                        Text("m³")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .cornerRadius(12)
+
+                            // Run Button
+                            if viewmodel.isRunning {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 8) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text(viewmodel.progressMessage)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                    }
+                                    ProgressView(value: viewmodel.progressValue)
+                                        .tint(.blue)
+                                }
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                .cornerRadius(12)
+                            } else {
+                                Button {
+                                    viewmodel.runSimulation(project: project)
+                                } label: {
+                                    Label("Run Simulation", systemImage: "play.fill")
+                                        .font(.headline)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                            }
                         }
-                        .padding(.vertical, 8)
+                        .padding(12)
+                    }
+                    .frame(width: sideWidth)
+                    .scrollDismissesKeyboard(.interactively)
+                } else {
+                    // Wellbore snapshot / Details
+                    VStack(spacing: 0) {
+                        if viewmodel.showDetails && viewmodel.selectedIndex != nil {
+                            Picker("", selection: $selectedTab) {
+                                Text("Wellbore").tag(2)
+                                Text("Details").tag(3)
+                            }
+                            .pickerStyle(.segmented)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Color(uiColor: .systemGroupedBackground))
+
+                            Divider()
+
+                            if selectedTab == 3 {
+                                detailsView
+                            } else {
+                                visualizationView
+                            }
+                        } else {
+                            visualizationView
+                        }
+                    }
+                    .frame(width: sideWidth)
+                }
+
+                Divider()
+
+                // Right: Steps table (remaining width)
+                VStack(spacing: 0) {
+                    HStack {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showConfigPanel.toggle()
+                            }
+                        } label: {
+                            Label(
+                                showConfigPanel ? "Wellbore" : "Config",
+                                systemImage: showConfigPanel ? "cylinder.split.1x2" : "slider.horizontal.3"
+                            )
+                            .font(.subheadline)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Spacer()
+
+                        Text("Trip Steps")
+                            .font(.headline)
+
+                        Spacer()
+
+                        if !viewmodel.steps.isEmpty {
+                            Text("\(viewmodel.steps.count) steps")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .background(Color(uiColor: .systemGroupedBackground))
+
+                    Divider()
+
+                    if viewmodel.steps.isEmpty {
+                        emptyStepsView
+                    } else {
+                        stepsScrollList
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - View Components
+    
+    // MARK: - Configuration View
+    
+    private var configurationView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Bit / Range Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Bit / Range")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        cleanNumberField("Start MD", value: $viewmodel.startBitMD_m, suffix: "m", note: "(\(Int(startTVD)) TVD)")
+                        cleanNumberField("End MD", value: $viewmodel.endMD_m, suffix: "m", note: "(\(Int(endTVD)) TVD)")
+                        cleanNumberField("Control MD", value: controlMDBinding, suffix: "m", note: "(\(Int(controlTVD)) TVD)")
+                        cleanNumberField("Step", value: $viewmodel.step_m, suffix: "m")
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                // Fluids Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Fluids")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        cleanMudPicker(
+                            label: "Base mud",
+                            selection: Binding(
+                                get: { project.activeMud?.id },
+                                set: { _ in }
+                            ),
+                            onSelect: { newID in
+                                if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
+                                    (project.muds ?? []).forEach { $0.isActive = false }
+                                    m.isActive = true
+                                    viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
+                                }
+                            }
+                        )
+                        
+                        cleanMudPicker(
+                            label: "Backfill mud",
+                            selection: $viewmodel.backfillMudID,
+                            onSelect: { newID in
+                                let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                                if let id = newID, let m = muds.first(where: { $0.id == id }) {
+                                    viewmodel.backfillDensity_kgpm3 = m.density_kgm3
+                                } else {
+                                    viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
+                                }
+                            }
+                        )
+                        
+                        cleanNumberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3, suffix: "kg/m³")
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                // Choke / Float Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choke / Float")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        cleanNumberField("Crack Float", value: $viewmodel.crackFloat_kPa, suffix: "kPa")
+                        cleanNumberField("Initial SABP", value: $viewmodel.initialSABP_kPa, suffix: "kPa")
+                        
+                        Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
+                            .padding(.vertical, 4)
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                // Trip Speed & Options Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Trip Speed & Options")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        cleanNumberField("Trip Speed", value: tripSpeedBinding_mpm, suffix: "m/min", note: tripSpeedDirectionText)
+                        
+                        HStack {
+                            Text("Eccentricity")
+                                .font(.subheadline)
+                                .frame(width: 120, alignment: .leading)
+                            
+                            TextField("", value: $viewmodel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .frame(maxWidth: .infinity)
+                                .multilineTextAlignment(.trailing)
+                            
+                            Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                                .labelsHidden()
+                        }
+                        
+                        Divider()
+                        
+                        Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
+                        Toggle("Show details tab", isOn: $viewmodel.showDetails)
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                // Slug Calibration Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Slug Calibration")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    VStack(spacing: 12) {
+                        if viewmodel.calculatedInitialPitGain_m3 > 0 {
+                            HStack {
+                                Text("Calculated:")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 120, alignment: .leading)
+                                
+                                Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
+                                    .monospacedDigit()
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                
+                                Button {
+                                    viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
+                                } label: {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .imageScale(.large)
+                                }
+                            }
+                            
+                            Divider()
+                        }
+                        
+                        Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
+                        
+                        HStack {
+                            Text("Observed:")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 120, alignment: .leading)
+                            
+                            TextField("", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                                .disabled(!viewmodel.useObservedPitGain)
+                                .multilineTextAlignment(.trailing)
+                            
+                            Text("m³")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 40, alignment: .leading)
+                        }
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                // Action button
+                VStack(spacing: 12) {
+                    if viewmodel.isRunning {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(viewmodel.progressMessage)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                            }
+                            ProgressView(value: viewmodel.progressValue)
+                                .tint(.blue)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
                         .background(Color(uiColor: .secondarySystemGroupedBackground))
-                        .cornerRadius(8)
-                        .padding(.horizontal, 16)
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+                    } else {
+                        Button {
+                            viewmodel.runSimulation(project: project)
+                        } label: {
+                            Label("Run Simulation", systemImage: "play.fill")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(.vertical)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+    
+    // MARK: - Clean Input Field Helper
+    
+    private func cleanNumberField(_ label: String, value: Binding<Double>, suffix: String, note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 120, alignment: .leading)
+                
+                TextField("", value: value, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                
+                Text(suffix)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60, alignment: .leading)
+            }
+            
+            if let note = note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+                    .padding(.leading, 120)
+            }
+        }
+    }
+    
+    private func cleanMudPicker(label: String, selection: Binding<UUID?>, onSelect: @escaping (UUID?) -> Void) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 120, alignment: .leading)
+            
+            Picker("", selection: Binding(
+                get: { selection.wrappedValue },
+                set: { newID in
+                    selection.wrappedValue = newID
+                    onSelect(newID)
+                }
+            )) {
+                ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                    Text("\(m.name) (\(format0(m.density_kgm3)) kg/m³)").tag(m.id as UUID?)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity)
+        }
+    }
+    
+    // MARK: - Steps Table View
+    
+    private var stepsTableView: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Trip Steps")
+                    .font(.headline)
+                Spacer()
+                if !viewmodel.steps.isEmpty {
+                    Text("\(viewmodel.steps.count) steps")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+            .background(Color(uiColor: .systemGroupedBackground))
+            
+            Divider()
+            
+            if viewmodel.steps.isEmpty {
+                emptyStepsView
+            } else {
+                stepsScrollList
+            }
+        }
+    }
+    
+    private var emptyStepsView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "tablecells")
+                .font(.system(size: 64))
+                .foregroundStyle(.secondary)
+            
+            Text("No Steps Yet")
+                .font(.title2.bold())
+            
+            Text("Configure the inputs and run the simulation to see trip steps.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Button {
+                // Switch to config tab
+                selectedTab = 0
+            } label: {
+                Label("Go to Configuration", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Visualization View
+    
+    private var visualizationView: some View {
+        VStack(spacing: 0) {
+            // Header with slider
+            if !viewmodel.steps.isEmpty {
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Wellbore Snapshot")
+                            .font(.headline)
+                        Spacer()
+                        Text("Step \(viewmodel.selectedIndex ?? 0) of \(viewmodel.steps.count - 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text("Bit Depth:")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
+                                .monospacedDigit()
+                                .font(.system(.body, design: .monospaced))
+                                .fontWeight(.medium)
+                        }
+                        
+                        Slider(
+                            value: Binding(
+                                get: { viewmodel.stepSlider },
+                                set: { newVal in
+                                    viewmodel.stepSlider = newVal
+                                    let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
+                                    viewmodel.selectedIndex = idx
+                                }
+                            ),
+                            in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
+                        )
+                    }
+                }
+                .padding()
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                
+                Divider()
+            }
+            
+            // Visualization
+            if viewmodel.steps.isEmpty {
+                emptyVisualizationView
+            } else {
+                VStack(spacing: 0) {
                     visualization
-                        .frame(height: 400)
-                        .padding(.horizontal, 16)
-                    
+                        .frame(maxHeight: .infinity)
+
                     if !esdAtControlText.isEmpty {
                         Text(esdAtControlText)
                             .font(.system(size: 14, weight: .medium, design: .monospaced))
@@ -134,496 +868,79 @@ struct TripSimulationViewIOS: View {
                             .padding(.horizontal, 12)
                             .frame(maxWidth: .infinity)
                             .background(Color(uiColor: .secondarySystemGroupedBackground))
-                            .cornerRadius(8)
-                            .padding(.horizontal, 16)
-                    }
-                }
-                
-                Divider()
-                
-                // Steps table
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Trip Steps")
-                        .font(.headline)
-                        .padding(.horizontal, 16)
-                    
-                    stepsTable
-                        .frame(height: 300)
-                        .padding(.horizontal, 16)
-                }
-                
-                // Details accordion
-                if viewmodel.showDetails {
-                    VStack(alignment: .leading, spacing: 8) {
-                        detailAccordion
-                            .padding(.horizontal, 16)
                     }
                 }
             }
-            .padding(.bottom, 16)
         }
     }
     
-    // MARK: - Landscape Layout
-    private func landscapeLayout(geo: GeometryProxy) -> some View {
-        HStack(spacing: 0) {
-            // LEFT SIDE: Controls and table (65% width)
-            ScrollView {
+    private var emptyVisualizationView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 64))
+                .foregroundStyle(.secondary)
+            
+            Text("No Results Yet")
+                .font(.title2.bold())
+            
+            Text("Run the simulation to see wellbore visualization.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Details View
+    
+    private var detailsView: some View {
+        ScrollView {
+            if let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) {
+                detailAccordion
+                    .padding()
+            } else {
                 VStack(spacing: 16) {
-                    headerInputs
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                    
-                    Divider()
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        stepsTable
-                            .frame(height: viewmodel.showDetails ? 300 : 450)
-                        
-                        if viewmodel.showDetails {
-                            detailAccordion
-                        }
-                    }
-                    .padding(.horizontal, 16)
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("Select a step")
+                        .font(.headline)
+                    Text("Choose a step from the table to view detailed information.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
                 }
-                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: geo.size.width * 0.65)
-            
-            Divider()
-            
-            // RIGHT SIDE: Visualization (35% width, full height)
-            VStack(spacing: 12) {
-                if !viewmodel.steps.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Bit Depth")
-                            .font(.headline)
-                        
-                        HStack(spacing: 8) {
-                            Slider(
-                                value: Binding(
-                                    get: { viewmodel.stepSlider },
-                                    set: { newVal in
-                                        viewmodel.stepSlider = newVal
-                                        let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
-                                        viewmodel.selectedIndex = idx
-                                    }
-                                ),
-                                in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
-                            )
-                            Text(String(format: "%.2f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
-                                .frame(width: 80, alignment: .trailing)
-                                .monospacedDigit()
-                                .font(.system(.body, design: .monospaced))
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .cornerRadius(8)
-                }
-                
-                visualization
-                    .frame(maxHeight: .infinity)
-                
-                if !esdAtControlText.isEmpty {
-                    Text(esdAtControlText)
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground))
-                        .cornerRadius(8)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(width: geo.size.width * 0.35)
         }
     }
-
-    // MARK: - Sections
     
-    // MARK: - Compact Header Inputs (for portrait)
-    private var compactHeaderInputs: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // All inputs in a single group box using LazyVGrid
-            GroupBox("Inputs") {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300, maximum: 500), spacing: 16)], spacing: 16) {
-                    // Bit/Range section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Bit / Range")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            startMDField
-                            endMDField
-                            controlMDField
-                            numberField("Step (m)", value: $viewmodel.step_m)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // MARK: - Portrait / Landscape Layouts (Removed)
+    
+    
+    // MARK: - Handoff
 
-                    // Fluids section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Fluids")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            mudPicker(
-                                label: "Base mud",
-                                selection: Binding(
-                                    get: { project.activeMud?.id },
-                                    set: { _ in }
-                                ),
-                                onSelect: { newID in
-                                    if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
-                                        // Set all muds inactive first
-                                        (project.muds ?? []).forEach { $0.isActive = false }
-                                        // Set the selected mud as active
-                                        m.isActive = true
-                                        viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
-                                    }
-                                }
-                            )
-                            
-                            mudPicker(
-                                label: "Backfill mud",
-                                selection: $viewmodel.backfillMudID,
-                                onSelect: { newID in
-                                    let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                                    if let id = newID, let m = muds.first(where: { $0.id == id }) {
-                                        viewmodel.backfillDensity_kgpm3 = m.density_kgm3
-                                    } else {
-                                        viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
-                                    }
-                                }
-                            )
-                            
-                            numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Choke/Float section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Choke / Float")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
-                            numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                            Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Options & Trip speed
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Options")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Trip speed (m/min)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack {
-                                    TextField("Trip speed", value: tripSpeedBinding_mpm, format: .number)
-                                        .textFieldStyle(.roundedBorder)
-                                    Text(tripSpeedDirectionText)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // Initial Slug Calibration
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Slug Calibration")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            if viewmodel.calculatedInitialPitGain_m3 > 0 {
-                                HStack {
-                                    Text("Calculated:")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
-                                        .monospacedDigit()
-                                    Button {
-                                        viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
-                                    } label: {
-                                        Image(systemName: "arrow.right.circle")
-                                    }
-                                }
-                            }
-                            Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
-                            HStack {
-                                TextField("Observed", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
-                                    .textFieldStyle(.roundedBorder)
-                                    .disabled(!viewmodel.useObservedPitGain)
-                                Text("m³")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-
-            // Action buttons below the group box
-            HStack(spacing: 12) {
-                Toggle("Show details", isOn: $viewmodel.showDetails)
-                    .toggleStyle(.switch)
-
-                Spacer()
-
-                if viewmodel.isRunning {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(viewmodel.progressMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            ProgressView(value: viewmodel.progressValue)
-                                .frame(width: 120)
-                        }
-                    }
-                } else {
-                    Button("Run Simulation") {
-                        viewmodel.runSimulation(project: project)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                // Save inputs button
-                Button {
-                    viewmodel.saveInputs(project: project, context: modelContext)
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .buttonStyle(.bordered)
-
-                Menu {
-                    Button("Export PDF Report") {
-                        exportPDFReport()
-                    }
-                    Button("Export HTML Report") {
-                        exportHTMLReport()
-                    }
-                    Divider()
-                    Button("Export Project JSON") {
-                        exportProjectJSON()
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .buttonStyle(.bordered)
-            }
-        }
+    private func handoffToTripIn() {
+        // Always use the last step — the final wellbore state after trip out
+        guard let lastStep = viewmodel.steps.last else { return }
+        let state = WellboreStateSnapshot(
+            bitMD_m: lastStep.bitMD_m,
+            bitTVD_m: lastStep.bitTVD_m,
+            layersPocket: lastStep.layersPocket.map { TripLayerSnapshot(from: $0) },
+            layersAnnulus: lastStep.layersAnnulus.map { TripLayerSnapshot(from: $0) },
+            layersString: lastStep.layersString.map { TripLayerSnapshot(from: $0) },
+            SABP_kPa: lastStep.SABP_kPa,
+            ESDAtControl_kgpm3: lastStep.ESDatTD_kgpm3,
+            sourceDescription: "Trip Out at \(Int(lastStep.bitMD_m))m MD",
+            timestamp: .now
+        )
+        OperationHandoffService.shared.pendingTripInState = state
+        showHandoffConfirmation = true
     }
 
-    private var headerInputs: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // All inputs in a single group box using LazyVGrid
-            GroupBox("Inputs") {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 16, alignment: .top)], spacing: 16) {
-                    // Bit / Range
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Bit / Range")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            startMDField
-                            endMDField
-                            controlMDField
-                            numberField("Step (m)", value: $viewmodel.step_m)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // Fluids
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Fluids")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            mudPicker(
-                                label: "Base mud",
-                                selection: Binding(
-                                    get: { project.activeMud?.id },
-                                    set: { _ in }
-                                ),
-                                onSelect: { newID in
-                                    if let id = newID, let m = (project.muds ?? []).first(where: { $0.id == id }) {
-                                        // Set all muds inactive first
-                                        (project.muds ?? []).forEach { $0.isActive = false }
-                                        // Set the selected mud as active
-                                        m.isActive = true
-                                        viewmodel.baseMudDensity_kgpm3 = m.density_kgm3
-                                    }
-                                }
-                            )
-                            
-                            mudPicker(
-                                label: "Backfill mud",
-                                selection: $viewmodel.backfillMudID,
-                                onSelect: { newID in
-                                    let muds = (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                                    if let id = newID, let m = muds.first(where: { $0.id == id }) {
-                                        viewmodel.backfillDensity_kgpm3 = m.density_kgm3
-                                    } else {
-                                        viewmodel.backfillDensity_kgpm3 = project.activeMud?.density_kgm3 ?? viewmodel.backfillDensity_kgpm3
-                                    }
-                                }
-                            )
-                            
-                            numberField("Target ESD@TD", value: $viewmodel.targetESDAtTD_kgpm3)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Choke / Float
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Choke / Float")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            numberField("Crack Float (kPa)", value: $viewmodel.crackFloat_kPa)
-                            numberField("Initial SABP (kPa)", value: $viewmodel.initialSABP_kPa)
-                            Toggle("Hold SABP open (0 kPa)", isOn: $viewmodel.holdSABPOpen)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Options & Trip speed combined
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Options")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            Toggle("Composition colors", isOn: $viewmodel.colorByComposition)
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Trip speed (m/min)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack {
-                                    TextField("Trip speed", value: tripSpeedBinding_mpm, format: .number)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(maxWidth: 120)
-                                    Text(tripSpeedDirectionText)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .help("Signed trip speed in m/min. Positive values pull out of hole; negative values run in.")
-
-                    // Initial Slug Calibration
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Slug Calibration")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        VStack(spacing: 6) {
-                            if viewmodel.calculatedInitialPitGain_m3 > 0 {
-                                HStack {
-                                    Text("Calculated:")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
-                                        .monospacedDigit()
-                                    Button {
-                                        viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
-                                    } label: {
-                                        Image(systemName: "arrow.right.circle")
-                                    }
-                                }
-                            }
-                            Toggle("Use observed", isOn: $viewmodel.useObservedPitGain)
-                            HStack {
-                                TextField("Observed", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 80)
-                                    .disabled(!viewmodel.useObservedPitGain)
-                                Text("m³")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-
-            // Action buttons below the group box
-            HStack(spacing: 12) {
-                Toggle("Show details", isOn: $viewmodel.showDetails)
-                    .toggleStyle(.switch)
-
-                Spacer()
-
-                if viewmodel.isRunning {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(viewmodel.progressMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            ProgressView(value: viewmodel.progressValue)
-                                .frame(width: 120)
-                        }
-                    }
-                } else {
-                    Button("Run Simulation") {
-                        viewmodel.runSimulation(project: project)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                // Save inputs button
-                Button {
-                    viewmodel.saveInputs(project: project, context: modelContext)
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .buttonStyle(.bordered)
-
-                Menu {
-                    Button("Export PDF Report") {
-                        exportPDFReport()
-                    }
-                    Button("Export HTML Report") {
-                        exportHTMLReport()
-                    }
-                    Divider()
-                    Button("Export Project JSON") {
-                        exportProjectJSON()
-                    }
-                } label: {
-                    Text("Export")
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
+    // MARK: - Sections (Shared Components)
 
     // MARK: - Export PDF Report
     private func exportPDFReport() {
@@ -911,80 +1228,93 @@ struct TripSimulationViewIOS: View {
 
     // MARK: - Selection helpers
     private func indexOf(_ row: TripStep) -> Int? {
-        // Heuristic: match by MD & TVD (good enough for selection)
-        viewmodel.steps.firstIndex { $0.bitMD_m == row.bitMD_m && $0.bitTVD_m == row.bitTVD_m }
+        // Match by ID for reliable selection
+        viewmodel.steps.firstIndex(where: { $0.id == row.id })
     }
 
-    private func selectableText(_ text: String, for row: TripStep, alignment: Alignment = .leading) -> some View {
-        Text(text)
-            .frame(maxWidth: .infinity, alignment: alignment)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if let i = indexOf(row) { viewmodel.selectedIndex = i }
-            }
-    }
+    // MARK: - Formatters
+    private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
+    private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
+    private func format2(_ v: Double) -> String { String(format: "%.2f", v) }
+    private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
+    private func formatSigned3(_ v: Double) -> String { String(format: "%+.3f", v) }
 
     // MARK: - Steps Table
-    private var stepsTable: some View {
-        Table(viewmodel.steps) {
-            TableColumn("Bit MD") { row in
-                Text(format0(row.bitMD_m))
-                    .monospacedDigit()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
-            }
-            .width(min: 60, ideal: 70, max: 90)
+    private var stepsScrollList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(viewmodel.steps.enumerated()), id: \.element.id) { idx, step in
+                    tripOutStepRow(step, index: idx)
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                        .background(idx == (viewmodel.selectedIndex ?? -1) ? Color.accentColor.opacity(0.12) : Color.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            viewmodel.selectedIndex = idx
+                            viewmodel.stepSlider = Double(idx)
+                        }
 
-            TableColumn("Bit TVD") { row in
-                selectableText(format0(row.bitTVD_m), for: row)
+                    Divider()
+                        .padding(.leading)
+                }
             }
-            .width(min: 60, ideal: 70, max: 90)
-
-            TableColumn("Static SABP") { row in
-                selectableText(format0(row.SABP_kPa), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("Dynamic SABP") { row in
-                selectableText(format0(row.SABP_Dynamic_kPa), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("ESD@TD") { row in
-                selectableText(format0(row.ESDatTD_kgpm3), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("DP Wet") { row in
-                selectableText(format3(row.expectedFillIfClosed_m3), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("DP Dry") { row in
-                selectableText(format3(row.expectedFillIfOpen_m3), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("Actual") { row in
-                selectableText(format3(row.stepBackfill_m3), for: row)
-            }
-            .width(min: 70, ideal: 85, max: 100)
-
-            TableColumn("Tank Δ") { row in
-                let delta = row.cumulativeSurfaceTankDelta_m3
-                let color: Color = delta >= 0 ? .green : .red
-                Text(String(format: "%+.2f", delta))
-                    .monospacedDigit()
-                    .foregroundStyle(color)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if let i = indexOf(row) { viewmodel.selectedIndex = i } }
-            }
-            .width(min: 70, ideal: 85, max: 100)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contextMenu { Button("Re-run") { viewmodel.runSimulation(project: project) } }
+    }
+
+    private func tripOutStepRow(_ step: TripStep, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Step \(index + 1)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("MD: \(format0(step.bitMD_m))m")
+                    .font(.subheadline.bold())
+                Text("TVD: \(format0(step.bitTVD_m))m")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 0) {
+                tripOutMetric("SABP", format0(step.SABP_kPa), "kPa")
+                tripOutMetric("Dyn SABP", format0(step.SABP_Dynamic_kPa), "kPa")
+                tripOutMetric("ESD@TD", format1(step.ESDatTD_kgpm3), "kg/m\u{00B3}")
+                tripOutMetric("ESD@Ctrl", format1(step.ESDatControl_kgpm3), "kg/m\u{00B3}")
+            }
+
+            HStack(spacing: 0) {
+                tripOutMetric("DP Wet", format3(step.expectedFillIfClosed_m3), "m\u{00B3}")
+                tripOutMetric("Fill", format3(step.stepBackfill_m3), "m\u{00B3}")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Float")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                    Text(step.floatState)
+                        .font(.caption2)
+                        .foregroundStyle(step.floatState.contains("OPEN") ? .orange : .green)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                tripOutMetric("Backfill", format2(step.backfillRemaining_m3), "m\u{00B3}")
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func tripOutMetric(_ label: String, _ value: String, _ unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            HStack(spacing: 1) {
+                Text(value)
+                    .font(.caption2)
+                    .monospacedDigit()
+                Text(unit)
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Visualization
@@ -1324,39 +1654,6 @@ struct TripSimulationViewIOS: View {
     }
 
     // MARK: - Subviews / helpers
-    private func numberField(_ title: String, value: Binding<Double>) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .frame(minWidth: 100, alignment: .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-            TextField(title, value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 70, maxWidth: 140)
-        }
-    }
-    
-    private func mudPicker(label: String, selection: Binding<UUID?>, onSelect: @escaping (UUID?) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            Picker("", selection: Binding(
-                get: { selection.wrappedValue },
-                set: { newID in
-                    selection.wrappedValue = newID
-                    onSelect(newID)
-                }
-            )) {
-                ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
-                    Text("\(m.name): \(format0(m.density_kgm3)) kg/m³").tag(m.id as UUID?)
-                }
-            }
-            .pickerStyle(.menu)
-        }
-    }
 
     private func gridRow(_ k: String, _ v: String) -> some View {
         GridRow { Text(k).foregroundStyle(.secondary); Text(v) }
@@ -1471,12 +1768,6 @@ struct TripSimulationViewIOS: View {
         rows.append(KVRow(key: "Coverage mismatch (m)", value: format1(coverageMismatch)))
         return rows
     }
-
-    // MARK: - Formatters
-    private func format0(_ v: Double) -> String { String(format: "%.0f", v) }
-    private func format1(_ v: Double) -> String { String(format: "%.1f", v) }
-    private func format3(_ v: Double) -> String { String(format: "%.3f", v) }
-    private func formatSigned3(_ v: Double) -> String { String(format: "%+.3f", v) }
 
     // Clamp Control MD to not exceed geometry
     private var controlMDLimit: Double {

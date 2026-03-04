@@ -185,6 +185,29 @@ class CementJobSimulationViewModel {
         return total
     }
 
+    /// Total fluid volume across all stages (for progress calculation)
+    var totalFluidVolume_m3: Double {
+        stages.reduce(0.0) { $0 + $1.volume_m3 }
+    }
+
+    /// Total cement pumped (sum of all cement stage volumes up to current progress)
+    var totalCementPumped_m3: Double {
+        var total = 0.0
+        for i in 0..<stages.count {
+            let stage = stages[i]
+            // Check if it's a cement stage (lead or tail cement)
+            let isCementStage = stage.stageType == .leadCement || stage.stageType == .tailCement
+            guard isCementStage else { continue }
+            
+            if i < currentStageIndex {
+                total += stage.volume_m3
+            } else if i == currentStageIndex {
+                total += stage.volume_m3 * progress
+            }
+        }
+        return total
+    }
+
     /// Actual total returned based on tank volume change
     var actualTotalReturned_m3: Double {
         return max(0, currentTankVolume_m3 - initialTankVolume_m3)
@@ -578,13 +601,56 @@ class CementJobSimulationViewModel {
 
     // MARK: - APL (Annular Pressure Loss) Calculations
 
-    /// Calculate annular velocity given flow rate and geometry (uses shared APLCalculationService)
-    /// - Parameters:
-    ///   - flowRate_m3_per_min: Flow rate in m³/min
-    ///   - holeDiameter_m: Hole or casing ID (m)
-    ///   - pipeDiameter_m: Pipe OD (m)
-    /// - Returns: Velocity in m/min
-    private func annularVelocity(
+    /// Calculate annular pressure loss above a loss zone using CirculationService (unified hydraulics).
+    /// This replaces the old custom implementation for consistency with other simulators.
+    private func annularPressureLossAboveLossZone(
+        lossZoneDepth_m: Double,
+        aboveZoneParcels: [VolumeParcel],
+        aboveZoneCapacity_m3: Double,
+        pumpRate_m3_per_min: Double,
+        geom: ProjectGeometryService
+    ) -> Double {
+        guard let project = boundProject else { return 0 }
+        guard pumpRate_m3_per_min > 0.001 else { return 0 }
+
+        // Convert CementJob VolumeParcel to CirculationService VolumeParcel format
+        let circulationParcels: [CirculationService.VolumeParcel] = aboveZoneParcels.map { p in
+            // Extract color components (SwiftUI Color is not directly convertible)
+            // Use default values since color is not critical for APL calc
+            CirculationService.VolumeParcel(
+                volume_m3: p.volume_m3,
+                colorR: 0.5,  // Neutral default
+                colorG: 0.4,
+                colorB: 0.3,
+                colorA: 1.0,
+                rho_kgpm3: p.density_kgm3,
+                mudID: nil,
+                pv_cP: p.plasticViscosity_cP,
+                yp_Pa: p.yieldPoint_Pa,
+                dial600: p.dial600 ?? 0,
+                dial300: p.dial300 ?? 0
+            )
+        }
+
+        // Use shared CirculationService with depth range limitation
+        // This ensures consistency with circulation and reaming operations
+        return CirculationService.calculateAPLFromParcels(
+            annulusParcels: circulationParcels,
+            bitMD: lossZoneDepth_m,  // Treat loss zone as "bit" depth
+            geom: geom,
+            annulusSections: project.annulus ?? [],
+            drillStringSections: project.drillString ?? [],
+            pumpRate_m3perMin: pumpRate_m3_per_min,
+            depthRange: 0...lossZoneDepth_m  // Only calculate APL from surface to loss zone
+        )
+    }
+    
+    // MARK: - Legacy APL Methods (Now Unused - Keep For Reference/Rollback)
+
+    /// LEGACY: Calculate annular velocity given flow rate and geometry
+    /// NOW HANDLED BY: APLCalculationService.shared.annularVelocity()
+    /// Kept for reference only - not used by new implementation
+    private func annularVelocity_LEGACY(
         flowRate_m3_per_min: Double,
         holeDiameter_m: Double,
         pipeDiameter_m: Double
@@ -596,15 +662,10 @@ class CementJobSimulationViewModel {
         )
     }
 
-    /// Calculate friction pressure gradient using Bingham Plastic model (laminar flow)
-    /// - Parameters:
-    ///   - velocity_m_per_s: Flow velocity in m/s
-    ///   - holeDiameter_m: Hole or casing ID (m)
-    ///   - pipeDiameter_m: Pipe OD (m)
-    ///   - plasticViscosity_cP: Plastic viscosity in centipoise (mPa·s)
-    ///   - yieldPoint_Pa: Yield point in Pascals
-    /// - Returns: Friction gradient in kPa/m
-    private func binghamFrictionGradient(
+    /// LEGACY: Calculate friction pressure gradient using Bingham Plastic model
+    /// NOW HANDLED BY: CirculationService.calculateAPLFromParcels() with APLCalculationService
+    /// Kept for reference only - not used by new implementation
+    private func binghamFrictionGradient_LEGACY(
         velocity_m_per_s: Double,
         holeDiameter_m: Double,
         pipeDiameter_m: Double,
@@ -627,8 +688,10 @@ class CementJobSimulationViewModel {
         return (yieldTerm + viscousTerm) / 1000.0  // kPa/m
     }
 
-    /// Calculate total APL above a loss zone from the fluid parcels
-    private func annularPressureLossAboveLossZone(
+    /// LEGACY: Calculate total APL above a loss zone from the fluid parcels
+    /// NOW REPLACED BY: New implementation using CirculationService
+    /// Kept for reference/comparison during testing period
+    private func annularPressureLossAboveLossZone_LEGACY(
         lossZoneDepth_m: Double,
         aboveZoneParcels: [VolumeParcel],
         aboveZoneCapacity_m3: Double,

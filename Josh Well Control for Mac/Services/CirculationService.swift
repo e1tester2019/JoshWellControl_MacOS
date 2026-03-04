@@ -466,13 +466,23 @@ class CirculationService {
 
     /// Calculate total annular pressure loss from bit to surface using Bingham model.
     /// Walks the annulus parcel stack (deep→shallow) and maps each parcel to geometry sections.
+    /// - Parameters:
+    ///   - annulusParcels: Volume parcels in the annulus (deep to shallow)
+    ///   - bitMD: Current bit measured depth
+    ///   - geom: Geometry service
+    ///   - annulusSections: Annulus geometry sections
+    ///   - drillStringSections: Drill string geometry sections
+    ///   - pumpRate_m3perMin: Pump rate in m³/min
+    ///   - depthRange: Optional depth range to limit APL calculation (e.g., for cement loss zones)
+    /// - Returns: Total APL in kPa
     static func calculateAPLFromParcels(
         annulusParcels: [VolumeParcel],
         bitMD: Double,
         geom: ProjectGeometryService,
         annulusSections: [AnnulusSection],
         drillStringSections: [DrillStringSection],
-        pumpRate_m3perMin: Double
+        pumpRate_m3perMin: Double,
+        depthRange: ClosedRange<Double>? = nil
     ) -> Double {
         guard pumpRate_m3perMin > HydraulicsDefaults.minFlowRate_m3perMin else { return 0 }
 
@@ -497,10 +507,16 @@ class CirculationService {
 
             // For each annulus section overlapping this parcel
             for section in annulusSections {
-                let secTop = section.topDepth_m
-                let secBot = section.bottomDepth_m
+                var secTop = section.topDepth_m
+                var secBot = section.bottomDepth_m
+                
+                // Apply depth range filter if specified
+                if let range = depthRange {
+                    secTop = max(secTop, range.lowerBound)
+                    secBot = min(secBot, range.upperBound)
+                }
 
-                // Overlap between parcel range and section range
+                // Overlap between parcel range and section range (with depth filter applied)
                 let overlapTop = max(parcelTop, secTop)
                 let overlapBot = min(parcelBot, secBot)
                 guard overlapBot > overlapTop + 1e-9 else { continue }

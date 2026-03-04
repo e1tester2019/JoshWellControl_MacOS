@@ -163,10 +163,10 @@ struct SuperSimTimelineChart: View {
             )
             .foregroundStyle(bandColor(range.type))
 
-            // Label at the midpoint
+            // Label at the top
             RuleMark(x: .value("Mid", (range.start + range.end) / 2))
                 .foregroundStyle(.clear)
-                .annotation(position: idx.isMultiple(of: 2) ? .top : .bottom, alignment: .center) {
+                .annotation(position: .top, alignment: .center) {
                     Text(range.label)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -417,10 +417,12 @@ struct SuperSimTimelineChart: View {
         let sliderIdx = Int(viewModel.globalStepSliderValue.rounded())
         if sliderIdx >= 0, sliderIdx < data.count {
             let point = data[sliderIdx]
+            let totalSteps = max(1, data.count)
+            let nearLeftEdge = Double(sliderIdx) < Double(totalSteps) * 0.15
             RuleMark(x: .value("Slider", sliderIdx))
                 .foregroundStyle(Color.accentColor.opacity(0.5))
                 .lineStyle(StrokeStyle(lineWidth: 2))
-                .annotation(position: .topLeading, alignment: .leading, spacing: 8) {
+                .annotation(position: nearLeftEdge ? .topTrailing : .topLeading, alignment: nearLeftEdge ? .trailing : .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(point.operationLabel)
                             .font(.caption2)

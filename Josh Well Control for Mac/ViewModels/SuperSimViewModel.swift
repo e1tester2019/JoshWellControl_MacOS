@@ -239,6 +239,13 @@ class SuperSimViewModel {
         let annulusLayers = project.finalAnnulusLayersSorted.map { layer -> TripLayerSnapshot in
             let topTVD = tvdSampler.tvd(of: layer.topMD_m)
             let bottomTVD = tvdSampler.tvd(of: layer.bottomMD_m)
+            
+            // Use layer colors if available, otherwise fall back to active mud colors
+            let colorR = layer.colorR ?? project.activeMud?.colorR ?? 0.5
+            let colorG = layer.colorG ?? project.activeMud?.colorG ?? 0.4
+            let colorB = layer.colorB ?? project.activeMud?.colorB ?? 0.3
+            let colorA = layer.colorA ?? project.activeMud?.colorA ?? 1.0
+            
             return TripLayerSnapshot(
                 side: "annulus",
                 topMD: layer.topMD_m,
@@ -248,16 +255,23 @@ class SuperSimViewModel {
                 rho_kgpm3: layer.density_kgm3,
                 deltaHydroStatic_kPa: layer.density_kgm3 * 0.00981 * (bottomTVD - topTVD),
                 volume_m3: 0,
-                colorR: layer.colorR,
-                colorG: layer.colorG,
-                colorB: layer.colorB,
-                colorA: layer.colorA
+                colorR: colorR,
+                colorG: colorG,
+                colorB: colorB,
+                colorA: colorA
             )
         }
 
         let stringLayers = project.finalStringLayersSorted.map { layer -> TripLayerSnapshot in
             let topTVD = tvdSampler.tvd(of: layer.topMD_m)
             let bottomTVD = tvdSampler.tvd(of: layer.bottomMD_m)
+            
+            // Use layer colors if available, otherwise fall back to active mud colors
+            let colorR = layer.colorR ?? project.activeMud?.colorR ?? 0.5
+            let colorG = layer.colorG ?? project.activeMud?.colorG ?? 0.4
+            let colorB = layer.colorB ?? project.activeMud?.colorB ?? 0.3
+            let colorA = layer.colorA ?? project.activeMud?.colorA ?? 1.0
+            
             return TripLayerSnapshot(
                 side: "string",
                 topMD: layer.topMD_m,
@@ -267,10 +281,10 @@ class SuperSimViewModel {
                 rho_kgpm3: layer.density_kgm3,
                 deltaHydroStatic_kPa: layer.density_kgm3 * 0.00981 * (bottomTVD - topTVD),
                 volume_m3: 0,
-                colorR: layer.colorR,
-                colorG: layer.colorG,
-                colorB: layer.colorB,
-                colorA: layer.colorA
+                colorR: colorR,
+                colorG: colorG,
+                colorB: colorB,
+                colorA: colorA
             )
         }
 
@@ -644,7 +658,8 @@ class SuperSimViewModel {
                     annulusSections: annulusSections,
                     drillStringSections: dsSections,
                     mud: syntheticMud,
-                    pipeEndType: op.isFloatedCasing ? .closed : .open
+                    pipeEndType: op.isFloatedCasing ? .closed : .open,
+                    eccentricityFactor: op.eccentricityFactor
                 )
 
                 let results = calculator.calculate(tvdLookup: { md in
@@ -1020,7 +1035,8 @@ class SuperSimViewModel {
                     annulusSections: annulusSections,
                     drillStringSections: dsSections,
                     mud: syntheticMud,
-                    pipeEndType: op.isFloatedCasing ? .closed : .open
+                    pipeEndType: op.isFloatedCasing ? .closed : .open,
+                    eccentricityFactor: op.eccentricityFactor
                 )
 
                 let results = calculator.calculate(tvdLookup: { md in
@@ -1134,7 +1150,7 @@ class SuperSimViewModel {
 
     // MARK: - Timeline Visualization Data
 
-    struct TimelineChartPoint: Identifiable {
+    struct TimelineChartPoint: Identifiable, Equatable {
         var id: Int { globalIndex }
         let globalIndex: Int
         let operationIndex: Int
@@ -1152,6 +1168,11 @@ class SuperSimViewModel {
         var totalESD_kgpm3: Double {
             guard controlTVD_m > 0 else { return ESDAtControl_kgpm3 }
             return ESDAtControl_kgpm3 + SABP_kPa / (0.00981 * controlTVD_m)
+        }
+        
+        // Equatable conformance (comparing by globalIndex is sufficient)
+        static func == (lhs: TimelineChartPoint, rhs: TimelineChartPoint) -> Bool {
+            lhs.globalIndex == rhs.globalIndex
         }
     }
 

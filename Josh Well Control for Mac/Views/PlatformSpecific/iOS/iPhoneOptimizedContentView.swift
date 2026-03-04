@@ -346,6 +346,18 @@ struct iPhoneOptimizedContentView: View {
                     } label: {
                         Label(ViewSelection.tripInSimulation.title, systemImage: ViewSelection.tripInSimulation.icon)
                     }
+                    
+                    NavigationLink {
+                        SuperSimulationViewIOS(project: project)
+                    } label: {
+                        Label(ViewSelection.superSimulation.title, systemImage: ViewSelection.superSimulation.icon)
+                    }
+                    
+                    NavigationLink {
+                        MPDTrackingViewIOS(project: project)
+                    } label: {
+                        Label(ViewSelection.mpdTracking.title, systemImage: ViewSelection.mpdTracking.icon)
+                    }
 
                     NavigationLink {
                         MPDTrackingView(project: project)

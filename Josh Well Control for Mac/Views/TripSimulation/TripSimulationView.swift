@@ -97,6 +97,11 @@ struct TripSimulationView: View {
             content
         }
         .padding(12)
+        .loadingOverlay(
+            isShowing: viewmodel.isRunning,
+            message: viewmodel.progressMessage,
+            progress: viewmodel.progressValue > 0 ? viewmodel.progressValue : nil
+        )
         .onAppear {
             // Check for pending wellbore state handoff from Trip In
             if let state = OperationHandoffService.shared.pendingTripOutState {
@@ -275,6 +280,14 @@ struct TripSimulationView: View {
                         Text(tripSpeedDirectionText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text("Ecc:").foregroundStyle(.secondary)
+                            TextField("", value: $viewmodel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 60)
+                            Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                                .labelsHidden()
+                        }
                     }
                 }
 
@@ -1657,12 +1670,12 @@ struct TripSimulationView: View {
                 GeometryReader { g in
                     VStack(spacing: 8) {
                         stepsTable
-                            .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.5 - 4) : g.size.height)
+                            .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.3 - 4) : g.size.height)
                         if viewmodel.showDetails {
                             ScrollView {
                                 detailAccordion
                             }
-                            .frame(height: max(0, g.size.height * 0.5 - 4))
+                            .frame(height: max(0, g.size.height * 0.7 - 4))
                         } else {
                             // Reserve 0 height when hidden
                             Color.clear.frame(height: 0)
@@ -1736,6 +1749,11 @@ struct TripSimulationView: View {
 
             TableColumn("ESD@TD") { row in
                 selectableText(format0(row.ESDatTD_kgpm3), for: row)
+            }
+            .width(min: 70, ideal: 85, max: 100)
+
+            TableColumn("ESD@Ctrl") { row in
+                selectableText(String(format: "%.1f", row.ESDatControl_kgpm3), for: row)
             }
             .width(min: 70, ideal: 85, max: 100)
 

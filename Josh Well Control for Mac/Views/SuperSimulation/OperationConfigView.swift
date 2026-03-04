@@ -10,6 +10,15 @@ import SwiftUI
 struct OperationConfigView: View {
     @Binding var operation: SuperSimOperation
     var project: ProjectState
+    
+    @FocusState private var focusedField: Field?
+    
+    enum Field: Hashable {
+        case startMD, endMD, targetESD, step, tripSpeed, controlMD, crackFloat
+        case displacementVolume, eccentricity, pitGain
+        case pipeOD, pipeID, tripInStep, tripInSpeed
+        case reamPumpRate, maxPumpRate, minPumpRate, pumpVolume
+    }
 
     private var sortedMuds: [MudProperties] {
         (project.muds ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -50,6 +59,12 @@ struct OperationConfigView: View {
                 reamInConfig
             }
         }
+        #if os(iOS)
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside text fields
+            focusedField = nil
+        }
+        #endif
     }
 
     // MARK: - Trip Out Config
@@ -62,6 +77,10 @@ struct OperationConfigView: View {
                 TextField("Start", value: $operation.startMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .startMD)
+                    #endif
             }
             GridRow {
                 Text("End MD (m):")
@@ -69,6 +88,10 @@ struct OperationConfigView: View {
                 TextField("End", value: $operation.endMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .endMD)
+                    #endif
             }
             GridRow {
                 Text("Target ESD (kg/m\u{00B3}):")
@@ -76,6 +99,10 @@ struct OperationConfigView: View {
                 TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .targetESD)
+                    #endif
             }
             GridRow {
                 Text("Base Mud:")
@@ -111,6 +138,10 @@ struct OperationConfigView: View {
                 TextField("Step", value: $operation.step_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .step)
+                    #endif
             }
             GridRow {
                 Text("Trip Speed (m/min):")
@@ -121,6 +152,10 @@ struct OperationConfigView: View {
                 ), format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .tripSpeed)
+                    #endif
             }
             GridRow {
                 Text("Control MD (m):")
@@ -128,6 +163,10 @@ struct OperationConfigView: View {
                 TextField("Control", value: $operation.controlMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .controlMD)
+                    #endif
             }
             GridRow {
                 Text("Float Crack (kPa):")
@@ -135,6 +174,10 @@ struct OperationConfigView: View {
                 TextField("Crack", value: $operation.crackFloat_kPa, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .crackFloat)
+                    #endif
             }
             GridRow {
                 Text("")
@@ -165,6 +208,10 @@ struct OperationConfigView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 70)
                             .disabled(!operation.useOverrideDisplacementVolume)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            .focused($focusedField, equals: .displacementVolume)
+                            #endif
                         Text("m\u{00B3}")
                             .foregroundStyle(.secondary)
                     }
@@ -177,6 +224,10 @@ struct OperationConfigView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
                     .help("Pipe eccentricity factor for swab calculation (1.0 = concentric)")
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .eccentricity)
+                    #endif
             }
             GridRow {
                 Text("")
@@ -202,6 +253,10 @@ struct OperationConfigView: View {
                     ), format: .number.precision(.fractionLength(2)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .pitGain)
+                        #endif
                 }
             }
         }
@@ -231,6 +286,10 @@ struct OperationConfigView: View {
                 TextField("Start", value: $operation.startMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .startMD)
+                    #endif
             }
             GridRow {
                 Text("End MD (m):")
@@ -238,6 +297,10 @@ struct OperationConfigView: View {
                 TextField("End", value: $operation.endMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .endMD)
+                    #endif
             }
             GridRow {
                 Text("Target ESD (kg/m\u{00B3}):")
@@ -245,6 +308,10 @@ struct OperationConfigView: View {
                 TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .targetESD)
+                    #endif
             }
             GridRow {
                 Text("Pipe OD (m):")
@@ -252,6 +319,10 @@ struct OperationConfigView: View {
                 TextField("OD", value: $operation.pipeOD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .pipeOD)
+                    #endif
             }
             GridRow {
                 Text("Pipe ID (m):")
@@ -259,6 +330,10 @@ struct OperationConfigView: View {
                 TextField("ID", value: $operation.pipeID_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .pipeID)
+                    #endif
             }
             GridRow {
                 Text("Fill Mud:")
@@ -280,6 +355,10 @@ struct OperationConfigView: View {
                 TextField("Step", value: $operation.tripInStep_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .tripInStep)
+                    #endif
             }
             GridRow {
                 Text("Trip Speed (m/min):")
@@ -291,6 +370,10 @@ struct OperationConfigView: View {
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .tripInSpeed)
+                        #endif
                     if operation.tripInSpeed_m_per_s <= 0 {
                         Text("(no surge)")
                             .font(.caption2)
@@ -304,6 +387,22 @@ struct OperationConfigView: View {
                 TextField("Control", value: $operation.controlMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .controlMD)
+                    #endif
+            }
+            GridRow {
+                Text("Eccentricity:")
+                    .frame(width: 140, alignment: .trailing)
+                TextField("Factor", value: $operation.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 120)
+                    .help("Pipe eccentricity factor for surge calculation (1.0 = concentric)")
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .eccentricity)
+                    #endif
             }
             GridRow {
                 Text("Floated Casing:")
@@ -333,6 +432,10 @@ struct OperationConfigView: View {
                 TextField("Start", value: $operation.startMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .startMD)
+                    #endif
             }
             GridRow {
                 Text("End MD (m):")
@@ -340,6 +443,10 @@ struct OperationConfigView: View {
                 TextField("End", value: $operation.endMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .endMD)
+                    #endif
             }
             GridRow {
                 Text("Target ESD (kg/m\u{00B3}):")
@@ -347,6 +454,10 @@ struct OperationConfigView: View {
                 TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .targetESD)
+                    #endif
             }
             GridRow {
                 Text("Base Mud:")
@@ -382,6 +493,10 @@ struct OperationConfigView: View {
                 TextField("Step", value: $operation.step_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .step)
+                    #endif
             }
             GridRow {
                 Text("Trip Speed (m/min):")
@@ -392,6 +507,10 @@ struct OperationConfigView: View {
                 ), format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .tripSpeed)
+                    #endif
             }
             GridRow {
                 Text("Pump Rate (m\u{00B3}/min):")
@@ -399,6 +518,10 @@ struct OperationConfigView: View {
                 TextField("Rate", value: $operation.reamPumpRate_m3perMin, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .reamPumpRate)
+                    #endif
             }
             GridRow {
                 Text("Control MD (m):")
@@ -406,6 +529,10 @@ struct OperationConfigView: View {
                 TextField("Control", value: $operation.controlMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .controlMD)
+                    #endif
             }
             GridRow {
                 Text("Float Crack (kPa):")
@@ -413,6 +540,10 @@ struct OperationConfigView: View {
                 TextField("Crack", value: $operation.crackFloat_kPa, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .crackFloat)
+                    #endif
             }
             GridRow {
                 Text("Eccentricity:")
@@ -421,6 +552,10 @@ struct OperationConfigView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
                     .help("Pipe eccentricity factor for swab calculation (1.0 = concentric)")
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .eccentricity)
+                    #endif
             }
             GridRow {
                 Text("")
@@ -455,6 +590,10 @@ struct OperationConfigView: View {
                 TextField("Start", value: $operation.startMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .startMD)
+                    #endif
             }
             GridRow {
                 Text("End MD (m):")
@@ -462,6 +601,10 @@ struct OperationConfigView: View {
                 TextField("End", value: $operation.endMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .endMD)
+                    #endif
             }
             GridRow {
                 Text("Target ESD (kg/m\u{00B3}):")
@@ -469,6 +612,10 @@ struct OperationConfigView: View {
                 TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .targetESD)
+                    #endif
             }
             GridRow {
                 Text("Pipe OD (m):")
@@ -476,6 +623,10 @@ struct OperationConfigView: View {
                 TextField("OD", value: $operation.pipeOD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .pipeOD)
+                    #endif
             }
             GridRow {
                 Text("Pipe ID (m):")
@@ -483,6 +634,10 @@ struct OperationConfigView: View {
                 TextField("ID", value: $operation.pipeID_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .pipeID)
+                    #endif
             }
             GridRow {
                 Text("Fill Mud:")
@@ -504,6 +659,10 @@ struct OperationConfigView: View {
                 TextField("Step", value: $operation.tripInStep_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .tripInStep)
+                    #endif
             }
             GridRow {
                 Text("Trip Speed (m/min):")
@@ -515,6 +674,10 @@ struct OperationConfigView: View {
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .tripInSpeed)
+                        #endif
                     if operation.tripInSpeed_m_per_s <= 0 {
                         Text("(no surge)")
                             .font(.caption2)
@@ -528,6 +691,10 @@ struct OperationConfigView: View {
                 TextField("Rate", value: $operation.reamPumpRate_m3perMin, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .reamPumpRate)
+                    #endif
             }
             GridRow {
                 Text("Control MD (m):")
@@ -535,6 +702,10 @@ struct OperationConfigView: View {
                 TextField("Control", value: $operation.controlMD_m, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 120)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .controlMD)
+                    #endif
             }
             GridRow {
                 Text("Floated Casing:")
@@ -565,6 +736,10 @@ struct OperationConfigView: View {
                     TextField("MD", value: $operation.startMD_m, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .startMD)
+                        #endif
                 }
                 GridRow {
                     Text("Target ESD (kg/m\u{00B3}):")
@@ -572,6 +747,10 @@ struct OperationConfigView: View {
                     TextField("ESD", value: $operation.targetESD_kgpm3, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .targetESD)
+                        #endif
                 }
                 GridRow {
                     Text("Control MD (m):")
@@ -579,6 +758,10 @@ struct OperationConfigView: View {
                     TextField("Control", value: $operation.controlMD_m, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .controlMD)
+                        #endif
                 }
                 GridRow {
                     Text("Max Pump Rate (m\u{00B3}/min):")
@@ -586,6 +769,10 @@ struct OperationConfigView: View {
                     TextField("Max", value: $operation.maxPumpRate_m3perMin, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .maxPumpRate)
+                        #endif
                 }
                 GridRow {
                     Text("Min Pump Rate (m\u{00B3}/min):")
@@ -593,6 +780,10 @@ struct OperationConfigView: View {
                     TextField("Min", value: $operation.minPumpRate_m3perMin, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
+                        #if os(iOS)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .minPumpRate)
+                        #endif
                 }
             }
 
@@ -618,6 +809,8 @@ struct PumpQueueEditor: View {
     @State private var entries: [PumpEntry] = []
     @State private var selectedMudID: UUID?
     @State private var pumpVolume: Double = 5.0
+    
+    @FocusState private var isPumpVolumeFocused: Bool
 
     struct PumpEntry: Identifiable {
         let id = UUID()
@@ -680,6 +873,10 @@ struct PumpQueueEditor: View {
                 TextField("Vol (m\u{00B3})", value: $pumpVolume, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 80)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    .focused($isPumpVolumeFocused)
+                    #endif
 
                 Button("Add") {
                     addEntry()
@@ -687,6 +884,12 @@ struct PumpQueueEditor: View {
                 .disabled(selectedMudID == nil)
             }
         }
+        #if os(iOS)
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside text field
+            isPumpVolumeFocused = false
+        }
+        #endif
         .onAppear {
             decodeQueue()
         }

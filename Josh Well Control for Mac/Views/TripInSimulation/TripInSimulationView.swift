@@ -89,6 +89,11 @@ struct TripInSimulationView: View {
             content
         }
         .padding(12)
+        .loadingOverlay(
+            isShowing: viewModel.isRunning,
+            message: viewModel.progressMessage,
+            progress: viewModel.progressValue > 0 ? viewModel.progressValue : nil
+        )
         .onAppear {
             // Check for pending wellbore state handoff from Trip Out
             if let state = OperationHandoffService.shared.pendingTripInState {
@@ -610,6 +615,15 @@ struct TripInSimulationView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
+                    }
+                }
+                LabeledContent("Eccentricity") {
+                    HStack {
+                        TextField("", value: $viewModel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                        Stepper("", value: $viewModel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                            .labelsHidden()
                     }
                 }
             }

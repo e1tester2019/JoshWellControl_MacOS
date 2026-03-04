@@ -37,6 +37,9 @@ class TripInSimulationViewModel {
     // Trip speed for surge calculation (0 = no surge)
     var tripSpeed_m_per_min: Double = 0
 
+    // Eccentricity factor for surge/swab (1.0 = concentric, >1.0 = eccentric)
+    var eccentricityFactor: Double = 1.2
+
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
     var activeMudDensity_kgpm3: Double = 1200  // Density of selected fill mud
@@ -206,6 +209,31 @@ class TripInSimulationViewModel {
             endBitMD_m = deepest.bottomDepth_m
         }
 
+        // Fill gap between deepest imported layer and TD with active mud
+        let deepestLayerBottom = importedPocketLayers.map(\.bottomMD).max() ?? 0
+        if deepestLayerBottom < endBitMD_m - 1.0 {
+            let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
+            let gapTopTVD = tvdSampler.tvd(of: deepestLayerBottom)
+            let gapBottomTVD = tvdSampler.tvd(of: endBitMD_m)
+            let mudDensity = project.activeMud?.density_kgm3 ?? activeMudDensity_kgpm3
+            let gapLayer = TripLayerSnapshot(
+                side: "pocket",
+                topMD: deepestLayerBottom,
+                bottomMD: endBitMD_m,
+                topTVD: gapTopTVD,
+                bottomTVD: gapBottomTVD,
+                rho_kgpm3: mudDensity,
+                deltaHydroStatic_kPa: mudDensity * 0.00981 * (gapBottomTVD - gapTopTVD),
+                volume_m3: 0,
+                colorR: project.activeMud?.colorR,
+                colorG: project.activeMud?.colorG,
+                colorB: project.activeMud?.colorB,
+                colorA: project.activeMud?.colorA,
+                isInAnnulus: false
+            )
+            importedPocketLayers.append(gapLayer)
+        }
+
         // Carry over target ESD from snapshot
         targetESD_kgpm3 = state.ESDAtControl_kgpm3
 
@@ -269,7 +297,8 @@ class TripInSimulationViewModel {
                     annulusSections: annSections,
                     drillStringSections: dsSections,
                     mud: surgeMud,
-                    pipeEndType: isFloatedCasing ? .closed : .open
+                    pipeEndType: isFloatedCasing ? .closed : .open,
+                    eccentricityFactor: eccentricityFactor
                 )
                 let results = calculator.calculate(tvdLookup: { md in
                     tvdSampler.tvd(of: md)
@@ -278,6 +307,36 @@ class TripInSimulationViewModel {
                     TripInService.SurgePressurePoint(md: r.bitMD_m, surgePressure_kPa: r.surgePressure_kPa)
                 }
             }
+        }
+
+        // If no pocket layers were imported, create a default layer filled with active mud
+        let effectivePocketLayers: [TripLayerSnapshot]
+        if importedPocketLayers.isEmpty {
+            let tdMD = endBitMD_m
+            let tdTVD = tvdSampler.tvd(of: tdMD)
+            // Extract active mud color
+            let colorR = project.activeMud?.colorR
+            let colorG = project.activeMud?.colorG
+            let colorB = project.activeMud?.colorB
+            let colorA = project.activeMud?.colorA
+            let defaultLayer = TripLayerSnapshot(
+                side: "pocket",
+                topMD: 0,
+                bottomMD: tdMD,
+                topTVD: 0,
+                bottomTVD: tdTVD,
+                rho_kgpm3: activeMudDensity_kgpm3,
+                deltaHydroStatic_kPa: activeMudDensity_kgpm3 * 0.00981 * tdTVD,
+                volume_m3: 0,
+                colorR: colorR,
+                colorG: colorG,
+                colorB: colorB,
+                colorA: colorA,
+                isInAnnulus: false
+            )
+            effectivePocketLayers = [defaultLayer]
+        } else {
+            effectivePocketLayers = importedPocketLayers
         }
 
         // Build TripInService input and delegate to the shared service
@@ -294,7 +353,7 @@ class TripInSimulationViewModel {
             isFloatedCasing: isFloatedCasing,
             floatSubMD_m: floatSubMD_m,
             crackFloat_kPa: crackFloat_kPa,
-            pocketLayers: importedPocketLayers,
+            pocketLayers: effectivePocketLayers,
             annulusSections: project.annulus ?? [],
             tvdSampler: tvdSampler,
             surgeProfile: surgeProfile
@@ -384,6 +443,7 @@ class TripInSimulationViewModel {
         simulation.targetESD_kgpm3 = targetESD_kgpm3
         simulation.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
         simulation.tripSpeed_m_per_min = tripSpeed_m_per_min
+        simulation.eccentricityFactor = eccentricityFactor
         simulation.updatedAt = .now
 
         try? context.save()
@@ -411,6 +471,7 @@ class TripInSimulationViewModel {
         targetESD_kgpm3 = simulation.targetESD_kgpm3
         baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
         tripSpeed_m_per_min = simulation.tripSpeed_m_per_min
+        eccentricityFactor = simulation.eccentricityFactor
         return true
     }
 
