@@ -10,14 +10,6 @@ import Foundation
 
 enum TripInService {
 
-    // MARK: - Surge Profile Data
-
-    /// Pre-computed surge pressure at a given depth (passed in by caller)
-    struct SurgePressurePoint {
-        let md: Double
-        let surgePressure_kPa: Double
-    }
-
     // MARK: - Result Types
 
     struct TripInResult {
@@ -66,28 +58,109 @@ enum TripInService {
         let pocketLayers: [TripLayerSnapshot]
         let annulusSections: [AnnulusSection]
         let tvdSampler: TvdSampler
-        // Surge pressure inputs (optional - empty profile = no surge)
-        var surgeProfile: [SurgePressurePoint] = []
+        // Surge pressure inputs (0 speed = no surge)
+        var tripSpeed_m_per_s: Double = 0
+        var eccentricityFactor: Double = 1.0
+        var floatIsOpen: Bool = false
+        var fallbackTheta600: Double? = nil
+        var fallbackTheta300: Double? = nil
+        var geom: GeometryService? = nil
         // Continuation support: start cumulative counters from existing values
         var initialCumulativeFill_m3: Double = 0
         var initialCumulativeDisplacement_m3: Double = 0
     }
 
-    // MARK: - Surge Interpolation
+    // MARK: - Per-step surge from live layers
 
-    /// Interpolate surge pressure from a pre-computed profile at the given MD.
-    static func interpolateSurge(at md: Double, from profile: [SurgePressurePoint]) -> Double {
-        guard !profile.isEmpty else { return 0 }
-        if md <= profile.first!.md { return profile.first!.surgePressure_kPa }
-        if md >= profile.last!.md { return profile.last!.surgePressure_kPa }
-        for i in 0..<profile.count - 1 {
-            let a = profile[i], b = profile[i + 1]
-            if md >= a.md && md <= b.md {
-                let t = (md - a.md) / (b.md - a.md)
-                return a.surgePressure_kPa + t * (b.surgePressure_kPa - a.surgePressure_kPa)
+    /// Compute surge pressure at current bit depth using the actual displaced pocket layers.
+    private static func computeSurge(
+        displacedPockets: [TripLayerSnapshot],
+        bitMD: Double,
+        tripSpeed_m_per_s: Double,
+        eccentricityFactor: Double,
+        floatIsOpen: Bool,
+        fallbackTheta600: Double?,
+        fallbackTheta300: Double?,
+        geom: GeometryService,
+        tvdSampler: TvdSampler
+    ) -> Double {
+        guard tripSpeed_m_per_s > 0 else { return 0 }
+
+        // Filter layers above the bit
+        let layersAboveBit = displacedPockets.filter { $0.topMD < bitMD }
+        guard !layersAboveBit.isEmpty else { return 0 }
+
+        var layerDTOs: [SwabCalculator.LayerDTO] = []
+        for layer in layersAboveBit {
+            let topMD = layer.topMD
+            let bottomMD = min(layer.bottomMD, bitMD)
+            guard bottomMD > topMD else { continue }
+
+            // Prefer dial readings directly, then reverse-engineer from pv/yp, then fallback
+            var theta600: Double? = nil
+            var theta300: Double? = nil
+
+            if let d600 = layer.dial600, let d300 = layer.dial300, d600 > 0, d300 > 0 {
+                theta600 = d600
+                theta300 = d300
+            } else if let pv = layer.pv_cP, let yp = layer.yp_Pa, pv > 0 || yp > 0 {
+                let t300 = pv + yp / HydraulicsDefaults.fann35_dialToPa
+                let t600 = 2.0 * pv + yp / HydraulicsDefaults.fann35_dialToPa
+                if t300 > 0 && t600 > 0 {
+                    theta300 = t300
+                    theta600 = t600
+                }
             }
+
+            // Fall back to global fallback if no per-layer rheology
+            if theta600 == nil || theta300 == nil {
+                theta600 = fallbackTheta600
+                theta300 = fallbackTheta300
+            }
+
+            layerDTOs.append(SwabCalculator.LayerDTO(
+                rho_kgpm3: layer.rho_kgpm3,
+                topMD_m: topMD,
+                bottomMD_m: bottomMD,
+                theta600: theta600,
+                theta300: theta300
+            ))
         }
-        return 0
+
+        guard !layerDTOs.isEmpty else { return 0 }
+
+        let hasRheology = layerDTOs.contains { ($0.theta600 != nil && $0.theta300 != nil) }
+            || (fallbackTheta600 != nil && fallbackTheta300 != nil)
+        guard hasRheology else { return 0 }
+
+        let trajSampler = _ClosureTrajectorySampler { tvdSampler.tvd(of: $0) }
+        let calculator = SwabCalculator()
+        do {
+            let result = try calculator.estimateFromLayersPowerLaw(
+                layers: layerDTOs,
+                theta600: fallbackTheta600,
+                theta300: fallbackTheta300,
+                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0,
+                eccentricityFactor: eccentricityFactor,
+                step_m: 10.0,
+                geom: geom,
+                traj: trajSampler,
+                sabpSafety: 1.0,
+                floatIsOpen: floatIsOpen
+            )
+            return result.totalSwab_kPa
+        } catch {
+            #if DEBUG
+            print("[TripInSurge] Calculation error: \(error.localizedDescription)")
+            #endif
+            return 0
+        }
+    }
+
+    /// TrajectorySampler wrapper for closure-based TVD lookup
+    private struct _ClosureTrajectorySampler: TrajectorySampler {
+        let tvdOfMd: (Double) -> Double
+        func TVDofMD(_ md: Double) -> Double { tvdOfMd(md) }
     }
 
     // MARK: - Run Simulation
@@ -190,8 +263,24 @@ enum TripInService {
 
             let differentialPressure = annulusHP - stringHP
 
-            // Surge pressure from pre-computed profile
-            let surgePressure = interpolateSurge(at: bitMD, from: input.surgeProfile)
+            // Surge pressure from live layer rheology
+            let surgeGeom: GeometryService? = input.geom
+            let surgePressure: Double
+            if let geom = surgeGeom, input.tripSpeed_m_per_s > 0 {
+                surgePressure = computeSurge(
+                    displacedPockets: displacedPockets,
+                    bitMD: bitMD,
+                    tripSpeed_m_per_s: input.tripSpeed_m_per_s,
+                    eccentricityFactor: input.eccentricityFactor,
+                    floatIsOpen: input.floatIsOpen,
+                    fallbackTheta600: input.fallbackTheta600,
+                    fallbackTheta300: input.fallbackTheta300,
+                    geom: geom,
+                    tvdSampler: input.tvdSampler
+                )
+            } else {
+                surgePressure = 0
+            }
             let surgeECD = controlTVD > 0 ? surgePressure / (0.00981 * controlTVD) : 0
             let dynamicESD = ESDAtControl + surgeECD
 
@@ -332,7 +421,11 @@ enum TripInService {
                 colorG: layer.colorG,
                 colorB: layer.colorB,
                 colorA: layer.colorA,
-                isInAnnulus: layer.isInAnnulus
+                isInAnnulus: layer.isInAnnulus,
+                pv_cP: layer.pv_cP,
+                yp_Pa: layer.yp_Pa,
+                dial600: layer.dial600,
+                dial300: layer.dial300
             ))
         }
 

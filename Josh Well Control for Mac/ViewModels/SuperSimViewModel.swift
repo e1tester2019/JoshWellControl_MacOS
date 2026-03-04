@@ -430,7 +430,7 @@ class SuperSimViewModel {
                     result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .tripIn:
-                    result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
+                    result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
 
                 case .circulate:
                     result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
@@ -439,7 +439,7 @@ class SuperSimViewModel {
                     result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .reamIn:
-                    result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap)
+                    result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
                 }
 
                 currentState = result
@@ -611,65 +611,38 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
-        mudRheologyMap: [UUID: MudRheology]
+        mudRheologyMap: [UUID: MudRheology],
+        mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) -> WellboreStateSnapshot {
         // Combine all outside-pipe layers as pocket input for TripInService.
         // TripInService sorts by depth internally and uses isInAnnulus to avoid
         // re-expanding layers that already have pipe alongside them.
         let combinedPocketInput = state.layersPocket + state.layersAnnulus
 
-        // Compute surge profile if trip speed is set
-        var surgeProfile: [TripInService.SurgePressurePoint] = []
-        if op.tripInSpeed_m_per_s > 0 {
-            // Use fill mud rheology if available, fall back to base mud (matches standalone behavior)
-            let fillMudRheo = op.fillMudID.flatMap { mudRheologyMap[$0] }
-            let baseMudRheo = op.baseMudID.flatMap { mudRheologyMap[$0] }
-            let surgeRheo = (fillMudRheo?.pv_cP ?? 0) > 0 || (fillMudRheo?.yp_Pa ?? 0) > 0
-                ? fillMudRheo : baseMudRheo
-            let pvPaS = surgeRheo.map { $0.pv_cP / 1000.0 }   // cP → Pa·s
-            let ypPa = surgeRheo?.yp_Pa
-
-            if let pv = pvPaS, let yp = ypPa, pv > 0 || yp > 0 {
-                // Use project drill string, or create synthetic from pipe OD/ID
-                let dsSections: [DrillStringSection]
-                if !drillString.isEmpty {
-                    dsSections = drillString
-                } else {
-                    let syntheticDS = DrillStringSection(
-                        name: "Trip-In String",
-                        topDepth_m: 0,
-                        length_m: op.endMD_m,
-                        outerDiameter_m: op.pipeOD_m,
-                        innerDiameter_m: op.pipeID_m
-                    )
-                    dsSections = [syntheticDS]
-                }
-
-                let syntheticMud = MudProperties()
-                syntheticMud.density_kgm3 = op.fillMudDensity_kgpm3
-                syntheticMud.pv_Pa_s = pv
-                syntheticMud.yp_Pa = yp
-
-                let calculator = SurgeSwabCalculator(
-                    tripSpeed_m_per_min: op.tripInSpeed_m_per_s * 60.0,
-                    startBitMD_m: op.startMD_m,
-                    endBitMD_m: op.endMD_m,
-                    depthStep_m: op.tripInStep_m,
-                    annulusSections: annulusSections,
-                    drillStringSections: dsSections,
-                    mud: syntheticMud,
-                    pipeEndType: op.isFloatedCasing ? .closed : .open,
-                    eccentricityFactor: op.eccentricityFactor
-                )
-
-                let results = calculator.calculate(tvdLookup: { md in
-                    tvdSampler.tvd(of: md)
-                })
-                surgeProfile = results.map { r in
-                    TripInService.SurgePressurePoint(md: r.bitMD_m, surgePressure_kPa: r.surgePressure_kPa)
-                }
-            }
+        // Build geometry for per-step surge calculation
+        let dsSections: [DrillStringSection]
+        if !drillString.isEmpty {
+            dsSections = drillString
+        } else {
+            let syntheticDS = DrillStringSection(
+                name: "Trip-In String",
+                topDepth_m: 0,
+                length_m: op.endMD_m,
+                outerDiameter_m: op.pipeOD_m,
+                innerDiameter_m: op.pipeID_m
+            )
+            dsSections = [syntheticDS]
         }
+        let surgeGeom = ProjectGeometryService(
+            annulus: annulusSections,
+            string: dsSections,
+            currentStringBottomMD: op.endMD_m,
+            mdToTvd: { tvdSampler.tvd(of: $0) }
+        )
+
+        // Resolve fallback dial readings from fill/base mud
+        let fallbackT600 = op.fallbackTheta600 ?? op.fillMudID.flatMap({ mudDialMap[$0]?.d600 }) ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d600 })
+        let fallbackT300 = op.fallbackTheta300 ?? op.fillMudID.flatMap({ mudDialMap[$0]?.d300 }) ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d300 })
 
         var input = TripInService.TripInInput(
             startBitMD_m: op.startMD_m,
@@ -687,7 +660,12 @@ class SuperSimViewModel {
             pocketLayers: combinedPocketInput,
             annulusSections: annulusSections,
             tvdSampler: tvdSampler,
-            surgeProfile: surgeProfile
+            tripSpeed_m_per_s: op.tripInSpeed_m_per_s,
+            eccentricityFactor: op.eccentricityFactor,
+            floatIsOpen: !op.isFloatedCasing,
+            fallbackTheta600: fallbackT600,
+            fallbackTheta300: fallbackT300,
+            geom: surgeGeom
         )
 
         let result = TripInService.run(input)
@@ -992,61 +970,34 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
-        mudRheologyMap: [UUID: MudRheology]
+        mudRheologyMap: [UUID: MudRheology],
+        mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) -> WellboreStateSnapshot {
         let combinedPocketInput = state.layersPocket + state.layersAnnulus
 
-        // Build surge profile if trip speed > 0
-        var surgeProfile: [TripInService.SurgePressurePoint] = []
-        if op.tripInSpeed_m_per_s > 0 {
-            // Use fill mud rheology if available, fall back to base mud (matches standalone behavior)
-            let fillMudRheo = op.fillMudID.flatMap { mudRheologyMap[$0] }
-            let baseMudRheo = op.baseMudID.flatMap { mudRheologyMap[$0] }
-            let surgeRheo = (fillMudRheo?.pv_cP ?? 0) > 0 || (fillMudRheo?.yp_Pa ?? 0) > 0
-                ? fillMudRheo : baseMudRheo
-            let pvPaS = surgeRheo.map { $0.pv_cP / 1000.0 }
-            let ypPa = surgeRheo?.yp_Pa
-
-            if let pv = pvPaS, let yp = ypPa, pv > 0 || yp > 0 {
-                let dsSections: [DrillStringSection]
-                if !drillString.isEmpty {
-                    dsSections = drillString
-                } else {
-                    let syntheticDS = DrillStringSection(
-                        name: "Trip-In String",
-                        topDepth_m: 0,
-                        length_m: op.endMD_m,
-                        outerDiameter_m: op.pipeOD_m,
-                        innerDiameter_m: op.pipeID_m
-                    )
-                    dsSections = [syntheticDS]
-                }
-
-                let syntheticMud = MudProperties()
-                syntheticMud.density_kgm3 = op.fillMudDensity_kgpm3
-                syntheticMud.pv_Pa_s = pv
-                syntheticMud.yp_Pa = yp
-
-                let calculator = SurgeSwabCalculator(
-                    tripSpeed_m_per_min: op.tripInSpeed_m_per_s * 60.0,
-                    startBitMD_m: op.startMD_m,
-                    endBitMD_m: op.endMD_m,
-                    depthStep_m: op.tripInStep_m,
-                    annulusSections: annulusSections,
-                    drillStringSections: dsSections,
-                    mud: syntheticMud,
-                    pipeEndType: op.isFloatedCasing ? .closed : .open,
-                    eccentricityFactor: op.eccentricityFactor
-                )
-
-                let results = calculator.calculate(tvdLookup: { md in
-                    tvdSampler.tvd(of: md)
-                })
-                surgeProfile = results.map { r in
-                    TripInService.SurgePressurePoint(md: r.bitMD_m, surgePressure_kPa: r.surgePressure_kPa)
-                }
-            }
+        // Build geometry for per-step surge calculation
+        let dsSections: [DrillStringSection]
+        if !drillString.isEmpty {
+            dsSections = drillString
+        } else {
+            let syntheticDS = DrillStringSection(
+                name: "Trip-In String",
+                topDepth_m: 0,
+                length_m: op.endMD_m,
+                outerDiameter_m: op.pipeOD_m,
+                innerDiameter_m: op.pipeID_m
+            )
+            dsSections = [syntheticDS]
         }
+        let surgeGeom = ProjectGeometryService(
+            annulus: annulusSections,
+            string: dsSections,
+            currentStringBottomMD: op.endMD_m,
+            mdToTvd: { tvdSampler.tvd(of: $0) }
+        )
+
+        let fallbackT600 = op.fallbackTheta600 ?? op.fillMudID.flatMap({ mudDialMap[$0]?.d600 }) ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d600 })
+        let fallbackT300 = op.fallbackTheta300 ?? op.fillMudID.flatMap({ mudDialMap[$0]?.d300 }) ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d300 })
 
         var input = TripInService.TripInInput(
             startBitMD_m: op.startMD_m,
@@ -1064,7 +1015,12 @@ class SuperSimViewModel {
             pocketLayers: combinedPocketInput,
             annulusSections: annulusSections,
             tvdSampler: tvdSampler,
-            surgeProfile: surgeProfile
+            tripSpeed_m_per_s: op.tripInSpeed_m_per_s,
+            eccentricityFactor: op.eccentricityFactor,
+            floatIsOpen: !op.isFloatedCasing,
+            fallbackTheta600: fallbackT600,
+            fallbackTheta300: fallbackT300,
+            geom: surgeGeom
         )
 
         // Run through ReamEngine (free function from ReamEngine.swift)

@@ -266,48 +266,32 @@ class TripInSimulationViewModel {
         // Create TVD sampler - preferPlan uses directional plan for projection
         let tvdSampler = TvdSampler(project: project, preferPlan: useDirectionalPlanForTVD)
 
-        // Compute surge profile if trip speed is set
-        var surgeProfile: [TripInService.SurgePressurePoint] = []
-        if tripSpeed_m_per_min > 0 {
-            let annSections = project.annulus ?? []
-            let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
-            let dsSections: [DrillStringSection]
-            if let projectDS = project.drillString, !projectDS.isEmpty {
-                dsSections = projectDS
-            } else {
-                let syntheticDS = DrillStringSection(
-                    name: "Trip-In String",
-                    topDepth_m: 0,
-                    length_m: endBitMD_m,
-                    outerDiameter_m: pipeOD_m,
-                    innerDiameter_m: pipeID_m
-                )
-                dsSections = [syntheticDS]
-            }
-
-            // Use fill mud if available (has PV/YP), otherwise use project active mud
-            let surgeMud = fillMud ?? project.activeMud
-
-            if surgeMud != nil, (surgeMud?.pv_Pa_s ?? 0) > 0 || (surgeMud?.yp_Pa ?? 0) > 0 {
-                let calculator = SurgeSwabCalculator(
-                    tripSpeed_m_per_min: tripSpeed_m_per_min,
-                    startBitMD_m: startBitMD_m,
-                    endBitMD_m: endBitMD_m,
-                    depthStep_m: step_m,
-                    annulusSections: annSections,
-                    drillStringSections: dsSections,
-                    mud: surgeMud,
-                    pipeEndType: isFloatedCasing ? .closed : .open,
-                    eccentricityFactor: eccentricityFactor
-                )
-                let results = calculator.calculate(tvdLookup: { md in
-                    tvdSampler.tvd(of: md)
-                })
-                surgeProfile = results.map { r in
-                    TripInService.SurgePressurePoint(md: r.bitMD_m, surgePressure_kPa: r.surgePressure_kPa)
-                }
-            }
+        // Build geometry service for per-step surge calculation
+        let dsSections: [DrillStringSection]
+        if let projectDS = project.drillString, !projectDS.isEmpty {
+            dsSections = projectDS
+        } else {
+            let syntheticDS = DrillStringSection(
+                name: "Trip-In String",
+                topDepth_m: 0,
+                length_m: endBitMD_m,
+                outerDiameter_m: pipeOD_m,
+                innerDiameter_m: pipeID_m
+            )
+            dsSections = [syntheticDS]
         }
+        let surgeGeom = ProjectGeometryService(
+            annulus: project.annulus ?? [],
+            string: dsSections,
+            currentStringBottomMD: endBitMD_m,
+            mdToTvd: { tvdSampler.tvd(of: $0) }
+        )
+
+        // Get fallback rheology from fill mud or active mud
+        let fillMud = fillMudID.flatMap { id in (project.muds ?? []).first { $0.id == id } }
+        let surgeMud = fillMud ?? project.activeMud
+        let fallbackTheta600: Double? = surgeMud?.dial600
+        let fallbackTheta300: Double? = surgeMud?.dial300
 
         // If no pocket layers were imported, create a default layer filled with active mud
         let effectivePocketLayers: [TripLayerSnapshot]
@@ -356,7 +340,12 @@ class TripInSimulationViewModel {
             pocketLayers: effectivePocketLayers,
             annulusSections: project.annulus ?? [],
             tvdSampler: tvdSampler,
-            surgeProfile: surgeProfile
+            tripSpeed_m_per_s: tripSpeed_m_per_min / 60.0,
+            eccentricityFactor: eccentricityFactor,
+            floatIsOpen: !isFloatedCasing,
+            fallbackTheta600: fallbackTheta600,
+            fallbackTheta300: fallbackTheta300,
+            geom: surgeGeom
         )
 
         let serviceResult = TripInService.run(serviceInput)

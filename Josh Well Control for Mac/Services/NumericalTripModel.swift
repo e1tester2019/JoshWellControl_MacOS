@@ -82,6 +82,74 @@ final class NumericalTripModel: @unchecked Sendable {
         }
     }
 
+    // MARK: - Drain Helper
+
+    /// Drains a parcel of fluid from the bottom of `stringStack` into the bottom of `annulusStack`.
+    /// Air fills the vacated space at the top of the string. Returns the volume actually drained, or 0 if nothing could drain.
+    @discardableResult
+    static func drainStringToAnnulus(
+        stringStack: Stack,
+        annulusStack: Stack,
+        volume: Double,
+        bitMD: Double,
+        geom: GeometryService
+    ) -> Double {
+        guard volume > 1e-12, !stringStack.layers.isEmpty else { return 0 }
+
+        let bottomLayer = stringStack.layers[stringStack.layers.count - 1]
+        let bottomLen = bottomLayer.bottomMD - bottomLayer.topMD
+        let bottomVol = geom.volumeInString_m3(bottomLayer.topMD, bottomLayer.bottomMD)
+
+        let drainVol = min(volume, bottomVol)
+        guard drainVol > 1e-12 else { return 0 }
+
+        let drainLen = (bottomVol > 1e-12) ? (drainVol / bottomVol) * bottomLen : 0
+        guard drainLen > 1e-12 else { return 0 }
+
+        // Remove from bottom of string
+        let drainRho = bottomLayer.rho
+        let drainColor = bottomLayer.color
+        let drainPV = bottomLayer.pv_cP
+        let drainYP = bottomLayer.yp_Pa
+        stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
+        if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
+            stringStack.layers.removeLast()
+        }
+
+        // Add air at top of string
+        let airLen = geom.lengthForStringVolume_m(0, drainVol)
+        if airLen > 1e-9 {
+            if stringStack.layers.isEmpty || abs(stringStack.layers[0].rho - NumericalTripModel.rhoAir) > 1e-6 {
+                stringStack.layers.insert(Layer(rho: NumericalTripModel.rhoAir, topMD: 0, bottomMD: 0, color: nil), at: 0)
+            }
+            for i in 1..<stringStack.layers.count {
+                stringStack.layers[i].topMD += airLen
+                stringStack.layers[i].bottomMD += airLen
+            }
+            stringStack.layers[0].bottomMD += airLen
+        }
+        stringStack.ensureInvariants(bitMD: bitMD)
+
+        // Inject at bottom of annulus, push everything up
+        let annulusArea = geom.annulusArea_m2(bitMD)
+        let annulusInjectLen = (annulusArea > 1e-12) ? drainVol / annulusArea : 0
+
+        for i in annulusStack.layers.indices {
+            annulusStack.layers[i].topMD = max(0, annulusStack.layers[i].topMD - annulusInjectLen)
+            annulusStack.layers[i].bottomMD = max(0, annulusStack.layers[i].bottomMD - annulusInjectLen)
+        }
+
+        let newTop = max(0, bitMD - annulusInjectLen)
+        if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6, lastAnn.color == drainColor {
+            annulusStack.layers[annulusStack.layers.count - 1].bottomMD = bitMD
+        } else {
+            annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: bitMD, color: drainColor, pv_cP: drainPV, yp_Pa: drainYP))
+        }
+        annulusStack.ensureInvariants(bitMD: bitMD)
+
+        return drainVol
+    }
+
     // MARK: - StackOps (Swift port)
     enum StackOps {
         /// Split a layer at an MD boundary if it falls strictly inside a layer span.
@@ -210,10 +278,12 @@ final class NumericalTripModel: @unchecked Sendable {
                 for i in 1..<layers.count { layers[i].topMD = layers[i-1].bottomMD }
             }
 
-            // Merge identical-ρ neighbors
+            // Merge identical-ρ neighbors (must also match color to avoid merging visually distinct layers)
             var i = 1
             while i < layers.count {
-                if abs(layers[i].rho - layers[i-1].rho) < 1e-6 && abs(layers[i].topMD - layers[i-1].bottomMD) < 1e-9 {
+                if abs(layers[i].rho - layers[i-1].rho) < 1e-6
+                    && layers[i].color == layers[i-1].color
+                    && abs(layers[i].topMD - layers[i-1].bottomMD) < 1e-9 {
                     layers[i-1].bottomMD = layers[i].bottomMD
                     layers.remove(at: i)
                 } else {
@@ -553,65 +623,6 @@ final class NumericalTripModel: @unchecked Sendable {
         var pulseIteration = 0
         var totalDrainedVolume_m3 = 0.0  // Track total volume drained for observed mode
 
-        // Helper function to drain a single parcel from string to annulus
-        func drainParcel(volume: Double) -> Bool {
-            guard volume > 1e-12, !stringStack.layers.isEmpty else { return false }
-
-            let bottomLayer = stringStack.layers[stringStack.layers.count - 1]
-            let bottomLen = bottomLayer.bottomMD - bottomLayer.topMD
-            let bottomVol = geom.volumeInString_m3(bottomLayer.topMD, bottomLayer.bottomMD)
-
-            let drainVol = min(volume, bottomVol)
-            guard drainVol > 1e-12 else { return false }
-
-            let drainLen = (bottomVol > 1e-12) ? (drainVol / bottomVol) * bottomLen : 0
-            guard drainLen > 1e-12 else { return false }
-
-            // Remove from bottom of string
-            let drainRho = bottomLayer.rho
-            let drainColor = bottomLayer.color
-            let drainPV = bottomLayer.pv_cP
-            let drainYP = bottomLayer.yp_Pa
-            stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
-            if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
-                stringStack.layers.removeLast()
-            }
-
-            // Add air at top of string
-            let airLen = geom.lengthForStringVolume_m(0, drainVol)
-            if airLen > 1e-9 {
-                if stringStack.layers.isEmpty || abs(stringStack.layers[0].rho - NumericalTripModel.rhoAir) > 1e-6 {
-                    stringStack.layers.insert(Layer(rho: NumericalTripModel.rhoAir, topMD: 0, bottomMD: 0, color: nil), at: 0)
-                }
-                for i in 1..<stringStack.layers.count {
-                    stringStack.layers[i].topMD += airLen
-                    stringStack.layers[i].bottomMD += airLen
-                }
-                stringStack.layers[0].bottomMD += airLen
-            }
-            stringStack.ensureInvariants(bitMD: bitMD)
-
-            // Inject at bottom of annulus, push everything up
-            let annulusArea = geom.annulusArea_m2(bitMD)
-            let annulusInjectLen = (annulusArea > 1e-12) ? drainVol / annulusArea : 0
-
-            for i in annulusStack.layers.indices {
-                annulusStack.layers[i].topMD = max(0, annulusStack.layers[i].topMD - annulusInjectLen)
-                annulusStack.layers[i].bottomMD = max(0, annulusStack.layers[i].bottomMD - annulusInjectLen)
-            }
-
-            let newTop = max(0, bitMD - annulusInjectLen)
-            if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
-                annulusStack.layers[annulusStack.layers.count - 1].bottomMD = bitMD
-            } else {
-                annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: bitMD, color: drainColor, pv_cP: drainPV, yp_Pa: drainYP))
-            }
-            annulusStack.ensureInvariants(bitMD: bitMD)
-
-            totalDrainedVolume_m3 += drainVol
-            return true
-        }
-
         if let observedPitGain = input.observedInitialPitGain_m3, observedPitGain > 0 {
             // --- OBSERVED MODE: Drain exactly the observed pit gain volume ---
             onProgress?(TripProgress(
@@ -628,8 +639,10 @@ final class NumericalTripModel: @unchecked Sendable {
             while remainingToDrain > 1e-12 && pulseIteration < maxPulseIterations {
                 pulseIteration += 1
                 let drainAmount = min(pulseStep_m3, remainingToDrain)
-                if !drainParcel(volume: drainAmount) { break }
-                remainingToDrain -= drainAmount
+                let drained = NumericalTripModel.drainStringToAnnulus(stringStack: stringStack, annulusStack: annulusStack, volume: drainAmount, bitMD: bitMD, geom: geom)
+                if drained < 1e-12 { break }
+                totalDrainedVolume_m3 += drained
+                remainingToDrain -= drained
 
                 if pulseIteration % 100 == 0 {
                     onProgress?(TripProgress(
@@ -669,7 +682,9 @@ final class NumericalTripModel: @unchecked Sendable {
                     break
                 }
 
-                if !drainParcel(volume: pulseStep_m3) { break }
+                let drained = NumericalTripModel.drainStringToAnnulus(stringStack: stringStack, annulusStack: annulusStack, volume: pulseStep_m3, bitMD: bitMD, geom: geom)
+                if drained < 1e-12 { break }
+                totalDrainedVolume_m3 += drained
             }
         }
 
@@ -776,7 +791,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = L.bottomMD
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = max(0.0, tvdBot - tvdTop)
+                let dTVD = tvdBot - tvdTop // allow negative in toe-up laterals
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 let vol = geom.volumeInAnnulus_m3(a, b)
                 var row = LayerRow(side: "Pocket", topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
@@ -794,7 +809,7 @@ final class NumericalTripModel: @unchecked Sendable {
                 let b = min(bitMD, L.bottomMD)
                 guard b - a > 1e-9 else { continue }
                 let tvdTop = tvdOfMd(a), tvdBot = tvdOfMd(b)
-                let dTVD = max(0.0, tvdBot - tvdTop)
+                let dTVD = tvdBot - tvdTop // allow negative in toe-up laterals
                 let dP = L.rho * NumericalTripModel.g * dTVD / 1000.0
                 let vol = (sideLabel == "Annulus") ? geom.volumeInAnnulus_m3(a, b) : geom.volumeInString_m3(a, b)
                 var row = LayerRow(side: sideLabel, topMD: a, bottomMD: b, topTVD: tvdTop, bottomTVD: tvdBot, rho_kgpm3: L.rho, deltaHydroStatic_kPa: dP, volume_m3: vol, color: L.color)
@@ -806,7 +821,7 @@ final class NumericalTripModel: @unchecked Sendable {
         }
         func sum(_ rows: [LayerRow]) -> Totals {
             var tvd = 0.0, dP = 0.0
-            for r in rows { tvd += max(0, r.bottomTVD - r.topTVD); dP += r.deltaHydroStatic_kPa }
+            for r in rows { tvd += r.bottomTVD - r.topTVD; dP += r.deltaHydroStatic_kPa }
             return Totals(count: rows.count, tvd_m: tvd, deltaP_kPa: dP)
         }
         func addPocketBelowBit(rho: Double, len: Double, bitMD: Double, color: ColorRGBA? = nil, pv_cP: Double = 0, yp_Pa: Double = 0) {
@@ -949,62 +964,16 @@ final class NumericalTripModel: @unchecked Sendable {
                         break
                     }
 
-                    // Drain a small parcel from string bottom
-                    guard !stringStack.layers.isEmpty else { break }
-
-                    let bottomLayer = stringStack.layers[stringStack.layers.count - 1]
-                    let bottomLen = bottomLayer.bottomMD - bottomLayer.topMD
-                    let bottomVol = geom.volumeInString_m3(bottomLayer.topMD, bottomLayer.bottomMD)
-
-                    let drainVol = min(pulseStep_m3, bottomVol)
-                    guard drainVol > 1e-12 else { break }
-
-                    // Track slug contribution
-                    eqSlugDrained_m3 += drainVol
-
-                    let drainLen = (bottomVol > 1e-12) ? (drainVol / bottomVol) * bottomLen : 0
-                    guard drainLen > 1e-12 else { break }
-
-                    // Remove from string bottom
-                    let drainRho = bottomLayer.rho
-                    let drainColor = bottomLayer.color
-                    let drainPV = bottomLayer.pv_cP
-                    let drainYP = bottomLayer.yp_Pa
-                    stringStack.layers[stringStack.layers.count - 1].bottomMD -= drainLen
-                    if stringStack.layers[stringStack.layers.count - 1].bottomMD - stringStack.layers[stringStack.layers.count - 1].topMD < 1e-9 {
-                        stringStack.layers.removeLast()
-                    }
-
-                    // Add air at top of string
-                    let airLen = geom.lengthForStringVolume_m(0, drainVol)
-                    if airLen > 1e-9 {
-                        if stringStack.layers.isEmpty || abs(stringStack.layers[0].rho - NumericalTripModel.rhoAir) > 1e-6 {
-                            stringStack.layers.insert(Layer(rho: NumericalTripModel.rhoAir, topMD: 0, bottomMD: 0, color: nil), at: 0)
-                        }
-                        for i in 1..<stringStack.layers.count {
-                            stringStack.layers[i].topMD += airLen
-                            stringStack.layers[i].bottomMD += airLen
-                        }
-                        stringStack.layers[0].bottomMD += airLen
-                    }
-                    stringStack.ensureInvariants(bitMD: oldBitMD)
-
-                    // Push annulus fluid up, inject drained string fluid at bottom
-                    // Use annulus area at oldBitMD since we're injecting at the bottom
-                    let annulusAreaMid = geom.annulusArea_m2(oldBitMD)
-                    let annulusInjectLen = (annulusAreaMid > 1e-12) ? drainVol / annulusAreaMid : 0
-                    for i in annulusStack.layers.indices {
-                        annulusStack.layers[i].topMD = max(0, annulusStack.layers[i].topMD - annulusInjectLen)
-                        annulusStack.layers[i].bottomMD = max(0, annulusStack.layers[i].bottomMD - annulusInjectLen)
-                    }
-
-                    let newTop = max(0, oldBitMD - annulusInjectLen)
-                    if let lastAnn = annulusStack.layers.last, abs(lastAnn.rho - drainRho) < 1e-6 {
-                        annulusStack.layers[annulusStack.layers.count - 1].bottomMD = oldBitMD
-                    } else {
-                        annulusStack.layers.append(Layer(rho: drainRho, topMD: newTop, bottomMD: oldBitMD, color: drainColor, pv_cP: drainPV, yp_Pa: drainYP))
-                    }
-                    annulusStack.ensureInvariants(bitMD: oldBitMD)
+                    // Drain a small parcel from string bottom into annulus
+                    let drained = NumericalTripModel.drainStringToAnnulus(
+                        stringStack: stringStack,
+                        annulusStack: annulusStack,
+                        volume: pulseStep_m3,
+                        bitMD: oldBitMD,
+                        geom: geom
+                    )
+                    guard drained > 1e-12 else { break }
+                    eqSlugDrained_m3 += drained
                 }
 
                 // Recalculate float state after equalization
@@ -1253,10 +1222,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 stepOpenCount += 1
             }
 
-            // Calculate swab at this 1m internal step using current float state
-            // Accumulate for averaging over the recording interval
-            let internalSwab_kPa = calculateSwabFromSnapshot(
-                annulusLayers: projectSnapshot.annulusLayers,
+            // Calculate swab at this 1m internal step using current annulus state
+            // (not the stale project snapshot — backfill changes annulus composition)
+            let internalSwab_kPa = calculateSwabFromCurrentStack(
+                annulusStack: annulusStack,
                 bitMD: bitMD,
                 tripSpeed_m_per_s: input.tripSpeed_m_per_s,
                 eccentricityFactor: input.eccentricityFactor,
@@ -1402,22 +1371,12 @@ final class NumericalTripModel: @unchecked Sendable {
         return results
     }
 
-    // MARK: - Swab Calculation Helper
+    // MARK: - Swab Calculation
 
-    /// Calculates swab pressure for the annulus layers above the bit
-    /// - Parameters:
-    ///   - annulusLayers: The final fluid layers in the annulus (from project)
-    ///   - bitMD: Current bit measured depth
-    ///   - tripSpeed_m_per_s: Hoist speed in m/s
-    ///   - eccentricityFactor: Pipe eccentricity factor (1.0 = concentric)
-    ///   - geom: Geometry service for wellbore dimensions
-    ///   - tvdOfMd: Function to convert MD to TVD
-    ///   - fallbackTheta600: Fallback dial600 if layer has no mud reference
-    ///   - fallbackTheta300: Fallback dial300 if layer has no mud reference
-    ///   - floatIsOpen: Whether the float valve is open
-    /// - Returns: Swab pressure drop in kPa, or 0 if calculation fails
-    nonisolated private func calculateSwab(
-        annulusLayers: [FinalFluidLayer],
+    /// Calculates swab pressure from the current annulus stack layers (live state, not stale snapshot).
+    /// Reverse-engineers theta600/theta300 from stored pv_cP/yp_Pa so SwabCalculator can compute K/n.
+    nonisolated private func calculateSwabFromCurrentStack(
+        annulusStack: Stack,
         bitMD: Double,
         tripSpeed_m_per_s: Double,
         eccentricityFactor: Double,
@@ -1427,52 +1386,40 @@ final class NumericalTripModel: @unchecked Sendable {
         fallbackTheta300: Double?,
         floatIsOpen: Bool
     ) -> Double {
-        // Only calculate if we have positive trip speed (pulling out)
         guard tripSpeed_m_per_s > 0 else { return 0 }
 
-        // Filter to layers above the bit
-        let layersAboveBit = annulusLayers.filter { $0.topMD_m < bitMD }
+        let layersAboveBit = annulusStack.layers.filter { $0.topMD < bitMD }
         guard !layersAboveBit.isEmpty else { return 0 }
 
-        // Build LayerDTO array with rheology from mud references
         var layerDTOs: [SwabCalculator.LayerDTO] = []
 
         for layer in layersAboveBit {
-            let topMD = layer.topMD_m
-            let bottomMD = min(layer.bottomMD_m, bitMD) // Clamp to bit depth
-
+            let topMD = layer.topMD
+            let bottomMD = min(layer.bottomMD, bitMD)
             guard bottomMD > topMD else { continue }
 
-            // Get rheology from the linked mud, or use fallback
+            // Reverse-engineer theta values from stored pv_cP and yp_Pa
+            // pvCp = theta600 - theta300
+            // ypPa = (theta300 - pvCp) * fann35_dialToPa
+            // Therefore: theta300 = pvCp + ypPa / fann35_dialToPa
+            //            theta600 = 2 * pvCp + ypPa / fann35_dialToPa
             var theta600: Double? = fallbackTheta600
             var theta300: Double? = fallbackTheta300
-            var K: Double? = nil
-            var n: Double? = nil
-
-            if let mud = layer.mud {
-                // Prefer annulus-specific K/n if available
-                if let K_ann = mud.K_annulus, let n_ann = mud.n_annulus, K_ann > 0, n_ann > 0 {
-                    K = K_ann
-                    n = n_ann
-                }
-                // Otherwise use general K/n
-                else if let K_gen = mud.k_powerLaw_Pa_s_n, let n_gen = mud.n_powerLaw, K_gen > 0, n_gen > 0 {
-                    K = K_gen
-                    n = n_gen
-                }
-                // Otherwise use dial readings
-                else if let d600 = mud.dial600, let d300 = mud.dial300, d600 > 0, d300 > 0 {
-                    theta600 = d600
-                    theta300 = d300
+            if layer.pv_cP > 0 || layer.yp_Pa > 0 {
+                let t300 = layer.pv_cP + layer.yp_Pa / HydraulicsDefaults.fann35_dialToPa
+                let t600 = 2.0 * layer.pv_cP + layer.yp_Pa / HydraulicsDefaults.fann35_dialToPa
+                if t300 > 0 && t600 > 0 {
+                    theta300 = t300
+                    theta600 = t600
                 }
             }
 
             layerDTOs.append(SwabCalculator.LayerDTO(
-                rho_kgpm3: layer.density_kgm3,
+                rho_kgpm3: layer.rho,
                 topMD_m: topMD,
                 bottomMD_m: bottomMD,
-                K_Pa_s_n: K,
-                n_powerLaw: n,
+                K_Pa_s_n: nil,
+                n_powerLaw: nil,
                 theta600: theta600,
                 theta300: theta300
             ))
@@ -1480,138 +1427,25 @@ final class NumericalTripModel: @unchecked Sendable {
 
         guard !layerDTOs.isEmpty else { return 0 }
 
-        // Check if we have any rheology data
         let hasRheology = layerDTOs.contains { dto in
-            (dto.K_Pa_s_n != nil && dto.n_powerLaw != nil) ||
             (dto.theta600 != nil && dto.theta300 != nil)
         } || (fallbackTheta600 != nil && fallbackTheta300 != nil)
 
-        guard hasRheology else {
-            #if DEBUG
-            print("[Swab] No rheology data available for swab calculation")
-            #endif
-            return 0
-        }
+        guard hasRheology else { return 0 }
 
-        // Create trajectory sampler wrapper for TVD lookup
         let trajSampler = ClosureTrajectorySampler(tvdOfMd: tvdOfMd)
-
-        // Calculate swab
         let calculator = SwabCalculator()
         do {
             let result = try calculator.estimateFromLayersPowerLaw(
                 layers: layerDTOs,
                 theta600: fallbackTheta600,
                 theta300: fallbackTheta300,
-                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0, // Convert m/s to m/min
+                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0,
                 eccentricityFactor: eccentricityFactor,
-                step_m: 10.0, // Fine step for accuracy
+                step_m: 10.0,
                 geom: geom,
                 traj: trajSampler,
-                sabpSafety: 1.0, // We'll apply safety factor separately
-                floatIsOpen: floatIsOpen
-            )
-            return result.totalSwab_kPa
-        } catch {
-            #if DEBUG
-            print("[Swab] Calculation error: \(error.localizedDescription)")
-            #endif
-            return 0
-        }
-    }
-
-    /// Calculates swab pressure using pre-extracted layer snapshots (concurrency-safe version)
-    nonisolated private func calculateSwabFromSnapshot(
-        annulusLayers: [FinalLayerSnapshot],
-        bitMD: Double,
-        tripSpeed_m_per_s: Double,
-        eccentricityFactor: Double,
-        geom: GeometryService,
-        tvdOfMd: @escaping (Double) -> Double,
-        fallbackTheta600: Double?,
-        fallbackTheta300: Double?,
-        floatIsOpen: Bool
-    ) -> Double {
-        // Only calculate if we have positive trip speed (pulling out)
-        guard tripSpeed_m_per_s > 0 else { return 0 }
-
-        // Filter to layers above the bit
-        let layersAboveBit = annulusLayers.filter { $0.topMD_m < bitMD }
-        guard !layersAboveBit.isEmpty else { return 0 }
-
-        // Build LayerDTO array with rheology from snapshot
-        var layerDTOs: [SwabCalculator.LayerDTO] = []
-
-        for layer in layersAboveBit {
-            let topMD = layer.topMD_m
-            let bottomMD = min(layer.bottomMD_m, bitMD) // Clamp to bit depth
-
-            guard bottomMD > topMD else { continue }
-
-            // Get rheology from the snapshot, or use fallback
-            var theta600: Double? = fallbackTheta600
-            var theta300: Double? = fallbackTheta300
-            var K: Double? = nil
-            var n: Double? = nil
-
-            // Prefer annulus-specific K/n if available
-            if let K_ann = layer.mudK_annulus, let n_ann = layer.mudN_annulus, K_ann > 0, n_ann > 0 {
-                K = K_ann
-                n = n_ann
-            }
-            // Otherwise use general K/n
-            else if let K_gen = layer.mudK_powerLaw, let n_gen = layer.mudN_powerLaw, K_gen > 0, n_gen > 0 {
-                K = K_gen
-                n = n_gen
-            }
-            // Otherwise use dial readings
-            else if let d600 = layer.mudDial600, let d300 = layer.mudDial300, d600 > 0, d300 > 0 {
-                theta600 = d600
-                theta300 = d300
-            }
-
-            layerDTOs.append(SwabCalculator.LayerDTO(
-                rho_kgpm3: layer.density_kgm3,
-                topMD_m: topMD,
-                bottomMD_m: bottomMD,
-                K_Pa_s_n: K,
-                n_powerLaw: n,
-                theta600: theta600,
-                theta300: theta300
-            ))
-        }
-
-        guard !layerDTOs.isEmpty else { return 0 }
-
-        // Check if we have any rheology data
-        let hasRheology = layerDTOs.contains { dto in
-            (dto.K_Pa_s_n != nil && dto.n_powerLaw != nil) ||
-            (dto.theta600 != nil && dto.theta300 != nil)
-        } || (fallbackTheta600 != nil && fallbackTheta300 != nil)
-
-        guard hasRheology else {
-            #if DEBUG
-            print("[Swab] No rheology data available for swab calculation")
-            #endif
-            return 0
-        }
-
-        // Create trajectory sampler wrapper for TVD lookup
-        let trajSampler = ClosureTrajectorySampler(tvdOfMd: tvdOfMd)
-
-        // Calculate swab
-        let calculator = SwabCalculator()
-        do {
-            let result = try calculator.estimateFromLayersPowerLaw(
-                layers: layerDTOs,
-                theta600: fallbackTheta600,
-                theta300: fallbackTheta300,
-                hoistSpeed_mpermin: tripSpeed_m_per_s * 60.0, // Convert m/s to m/min
-                eccentricityFactor: eccentricityFactor,
-                step_m: 10.0, // Fine step for accuracy
-                geom: geom,
-                traj: trajSampler,
-                sabpSafety: 1.0, // We'll apply safety factor separately
+                sabpSafety: 1.0,
                 floatIsOpen: floatIsOpen
             )
             return result.totalSwab_kPa
