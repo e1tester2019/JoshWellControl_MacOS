@@ -27,12 +27,16 @@ A new SwiftUI component that provides:
    - Added `.loadingOverlay()` modifier to main body
    - Tied to `viewmodel.isRunning`, `viewmodel.progressMessage`, and `viewmodel.progressValue`
 
+3. **SuperSimulationView.swift** (Super Simulation)
+   - Added `.loadingOverlay()` modifier to main body
+   - Tied to `viewModel.isRunning`, `viewModel.progressMessage`, and `viewModel.operationProgress`
+
 ### iOS Views
-3. **TripInSimulationViewIOS.swift** (Trip-In simulation for iOS)
+4. **TripInSimulationViewIOS.swift** (Trip-In simulation for iOS)
    - Added `.loadingOverlay()` modifier to main body
    - Uses same ViewModel properties as macOS version
 
-4. **TripSimulationViewIOS.swift** (Trip-Out simulation for iOS)
+5. **TripSimulationViewIOS.swift** (Trip-Out simulation for iOS)
    - Added `.loadingOverlay()` modifier to main body
    - Uses same ViewModel properties as macOS version
 

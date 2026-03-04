@@ -1399,50 +1399,7 @@ struct TripSimulationViewIOS: View {
     private var esdAtControlText: String {
         guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else { return "" }
         let s = viewmodel.steps[idx]
-        let rawControlMD = max(0.0, viewmodel.shoeMD_m)
-        let clampedControlMD = min(rawControlMD, controlMDLimit)
-        let controlTVD = project.tvd(of: clampedControlMD)
-        let bitTVD = s.bitTVD_m
-        var pressure_kPa: Double = s.SABP_kPa
-
-        if controlTVD <= bitTVD + 1e-9 {
-            var remaining = controlTVD
-            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
-                let seg = min(remaining, max(0.0, min(r.bottomTVD, controlTVD) - r.topTVD))
-                if seg > 1e-9 {
-                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
-                    pressure_kPa += r.deltaHydroStatic_kPa * frac
-                    remaining -= seg
-                    if remaining <= 1e-9 { break }
-                }
-            }
-        } else {
-            var remainingA = bitTVD
-            for r in s.layersAnnulus where r.bottomTVD > r.topTVD {
-                let seg = min(remainingA, max(0.0, min(r.bottomTVD, bitTVD) - r.topTVD))
-                if seg > 1e-9 {
-                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
-                    pressure_kPa += r.deltaHydroStatic_kPa * frac
-                    remainingA -= seg
-                    if remainingA <= 1e-9 { break }
-                }
-            }
-            var remainingP = controlTVD - bitTVD
-            for r in s.layersPocket where r.bottomTVD > r.topTVD {
-                let top = max(r.topTVD, bitTVD)
-                let bot = min(r.bottomTVD, controlTVD)
-                let seg = max(0.0, bot - top)
-                if seg > 1e-9 {
-                    let frac = seg / max(1e-9, r.bottomTVD - r.topTVD)
-                    pressure_kPa += r.deltaHydroStatic_kPa * frac
-                    remainingP -= seg
-                    if remainingP <= 1e-9 { break }
-                }
-            }
-        }
-
-        let esdAtControl = pressure_kPa / 0.00981 / max(1e-9, controlTVD)
-        return String(format: "ESD@control: %.1f kg/m³", esdAtControl)
+        return String(format: "ESD@control: %.1f kg/m³", s.ESDatControl_kgpm3)
     }
 
     // MARK: - Drawing helpers
