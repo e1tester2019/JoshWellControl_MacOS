@@ -40,6 +40,14 @@ enum TripInService {
         let surgePressure_kPa: Double
         let surgeECD_kgm3: Double
         let dynamicESDAtControl_kgpm3: Double
+        // Torque & drag fields (nil if T&D not configured)
+        let pickupHookLoad_kN: Double?
+        let slackOffHookLoad_kN: Double?
+        let rotatingHookLoad_kN: Double?
+        let freeHangingWeight_kN: Double?
+        let surfaceTorque_kNm: Double?
+        let bucklingOnsetMD: Double?
+        let stretch_m: Double?
     }
 
     struct TripInInput {
@@ -65,6 +73,12 @@ enum TripInService {
         var fallbackTheta600: Double? = nil
         var fallbackTheta300: Double? = nil
         var geom: GeometryService? = nil
+        // Torque & drag inputs (nil = skip T&D)
+        var tdSurveys: [TorqueDragEngine.SurveyPoint]? = nil
+        var tdStringSegments: [TorqueDragEngine.StringSegment]? = nil
+        var tdHoleSections: [TorqueDragEngine.HoleSection]? = nil
+        var tdFriction: TorqueDragEngine.FrictionFactors? = nil
+        var tdBlockWeight_kN: Double = 0
         // Continuation support: start cumulative counters from existing values
         var initialCumulativeFill_m3: Double = 0
         var initialCumulativeDisplacement_m3: Double = 0
@@ -284,6 +298,38 @@ enum TripInService {
             let surgeECD = controlTVD > 0 ? surgePressure / (0.00981 * controlTVD) : 0
             let dynamicESD = ESDAtControl + surgeECD
 
+            // Torque & drag (if configured)
+            var tdPickup: Double? = nil
+            var tdSlackOff: Double? = nil
+            var tdRotating: Double? = nil
+            var tdFreeHanging: Double? = nil
+            var tdTorque: Double? = nil
+            var tdBucklingMD: Double? = nil
+            var tdStretch: Double? = nil
+
+            if let surveys = input.tdSurveys,
+               let strSegs = input.tdStringSegments,
+               let holeSegs = input.tdHoleSections,
+               let friction = input.tdFriction {
+                let multi = TorqueDragEngine.computeAllCases(
+                    surveys: surveys,
+                    stringSegments: strSegs,
+                    holeSections: holeSegs,
+                    fluidLayers: displacedPockets,
+                    bitMD: bitMD,
+                    friction: friction,
+                    blockWeight_kN: input.tdBlockWeight_kN,
+                    tvdSampler: input.tvdSampler
+                )
+                tdPickup = multi.pickupHookLoad_kN
+                tdSlackOff = multi.slackOffHookLoad_kN
+                tdRotating = multi.rotatingHookLoad_kN
+                tdFreeHanging = multi.freeHangingWeight_kN
+                tdTorque = multi.surfaceTorque_kNm
+                tdBucklingMD = multi.bucklingOnsetMD
+                tdStretch = multi.slackOffStretch_m
+            }
+
             steps.append(TripInStepResult(
                 stepIndex: index,
                 bitMD_m: bitMD,
@@ -305,7 +351,14 @@ enum TripInService {
                 layersPocket: displacedPockets,
                 surgePressure_kPa: surgePressure,
                 surgeECD_kgm3: surgeECD,
-                dynamicESDAtControl_kgpm3: dynamicESD
+                dynamicESDAtControl_kgpm3: dynamicESD,
+                pickupHookLoad_kN: tdPickup,
+                slackOffHookLoad_kN: tdSlackOff,
+                rotatingHookLoad_kN: tdRotating,
+                freeHangingWeight_kN: tdFreeHanging,
+                surfaceTorque_kNm: tdTorque,
+                bucklingOnsetMD: tdBucklingMD,
+                stretch_m: tdStretch
             ))
         }
 
