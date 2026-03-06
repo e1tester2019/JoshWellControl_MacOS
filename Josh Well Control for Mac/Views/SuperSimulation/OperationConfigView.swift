@@ -180,6 +180,53 @@ struct OperationConfigView: View {
                     #endif
             }
             GridRow {
+                Text("Torque & Drag:")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Enable", isOn: $operation.tdEnabled)
+                    .controlSize(.small)
+            }
+            if operation.tdEnabled {
+                GridRow {
+                    Text("Cased FF:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdCasedFF, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Open Hole FF:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdOpenHoleFF, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Block Weight (kDaN):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdBlockWeight_kN / 10.0 },
+                        set: { operation.tdBlockWeight_kN = $0 * 10.0 }
+                    ), format: .number.precision(.fractionLength(1)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("APL Eccentricity:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdAplEccentricity, format: .number.precision(.fractionLength(1)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
+                }
+                GridRow {
+                    Text("Double Buoyancy:")
+                        .frame(width: 140, alignment: .trailing)
+                    Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                        .controlSize(.small)
+                        .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                }
+            }
+            GridRow {
                 Text("")
                     .frame(width: 140, alignment: .trailing)
                 Toggle("Switch to active after displacement", isOn: $operation.switchToActiveAfterDisplacement)
@@ -409,6 +456,53 @@ struct OperationConfigView: View {
                     .frame(width: 140, alignment: .trailing)
                 Toggle("", isOn: $operation.isFloatedCasing)
                     .labelsHidden()
+            }
+            GridRow {
+                Text("Torque & Drag:")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Enable", isOn: $operation.tdEnabled)
+                    .controlSize(.small)
+            }
+            if operation.tdEnabled {
+                GridRow {
+                    Text("Cased FF:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdCasedFF, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Open Hole FF:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdOpenHoleFF, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Block Weight (kDaN):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdBlockWeight_kN / 10.0 },
+                        set: { operation.tdBlockWeight_kN = $0 * 10.0 }
+                    ), format: .number.precision(.fractionLength(1)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("APL Eccentricity:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdAplEccentricity, format: .number.precision(.fractionLength(1)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
+                }
+                GridRow {
+                    Text("Double Buoyancy:")
+                        .frame(width: 140, alignment: .trailing)
+                    Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                        .controlSize(.small)
+                        .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                }
             }
         }
         .onChange(of: operation.fillMudID) { _, newID in
@@ -784,6 +878,53 @@ struct OperationConfigView: View {
                         .keyboardType(.decimalPad)
                         .focused($focusedField, equals: .minPumpRate)
                         #endif
+                }
+                GridRow {
+                    Text("Torque & Drag:")
+                        .frame(width: 140, alignment: .trailing)
+                    Toggle("Enable", isOn: $operation.tdEnabled)
+                        .controlSize(.small)
+                }
+                if operation.tdEnabled {
+                    GridRow {
+                        Text("Cased FF:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdCasedFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Open Hole FF:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdOpenHoleFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Block Weight (kDaN):")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { operation.tdBlockWeight_kN / 10.0 },
+                            set: { operation.tdBlockWeight_kN = $0 * 10.0 }
+                        ), format: .number.precision(.fractionLength(1)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("APL Eccentricity:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdAplEccentricity, format: .number.precision(.fractionLength(1)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
+                    }
+                    GridRow {
+                        Text("Double Buoyancy:")
+                            .frame(width: 140, alignment: .trailing)
+                        Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                            .controlSize(.small)
+                            .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                    }
                 }
             }
 

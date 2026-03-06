@@ -427,6 +427,15 @@ final class NumericalTripModel: @unchecked Sendable {
         /// from the string and annulus ended up in the pocket over the course of the trip.
         var pocketSourceInventory: [MudInventoryEntry] = []
 
+        // Torque & drag (nil if T&D not configured)
+        var pickupHookLoad_kN: Double? = nil
+        var slackOffHookLoad_kN: Double? = nil
+        var rotatingHookLoad_kN: Double? = nil
+        var freeHangingWeight_kN: Double? = nil
+        var surfaceTorque_kNm: Double? = nil
+        var bucklingOnsetMD: Double? = nil
+        var stretch_m: Double? = nil
+
         /// Pocket layers grouped by blended density — total TVD height and hydrostatic per density.
         var pocketHydrostaticSummary: [PocketHydrostaticEntry] {
             hydrostaticSummary(layers: layersPocket, toTVD: .infinity)
@@ -494,6 +503,15 @@ final class NumericalTripModel: @unchecked Sendable {
         // Observed pit gain calibration
         // When set, uses this value instead of calculating equalization from pressure
         var observedInitialPitGain_m3: Double? = nil
+        // Torque & drag inputs (nil = skip T&D)
+        var tdSurveys: [TorqueDragEngine.SurveyPoint]? = nil
+        var tdStringSegments: [TorqueDragEngine.StringSegment]? = nil
+        var tdHoleSections: [TorqueDragEngine.HoleSection]? = nil
+        var tdFriction: TorqueDragEngine.FrictionFactors? = nil
+        var tdBlockWeight_kN: Double = 0
+        var tdAplEccentricity: Double = 1.0
+        var tdDoubleBuoyancy: Bool = false
+        var tdTvdSampler: TvdSampler? = nil
         // Super Simulation: custom initial layer state
         // When set, seeds stacks from these layers instead of ProjectSnapshot.
         // This enables chaining operations (e.g., trip out after circulation).
@@ -777,7 +795,14 @@ final class NumericalTripModel: @unchecked Sendable {
                 layersString: initStrRows,
                 totalsPocket: initTotPocket,
                 totalsAnnulus: initTotAnn,
-                totalsString: initTotStr
+                totalsString: initTotStr,
+                pickupHookLoad_kN: nil,
+                slackOffHookLoad_kN: nil,
+                rotatingHookLoad_kN: nil,
+                freeHangingWeight_kN: nil,
+                surfaceTorque_kNm: nil,
+                bucklingOnsetMD: nil,
+                stretch_m: nil
             )
         ]
 
@@ -1304,6 +1329,60 @@ final class NumericalTripModel: @unchecked Sendable {
                 let stepPocketTotalMass = stepPocketFromAnnulusMass_kg + stepPocketFromStringMass_kg
                 let stepPocketInflowDensity = stepPocketInflow > 1e-12 ? stepPocketTotalMass / stepPocketInflow : 0
 
+                // Torque & drag computation
+                var tdPickup: Double? = nil
+                var tdSlackOff: Double? = nil
+                var tdRotating: Double? = nil
+                var tdFreeHanging: Double? = nil
+                var tdTorque: Double? = nil
+                var tdBucklingMD: Double? = nil
+                var tdStretch: Double? = nil
+
+                if let surveys = input.tdSurveys,
+                   let strSegs = input.tdStringSegments,
+                   let holeSecs = input.tdHoleSections,
+                   let friction = input.tdFriction,
+                   let tvdSamplerTD = input.tdTvdSampler {
+                    // Build fluid layers from current annulus stack for variable buoyancy
+                    let fluidLayers: [TripLayerSnapshot] = annulusStack.layers.map { layer in
+                        let tvdT = tvdOfMd(layer.topMD)
+                        let tvdB = tvdOfMd(layer.bottomMD)
+                        return TripLayerSnapshot(
+                            side: "Annulus",
+                            topMD: layer.topMD,
+                            bottomMD: layer.bottomMD,
+                            topTVD: tvdT,
+                            bottomTVD: tvdB,
+                            rho_kgpm3: layer.rho,
+                            deltaHydroStatic_kPa: layer.rho * 0.00981 * (tvdB - tvdT),
+                            volume_m3: 0
+                        )
+                    }
+
+                    let multi = TorqueDragEngine.computeAllCases(
+                        surveys: surveys,
+                        stringSegments: strSegs,
+                        holeSections: holeSecs,
+                        fluidLayers: fluidLayers,
+                        bitMD: bitMD,
+                        friction: friction,
+                        blockWeight_kN: input.tdBlockWeight_kN,
+                        tvdSampler: tvdSamplerTD,
+                        SABP_kPa: sabp_kPa,
+                        floatIsOpen: !floatClosed,
+                        surgePressure_kPa: -swab_kPa,  // swab reduces annular pressure → pipe heavier
+                        aplEccentricityFactor: input.tdAplEccentricity,
+                        doubleBuoyancy: input.tdDoubleBuoyancy
+                    )
+                    tdPickup = multi.pickupHookLoad_kN
+                    tdSlackOff = multi.slackOffHookLoad_kN
+                    tdRotating = multi.rotatingHookLoad_kN
+                    tdFreeHanging = multi.freeHangingWeight_kN
+                    tdTorque = multi.surfaceTorque_kNm
+                    tdBucklingMD = multi.bucklingOnsetMD
+                    tdStretch = multi.pickupStretch_m
+                }
+
                 results.append(TripStep(bitMD_m: bitMD,
                                         bitTVD_m: bitTVD,
                                         SABP_kPa: sabp_kPa,
@@ -1338,7 +1417,14 @@ final class NumericalTripModel: @unchecked Sendable {
                                         totalsPocket: totPocket,
                                         totalsAnnulus: totAnn,
                                         totalsString: totString,
-                                        pocketSourceInventory: pocketSourceBuckets.map { MudInventoryEntry(density_kgpm3: Double($0.key), volume_m3: $0.value, region: "Pocket") }.sorted { $0.density_kgpm3 < $1.density_kgpm3 }))
+                                        pocketSourceInventory: pocketSourceBuckets.map { MudInventoryEntry(density_kgpm3: Double($0.key), volume_m3: $0.value, region: "Pocket") }.sorted { $0.density_kgpm3 < $1.density_kgpm3 },
+                                        pickupHookLoad_kN: tdPickup,
+                                        slackOffHookLoad_kN: tdSlackOff,
+                                        rotatingHookLoad_kN: tdRotating,
+                                        freeHangingWeight_kN: tdFreeHanging,
+                                        surfaceTorque_kNm: tdTorque,
+                                        bucklingOnsetMD: tdBucklingMD,
+                                        stretch_m: tdStretch))
 
                 // Reset step-level accumulators for next recording interval
                 stepBackfill_m3 = 0.0

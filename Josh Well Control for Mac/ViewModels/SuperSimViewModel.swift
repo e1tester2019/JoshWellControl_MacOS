@@ -86,6 +86,12 @@ class SuperSimViewModel {
             op.useOverrideDisplacementVolume = lastOp.useOverrideDisplacementVolume
             op.overrideDisplacementVolume_m3 = lastOp.overrideDisplacementVolume_m3
             op.tripInSpeed_m_per_s = lastOp.tripInSpeed_m_per_s
+            op.tdEnabled = lastOp.tdEnabled
+            op.tdCasedFF = lastOp.tdCasedFF
+            op.tdOpenHoleFF = lastOp.tdOpenHoleFF
+            op.tdBlockWeight_kN = lastOp.tdBlockWeight_kN
+            op.tdAplEccentricity = lastOp.tdAplEccentricity
+            op.tdDoubleBuoyancy = lastOp.tdDoubleBuoyancy
 
             // Start where previous operation ends (use output if run, else configured end)
             let prevEndMD = lastOp.outputState?.bitMD_m ?? lastOp.endMD_m
@@ -351,6 +357,7 @@ class SuperSimViewModel {
         let tvdSampler = TvdSampler(project: project)
         let annulusSections = project.annulus ?? []
         let drillString = project.drillString ?? []
+        let surveys = project.surveys ?? []
         let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
         let activeDensity = project.activeMud?.density_kgm3 ?? 1200
 
@@ -427,19 +434,19 @@ class SuperSimViewModel {
                 let result: WellboreStateSnapshot
                 switch op.type {
                 case .tripOut:
-                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
+                    result = await self.runTripOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, surveys: surveys, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .tripIn:
-                    result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
+                    result = self.runTripIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, surveys: surveys, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
 
                 case .circulate:
-                    result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
+                    result = self.runCirculation(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, surveys: surveys, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
 
                 case .reamOut:
-                    result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
+                    result = await self.executeReamOut(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, surveys: surveys, projectSnapshot: projectSnapshot, activeDensity: activeDensity, mudRheologyMap: mudRheologyMap, mudColorMap: mudColorMap, mudDialMap: mudDialMap)
 
                 case .reamIn:
-                    result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
+                    result = self.executeReamIn(op, state: currentState, tvdSampler: tvdSampler, annulusSections: annulusSections, drillString: drillString, surveys: surveys, mudRheologyMap: mudRheologyMap, mudDialMap: mudDialMap)
                 }
 
                 currentState = result
@@ -475,6 +482,7 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
+        surveys: [SurveyStation] = [],
         projectSnapshot: NumericalTripModel.ProjectSnapshot,
         activeDensity: Double,
         mudRheologyMap: [UUID: MudRheology] = [:],
@@ -546,6 +554,18 @@ class SuperSimViewModel {
         input.initialStringLayers = state.layersString.isEmpty ? nil : state.layersString
         input.initialPocketLayers = state.layersPocket.isEmpty ? nil : state.layersPocket
 
+        // Wire T&D if enabled
+        if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
+            input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+            input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+            input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+            input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
+            input.tdBlockWeight_kN = op.tdBlockWeight_kN
+            input.tdAplEccentricity = op.tdAplEccentricity
+            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdTvdSampler = tvdSampler
+        }
+
         let model = NumericalTripModel()
         let steps = model.run(input, geom: geom, projectSnapshot: projectSnapshot)
 
@@ -611,6 +631,7 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
+        surveys: [SurveyStation] = [],
         mudRheologyMap: [UUID: MudRheology],
         mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) -> WellboreStateSnapshot {
@@ -667,6 +688,18 @@ class SuperSimViewModel {
             fallbackTheta300: fallbackT300,
             geom: surgeGeom
         )
+        input.holdSABPOpen = op.holdSABPOpen
+
+        // Wire T&D if enabled
+        if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
+            input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+            input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+            input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+            input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
+            input.tdBlockWeight_kN = op.tdBlockWeight_kN
+            input.tdAplEccentricity = op.tdAplEccentricity
+            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+        }
 
         let result = TripInService.run(input)
 
@@ -728,6 +761,7 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
+        surveys: [SurveyStation] = [],
         activeDensity: Double,
         mudRheologyMap: [UUID: MudRheology] = [:],
         mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
@@ -771,6 +805,18 @@ class SuperSimViewModel {
         let fullColumnInput = state.layersAnnulus + state.layersPocket
         let stringInput = state.layersString
 
+        // Build T&D params if enabled
+        var tdSurveyPts: [TorqueDragEngine.SurveyPoint]? = nil
+        var tdStrSegs: [TorqueDragEngine.StringSegment]? = nil
+        var tdHoleSegs: [TorqueDragEngine.HoleSection]? = nil
+        var tdFriction: TorqueDragEngine.FrictionFactors? = nil
+        if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
+            tdSurveyPts = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+            tdStrSegs = TorqueDragEngine.stringSegments(from: drillString)
+            tdHoleSegs = TorqueDragEngine.holeSections(from: annulusSections)
+            tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
+        }
+
         let result = CirculationService.previewPumpQueue(
             pocketLayers: fullColumnInput,
             stringLayers: stringInput,
@@ -785,6 +831,14 @@ class SuperSimViewModel {
             minPumpRate_m3perMin: op.minPumpRate_m3perMin,
             annulusSections: annulusSections,
             drillStringSections: drillString,
+            tdSurveys: tdSurveyPts,
+            tdStringSegments: tdStrSegs,
+            tdHoleSections: tdHoleSegs,
+            tdFriction: tdFriction,
+            tdBlockWeight_kN: op.tdBlockWeight_kN,
+            tdFloatIsOpen: true,  // circulating = pipe is open
+            tdAplEccentricity: op.tdAplEccentricity,
+            tdDoubleBuoyancy: op.tdDoubleBuoyancy,
             progressCallback: { [weak self] pumped, total in
                 guard let self else { return }
                 let fraction = total > 0 ? pumped / total : 0
@@ -832,6 +886,7 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
+        surveys: [SurveyStation] = [],
         projectSnapshot: NumericalTripModel.ProjectSnapshot,
         activeDensity: Double,
         mudRheologyMap: [UUID: MudRheology] = [:],
@@ -900,6 +955,18 @@ class SuperSimViewModel {
         input.initialAnnulusLayers = state.layersAnnulus.isEmpty ? nil : state.layersAnnulus
         input.initialStringLayers = state.layersString.isEmpty ? nil : state.layersString
         input.initialPocketLayers = state.layersPocket.isEmpty ? nil : state.layersPocket
+
+        // Wire T&D if enabled
+        if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
+            input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+            input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+            input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+            input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
+            input.tdBlockWeight_kN = op.tdBlockWeight_kN
+            input.tdAplEccentricity = op.tdAplEccentricity
+            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdTvdSampler = tvdSampler
+        }
 
         // Run through ReamEngine (free function from ReamEngine.swift)
         let steps = runReamOut(
@@ -970,6 +1037,7 @@ class SuperSimViewModel {
         tvdSampler: TvdSampler,
         annulusSections: [AnnulusSection],
         drillString: [DrillStringSection],
+        surveys: [SurveyStation] = [],
         mudRheologyMap: [UUID: MudRheology],
         mudDialMap: [UUID: (d600: Double, d300: Double)] = [:]
     ) -> WellboreStateSnapshot {
@@ -1022,6 +1090,18 @@ class SuperSimViewModel {
             fallbackTheta300: fallbackT300,
             geom: surgeGeom
         )
+        input.holdSABPOpen = op.holdSABPOpen
+
+        // Wire T&D if enabled
+        if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
+            input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+            input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+            input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+            input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
+            input.tdBlockWeight_kN = op.tdBlockWeight_kN
+            input.tdAplEccentricity = op.tdAplEccentricity
+            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+        }
 
         // Run through ReamEngine (free function from ReamEngine.swift)
         let steps = runReamIn(

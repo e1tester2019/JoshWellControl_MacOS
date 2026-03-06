@@ -92,6 +92,19 @@ final class TripInSimulation {
     /// Eccentricity factor for surge/swab (1.0 = concentric, >1.0 = eccentric)
     var eccentricityFactor: Double = 1.2
 
+    // MARK: - Torque & Drag Inputs
+
+    /// Cased hole friction factor (dimensionless, 0-1)
+    var tdCasedFF: Double = 0.20
+    /// Open hole friction factor (dimensionless, 0-1)
+    var tdOpenHoleFF: Double = 0.30
+    /// Travelling block weight (kN)
+    var tdBlockWeight_kN: Double = 0
+    /// Whether to compute T&D during simulation
+    var tdEnabled: Bool = false
+    /// Hold SABP open (don't apply choke pressure)
+    var holdSABPOpen: Bool = false
+
     // MARK: - Relationships
 
     /// Back-reference to the owning project
@@ -141,6 +154,10 @@ final class TripInSimulation {
         targetESD_kgpm3: Double = 1200,
         baseMudDensity_kgpm3: Double = 1200,
         tripSpeed_m_per_min: Double = 0,
+        tdCasedFF: Double = 0.20,
+        tdOpenHoleFF: Double = 0.30,
+        tdBlockWeight_kN: Double = 0,
+        tdEnabled: Bool = false,
         project: ProjectState? = nil,
         well: Well? = nil
     ) {
@@ -163,6 +180,10 @@ final class TripInSimulation {
         self.targetESD_kgpm3 = targetESD_kgpm3
         self.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
         self.tripSpeed_m_per_min = tripSpeed_m_per_min
+        self.tdCasedFF = tdCasedFF
+        self.tdOpenHoleFF = tdOpenHoleFF
+        self.tdBlockWeight_kN = tdBlockWeight_kN
+        self.tdEnabled = tdEnabled
         self.project = project
         self.well = well
     }
@@ -196,6 +217,10 @@ extension TripInSimulation {
             "targetESD_kgpm3": targetESD_kgpm3,
             "baseMudDensity_kgpm3": baseMudDensity_kgpm3,
             "tripSpeed_m_per_min": tripSpeed_m_per_min,
+            "tdCasedFF": tdCasedFF,
+            "tdOpenHoleFF": tdOpenHoleFF,
+            "tdBlockWeight_kN": tdBlockWeight_kN,
+            "tdEnabled": tdEnabled,
             "fillMudID": fillMudID?.uuidString as Any
         ]
     }

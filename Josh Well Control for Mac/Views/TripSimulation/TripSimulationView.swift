@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Charts
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -55,6 +56,7 @@ struct TripSimulationView: View {
     @State private var viewmodel: ViewModel
     @State private var showingExportErrorAlert = false
     @State private var exportErrorMessage = ""
+    @State private var hookLoadSelectedDepth: Double?
 
     // Consolidated sheet state
     private enum SheetType: Identifiable {
@@ -91,10 +93,18 @@ struct TripSimulationView: View {
 
     // MARK: - Body
     var body: some View {
-        VStack(spacing: 12) {
-            headerInputs
-            Divider()
-            content
+        HSplitView {
+            // LEFT: Input sidebar
+            ScrollView {
+                inputSidebar
+            }
+            .frame(width: 280)
+
+            // CENTER: Results
+            centerContent
+
+            // RIGHT: Visualization
+            rightColumn
         }
         .padding(12)
         .loadingOverlay(
@@ -138,198 +148,205 @@ struct TripSimulationView: View {
         }
     }
 
-    // MARK: - Sections
-    private var headerInputs: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Row 1: Main GroupBoxes
-            HStack(spacing: 8) {
-                GroupBox("Bit / Range") {
-                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
-                        GridRow {
-                            Text("Start").foregroundStyle(.secondary)
-                            HStack(spacing: 4) {
-                                TextField("", value: $viewmodel.startBitMD_m, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 70)
-                                Text("(\(Int(startTVD)))")
-                                    .font(.caption)
-                                    .foregroundStyle(.blue)
-                                    .help("TVD at start depth")
-                            }
-                            Text("End").foregroundStyle(.secondary)
-                            HStack(spacing: 4) {
-                                TextField("", value: $viewmodel.endMD_m, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 70)
-                                Text("(\(Int(endTVD)))")
-                                    .font(.caption)
-                                    .foregroundStyle(.blue)
-                                    .help("TVD at end depth")
-                            }
-                        }
-                        GridRow {
-                            Text("Control").foregroundStyle(.secondary)
-                            HStack(spacing: 4) {
-                                TextField("", value: controlMDBinding, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 70)
-                                Text("(\(Int(controlTVD)))")
-                                    .font(.caption)
-                                    .foregroundStyle(.blue)
-                                    .help("TVD at control depth")
-                            }
-                            Text("Step").foregroundStyle(.secondary)
-                            TextField("", value: $viewmodel.step_m, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                        }
+    // MARK: - Input Sidebar
+    private var inputSidebar: some View {
+        Form {
+            Section("Bit / Range") {
+                LabeledContent("Start MD") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $viewmodel.startBitMD_m, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("(\(Int(startTVD)))")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
                     }
                 }
-
-                GroupBox("Fluids") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Text("Base:")
-                                .foregroundStyle(.secondary)
-                            let active = project.activeMud
-                            Text(active.map { "\($0.name) – \(format0($0.density_kgm3))" } ?? "None")
-                                .monospacedDigit()
-                                .lineLimit(1)
-                        }
-                        HStack(spacing: 4) {
-                            Text("Backfill:")
-                                .foregroundStyle(.secondary)
-                            Picker("", selection: backfillMudBinding) {
-                                ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
-                                    Text("\(m.name): \(format0(m.density_kgm3))").tag(m.id as UUID?)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 180)
-                            .pickerStyle(.menu)
-                            .controlSize(.small)
-                        }
-                        Toggle("Switch to active after displacement", isOn: $viewmodel.switchToActiveAfterDisplacement)
-                            .controlSize(.small)
-                            .help("Pump backfill mud for the drill string displacement volume, then switch to active mud for the remaining pit gain portion")
-                            .onChange(of: viewmodel.switchToActiveAfterDisplacement) { _, newValue in
-                                if newValue {
-                                    viewmodel.computeDisplacementVolume(project: project)
-                                }
-                                viewmodel.saveBackfillSettings(to: project)
-                            }
-
-                        if viewmodel.switchToActiveAfterDisplacement {
-                            HStack(spacing: 4) {
-                                Text("Vol:")
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.2f", viewmodel.computedDisplacementVolume_m3))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.blue)
-                                    .help("Computed steel displacement volume")
-                                Toggle("Override:", isOn: $viewmodel.useOverrideDisplacementVolume)
-                                    .controlSize(.small)
-                                    .onChange(of: viewmodel.useOverrideDisplacementVolume) { _, _ in
-                                        viewmodel.saveBackfillSettings(to: project)
-                                    }
-                                TextField("", value: $viewmodel.overrideDisplacementVolume_m3, format: .number.precision(.fractionLength(2)))
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 70)
-                                    .disabled(!viewmodel.useOverrideDisplacementVolume)
-                                    .onChange(of: viewmodel.overrideDisplacementVolume_m3) { _, _ in
-                                        viewmodel.saveBackfillSettings(to: project)
-                                    }
-                                Text("m³")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        HStack(spacing: 4) {
-                            Text("Target ESD:").foregroundStyle(.secondary)
-                            TextField("", value: $viewmodel.targetESDAtTD_kgpm3, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                        }
+                LabeledContent("End MD") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $viewmodel.endMD_m, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("(\(Int(endTVD)))")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
                     }
                 }
-
-                GroupBox("Choke / Float") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text("Crack").foregroundStyle(.secondary)
-                            TextField("", value: $viewmodel.crackFloat_kPa, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                            Text("SABP").foregroundStyle(.secondary)
-                            TextField("", value: $viewmodel.initialSABP_kPa, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                        }
-                        Toggle("Hold SABP open", isOn: $viewmodel.holdSABPOpen)
-                            .controlSize(.small)
+                LabeledContent("Control MD") {
+                    HStack(spacing: 4) {
+                        TextField("", value: controlMDBinding, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("(\(Int(controlTVD)))")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
                     }
                 }
-
-                GroupBox("Trip") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            TextField("", value: tripSpeedBinding_mpm, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 70)
-                            Text("m/min").foregroundStyle(.secondary)
-                        }
-                        Text(tripSpeedDirectionText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 4) {
-                            Text("Ecc:").foregroundStyle(.secondary)
-                            TextField("", value: $viewmodel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 60)
-                            Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
-                                .labelsHidden()
-                        }
-                    }
+                LabeledContent("Step") {
+                    TextField("", value: $viewmodel.step_m, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
                 }
-
-                Spacer()
             }
 
-            // Row 2: Slug calibration + View options + Bit Depth + Actions
-            HStack(spacing: 8) {
-                GroupBox("Slug Calibration") {
-                    HStack(spacing: 8) {
-                        if viewmodel.calculatedInitialPitGain_m3 > 0 {
-                            HStack(spacing: 4) {
-                                Text("Calc:")
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.3f", viewmodel.calculatedInitialPitGain_m3))
-                                    .monospacedDigit()
-                                Button {
-                                    viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
-                                } label: {
-                                    Image(systemName: "arrow.right.circle")
-                                }
-                                .buttonStyle(.borderless)
-                            }
+            Section("Fluids") {
+                LabeledContent("Base") {
+                    let active = project.activeMud
+                    Text(active.map { "\($0.name) – \(format0($0.density_kgm3))" } ?? "None")
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                LabeledContent("Backfill") {
+                    Picker("", selection: backfillMudBinding) {
+                        ForEach((project.muds ?? []).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }), id: \.id) { m in
+                            Text("\(m.name): \(format0(m.density_kgm3))").tag(m.id as UUID?)
                         }
-                        Toggle("Observed:", isOn: $viewmodel.useObservedPitGain)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                }
+                Toggle("Switch to active after disp.", isOn: $viewmodel.switchToActiveAfterDisplacement)
+                    .controlSize(.small)
+                    .onChange(of: viewmodel.switchToActiveAfterDisplacement) { _, newValue in
+                        if newValue {
+                            viewmodel.computeDisplacementVolume(project: project)
+                        }
+                        viewmodel.saveBackfillSettings(to: project)
+                    }
+
+                if viewmodel.switchToActiveAfterDisplacement {
+                    LabeledContent("Disp. Vol") {
+                        Text(String(format: "%.2f m³", viewmodel.computedDisplacementVolume_m3))
+                            .monospacedDigit()
+                            .foregroundStyle(.blue)
+                    }
+                    HStack {
+                        Toggle("Override:", isOn: $viewmodel.useOverrideDisplacementVolume)
                             .controlSize(.small)
-                        TextField("m³", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                            .onChange(of: viewmodel.useOverrideDisplacementVolume) { _, _ in
+                                viewmodel.saveBackfillSettings(to: project)
+                            }
+                        TextField("", value: $viewmodel.overrideDisplacementVolume_m3, format: .number.precision(.fractionLength(2)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 70)
-                            .disabled(!viewmodel.useObservedPitGain)
-                        Text("m³")
-                            .foregroundStyle(.secondary)
+                            .disabled(!viewmodel.useOverrideDisplacementVolume)
+                            .onChange(of: viewmodel.overrideDisplacementVolume_m3) { _, _ in
+                                viewmodel.saveBackfillSettings(to: project)
+                            }
+                        Text("m³").foregroundStyle(.secondary)
                     }
                 }
+                LabeledContent("Target ESD") {
+                    TextField("", value: $viewmodel.targetESDAtTD_kgpm3, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                }
+            }
 
+            Section("Choke / Float") {
+                LabeledContent("Crack Float") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $viewmodel.crackFloat_kPa, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("kPa").foregroundStyle(.secondary)
+                    }
+                }
+                LabeledContent("Initial SABP") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $viewmodel.initialSABP_kPa, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("kPa").foregroundStyle(.secondary)
+                    }
+                }
+                Toggle("Hold SABP open", isOn: $viewmodel.holdSABPOpen)
+                    .controlSize(.small)
+            }
+
+            Section("Swab / Surge") {
+                LabeledContent("Trip Speed") {
+                    HStack(spacing: 4) {
+                        TextField("", value: tripSpeedBinding_mpm, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                        Text("m/min").foregroundStyle(.secondary)
+                    }
+                }
+                Text(tripSpeedDirectionText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Eccentricity") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $viewmodel.eccentricityFactor, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                        Stepper("", value: $viewmodel.eccentricityFactor, in: 1.0...2.0, step: 0.05)
+                            .labelsHidden()
+                    }
+                }
+            }
+
+            Section("Torque & Drag") {
+                Toggle("Enable", isOn: $viewmodel.tdEnabled)
+                    .controlSize(.small)
+                if viewmodel.tdEnabled {
+                    LabeledContent("Cased FF") {
+                        TextField("", value: $viewmodel.tdCasedFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("OH FF") {
+                        TextField("", value: $viewmodel.tdOpenHoleFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("Block Weight") {
+                        HStack(spacing: 4) {
+                            TextField("", value: Binding(
+                                get: { viewmodel.tdBlockWeight_kN / 10.0 },
+                                set: { viewmodel.tdBlockWeight_kN = $0 * 10.0 }
+                            ), format: .number.precision(.fractionLength(1)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                            Text("kDaN").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Slug Calibration") {
+                if viewmodel.calculatedInitialPitGain_m3 > 0 {
+                    HStack(spacing: 4) {
+                        Text("Calc:")
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.3f m³", viewmodel.calculatedInitialPitGain_m3))
+                            .monospacedDigit()
+                        Button {
+                            viewmodel.observedInitialPitGain_m3 = viewmodel.calculatedInitialPitGain_m3
+                        } label: {
+                            Image(systemName: "arrow.right.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                HStack {
+                    Toggle("Observed:", isOn: $viewmodel.useObservedPitGain)
+                        .controlSize(.small)
+                    TextField("", value: $viewmodel.observedInitialPitGain_m3, format: .number.precision(.fractionLength(3)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .disabled(!viewmodel.useObservedPitGain)
+                    Text("m³").foregroundStyle(.secondary)
+                }
+            }
+
+            Section("View Options") {
                 Toggle("Colors", isOn: $viewmodel.colorByComposition)
                     .controlSize(.small)
-
-                // TVD Source toggle
                 HStack(spacing: 4) {
                     Text("TVD:")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                     Picker("", selection: $viewmodel.useDirectionalPlanForTVD) {
                         Text("Surveys").tag(false)
@@ -337,48 +354,14 @@ struct TripSimulationView: View {
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
-                    .frame(width: 130)
                 }
-                .help("Choose whether to use actual surveys or directional plan for TVD calculations")
-
-                if !viewmodel.steps.isEmpty {
-                    HStack(spacing: 4) {
-                        Text("Depth:")
-                            .foregroundStyle(.secondary)
-                        Slider(
-                            value: Binding(
-                                get: { viewmodel.stepSlider },
-                                set: { newVal in
-                                    viewmodel.stepSlider = newVal
-                                    let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
-                                    viewmodel.selectedIndex = idx
-                                }
-                            ),
-                            in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
-                        )
-                        .frame(width: 120)
-                        Text(String(format: "%.0fm", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
-                            .monospacedDigit()
-                            .frame(width: 50, alignment: .trailing)
-                    }
-                }
-
-                Spacer()
-
                 Toggle("Details", isOn: $viewmodel.showDetails)
-                    .toggleStyle(.switch)
                     .controlSize(.small)
+                Toggle("Hook Loads", isOn: $viewmodel.showHookLoadChart)
+                    .controlSize(.small)
+            }
 
-                // Optimizer button
-                Button {
-                    activeSheet = .optimizer
-                } label: {
-                    Label("Optimizer", systemImage: "function")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help("Calculate optimal slug and backfill densities")
-
+            Section("Actions") {
                 if viewmodel.isRunning {
                     HStack(spacing: 4) {
                         ProgressView()
@@ -387,19 +370,24 @@ struct TripSimulationView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                            .frame(maxWidth: 150)
                     }
                 } else {
-                    Button("Run") { viewmodel.runSimulation(project: project) }
+                    Button("Run Simulation") { viewmodel.runSimulation(project: project) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
-
-                // Save inputs silently to project
                 Button {
                     viewmodel.saveInputs(project: project, context: modelContext)
                 } label: {
                     Label("Save Inputs", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    activeSheet = .optimizer
+                } label: {
+                    Label("Optimizer", systemImage: "function")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -411,16 +399,13 @@ struct TripSimulationView: View {
                     Divider()
                     Button("Export Project JSON") { exportProjectJSON() }
                 } label: {
-                    Text("Export")
+                    Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                // Operations handoff buttons
                 if !viewmodel.steps.isEmpty && viewmodel.selectedIndex != nil {
                     Divider()
-                        .frame(height: 16)
-
                     Button {
                         activeSheet = .circulation
                     } label: {
@@ -428,7 +413,6 @@ struct TripSimulationView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Circulate fluids at the current bit depth")
 
                     Button {
                         openPumpScheduleSheet()
@@ -437,7 +421,6 @@ struct TripSimulationView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Open full pump schedule simulation with current wellbore state")
 
                     Button {
                         handoffToTripIn()
@@ -446,10 +429,10 @@ struct TripSimulationView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Start a Trip In simulation from the current depth using this wellbore state")
                 }
             }
         }
+        .formStyle(.grouped)
     }
 
     // MARK: - Trip Optimizer Sheet
@@ -1244,6 +1227,27 @@ struct TripSimulationView: View {
                                         .font(.caption).monospacedDigit()
                                 }
                                 .width(min: 60, ideal: 70)
+                                TableColumn("Pickup (kDaN)") { step in
+                                    if let v = step.pickupHookLoad_kN {
+                                        Text(String(format: "%.1f", v / 10.0))
+                                            .font(.caption).monospacedDigit()
+                                    }
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("Slack-off (kDaN)") { step in
+                                    if let v = step.slackOffHookLoad_kN {
+                                        Text(String(format: "%.1f", v / 10.0))
+                                            .font(.caption).monospacedDigit()
+                                    }
+                                }
+                                .width(min: 50, ideal: 60)
+                                TableColumn("Free (kDaN)") { step in
+                                    if let v = step.freeHangingWeight_kN {
+                                        Text(String(format: "%.1f", v / 10.0))
+                                            .font(.caption).monospacedDigit()
+                                    }
+                                }
+                                .width(min: 50, ideal: 60)
                                 TableColumn("Description") { step in
                                     Text(step.description)
                                         .font(.caption)
@@ -1640,7 +1644,8 @@ struct TripSimulationView: View {
         }
     }
 
-    private var content: some View {
+    // MARK: - Center Content
+    private var centerContent: some View {
         VStack(spacing: 0) {
             // Provenance banner
             if let desc = viewmodel.importedStateDescription {
@@ -1664,10 +1669,38 @@ struct TripSimulationView: View {
                 .background(.blue.opacity(0.06))
             }
 
-            GeometryReader { geo in
-            HStack(spacing: 12) {
-                // LEFT COLUMN: Steps (top) + Details (bottom when shown)
-                GeometryReader { g in
+            // Depth slider toolbar
+            if !viewmodel.steps.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Depth:")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    Slider(
+                        value: Binding(
+                            get: { viewmodel.stepSlider },
+                            set: { newVal in
+                                viewmodel.stepSlider = newVal
+                                let idx = min(max(Int(round(newVal)), 0), max(viewmodel.steps.count - 1, 0))
+                                viewmodel.selectedIndex = idx
+                            }
+                        ),
+                        in: 0...Double(max(viewmodel.steps.count - 1, 0)), step: 1
+                    )
+                    Text(String(format: "%.0f m", viewmodel.steps[min(max(viewmodel.selectedIndex ?? 0, 0), max(viewmodel.steps.count - 1, 0))].bitMD_m))
+                        .monospacedDigit()
+                        .font(.caption)
+                        .frame(width: 60, alignment: .trailing)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            }
+
+            // Table or Hook Load chart
+            GeometryReader { g in
+                if viewmodel.showHookLoadChart {
+                    hookLoadChart
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !viewmodel.steps.isEmpty {
                     VStack(spacing: 8) {
                         stepsTable
                             .frame(height: viewmodel.showDetails ? max(0, g.size.height * 0.3 - 4) : g.size.height)
@@ -1676,33 +1709,35 @@ struct TripSimulationView: View {
                                 detailAccordion
                             }
                             .frame(height: max(0, g.size.height * 0.7 - 4))
-                        } else {
-                            // Reserve 0 height when hidden
-                            Color.clear.frame(height: 0)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else {
+                    ContentUnavailableView(
+                        "No Simulation Results",
+                        systemImage: "arrow.up.circle",
+                        description: Text("Configure parameters and run the simulation")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxHeight: .infinity)
-
-                Divider()
-
-                // RIGHT COLUMN: Well image (own column) + ESD@control label
-                VStack(alignment: .center, spacing: 4) {
-                    visualization
-                        .frame(maxHeight: .infinity)
-                    if !esdAtControlText.isEmpty {
-                        Text(esdAtControlText)
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                            .padding(.top, 4)
-                    }
-                }
-                // Give the visualization about 1/3 of the available width, but don't let it get too narrow
-                .frame(width: max(220, geo.size.width / 3.8))
-                .frame(maxHeight: .infinity)
             }
         }
-        } // VStack (provenance banner + content)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Right Column
+    private var rightColumn: some View {
+        VStack(alignment: .center, spacing: 4) {
+            visualization
+                .frame(maxHeight: .infinity)
+            if !esdAtControlText.isEmpty {
+                Text(esdAtControlText)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .padding(.top, 4)
+            }
+        }
+        .frame(minWidth: 220, maxWidth: 300)
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Selection helpers
@@ -1886,6 +1921,136 @@ struct TripSimulationView: View {
         guard let idx = viewmodel.selectedIndex, viewmodel.steps.indices.contains(idx) else { return "" }
         let s = viewmodel.steps[idx]
         return String(format: "ESD@control: %.1f kg/m³", s.ESDatControl_kgpm3)
+    }
+
+    // MARK: - Hook Load Chart
+
+    /// Lightweight struct for hook load chart data points
+    private struct HookLoadPoint: Identifiable {
+        let id = UUID()
+        let depth: Double
+        let value: Double
+        let series: String
+    }
+
+    private var hookLoadChartData: [HookLoadPoint] {
+        var points: [HookLoadPoint] = []
+        for step in viewmodel.steps {
+            let d = -step.bitMD_m // negate so TD is on left, 0 on right
+            if let v = step.pickupHookLoad_kN {
+                points.append(HookLoadPoint(depth: d, value: v / 10.0, series: "Pickup"))
+            }
+            if let v = step.slackOffHookLoad_kN {
+                points.append(HookLoadPoint(depth: d, value: v / 10.0, series: "Slack-off"))
+            }
+            if let v = step.rotatingHookLoad_kN {
+                points.append(HookLoadPoint(depth: d, value: v / 10.0, series: "Rotating"))
+            }
+            if let v = step.freeHangingWeight_kN {
+                points.append(HookLoadPoint(depth: d, value: v / 10.0, series: "Free Hanging"))
+            }
+        }
+        return points
+    }
+
+    private var hookLoadChart: some View {
+        let data = hookLoadChartData
+        let minX = data.map(\.depth).min() ?? -1
+        let maxX = data.map(\.depth).max() ?? 0
+        return GroupBox("Hook Load vs Depth") {
+            Chart(data) { point in
+                LineMark(
+                    x: .value("Depth", point.depth),
+                    y: .value("Hook Load", point.value)
+                )
+                .foregroundStyle(by: .value("Series", point.series))
+                .lineStyle(point.series == "Free Hanging" ? StrokeStyle(dash: [5, 3]) : StrokeStyle())
+
+                if let sel = hookLoadSelectedDepth, point.depth == sel {
+                    PointMark(
+                        x: .value("Depth", point.depth),
+                        y: .value("Hook Load", point.value)
+                    )
+                    .foregroundStyle(by: .value("Series", point.series))
+                    .symbolSize(40)
+                }
+            }
+            .chartYAxisLabel("Hook Load (kDaN)")
+            .chartXAxisLabel("Bit Depth (m)")
+            .chartForegroundStyleScale([
+                "Pickup": Color.green,
+                "Slack-off": Color.red,
+                "Rotating": Color.blue,
+                "Free Hanging": Color.gray
+            ])
+            .chartXScale(domain: minX ... maxX)
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text("\(Int(abs(v)))")
+                        }
+                    }
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let loc):
+                                let origin = geo[proxy.plotFrame!].origin
+                                let x = loc.x - origin.x
+                                if let depth: Double = proxy.value(atX: x) {
+                                    let depths = Set(data.map(\.depth))
+                                    hookLoadSelectedDepth = depths.min(by: { abs($0 - depth) < abs($1 - depth) })
+                                }
+                            case .ended:
+                                hookLoadSelectedDepth = nil
+                            @unknown default:
+                                break
+                            }
+                        }
+                }
+            }
+            .chartOverlay { proxy in
+                if let sel = hookLoadSelectedDepth {
+                    let pts = data.filter { $0.depth == sel }
+                    if !pts.isEmpty, let xPos = proxy.position(forX: sel) {
+                        GeometryReader { geo in
+                            let origin = geo[proxy.plotFrame!].origin
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("MD: \(String(format: "%.0f", abs(sel))) m")
+                                    .font(.caption2.bold())
+                                ForEach(pts) { pt in
+                                    HStack(spacing: 4) {
+                                        Circle().fill(hookLoadSeriesColor(pt.series)).frame(width: 6, height: 6)
+                                        Text("\(pt.series): \(String(format: "%.1f", pt.value)) kDaN")
+                                            .font(.caption2)
+                                    }
+                                }
+                            }
+                            .padding(6)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            .position(x: origin.x + xPos + 60, y: origin.y + 40)
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 240)
+        }
+    }
+
+    private func hookLoadSeriesColor(_ series: String) -> Color {
+        switch series {
+        case "Pickup": return .green
+        case "Slack-off": return .red
+        case "Rotating": return .blue
+        case "Free Hanging": return .gray
+        default: return .primary
+        }
     }
 
     // MARK: - Drawing helpers

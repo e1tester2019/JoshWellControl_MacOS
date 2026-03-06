@@ -55,6 +55,9 @@ enum TorqueDragEngine {
         let linearWeight_kg_per_m: Double  // weight in air per meter
         let toolJointOD_m: Double?
         let steelDensity_kg_per_m3: Double
+        /// Total flow area at a restriction (bit nozzle TFA, shoe port).
+        /// nil = full bore (no restriction), 0 = sealed end.
+        let totalFlowArea_m2: Double?
     }
 
     /// Lightweight hole section for the engine
@@ -107,6 +110,38 @@ enum TorqueDragEngine {
         let WOB_kN: Double                     // weight on bit (kN), 0 for tripping
         let blockWeight_kN: Double             // travelling assembly weight (kN)
         let tvdSampler: TvdSampler
+        let SABP_kPa: Double                   // surface annular back pressure (kPa)
+        let floatIsOpen: Bool                  // whether float valve is open (affects piston area)
+        let flowRate_m3perMin: Double          // circulation rate (0 = no flow, no drag effects)
+        let surgePressure_kPa: Double          // surge/swab at shoe (kPa, + = surge, − = swab)
+        let aplEccentricityFactor: Double      // multiplier on annular pressure loss (1.0 = concentric)
+        let doubleBuoyancy: Bool               // TEST: apply per-element pressure-area on top of BF (Section 9.2 style)
+
+        init(surveys: [SurveyPoint], stringSegments: [StringSegment],
+             holeSections: [HoleSection], fluidLayers: [TripLayerSnapshot],
+             bitMD: Double, mode: OperationMode, friction: FrictionFactors,
+             WOB_kN: Double, blockWeight_kN: Double, tvdSampler: TvdSampler,
+             SABP_kPa: Double = 0, floatIsOpen: Bool = false,
+             flowRate_m3perMin: Double = 0, surgePressure_kPa: Double = 0,
+             aplEccentricityFactor: Double = 1.0,
+             doubleBuoyancy: Bool = false) {
+            self.surveys = surveys
+            self.stringSegments = stringSegments
+            self.holeSections = holeSections
+            self.fluidLayers = fluidLayers
+            self.bitMD = bitMD
+            self.mode = mode
+            self.friction = friction
+            self.WOB_kN = WOB_kN
+            self.blockWeight_kN = blockWeight_kN
+            self.tvdSampler = tvdSampler
+            self.SABP_kPa = SABP_kPa
+            self.floatIsOpen = floatIsOpen
+            self.flowRate_m3perMin = flowRate_m3perMin
+            self.surgePressure_kPa = surgePressure_kPa
+            self.aplEccentricityFactor = aplEccentricityFactor
+            self.doubleBuoyancy = doubleBuoyancy
+        }
     }
 
     /// Per-segment result (one per survey interval)
@@ -146,6 +181,7 @@ enum TorqueDragEngine {
         let stretch_m: Double                 // elastic elongation of the string (m)
         let stringWeightInAir_kN: Double      // total string weight in air
         let stringBuoyedWeight_kN: Double     // total buoyed weight
+        let annularPressureLoss_kPa: Double   // total APL from circulation (0 if no flow)
     }
 
     // MARK: - Constants
@@ -195,6 +231,71 @@ enum TorqueDragEngine {
             axialForce_N = -input.WOB_kN * 1000  // compression from WOB (negative = compression)
         }
 
+        // SABP piston effect at bit:
+        // Annulus back pressure acts on the pipe cross-section at the bit,
+        // creating an upward force that reduces hook load (string gets lighter).
+        // Float closed: full OD area is the piston (annulus pressure doesn't reach string ID).
+        // Float open: only the steel ring area (OD - ID) since pressure equalizes through ID.
+        if input.SABP_kPa > 0, let bitPipe = input.stringSegments.first(where: { input.bitMD >= $0.topMD && input.bitMD <= $0.bottomMD }) ?? input.stringSegments.last {
+            let sabp_Pa = input.SABP_kPa * 1000.0
+            let A_OD = Double.pi / 4.0 * bitPipe.outerDiameter_m * bitPipe.outerDiameter_m
+            if input.floatIsOpen {
+                let A_ID = Double.pi / 4.0 * bitPipe.innerDiameter_m * bitPipe.innerDiameter_m
+                axialForce_N -= sabp_Pa * (A_OD - A_ID)  // steel ring piston
+            } else {
+                axialForce_N -= sabp_Pa * A_OD  // full OD piston
+            }
+        }
+
+        // Piston force at shoe from annular pressure (APL from circulation + surge from tripping)
+        let circulationAPL_Pa = input.flowRate_m3perMin > 0
+            ? computeAnnularPressureLoss(intervals: intervals, input: input) * input.aplEccentricityFactor
+            : 0.0
+        let surgeAPL_Pa = input.surgePressure_kPa * 1000.0  // + = surge (trip in), − = swab (trip out)
+        let totalAPL_Pa = circulationAPL_Pa + surgeAPL_Pa
+
+        if abs(totalAPL_Pa) > 0.1 {
+            if let bitPipe = input.stringSegments.first(where: {
+                input.bitMD >= $0.topMD && input.bitMD <= $0.bottomMD
+            }) ?? input.stringSegments.last {
+                let A_OD = Double.pi / 4.0 * bitPipe.outerDiameter_m * bitPipe.outerDiameter_m
+                let A_bore = Double.pi / 4.0 * bitPipe.innerDiameter_m * bitPipe.innerDiameter_m
+                let A_steel = A_OD - A_bore
+
+                if input.floatIsOpen {
+                    // Open/restricted end — use TFA from bottommost pipe
+                    let tfa = bitPipe.totalFlowArea_m2 ?? A_bore  // nil = full bore
+                    let effectiveTFA = min(max(tfa, 0), A_bore)
+                    let A_blocked = A_bore - effectiveTFA
+
+                    let pistonForce_N: Double
+                    if input.flowRate_m3perMin > 0 {
+                        // CIRCULATION: flow through TFA equalizes internal pressure.
+                        // Internal excess = annular excess + nozzle DP.
+                        // Piston = APL × A_steel − nozzleDP × A_blocked.
+                        var nozzleDP_Pa: Double = 0
+                        if effectiveTFA > 1e-8 && A_blocked > 1e-8 {
+                            let Q_m3ps = input.flowRate_m3perMin / 60.0
+                            let V_nozzle = Q_m3ps / effectiveTFA
+                            let rho = fluidDensityAtMD(input.bitMD, layers: input.fluidLayers, tvdSampler: input.tvdSampler)
+                            let Cd: Double = 0.95
+                            nozzleDP_Pa = rho * V_nozzle * V_nozzle / (2.0 * Cd * Cd)
+                        }
+                        pistonForce_N = totalAPL_Pa * A_steel - nozzleDP_Pa * A_blocked
+                    } else {
+                        // TRIPPING: no flow, surge/swab can't equalize through small TFA.
+                        // Annular pressure acts on all solid area (A_OD − TFA).
+                        let A_piston = A_steel + A_blocked  // = A_OD - effectiveTFA
+                        pistonForce_N = totalAPL_Pa * A_piston
+                    }
+                    axialForce_N -= pistonForce_N
+                } else {
+                    // Closed end (float shut) — annular pressure acts on full OD
+                    axialForce_N -= totalAPL_Pa * A_OD
+                }
+            }
+        }
+
         // Also compute free-hanging (no friction) for reference
         var freeHangingForce_N: Double = axialForce_N
 
@@ -239,14 +340,60 @@ enum TorqueDragEngine {
             let weightInAir_N = linearWeight * g * deltaL
             let buoyedWeight_N = weightInAir_N * buoyancyFactor
 
-            // Friction coefficient (direction-dependent)
-            let mu = frictionAt(midMD, holeSections: input.holeSections,
+            // Base friction coefficient (direction-dependent)
+            var mu = frictionAt(midMD, holeSections: input.holeSections,
                                 friction: input.friction, mode: input.mode)
+
+            // Hole geometry (needed for drag and buckling)
+            let holeID = holeDiameterAt(midMD, holeSections: input.holeSections)
 
             // Normal (side) force — Johancsik soft-string model
             let axialComponent = axialForce_N * deltaInc + buoyedWeight_N * sin(incAvg)
             let lateralComponent = axialForce_N * sin(incAvg) * deltaAzi
             let normalForce_N = sqrt(axialComponent * axialComponent + lateralComponent * lateralComponent)
+
+            // Circulation viscous effects: distributed drag and friction reduction
+            var annularDrag_N: Double = 0   // upward force from annular flow on pipe OD
+            var stringDrag_N: Double = 0    // downward force from string flow on pipe ID
+
+            if input.flowRate_m3perMin > 0 {
+                let rheology = fluidRheologyAtMD(midMD, layers: input.fluidLayers)
+                let n = rheology.n
+                let K = rheology.K_Pa_sn
+                let Q_m3ps = input.flowRate_m3perMin / 60.0
+
+                // Annular flow (upward past pipe OD → drags pipe upward)
+                let A_ann = Double.pi / 4.0 * (holeID * holeID - pipeOD * pipeOD)
+                if A_ann > 1e-8 {
+                    let V_ann = Q_m3ps / A_ann
+                    let D_h_ann = holeID - pipeOD
+                    if D_h_ann > 1e-6 {
+                        // Power-law wall shear rate (annular slot approximation)
+                        let gamma_ann = 12.0 * V_ann / D_h_ann * (2.0 + 1.0 / n) / 3.0
+                        let tau_ann = K * pow(max(gamma_ann, 1e-6), n)
+                        annularDrag_N = tau_ann * Double.pi * pipeOD * deltaL * input.aplEccentricityFactor
+                    }
+                }
+
+                // String internal flow (downward through pipe ID → drags pipe downward)
+                // Only applies when float is open (fluid flows through the pipe)
+                let A_str = Double.pi / 4.0 * pipeID * pipeID
+                if A_str > 1e-8 && input.floatIsOpen {
+                    let V_str = Q_m3ps / A_str
+                    // Power-law wall shear rate (pipe flow)
+                    let gamma_str = 8.0 * V_str / pipeID * (3.0 * n + 1.0) / (4.0 * n)
+                    let tau_str = K * pow(max(gamma_str, 1e-6), n)
+                    stringDrag_N = tau_str * Double.pi * pipeID * deltaL
+                }
+
+                // Stribeck-inspired friction reduction from viscous film
+                // dragRatio = annular viscous force / contact force at this interval
+                // Higher flow / more viscous mud / less contact → more reduction
+                if normalForce_N > 1e-3 {
+                    let dragRatio = annularDrag_N / normalForce_N
+                    mu *= max(0.7, 1.0 / (1.0 + 15.0 * dragRatio))
+                }
+            }
 
             // Axial force increment
             let gravityComponent = buoyedWeight_N * cos(incAvg)
@@ -262,15 +409,29 @@ enum TorqueDragEngine {
             case .rotatingOB, .rotatingDrill:
                 frictionForce_N = 0  // no axial friction when rotating (all goes to torque)
                 axialForce_N += gravityComponent
-                // Torque increment
+                // Torque increment (also uses reduced friction)
                 torque_Nm += mu * normalForce_N * (contactOD / 2.0)
             }
 
-            // Free-hanging weight (no friction, for reference)
-            freeHangingForce_N += buoyedWeight_N * cos(incAvg)
+            // Distributed viscous drag (acts regardless of pipe movement direction)
+            // Annular upflow → upward on pipe → reduces tension at surface
+            // String downflow → downward on pipe → adds tension at surface
+            axialForce_N += stringDrag_N - annularDrag_N
 
-            // Hole geometry for buckling check
-            let holeID = holeDiameterAt(midMD, holeSections: input.holeSections)
+            // Free-hanging weight (no friction, but includes viscous drag)
+            freeHangingForce_N += buoyedWeight_N * cos(incAvg) + stringDrag_N - annularDrag_N
+
+            // TEST: Section 9.2 "double buoyancy" — per-element pressure-area correction
+            // on top of the BF-based buoyed weight. This double-counts buoyancy.
+            if input.doubleBuoyancy {
+                let deltaTVD = deepSurvey.tvd - shallowSurvey.tvd  // positive (deep → shallow)
+                let deltaP = fluidDensity * g * deltaTVD            // hydrostatic ΔP over element
+                let A_i = Double.pi / 4.0 * pipeID * pipeID
+                let A_o = Double.pi / 4.0 * pipeOD * pipeOD
+                let paCorrection = deltaP * (A_i - A_o)  // negative → reduces tension → lighter
+                axialForce_N += paCorrection
+                freeHangingForce_N += paCorrection
+            }
             let radialClearance = max((holeID - contactOD) / 2.0, 0.001)
 
             // Moment of inertia
@@ -383,7 +544,8 @@ enum TorqueDragEngine {
             neutralPointFromBottom_m: neutralPointFromBottom,
             stretch_m: totalStretch_m,
             stringWeightInAir_kN: totalWeightInAir_N / 1000.0,
-            stringBuoyedWeight_kN: totalBuoyedWeight_N / 1000.0
+            stringBuoyedWeight_kN: totalBuoyedWeight_N / 1000.0,
+            annularPressureLoss_kPa: totalAPL_Pa / 1000.0
         )
     }
 
@@ -418,27 +580,45 @@ enum TorqueDragEngine {
         bitMD: Double,
         friction: FrictionFactors,
         blockWeight_kN: Double,
-        tvdSampler: TvdSampler
+        tvdSampler: TvdSampler,
+        SABP_kPa: Double = 0,
+        floatIsOpen: Bool = false,
+        flowRate_m3perMin: Double = 0,
+        surgePressure_kPa: Double = 0,
+        aplEccentricityFactor: Double = 1.0,
+        doubleBuoyancy: Bool = false
     ) -> MultiCaseResult {
         let pickup = compute(TorqueDragInput(
             surveys: surveys, stringSegments: stringSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .tripOut, friction: friction,
-            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler
+            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+            SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+            flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
+            aplEccentricityFactor: aplEccentricityFactor,
+            doubleBuoyancy: doubleBuoyancy
         ))
 
         let slackOff = compute(TorqueDragInput(
             surveys: surveys, stringSegments: stringSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .tripIn, friction: friction,
-            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler
+            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+            SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+            flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
+            aplEccentricityFactor: aplEccentricityFactor,
+            doubleBuoyancy: doubleBuoyancy
         ))
 
         let rotating = compute(TorqueDragInput(
             surveys: surveys, stringSegments: stringSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .rotatingOB, friction: friction,
-            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler
+            WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+            SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+            flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
+            aplEccentricityFactor: aplEccentricityFactor,
+            doubleBuoyancy: doubleBuoyancy
         ))
 
         return MultiCaseResult(
@@ -481,7 +661,13 @@ enum TorqueDragEngine {
         bitMD: Double,
         frictionFactors: [Double],
         blockWeight_kN: Double,
-        tvdSampler: TvdSampler
+        tvdSampler: TvdSampler,
+        SABP_kPa: Double = 0,
+        floatIsOpen: Bool = false,
+        flowRate_m3perMin: Double = 0,
+        surgePressure_kPa: Double = 0,
+        aplEccentricityFactor: Double = 1.0,
+        doubleBuoyancy: Bool = false
     ) -> [SensitivityResult] {
         frictionFactors.map { ff in
             let friction = FrictionFactors(cased: ff, openHole: ff)
@@ -489,7 +675,12 @@ enum TorqueDragEngine {
                 surveys: surveys, stringSegments: stringSegments,
                 holeSections: holeSections, fluidLayers: fluidLayers,
                 bitMD: bitMD, friction: friction,
-                blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler
+                blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+                SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+                flowRate_m3perMin: flowRate_m3perMin,
+                surgePressure_kPa: surgePressure_kPa,
+                aplEccentricityFactor: aplEccentricityFactor,
+                doubleBuoyancy: doubleBuoyancy
             )
             return SensitivityResult(
                 frictionFactor: ff,
@@ -528,7 +719,8 @@ enum TorqueDragEngine {
                 innerDiameter_m: s.innerDiameter_m,
                 linearWeight_kg_per_m: linearWeight,
                 toolJointOD_m: s.toolJointOD_m,
-                steelDensity_kg_per_m3: s.steelDensity_kg_per_m3
+                steelDensity_kg_per_m3: s.steelDensity_kg_per_m3,
+                totalFlowArea_m2: s.totalFlowArea_m2
             )
         }
     }
@@ -561,7 +753,8 @@ enum TorqueDragEngine {
             neutralPointFromBottom_m: nil,
             stretch_m: 0,
             stringWeightInAir_kN: 0,
-            stringBuoyedWeight_kN: 0
+            stringBuoyedWeight_kN: 0,
+            annularPressureLoss_kPa: 0
         )
     }
 
@@ -642,5 +835,79 @@ enum TorqueDragEngine {
     /// Pipe moment of inertia I = π/64 × (OD⁴ - ID⁴)
     private static func momentOfInertia(od: Double, id: Double) -> Double {
         .pi / 64.0 * (pow(od, 4) - pow(id, 4))
+    }
+
+    /// Compute total annular pressure loss (APL) from shoe to surface (Pa).
+    /// Uses the same Power-law slot approximation as the per-segment drag calculation.
+    private static func computeAnnularPressureLoss(
+        intervals: [(deep: SurveyPoint, shallow: SurveyPoint)],
+        input: TorqueDragInput
+    ) -> Double {
+        guard input.flowRate_m3perMin > 0 else { return 0 }
+        let Q_m3ps = input.flowRate_m3perMin / 60.0
+        var totalAPL_Pa: Double = 0
+
+        for interval in intervals {
+            let deltaL = interval.deep.md - interval.shallow.md
+            guard deltaL > 0.001 else { continue }
+
+            let midMD = (interval.deep.md + interval.shallow.md) / 2.0
+            let pipeOD = stringGeometry(at: midMD, segments: input.stringSegments).outerDiameter_m
+            let holeID = holeDiameterAt(midMD, holeSections: input.holeSections)
+            let D_h = holeID - pipeOD
+            guard D_h > 1e-6 else { continue }
+
+            let A_ann = Double.pi / 4.0 * (holeID * holeID - pipeOD * pipeOD)
+            guard A_ann > 1e-8 else { continue }
+
+            let V_ann = Q_m3ps / A_ann
+            let rheology = fluidRheologyAtMD(midMD, layers: input.fluidLayers)
+            let n = rheology.n
+            let K = rheology.K_Pa_sn
+
+            // Power-law wall shear stress (annular slot approximation)
+            let gamma_ann = 12.0 * V_ann / D_h * (2.0 + 1.0 / n) / 3.0
+            let tau_ann = K * pow(max(gamma_ann, 1e-6), n)
+            let dP_Pa_per_m = 4.0 * tau_ann / D_h
+            totalAPL_Pa += dP_Pa_per_m * deltaL
+        }
+
+        return totalAPL_Pa
+    }
+
+    /// Look up Power-law rheology (n, K) at a given MD from the current fluid layers.
+    /// Returns (flowBehaviorIndex, consistencyIndex_Pa_sn).
+    /// Falls back to Newtonian water if no rheology data available.
+    private static func fluidRheologyAtMD(
+        _ md: Double,
+        layers: [TripLayerSnapshot]
+    ) -> (n: Double, K_Pa_sn: Double) {
+        let layer = layers.first(where: { md >= $0.topMD && md <= $0.bottomMD })
+            ?? layers.min(by: {
+                let d0 = min(abs(md - $0.topMD), abs(md - $0.bottomMD))
+                let d1 = min(abs(md - $1.topMD), abs(md - $1.bottomMD))
+                return d0 < d1
+            })
+        guard let layer else { return (1.0, 0.001) }
+
+        var theta600: Double = 0
+        var theta300: Double = 0
+
+        if let d600 = layer.dial600, let d300 = layer.dial300, d600 > 0, d300 > 0 {
+            theta600 = d600
+            theta300 = d300
+        } else if let pv = layer.pv_cP, let yp = layer.yp_Pa, (pv > 0 || yp > 0) {
+            let ypFann = yp / 0.51  // Pa → Fann dial units
+            theta300 = pv + ypFann
+            theta600 = 2.0 * pv + ypFann
+        } else {
+            return (1.0, 0.001)  // Newtonian fallback
+        }
+
+        guard theta300 > 0.1, theta600 > theta300 * 0.5 else { return (1.0, 0.001) }
+
+        let n = 3.322 * log10(theta600 / theta300)
+        let K = 0.51 * theta300 / pow(511.0, n)  // Pa·s^n
+        return (max(0.1, min(n, 1.5)), max(1e-6, K))
     }
 }

@@ -121,6 +121,27 @@ struct OperationResultView: View {
                         Text(step.floatState)
                     }
                     .width(min: 70, max: 100)
+
+                    TableColumn("Pickup (kDaN)") { step in
+                        if let v = step.pickupHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Slack-off (kDaN)") { step in
+                        if let v = step.slackOffHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Free (kDaN)") { step in
+                        if let v = step.freeHangingWeight_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
                 }
                 .frame(minHeight: 200, maxHeight: 400)
                 #endif
@@ -163,6 +184,19 @@ struct OperationResultView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 metricPill("Backfill", format2(step.backfillRemaining_m3), "m\u{00B3}")
+            }
+
+            if let pickup = step.pickupHookLoad_kN, let slackOff = step.slackOffHookLoad_kN {
+                HStack(spacing: 0) {
+                    metricPill("Pickup", format1(pickup / 10.0), "kDaN")
+                    metricPill("Slack-off", format1(slackOff / 10.0), "kDaN")
+                    if let free = step.freeHangingWeight_kN {
+                        metricPill("Free", format1(free / 10.0), "kDaN")
+                    }
+                    if let torque = step.surfaceTorque_kNm {
+                        metricPill("Torque", format1(torque), "kN·m")
+                    }
+                }
             }
         }
         .padding(.vertical, 2)
@@ -245,6 +279,20 @@ struct OperationResultView: View {
                         Text(String(format: "%.0f", sum))
                     }
                     .width(min: 80, max: 110)
+
+                    TableColumn("Pickup (kDaN)") { step in
+                        if let v = step.pickupHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Slack-off (kDaN)") { step in
+                        if let v = step.slackOffHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
                 }
                 .frame(minHeight: 200, maxHeight: 400)
                 #endif
@@ -298,6 +346,19 @@ struct OperationResultView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 metricPill("\u{0394}P", format0(step.differentialPressureAtBottom_kPa), "kPa")
+            }
+
+            if let pickup = step.pickupHookLoad_kN, let slackOff = step.slackOffHookLoad_kN {
+                HStack(spacing: 0) {
+                    metricPill("Pickup", format1(pickup / 10.0), "kDaN")
+                    metricPill("Slack-off", format1(slackOff / 10.0), "kDaN")
+                    if let free = step.freeHangingWeight_kN {
+                        metricPill("Free", format1(free / 10.0), "kDaN")
+                    }
+                    if let torque = step.surfaceTorque_kNm {
+                        metricPill("Torque", format1(torque), "kN·m")
+                    }
+                }
             }
         }
         .padding(.vertical, 2)
@@ -358,6 +419,20 @@ struct OperationResultView: View {
                     }
                     .width(min: 70, max: 90)
 
+                    TableColumn("Pickup (kDaN)") { step in
+                        if let v = step.pickupHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
+
+                    TableColumn("Slack-off (kDaN)") { step in
+                        if let v = step.slackOffHookLoad_kN {
+                            Text(String(format: "%.1f", v / 10.0))
+                        }
+                    }
+                    .width(min: 60, max: 80)
+
                     TableColumn("Description") { step in
                         Text(step.description)
                     }
@@ -388,6 +463,16 @@ struct OperationResultView: View {
                 metricPill("ESD", format1(step.ESDAtControl_kgpm3), "kg/m\u{00B3}")
                 metricPill("SABP", format0(step.requiredSABP_kPa), "kPa")
                 metricPill("\u{0394}SABP", format0(step.deltaSABP_kPa), "kPa")
+            }
+
+            if let pickup = step.pickupHookLoad_kN, let slackOff = step.slackOffHookLoad_kN {
+                HStack(spacing: 0) {
+                    metricPill("Pickup", format1(pickup / 10.0), "kDaN")
+                    metricPill("Slack-off", format1(slackOff / 10.0), "kDaN")
+                    if let free = step.freeHangingWeight_kN {
+                        metricPill("Free", format1(free / 10.0), "kDaN")
+                    }
+                }
             }
 
             if step.pumpRate_m3perMin > 0 || step.apl_kPa > 0 {

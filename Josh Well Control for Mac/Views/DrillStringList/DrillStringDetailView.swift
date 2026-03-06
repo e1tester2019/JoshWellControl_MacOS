@@ -134,6 +134,35 @@ struct DrillStringDetailView: View {
                     .padding(8)
                 }
 
+                GroupBox("Flow Restriction") {
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Total flow area (m²)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                TextField("Full bore", value: Binding<Double>(
+                                    get: { section.totalFlowArea_m2 ?? 0 },
+                                    set: { section.totalFlowArea_m2 = $0 > 0 ? $0 : nil }
+                                ), format: .number.precision(.fractionLength(6)))
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(width: 120)
+                                if let tfa = section.totalFlowArea_m2, tfa > 0 {
+                                    let eqDiam = sqrt(4.0 * tfa / .pi) * 1000.0
+                                    Text("(\(String(format: "%.1f", eqDiam)) mm ⌀)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    let boreArea = Double.pi / 4.0 * section.innerDiameter_m * section.innerDiameter_m
+                                    Text("Full bore: \(String(format: "%.6f", boreArea)) m²")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+
                 GroupBox("Mechanics") {
                     Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                         GridRow {
@@ -143,6 +172,30 @@ struct DrillStringDetailView: View {
                                 set: { section.grade = $0.isEmpty ? nil : $0 }
                             ))
                             .textFieldStyle(.roundedBorder)
+                        }
+                        GridRow {
+                            Text("Unit weight (kg/m)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                TextField("From geometry", value: Binding<Double>(
+                                    get: { section.unitWeight_kg_per_m ?? 0 },
+                                    set: { section.unitWeight_kg_per_m = $0 > 0 ? $0 : nil }
+                                ), format: .number.precision(.fractionLength(2)))
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(width: 100)
+                                if section.unitWeight_kg_per_m == nil {
+                                    Text("(from OD/ID: \(String(format: "%.2f", section.steelDensity_kg_per_m3 * section.metalArea_m2)))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        GridRow {
+                            Text("Steel density (kg/m³)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)
+                            TextField("", value: $section.steelDensity_kg_per_m3, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .monospacedDigit()
+                                .frame(width: 100)
                         }
                         GridRow {
                             Text("Weight in air (kDaN/m)").frame(width: 140, alignment: .trailing).foregroundStyle(.secondary)

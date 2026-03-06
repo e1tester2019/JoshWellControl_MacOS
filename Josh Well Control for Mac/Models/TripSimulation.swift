@@ -77,6 +77,17 @@ final class TripSimulation {
     /// Fallback rheology theta300 if muds don't have dial readings
     var fallbackTheta300: Double?
 
+    // MARK: - Torque & Drag Inputs
+
+    /// Cased hole friction factor (dimensionless, 0-1)
+    var tdCasedFF: Double = 0.20
+    /// Open hole friction factor (dimensionless, 0-1)
+    var tdOpenHoleFF: Double = 0.30
+    /// Travelling block weight (kN)
+    var tdBlockWeight_kN: Double = 0
+    /// Whether to compute T&D during simulation
+    var tdEnabled: Bool = false
+
     // MARK: - Pit Gain Calibration
 
     /// Use observed pit gain instead of calculated
@@ -123,6 +134,10 @@ final class TripSimulation {
         eccentricityFactor: Double = 1.2,
         fallbackTheta600: Double? = nil,
         fallbackTheta300: Double? = nil,
+        tdCasedFF: Double = 0.20,
+        tdOpenHoleFF: Double = 0.30,
+        tdBlockWeight_kN: Double = 0,
+        tdEnabled: Bool = false,
         useObservedPitGain: Bool = false,
         observedInitialPitGain_m3: Double = 0,
         project: ProjectState? = nil,
@@ -144,6 +159,10 @@ final class TripSimulation {
         self.eccentricityFactor = eccentricityFactor
         self.fallbackTheta600 = fallbackTheta600
         self.fallbackTheta300 = fallbackTheta300
+        self.tdCasedFF = tdCasedFF
+        self.tdOpenHoleFF = tdOpenHoleFF
+        self.tdBlockWeight_kN = tdBlockWeight_kN
+        self.tdEnabled = tdEnabled
         self.useObservedPitGain = useObservedPitGain
         self.observedInitialPitGain_m3 = observedInitialPitGain_m3
         self.project = project
@@ -176,6 +195,10 @@ extension TripSimulation {
             "eccentricityFactor": eccentricityFactor,
             "fallbackTheta600": fallbackTheta600 as Any,
             "fallbackTheta300": fallbackTheta300 as Any,
+            "tdCasedFF": tdCasedFF,
+            "tdOpenHoleFF": tdOpenHoleFF,
+            "tdBlockWeight_kN": tdBlockWeight_kN,
+            "tdEnabled": tdEnabled,
             "useObservedPitGain": useObservedPitGain,
             "observedInitialPitGain_m3": observedInitialPitGain_m3,
             "calculatedInitialPitGain_m3": calculatedInitialPitGain_m3,

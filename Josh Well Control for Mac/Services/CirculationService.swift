@@ -140,6 +140,14 @@ class CirculationService {
         var pumpRate_m3perMin: Double = 0
         /// Annular pressure loss at this step (kPa)
         var apl_kPa: Double = 0
+        // Torque & drag (nil if T&D not configured)
+        var pickupHookLoad_kN: Double? = nil
+        var slackOffHookLoad_kN: Double? = nil
+        var rotatingHookLoad_kN: Double? = nil
+        var freeHangingWeight_kN: Double? = nil
+        var surfaceTorque_kNm: Double? = nil
+        var bucklingOnsetMD: Double? = nil
+        var stretch_m: Double? = nil
     }
 
     struct CirculationRecord: Identifiable {
@@ -586,6 +594,15 @@ class CirculationService {
         minPumpRate_m3perMin: Double = 0.2,
         annulusSections: [AnnulusSection] = [],
         drillStringSections: [DrillStringSection] = [],
+        // Torque & drag inputs (nil = skip T&D)
+        tdSurveys: [TorqueDragEngine.SurveyPoint]? = nil,
+        tdStringSegments: [TorqueDragEngine.StringSegment]? = nil,
+        tdHoleSections: [TorqueDragEngine.HoleSection]? = nil,
+        tdFriction: TorqueDragEngine.FrictionFactors? = nil,
+        tdBlockWeight_kN: Double = 0,
+        tdFloatIsOpen: Bool = false,
+        tdAplEccentricity: Double = 1.0,
+        tdDoubleBuoyancy: Bool = false,
         progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
@@ -884,6 +901,43 @@ class CirculationService {
                     description = "Pumping \(operation.mudName)..."
                 }
 
+                // Torque & drag at this circulation step
+                var tdPickup: Double? = nil
+                var tdSlackOff: Double? = nil
+                var tdRotating: Double? = nil
+                var tdFreeHanging: Double? = nil
+                var tdTorque: Double? = nil
+                var tdBucklingMD: Double? = nil
+                var tdStretch: Double? = nil
+
+                if let surveys = tdSurveys,
+                   let strSegs = tdStringSegments,
+                   let holeSegs = tdHoleSections,
+                   let friction = tdFriction {
+                    let multi = TorqueDragEngine.computeAllCases(
+                        surveys: surveys,
+                        stringSegments: strSegs,
+                        holeSections: holeSegs,
+                        fluidLayers: currentPocketLayers(),
+                        bitMD: bitMD,
+                        friction: friction,
+                        blockWeight_kN: tdBlockWeight_kN,
+                        tvdSampler: tvdSampler,
+                        SABP_kPa: effectiveSABP + stepAPL,
+                        floatIsOpen: tdFloatIsOpen,
+                        flowRate_m3perMin: stepPumpRate,
+                        aplEccentricityFactor: tdAplEccentricity,
+                        doubleBuoyancy: tdDoubleBuoyancy
+                    )
+                    tdPickup = multi.pickupHookLoad_kN
+                    tdSlackOff = multi.slackOffHookLoad_kN
+                    tdRotating = multi.rotatingHookLoad_kN
+                    tdFreeHanging = multi.freeHangingWeight_kN
+                    tdTorque = multi.surfaceTorque_kNm
+                    tdBucklingMD = multi.bucklingOnsetMD
+                    tdStretch = multi.slackOffStretch_m
+                }
+
                 schedule.append(CirculateOutStep(
                     stepIndex: stepIndex,
                     volumePumped_m3: cumulativeVolume,
@@ -897,7 +951,14 @@ class CirculationService {
                     layersPocket: currentPocketLayers(),
                     layersString: currentStringLayers(),
                     pumpRate_m3perMin: stepPumpRate,
-                    apl_kPa: stepAPL
+                    apl_kPa: stepAPL,
+                    pickupHookLoad_kN: tdPickup,
+                    slackOffHookLoad_kN: tdSlackOff,
+                    rotatingHookLoad_kN: tdRotating,
+                    freeHangingWeight_kN: tdFreeHanging,
+                    surfaceTorque_kNm: tdTorque,
+                    bucklingOnsetMD: tdBucklingMD,
+                    stretch_m: tdStretch
                 ))
 
                 stepIndex += 1

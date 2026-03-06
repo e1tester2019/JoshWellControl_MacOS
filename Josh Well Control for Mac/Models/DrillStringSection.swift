@@ -34,6 +34,10 @@ final class DrillStringSection {
     // Hydraulics (fluids are set per annulus in your model; these are string-side only if needed)
     var internalRoughness_m: Double = 4.6e-5 // ~0.0018 in, typical DP roughness
 
+    /// Total flow area at a restriction (bit nozzles, casing shoe port, float collar).
+    /// nil = full bore (no restriction), 0 = closed end (sealed).
+    var totalFlowArea_m2: Double?
+
     // Relationships
     @Relationship(deleteRule: .nullify)
     var project: ProjectState?

@@ -45,6 +45,12 @@ extension TripSimulationView {
     // Swab calculation parameters
     var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
 
+    // Torque & drag
+    var tdEnabled: Bool = false
+    var tdCasedFF: Double = 0.20
+    var tdOpenHoleFF: Double = 0.30
+    var tdBlockWeight_kN: Double = 0
+
     // Observed pit gain calibration
     // When useObservedPitGain is true, the simulation uses observedInitialPitGain_m3
     // instead of calculating equalization from pressure balance
@@ -57,6 +63,7 @@ extension TripSimulationView {
     // View options
     var colorByComposition: Bool = false
     var showDetails: Bool = false
+    var showHookLoadChart: Bool = false
 
     // TVD source selection - use directional plan instead of surveys for projection
     var useDirectionalPlanForTVD: Bool = false
@@ -128,6 +135,23 @@ extension TripSimulationView {
         tvdMapper: { md in tvdSampler.tvd(of: md) }
       )
 
+      // Build T&D params if enabled
+      var tdSurveys: [TorqueDragEngine.SurveyPoint]? = nil
+      var tdStrSegs: [TorqueDragEngine.StringSegment]? = nil
+      var tdHoleSegs: [TorqueDragEngine.HoleSection]? = nil
+      var tdFriction: TorqueDragEngine.FrictionFactors? = nil
+      if tdEnabled {
+        let surveys = project.surveys ?? []
+        let drillString = project.drillString ?? []
+        let annSections = project.annulus ?? []
+        if !surveys.isEmpty && !drillString.isEmpty {
+          tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+          tdStrSegs = TorqueDragEngine.stringSegments(from: drillString)
+          tdHoleSegs = TorqueDragEngine.holeSections(from: annSections)
+          tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+        }
+      }
+
       let result = CirculationService.previewPumpQueue(
         pocketLayers: pocketSnapshots,
         stringLayers: stringSnapshots,
@@ -138,7 +162,12 @@ extension TripSimulationView {
         tvdSampler: tvdSampler,
         pumpQueue: pumpQueue,
         pumpOutput_m3perStroke: pumpOutput_m3perStroke,
-        activeMudDensity_kgpm3: project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3
+        activeMudDensity_kgpm3: project.activeMud?.density_kgm3 ?? baseMudDensity_kgpm3,
+        tdSurveys: tdSurveys,
+        tdStringSegments: tdStrSegs,
+        tdHoleSections: tdHoleSegs,
+        tdFriction: tdFriction,
+        tdBlockWeight_kN: tdBlockWeight_kN
       )
 
       circulateOutSchedule = result.schedule
@@ -325,7 +354,7 @@ extension TripSimulationView {
       }
       #endif
 
-      let input = NumericalTripModel.TripInput(
+      var input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
         shoeMD_m: shoeMD_m,
@@ -352,6 +381,21 @@ extension TripSimulationView {
         fallbackTheta300: fallbackTheta300,
         observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
+
+      // Wire T&D if enabled
+      if tdEnabled {
+        let surveys = project.surveys ?? []
+        let drillString = project.drillString ?? []
+        let annulusSections = project.annulus ?? []
+        if !surveys.isEmpty && !drillString.isEmpty {
+          input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+          input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+          input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+          input.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+          input.tdBlockWeight_kN = tdBlockWeight_kN
+          input.tdTvdSampler = tvdSampler
+        }
+      }
 
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
@@ -466,6 +510,10 @@ extension TripSimulationView {
       simulation.eccentricityFactor = eccentricityFactor
       simulation.fallbackTheta600 = project.activeMud?.dial600
       simulation.fallbackTheta300 = project.activeMud?.dial300
+      simulation.tdEnabled = tdEnabled
+      simulation.tdCasedFF = tdCasedFF
+      simulation.tdOpenHoleFF = tdOpenHoleFF
+      simulation.tdBlockWeight_kN = tdBlockWeight_kN
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -490,6 +538,10 @@ extension TripSimulationView {
       initialSABP_kPa = simulation.initialSABP_kPa
       holdSABPOpen = simulation.holdSABPOpen
       eccentricityFactor = simulation.eccentricityFactor
+      tdEnabled = simulation.tdEnabled
+      tdCasedFF = simulation.tdCasedFF
+      tdOpenHoleFF = simulation.tdOpenHoleFF
+      tdBlockWeight_kN = simulation.tdBlockWeight_kN
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID
@@ -592,6 +644,12 @@ extension TripSimulationViewIOS {
 
     // Swab calculation parameters
     var eccentricityFactor: Double = 1.2  // 1.0 = concentric, higher = more eccentric (matches SwabbingViewModel)
+
+    // Torque & drag
+    var tdEnabled: Bool = false
+    var tdCasedFF: Double = 0.20
+    var tdOpenHoleFF: Double = 0.30
+    var tdBlockWeight_kN: Double = 0
 
     // Observed pit gain calibration
     var useObservedPitGain: Bool = false
@@ -719,7 +777,7 @@ extension TripSimulationViewIOS {
       // Use effective displacement volume (computed or user-overridden) if switching enabled
       let displacementVolume_m3: Double = switchToActiveAfterDisplacement ? effectiveDisplacementVolume_m3 : 0.0
 
-      let input = NumericalTripModel.TripInput(
+      var input = NumericalTripModel.TripInput(
         tvdOfMd: { md in tvdSampler.tvd(of: md) },
         shoeTVD_m: shoeTVD,
         shoeMD_m: shoeMD_m,
@@ -746,6 +804,21 @@ extension TripSimulationViewIOS {
         fallbackTheta300: fallbackTheta300,
         observedInitialPitGain_m3: useObservedPitGain ? observedInitialPitGain_m3 : nil
       )
+
+      // Wire T&D if enabled
+      if tdEnabled {
+        let surveys = project.surveys ?? []
+        let drillString = project.drillString ?? []
+        let annulusSections = project.annulus ?? []
+        if !surveys.isEmpty && !drillString.isEmpty {
+          input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+          input.tdStringSegments = TorqueDragEngine.stringSegments(from: drillString)
+          input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+          input.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+          input.tdBlockWeight_kN = tdBlockWeight_kN
+          input.tdTvdSampler = tvdSampler
+        }
+      }
 
       // Extract project data into sendable snapshot BEFORE entering detached task
       let projectSnapshot = NumericalTripModel.ProjectSnapshot(from: project)
@@ -860,6 +933,10 @@ extension TripSimulationViewIOS {
       simulation.eccentricityFactor = eccentricityFactor
       simulation.fallbackTheta600 = project.activeMud?.dial600
       simulation.fallbackTheta300 = project.activeMud?.dial300
+      simulation.tdEnabled = tdEnabled
+      simulation.tdCasedFF = tdCasedFF
+      simulation.tdOpenHoleFF = tdOpenHoleFF
+      simulation.tdBlockWeight_kN = tdBlockWeight_kN
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -884,6 +961,10 @@ extension TripSimulationViewIOS {
       initialSABP_kPa = simulation.initialSABP_kPa
       holdSABPOpen = simulation.holdSABPOpen
       eccentricityFactor = simulation.eccentricityFactor
+      tdEnabled = simulation.tdEnabled
+      tdCasedFF = simulation.tdCasedFF
+      tdOpenHoleFF = simulation.tdOpenHoleFF
+      tdBlockWeight_kN = simulation.tdBlockWeight_kN
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID

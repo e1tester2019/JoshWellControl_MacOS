@@ -8,6 +8,7 @@
 
 import SwiftUI
 import SwiftData
+import Charts
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
@@ -63,6 +64,7 @@ struct TripInSimulationView: View {
 
     // Circulation detail popover
     @State private var circulationPopoverStepID: UUID?
+    @State private var hookLoadSelectedDepth: Double?
 
     init(project: ProjectState, navigateToView: ((ViewSelection) -> Void)? = nil) {
         self.project = project
@@ -137,6 +139,10 @@ struct TripInSimulationView: View {
             // Details toggle
             if !viewModel.steps.isEmpty {
                 Toggle("Details", isOn: $showDetails)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                Toggle("Hook Loads", isOn: $viewModel.showHookLoadChart)
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
@@ -487,22 +493,28 @@ struct TripInSimulationView: View {
             }
             .frame(width: 280)
 
-            // Center: Results table + summary (with optional details)
+            // Center: Results table OR Hook Load chart
             VStack(spacing: 8) {
                 if !viewModel.steps.isEmpty {
-                    summaryCards
-
-                    if showDetails {
-                        resultsTable
-                            .frame(maxHeight: .infinity)
-
-                        ScrollView {
-                            detailAccordion
-                        }
-                        .frame(maxHeight: .infinity)
+                    if viewModel.showHookLoadChart {
+                        summaryCards
+                        hookLoadChart
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        resultsTable
+                        summaryCards
+
+                        if showDetails {
+                            resultsTable
+                                .frame(maxHeight: .infinity)
+
+                            ScrollView {
+                                detailAccordion
+                            }
                             .frame(maxHeight: .infinity)
+                        } else {
+                            resultsTable
+                                .frame(maxHeight: .infinity)
+                        }
                     }
                 } else {
                     ContentUnavailableView(
@@ -684,6 +696,36 @@ struct TripInSimulationView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                         Text("kg/m³")
+                    }
+                }
+                Toggle("Hold SABP open", isOn: $viewModel.holdSABPOpen)
+                    .controlSize(.small)
+                    .help("Don't apply choke pressure even when ESD is below target")
+            }
+
+            Section("Torque & Drag") {
+                Toggle("Enable T&D", isOn: $viewModel.tdEnabled)
+                if viewModel.tdEnabled {
+                    LabeledContent("Cased FF") {
+                        TextField("", value: $viewModel.tdCasedFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("Open Hole FF") {
+                        TextField("", value: $viewModel.tdOpenHoleFF, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("Block Weight") {
+                        HStack {
+                            TextField("", value: Binding(
+                                get: { viewModel.tdBlockWeight_kN / 10.0 },
+                                set: { viewModel.tdBlockWeight_kN = $0 * 10.0 }
+                            ), format: .number.precision(.fractionLength(1)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                            Text("kDaN")
+                        }
                     }
                 }
             }
@@ -1193,6 +1235,121 @@ struct TripInSimulationView: View {
         .frame(minHeight: 280)
     }
 
+    // MARK: - Hook Load Chart
+
+    /// Lightweight struct for hook load chart data points
+    private struct HookLoadPoint: Identifiable {
+        let id = UUID()
+        let depth: Double
+        let value: Double
+        let series: String
+    }
+
+    private var hookLoadChartData: [HookLoadPoint] {
+        var points: [HookLoadPoint] = []
+        for step in viewModel.steps {
+            if let v = step.pickupHookLoad_kN {
+                points.append(HookLoadPoint(depth: step.bitMD_m, value: v / 10.0, series: "Pickup"))
+            }
+            if let v = step.slackOffHookLoad_kN {
+                points.append(HookLoadPoint(depth: step.bitMD_m, value: v / 10.0, series: "Slack-off"))
+            }
+            if let v = step.rotatingHookLoad_kN {
+                points.append(HookLoadPoint(depth: step.bitMD_m, value: v / 10.0, series: "Rotating"))
+            }
+            if let v = step.freeHangingWeight_kN {
+                points.append(HookLoadPoint(depth: step.bitMD_m, value: v / 10.0, series: "Free Hanging"))
+            }
+        }
+        return points
+    }
+
+    private var hookLoadChart: some View {
+        let data = hookLoadChartData
+        return GroupBox("Hook Load vs Depth") {
+            Chart(data) { point in
+                LineMark(
+                    x: .value("Depth", point.depth),
+                    y: .value("Hook Load", point.value)
+                )
+                .foregroundStyle(by: .value("Series", point.series))
+                .lineStyle(point.series == "Free Hanging" ? StrokeStyle(dash: [5, 3]) : StrokeStyle())
+
+                if let sel = hookLoadSelectedDepth, point.depth == sel {
+                    PointMark(
+                        x: .value("Depth", point.depth),
+                        y: .value("Hook Load", point.value)
+                    )
+                    .foregroundStyle(by: .value("Series", point.series))
+                    .symbolSize(40)
+                }
+            }
+            .chartYAxisLabel("Hook Load (kDaN)")
+            .chartXAxisLabel("Bit Depth (m)")
+            .chartForegroundStyleScale([
+                "Pickup": Color.green,
+                "Slack-off": Color.red,
+                "Rotating": Color.blue,
+                "Free Hanging": Color.gray
+            ])
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let loc):
+                                let origin = geo[proxy.plotFrame!].origin
+                                let x = loc.x - origin.x
+                                if let depth: Double = proxy.value(atX: x) {
+                                    let depths = Set(data.map(\.depth))
+                                    hookLoadSelectedDepth = depths.min(by: { abs($0 - depth) < abs($1 - depth) })
+                                }
+                            case .ended:
+                                hookLoadSelectedDepth = nil
+                            @unknown default:
+                                break
+                            }
+                        }
+                }
+            }
+            .chartOverlay { proxy in
+                if let sel = hookLoadSelectedDepth {
+                    let pts = data.filter { $0.depth == sel }
+                    if !pts.isEmpty, let xPos = proxy.position(forX: sel) {
+                        GeometryReader { geo in
+                            let origin = geo[proxy.plotFrame!].origin
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("MD: \(String(format: "%.0f", sel)) m")
+                                    .font(.caption2.bold())
+                                ForEach(pts) { pt in
+                                    HStack(spacing: 4) {
+                                        Circle().fill(hookLoadSeriesColor(pt.series)).frame(width: 6, height: 6)
+                                        Text("\(pt.series): \(String(format: "%.1f", pt.value)) kDaN")
+                                            .font(.caption2)
+                                    }
+                                }
+                            }
+                            .padding(6)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            .position(x: origin.x + xPos + 60, y: origin.y + 40)
+                        }
+                    }
+                }
+            }
+            .frame(minHeight: 240)
+        }
+    }
+
+    private func hookLoadSeriesColor(_ series: String) -> Color {
+        switch series {
+        case "Pickup": return .green
+        case "Slack-off": return .red
+        case "Rotating": return .blue
+        case "Free Hanging": return .gray
+        default: return .primary
+        }
+    }
+
     private func fillColor(rho: Double) -> Color {
         // Air (rho ~1.2) gets a distinct light blue color
         if rho < 10 {
@@ -1695,6 +1852,28 @@ struct TripInSimulationView: View {
                                 } else {
                                     Text("-")
                                         .foregroundStyle(.secondary)
+                                }
+                            }
+                            .width(50)
+
+                            TableColumn("Pickup (kDaN)") { step in
+                                if let v = step.pickupHookLoad_kN {
+                                    Text(String(format: "%.1f", v / 10.0))
+                                        .monospacedDigit()
+                                }
+                            }
+                            .width(50)
+                            TableColumn("Slack-off (kDaN)") { step in
+                                if let v = step.slackOffHookLoad_kN {
+                                    Text(String(format: "%.1f", v / 10.0))
+                                        .monospacedDigit()
+                                }
+                            }
+                            .width(50)
+                            TableColumn("Free (kDaN)") { step in
+                                if let v = step.freeHangingWeight_kN {
+                                    Text(String(format: "%.1f", v / 10.0))
+                                        .monospacedDigit()
                                 }
                             }
                             .width(50)

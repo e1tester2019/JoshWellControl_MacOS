@@ -62,6 +62,15 @@ struct SuperSimOperation: Identifiable {
     var useObservedPitGain: Bool = false
     var observedInitialPitGain_m3: Double? = nil
 
+    // MARK: - Torque & Drag Config
+
+    var tdCasedFF: Double = 0.20
+    var tdOpenHoleFF: Double = 0.30
+    var tdBlockWeight_kN: Double = 0
+    var tdAplEccentricity: Double = 1.0
+    var tdDoubleBuoyancy: Bool = false
+    var tdEnabled: Bool = false
+
     // MARK: - Trip In Config
 
     var pipeOD_m: Double = 0.127

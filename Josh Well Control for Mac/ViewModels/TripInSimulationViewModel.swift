@@ -40,6 +40,15 @@ class TripInSimulationViewModel {
     // Eccentricity factor for surge/swab (1.0 = concentric, >1.0 = eccentric)
     var eccentricityFactor: Double = 1.2
 
+    // Choke
+    var holdSABPOpen: Bool = false
+
+    // Torque & drag
+    var tdEnabled: Bool = false
+    var tdCasedFF: Double = 0.20
+    var tdOpenHoleFF: Double = 0.30
+    var tdBlockWeight_kN: Double = 0
+
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
     var activeMudDensity_kgpm3: Double = 1200  // Density of selected fill mud
@@ -67,6 +76,9 @@ class TripInSimulationViewModel {
 
     // TVD source selection - use directional plan instead of surveys for projection
     var useDirectionalPlanForTVD: Bool = false
+
+    // View options
+    var showHookLoadChart: Bool = false
 
     // MARK: - Computed Properties
 
@@ -131,6 +143,15 @@ class TripInSimulationViewModel {
         let surgePressure_kPa: Double
         let surgeECD_kgm3: Double
         let dynamicESDAtControl_kgpm3: Double
+
+        // Torque & drag (nil if not computed)
+        var pickupHookLoad_kN: Double? = nil
+        var slackOffHookLoad_kN: Double? = nil
+        var rotatingHookLoad_kN: Double? = nil
+        var freeHangingWeight_kN: Double? = nil
+        var surfaceTorque_kNm: Double? = nil
+        var bucklingOnsetMD: Double? = nil
+        var stretch_m: Double? = nil
 
         // Layers for visualization
         var layersAnnulus: [TripLayerSnapshot] = []
@@ -324,7 +345,7 @@ class TripInSimulationViewModel {
         }
 
         // Build TripInService input and delegate to the shared service
-        let serviceInput = TripInService.TripInInput(
+        var serviceInput = TripInService.TripInInput(
             startBitMD_m: startBitMD_m,
             endBitMD_m: endBitMD_m,
             controlMD_m: controlMD_m,
@@ -347,6 +368,21 @@ class TripInSimulationViewModel {
             fallbackTheta300: fallbackTheta300,
             geom: surgeGeom
         )
+        serviceInput.holdSABPOpen = holdSABPOpen
+
+        // Wire T&D if enabled
+        if tdEnabled {
+            let surveys = project.surveys ?? []
+            let drillStringForTD = project.drillString ?? dsSections
+            let annulusSections = project.annulus ?? []
+            if !surveys.isEmpty && !drillStringForTD.isEmpty {
+                serviceInput.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+                serviceInput.tdStringSegments = TorqueDragEngine.stringSegments(from: drillStringForTD)
+                serviceInput.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
+                serviceInput.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+                serviceInput.tdBlockWeight_kN = tdBlockWeight_kN
+            }
+        }
 
         let serviceResult = TripInService.run(serviceInput)
 
@@ -374,6 +410,13 @@ class TripInSimulationViewModel {
                 surgePressure_kPa: sr.surgePressure_kPa,
                 surgeECD_kgm3: sr.surgeECD_kgm3,
                 dynamicESDAtControl_kgpm3: sr.dynamicESDAtControl_kgpm3,
+                pickupHookLoad_kN: sr.pickupHookLoad_kN,
+                slackOffHookLoad_kN: sr.slackOffHookLoad_kN,
+                rotatingHookLoad_kN: sr.rotatingHookLoad_kN,
+                freeHangingWeight_kN: sr.freeHangingWeight_kN,
+                surfaceTorque_kNm: sr.surfaceTorque_kNm,
+                bucklingOnsetMD: sr.bucklingOnsetMD,
+                stretch_m: sr.stretch_m,
                 layersPocket: sr.layersPocket
             )
         }
@@ -433,6 +476,11 @@ class TripInSimulationViewModel {
         simulation.baseMudDensity_kgpm3 = baseMudDensity_kgpm3
         simulation.tripSpeed_m_per_min = tripSpeed_m_per_min
         simulation.eccentricityFactor = eccentricityFactor
+        simulation.tdEnabled = tdEnabled
+        simulation.tdCasedFF = tdCasedFF
+        simulation.tdOpenHoleFF = tdOpenHoleFF
+        simulation.tdBlockWeight_kN = tdBlockWeight_kN
+        simulation.holdSABPOpen = holdSABPOpen
         simulation.updatedAt = .now
 
         try? context.save()
@@ -461,6 +509,11 @@ class TripInSimulationViewModel {
         baseMudDensity_kgpm3 = simulation.baseMudDensity_kgpm3
         tripSpeed_m_per_min = simulation.tripSpeed_m_per_min
         eccentricityFactor = simulation.eccentricityFactor
+        tdEnabled = simulation.tdEnabled
+        tdCasedFF = simulation.tdCasedFF
+        tdOpenHoleFF = simulation.tdOpenHoleFF
+        tdBlockWeight_kN = simulation.tdBlockWeight_kN
+        holdSABPOpen = simulation.holdSABPOpen
         return true
     }
 
@@ -551,6 +604,23 @@ class TripInSimulationViewModel {
             tvdMapper: { md in tvdSampler.tvd(of: md) }
         )
 
+        // Build T&D params if enabled
+        var tdSurveys: [TorqueDragEngine.SurveyPoint]? = nil
+        var tdStrSegs: [TorqueDragEngine.StringSegment]? = nil
+        var tdHoleSegs: [TorqueDragEngine.HoleSection]? = nil
+        var tdFriction: TorqueDragEngine.FrictionFactors? = nil
+        if tdEnabled {
+            let surveys = project.surveys ?? []
+            let drillString = project.drillString ?? []
+            let annSections = project.annulus ?? []
+            if !surveys.isEmpty && !drillString.isEmpty {
+                tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+                tdStrSegs = TorqueDragEngine.stringSegments(from: drillString)
+                tdHoleSegs = TorqueDragEngine.holeSections(from: annSections)
+                tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+            }
+        }
+
         let result = CirculationService.previewPumpQueue(
             pocketLayers: currentStep.layersPocket,
             stringLayers: currentStep.layersString,
@@ -561,7 +631,12 @@ class TripInSimulationViewModel {
             tvdSampler: tvdSampler,
             pumpQueue: pumpQueue,
             pumpOutput_m3perStroke: pumpOutput_m3perStroke,
-            activeMudDensity_kgpm3: activeMudDensity_kgpm3
+            activeMudDensity_kgpm3: activeMudDensity_kgpm3,
+            tdSurveys: tdSurveys,
+            tdStringSegments: tdStrSegs,
+            tdHoleSections: tdHoleSegs,
+            tdFriction: tdFriction,
+            tdBlockWeight_kN: tdBlockWeight_kN
         )
 
         circulateOutSchedule = result.schedule

@@ -79,6 +79,9 @@ enum TripInService {
         var tdHoleSections: [TorqueDragEngine.HoleSection]? = nil
         var tdFriction: TorqueDragEngine.FrictionFactors? = nil
         var tdBlockWeight_kN: Double = 0
+        var tdAplEccentricity: Double = 1.0
+        var tdDoubleBuoyancy: Bool = false
+        var holdSABPOpen: Bool = false
         // Continuation support: start cumulative counters from existing values
         var initialCumulativeFill_m3: Double = 0
         var initialCumulativeDisplacement_m3: Double = 0
@@ -240,10 +243,10 @@ enum TripInService {
             let isBelowTarget = ESDAtControl < input.targetESD_kgpm3
 
             let requiredChoke: Double
-            if isBelowTarget {
-                requiredChoke = max(0, (input.targetESD_kgpm3 - ESDAtControl) * 0.00981 * controlTVD)
-            } else {
+            if input.holdSABPOpen || !isBelowTarget {
                 requiredChoke = 0
+            } else {
+                requiredChoke = max(0, (input.targetESD_kgpm3 - ESDAtControl) * 0.00981 * controlTVD)
             }
 
             var floatState = "N/A"
@@ -319,7 +322,12 @@ enum TripInService {
                     bitMD: bitMD,
                     friction: friction,
                     blockWeight_kN: input.tdBlockWeight_kN,
-                    tvdSampler: input.tvdSampler
+                    tvdSampler: input.tvdSampler,
+                    SABP_kPa: requiredChoke,
+                    floatIsOpen: input.floatIsOpen,
+                    surgePressure_kPa: surgePressure,
+                    aplEccentricityFactor: input.tdAplEccentricity,
+                    doubleBuoyancy: input.tdDoubleBuoyancy
                 )
                 tdPickup = multi.pickupHookLoad_kN
                 tdSlackOff = multi.slackOffHookLoad_kN
