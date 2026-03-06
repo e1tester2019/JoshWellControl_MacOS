@@ -927,7 +927,8 @@ class CirculationService {
                         floatIsOpen: tdFloatIsOpen,
                         flowRate_m3perMin: stepPumpRate,
                         aplEccentricityFactor: tdAplEccentricity,
-                        pressureAreaBuoyancy: tdPressureAreaBuoyancy
+                        pressureAreaBuoyancy: tdPressureAreaBuoyancy,
+                        stringFluidLayers: currentStringLayers()
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN

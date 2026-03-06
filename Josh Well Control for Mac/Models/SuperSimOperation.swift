@@ -174,7 +174,13 @@ struct SuperSimOperation: Identifiable {
             minPumpRate_m3perMin: minPumpRate_m3perMin,
             reamPumpRate_m3perMin: reamPumpRate_m3perMin,
             reamMudID: reamMudID,
-            reamMudDensity_kgpm3: reamMudDensity_kgpm3
+            reamMudDensity_kgpm3: reamMudDensity_kgpm3,
+            tdEnabled: tdEnabled,
+            tdCasedFF: tdCasedFF,
+            tdOpenHoleFF: tdOpenHoleFF,
+            tdBlockWeight_kN: tdBlockWeight_kN,
+            tdAplEccentricity: tdAplEccentricity,
+            tdPressureAreaBuoyancy: tdPressureAreaBuoyancy
         )
     }
 
@@ -223,6 +229,12 @@ struct SuperSimOperation: Identifiable {
         op.reamPumpRate_m3perMin = config.reamPumpRate_m3perMin ?? 0.5
         op.reamMudID = config.reamMudID
         op.reamMudDensity_kgpm3 = config.reamMudDensity_kgpm3 ?? 1200
+        op.tdEnabled = config.tdEnabled ?? false
+        op.tdCasedFF = config.tdCasedFF ?? 0.20
+        op.tdOpenHoleFF = config.tdOpenHoleFF ?? 0.30
+        op.tdBlockWeight_kN = config.tdBlockWeight_kN ?? 0
+        op.tdAplEccentricity = config.tdAplEccentricity ?? 1.0
+        op.tdPressureAreaBuoyancy = config.tdPressureAreaBuoyancy ?? true
         return op
     }
 }
@@ -288,5 +300,12 @@ struct SuperSimPreset: Codable, Identifiable {
         var reamPumpRate_m3perMin: Double?
         var reamMudID: UUID?
         var reamMudDensity_kgpm3: Double?
+        // Torque & Drag
+        var tdEnabled: Bool?
+        var tdCasedFF: Double?
+        var tdOpenHoleFF: Double?
+        var tdBlockWeight_kN: Double?
+        var tdAplEccentricity: Double?
+        var tdPressureAreaBuoyancy: Bool?
     }
 }

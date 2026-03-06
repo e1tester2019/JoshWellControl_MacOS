@@ -314,6 +314,48 @@ enum TripInService {
                let strSegs = input.tdStringSegments,
                let holeSegs = input.tdHoleSections,
                let friction = input.tdFriction {
+                // Build string fluid layers for PA buoyancy
+                var strFluidLayers: [TripLayerSnapshot] = []
+                if input.isFloatedCasing && bitMD > input.floatSubMD_m {
+                    // Partially filled: mud from 0 to fill level, air above
+                    let pipeCapPerM = Double.pi / 4.0 * input.pipeID_m * input.pipeID_m
+                    let fillMD = min(cumulativeFill / pipeCapPerM, bitMD)
+                    if fillMD > 1e-3 {
+                        let tvdTop = input.tvdSampler.tvd(of: 0)
+                        let tvdBot = input.tvdSampler.tvd(of: fillMD)
+                        strFluidLayers.append(TripLayerSnapshot(
+                            side: "String", topMD: 0, bottomMD: fillMD,
+                            topTVD: tvdTop, bottomTVD: tvdBot,
+                            rho_kgpm3: input.activeMudDensity_kgpm3,
+                            deltaHydroStatic_kPa: input.activeMudDensity_kgpm3 * 0.00981 * (tvdBot - tvdTop),
+                            volume_m3: 0
+                        ))
+                    }
+                    // Air above fill level (density ≈ 0)
+                    if fillMD < bitMD - 1e-3 {
+                        let tvdAirTop = input.tvdSampler.tvd(of: fillMD)
+                        let tvdAirBot = input.tvdSampler.tvd(of: bitMD)
+                        strFluidLayers.append(TripLayerSnapshot(
+                            side: "String", topMD: fillMD, bottomMD: bitMD,
+                            topTVD: tvdAirTop, bottomTVD: tvdAirBot,
+                            rho_kgpm3: 1.225,  // air
+                            deltaHydroStatic_kPa: 1.225 * 0.00981 * (tvdAirBot - tvdAirTop),
+                            volume_m3: 0
+                        ))
+                    }
+                } else {
+                    // Full string: uniform active mud density
+                    let tvdTop = input.tvdSampler.tvd(of: 0)
+                    let tvdBot = input.tvdSampler.tvd(of: bitMD)
+                    strFluidLayers.append(TripLayerSnapshot(
+                        side: "String", topMD: 0, bottomMD: bitMD,
+                        topTVD: tvdTop, bottomTVD: tvdBot,
+                        rho_kgpm3: input.activeMudDensity_kgpm3,
+                        deltaHydroStatic_kPa: input.activeMudDensity_kgpm3 * 0.00981 * (tvdBot - tvdTop),
+                        volume_m3: 0
+                    ))
+                }
+
                 let multi = TorqueDragEngine.computeAllCases(
                     surveys: surveys,
                     stringSegments: strSegs,
@@ -327,7 +369,8 @@ enum TripInService {
                     floatIsOpen: input.floatIsOpen,
                     surgePressure_kPa: surgePressure,
                     aplEccentricityFactor: input.tdAplEccentricity,
-                    pressureAreaBuoyancy: input.tdPressureAreaBuoyancy
+                    pressureAreaBuoyancy: input.tdPressureAreaBuoyancy,
+                    stringFluidLayers: strFluidLayers
                 )
                 tdPickup = multi.pickupHookLoad_kN
                 tdSlackOff = multi.slackOffHookLoad_kN

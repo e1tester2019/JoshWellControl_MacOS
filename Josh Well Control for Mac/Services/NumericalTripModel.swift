@@ -1359,6 +1359,27 @@ final class NumericalTripModel: @unchecked Sendable {
                         )
                     }
 
+                    // Build string fluid layers for PA buoyancy (separate internal density)
+                    let strFluidLayers: [TripLayerSnapshot] = stringStack.layers.compactMap { layer in
+                        let a = max(0.0, layer.topMD)
+                        let b = min(bitMD, layer.bottomMD)
+                        guard b - a > 1e-9 else { return nil }
+                        let tvdT = tvdOfMd(a)
+                        let tvdB = tvdOfMd(b)
+                        return TripLayerSnapshot(
+                            side: "String",
+                            topMD: a,
+                            bottomMD: b,
+                            topTVD: tvdT,
+                            bottomTVD: tvdB,
+                            rho_kgpm3: layer.rho,
+                            deltaHydroStatic_kPa: layer.rho * 0.00981 * (tvdB - tvdT),
+                            volume_m3: 0,
+                            pv_cP: layer.pv_cP > 0 ? layer.pv_cP : nil,
+                            yp_Pa: layer.yp_Pa > 0 ? layer.yp_Pa : nil
+                        )
+                    }
+
                     let multi = TorqueDragEngine.computeAllCases(
                         surveys: surveys,
                         stringSegments: strSegs,
@@ -1372,7 +1393,8 @@ final class NumericalTripModel: @unchecked Sendable {
                         floatIsOpen: !floatClosed,
                         surgePressure_kPa: -swab_kPa,  // swab reduces annular pressure → pipe heavier
                         aplEccentricityFactor: input.tdAplEccentricity,
-                        pressureAreaBuoyancy: input.tdPressureAreaBuoyancy
+                        pressureAreaBuoyancy: input.tdPressureAreaBuoyancy,
+                        stringFluidLayers: strFluidLayers
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN
