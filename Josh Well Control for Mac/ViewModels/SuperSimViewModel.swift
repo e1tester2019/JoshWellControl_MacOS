@@ -91,7 +91,7 @@ class SuperSimViewModel {
             op.tdOpenHoleFF = lastOp.tdOpenHoleFF
             op.tdBlockWeight_kN = lastOp.tdBlockWeight_kN
             op.tdAplEccentricity = lastOp.tdAplEccentricity
-            op.tdDoubleBuoyancy = lastOp.tdDoubleBuoyancy
+            op.tdPressureAreaBuoyancy = lastOp.tdPressureAreaBuoyancy
 
             // Start where previous operation ends (use output if run, else configured end)
             let prevEndMD = lastOp.outputState?.bitMD_m ?? lastOp.endMD_m
@@ -562,7 +562,7 @@ class SuperSimViewModel {
             input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
-            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdTvdSampler = tvdSampler
         }
 
@@ -698,7 +698,7 @@ class SuperSimViewModel {
             input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
-            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
         }
 
         let result = TripInService.run(input)
@@ -838,7 +838,7 @@ class SuperSimViewModel {
             tdBlockWeight_kN: op.tdBlockWeight_kN,
             tdFloatIsOpen: true,  // circulating = pipe is open
             tdAplEccentricity: op.tdAplEccentricity,
-            tdDoubleBuoyancy: op.tdDoubleBuoyancy,
+            tdPressureAreaBuoyancy: op.tdPressureAreaBuoyancy,
             progressCallback: { [weak self] pumped, total in
                 guard let self else { return }
                 let fraction = total > 0 ? pumped / total : 0
@@ -964,7 +964,7 @@ class SuperSimViewModel {
             input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
-            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdTvdSampler = tvdSampler
         }
 
@@ -1100,7 +1100,7 @@ class SuperSimViewModel {
             input.tdFriction = TorqueDragEngine.FrictionFactors(cased: op.tdCasedFF, openHole: op.tdOpenHoleFF)
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
-            input.tdDoubleBuoyancy = op.tdDoubleBuoyancy
+            input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
         }
 
         // Run through ReamEngine (free function from ReamEngine.swift)

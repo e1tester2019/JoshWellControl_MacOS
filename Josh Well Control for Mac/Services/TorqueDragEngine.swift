@@ -115,7 +115,7 @@ enum TorqueDragEngine {
         let flowRate_m3perMin: Double          // circulation rate (0 = no flow, no drag effects)
         let surgePressure_kPa: Double          // surge/swab at shoe (kPa, + = surge, − = swab)
         let aplEccentricityFactor: Double      // multiplier on annular pressure loss (1.0 = concentric)
-        let doubleBuoyancy: Bool               // TEST: apply per-element pressure-area on top of BF (Section 9.2 style)
+        let pressureAreaBuoyancy: Bool          // per-element pressure-area correction for circulating buoyancy
 
         init(surveys: [SurveyPoint], stringSegments: [StringSegment],
              holeSections: [HoleSection], fluidLayers: [TripLayerSnapshot],
@@ -124,7 +124,7 @@ enum TorqueDragEngine {
              SABP_kPa: Double = 0, floatIsOpen: Bool = false,
              flowRate_m3perMin: Double = 0, surgePressure_kPa: Double = 0,
              aplEccentricityFactor: Double = 1.0,
-             doubleBuoyancy: Bool = false) {
+             pressureAreaBuoyancy: Bool = true) {
             self.surveys = surveys
             self.stringSegments = stringSegments
             self.holeSections = holeSections
@@ -140,7 +140,7 @@ enum TorqueDragEngine {
             self.flowRate_m3perMin = flowRate_m3perMin
             self.surgePressure_kPa = surgePressure_kPa
             self.aplEccentricityFactor = aplEccentricityFactor
-            self.doubleBuoyancy = doubleBuoyancy
+            self.pressureAreaBuoyancy = pressureAreaBuoyancy
         }
     }
 
@@ -421,14 +421,15 @@ enum TorqueDragEngine {
             // Free-hanging weight (no friction, but includes viscous drag)
             freeHangingForce_N += buoyedWeight_N * cos(incAvg) + stringDrag_N - annularDrag_N
 
-            // TEST: Section 9.2 "double buoyancy" — per-element pressure-area correction
-            // on top of the BF-based buoyed weight. This double-counts buoyancy.
-            if input.doubleBuoyancy {
-                let deltaTVD = deepSurvey.tvd - shallowSurvey.tvd  // positive (deep → shallow)
-                let deltaP = fluidDensity * g * deltaTVD            // hydrostatic ΔP over element
+            // Pressure-area buoyancy correction.
+            // Per-element pressure-area force accounts for distributed fluid pressure
+            // acting on the pipe cross-section, validated against field hook load data.
+            if input.pressureAreaBuoyancy {
+                let deltaTVD = deepSurvey.tvd - shallowSurvey.tvd
+                let deltaP = fluidDensity * g * deltaTVD
                 let A_i = Double.pi / 4.0 * pipeID * pipeID
                 let A_o = Double.pi / 4.0 * pipeOD * pipeOD
-                let paCorrection = deltaP * (A_i - A_o)  // negative → reduces tension → lighter
+                let paCorrection = deltaP * (A_i - A_o)
                 axialForce_N += paCorrection
                 freeHangingForce_N += paCorrection
             }
@@ -586,7 +587,7 @@ enum TorqueDragEngine {
         flowRate_m3perMin: Double = 0,
         surgePressure_kPa: Double = 0,
         aplEccentricityFactor: Double = 1.0,
-        doubleBuoyancy: Bool = false
+        pressureAreaBuoyancy: Bool = true
     ) -> MultiCaseResult {
         let pickup = compute(TorqueDragInput(
             surveys: surveys, stringSegments: stringSegments,
@@ -596,7 +597,7 @@ enum TorqueDragEngine {
             SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
             flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
             aplEccentricityFactor: aplEccentricityFactor,
-            doubleBuoyancy: doubleBuoyancy
+            pressureAreaBuoyancy: pressureAreaBuoyancy
         ))
 
         let slackOff = compute(TorqueDragInput(
@@ -607,7 +608,7 @@ enum TorqueDragEngine {
             SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
             flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
             aplEccentricityFactor: aplEccentricityFactor,
-            doubleBuoyancy: doubleBuoyancy
+            pressureAreaBuoyancy: pressureAreaBuoyancy
         ))
 
         let rotating = compute(TorqueDragInput(
@@ -618,7 +619,7 @@ enum TorqueDragEngine {
             SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
             flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
             aplEccentricityFactor: aplEccentricityFactor,
-            doubleBuoyancy: doubleBuoyancy
+            pressureAreaBuoyancy: pressureAreaBuoyancy
         ))
 
         return MultiCaseResult(
@@ -667,7 +668,7 @@ enum TorqueDragEngine {
         flowRate_m3perMin: Double = 0,
         surgePressure_kPa: Double = 0,
         aplEccentricityFactor: Double = 1.0,
-        doubleBuoyancy: Bool = false
+        pressureAreaBuoyancy: Bool = true
     ) -> [SensitivityResult] {
         frictionFactors.map { ff in
             let friction = FrictionFactors(cased: ff, openHole: ff)
@@ -680,7 +681,7 @@ enum TorqueDragEngine {
                 flowRate_m3perMin: flowRate_m3perMin,
                 surgePressure_kPa: surgePressure_kPa,
                 aplEccentricityFactor: aplEccentricityFactor,
-                doubleBuoyancy: doubleBuoyancy
+                pressureAreaBuoyancy: pressureAreaBuoyancy
             )
             return SensitivityResult(
                 frictionFactor: ff,

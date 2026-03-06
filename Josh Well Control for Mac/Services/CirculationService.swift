@@ -602,7 +602,7 @@ class CirculationService {
         tdBlockWeight_kN: Double = 0,
         tdFloatIsOpen: Bool = false,
         tdAplEccentricity: Double = 1.0,
-        tdDoubleBuoyancy: Bool = false,
+        tdPressureAreaBuoyancy: Bool = true,
         progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
@@ -927,7 +927,7 @@ class CirculationService {
                         floatIsOpen: tdFloatIsOpen,
                         flowRate_m3perMin: stepPumpRate,
                         aplEccentricityFactor: tdAplEccentricity,
-                        doubleBuoyancy: tdDoubleBuoyancy
+                        pressureAreaBuoyancy: tdPressureAreaBuoyancy
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN

@@ -80,7 +80,7 @@ enum TripInService {
         var tdFriction: TorqueDragEngine.FrictionFactors? = nil
         var tdBlockWeight_kN: Double = 0
         var tdAplEccentricity: Double = 1.0
-        var tdDoubleBuoyancy: Bool = false
+        var tdPressureAreaBuoyancy: Bool = true
         var holdSABPOpen: Bool = false
         // Continuation support: start cumulative counters from existing values
         var initialCumulativeFill_m3: Double = 0
@@ -327,7 +327,7 @@ enum TripInService {
                     floatIsOpen: input.floatIsOpen,
                     surgePressure_kPa: surgePressure,
                     aplEccentricityFactor: input.tdAplEccentricity,
-                    doubleBuoyancy: input.tdDoubleBuoyancy
+                    pressureAreaBuoyancy: input.tdPressureAreaBuoyancy
                 )
                 tdPickup = multi.pickupHookLoad_kN
                 tdSlackOff = multi.slackOffHookLoad_kN

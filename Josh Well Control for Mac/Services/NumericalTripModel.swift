@@ -510,7 +510,7 @@ final class NumericalTripModel: @unchecked Sendable {
         var tdFriction: TorqueDragEngine.FrictionFactors? = nil
         var tdBlockWeight_kN: Double = 0
         var tdAplEccentricity: Double = 1.0
-        var tdDoubleBuoyancy: Bool = false
+        var tdPressureAreaBuoyancy: Bool = true
         var tdTvdSampler: TvdSampler? = nil
         // Super Simulation: custom initial layer state
         // When set, seeds stacks from these layers instead of ProjectSnapshot.
@@ -1372,7 +1372,7 @@ final class NumericalTripModel: @unchecked Sendable {
                         floatIsOpen: !floatClosed,
                         surgePressure_kPa: -swab_kPa,  // swab reduces annular pressure → pipe heavier
                         aplEccentricityFactor: input.tdAplEccentricity,
-                        doubleBuoyancy: input.tdDoubleBuoyancy
+                        pressureAreaBuoyancy: input.tdPressureAreaBuoyancy
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN

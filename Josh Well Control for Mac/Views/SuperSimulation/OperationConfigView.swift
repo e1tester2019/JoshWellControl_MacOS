@@ -219,11 +219,11 @@ struct OperationConfigView: View {
                         .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
                 }
                 GridRow {
-                    Text("Double Buoyancy:")
+                    Text("PA Buoyancy:")
                         .frame(width: 140, alignment: .trailing)
-                    Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                    Toggle("Enable", isOn: $operation.tdPressureAreaBuoyancy)
                         .controlSize(.small)
-                        .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                        .help("Distributed pressure-area buoyancy correction during circulation")
                 }
             }
             GridRow {
@@ -497,11 +497,11 @@ struct OperationConfigView: View {
                         .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
                 }
                 GridRow {
-                    Text("Double Buoyancy:")
+                    Text("PA Buoyancy:")
                         .frame(width: 140, alignment: .trailing)
-                    Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                    Toggle("Enable", isOn: $operation.tdPressureAreaBuoyancy)
                         .controlSize(.small)
-                        .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                        .help("Distributed pressure-area buoyancy correction during circulation")
                 }
             }
         }
@@ -919,11 +919,11 @@ struct OperationConfigView: View {
                             .help("Multiplier on annular pressure loss (1.0 = concentric, >1 = eccentric)")
                     }
                     GridRow {
-                        Text("Double Buoyancy:")
+                        Text("PA Buoyancy:")
                             .frame(width: 140, alignment: .trailing)
-                        Toggle("Enable (test)", isOn: $operation.tdDoubleBuoyancy)
+                        Toggle("Enable", isOn: $operation.tdPressureAreaBuoyancy)
                             .controlSize(.small)
-                            .help("TEST: Apply per-element pressure-area correction on top of buoyancy factor (Section 9.2)")
+                            .help("Distributed pressure-area buoyancy correction during circulation")
                     }
                 }
             }

@@ -68,7 +68,7 @@ struct SuperSimOperation: Identifiable {
     var tdOpenHoleFF: Double = 0.30
     var tdBlockWeight_kN: Double = 0
     var tdAplEccentricity: Double = 1.0
-    var tdDoubleBuoyancy: Bool = false
+    var tdPressureAreaBuoyancy: Bool = true
     var tdEnabled: Bool = false
 
     // MARK: - Trip In Config
