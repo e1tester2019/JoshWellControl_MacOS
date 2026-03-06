@@ -61,7 +61,15 @@ class PumpScheduleViewModel {
     var mpdEnabled: Bool = false
     var targetEMD_kgm3: Double = 1300
     var controlMD_m: Double = 0
-    
+
+    // Torque & Drag inputs
+    var tdEnabled: Bool = false
+    var tdBlockWeight_kN: Double = 0
+    var tdCasedFF: Double = 0.20
+    var tdOpenHoleFF: Double = 0.30
+    var tdAplEccentricity: Double = 1.0
+    var tdPressureAreaBuoyancy: Bool = true
+
     // MARK: - Live hydraulics outputs (bind the UI to these)
     var annulusAtControl_kPa: Double = 0
     var stringAtControl_kPa: Double = 0
@@ -72,6 +80,15 @@ class PumpScheduleViewModel {
     var bhp_kPa: Double = 0
     var tcp_kPa: Double = 0
     var ecd_kgm3: Double = 0
+
+    // MARK: - Live T&D outputs
+    var tdPickupHookLoad_kN: Double? = nil
+    var tdSlackOffHookLoad_kN: Double? = nil
+    var tdRotatingHookLoad_kN: Double? = nil
+    var tdFreeHangingWeight_kN: Double? = nil
+    var tdSurfaceTorque_kNm: Double? = nil
+    var tdBucklingOnsetMD: Double? = nil
+    var tdStretch_m: Double? = nil
 
     // Hold onto the current project so we can refresh automatically on progress changes.
     var boundProject: ProjectState?
@@ -92,6 +109,26 @@ class PumpScheduleViewModel {
         bhp_kPa              = h.bhp_kPa
         tcp_kPa              = h.tcp_kPa
         ecd_kgm3             = h.ecd_kgm3
+
+        // Torque & Drag
+        if tdEnabled {
+            let td = computeTorqueDrag(project: project, sabp_kPa: h.sbp_kPa + h.annulusFriction_kPa)
+            tdPickupHookLoad_kN   = td?.pickupHookLoad_kN
+            tdSlackOffHookLoad_kN = td?.slackOffHookLoad_kN
+            tdRotatingHookLoad_kN = td?.rotatingHookLoad_kN
+            tdFreeHangingWeight_kN = td?.freeHangingWeight_kN
+            tdSurfaceTorque_kNm   = td?.surfaceTorque_kNm
+            tdBucklingOnsetMD     = td?.bucklingOnsetMD
+            tdStretch_m           = td?.slackOffStretch_m
+        } else {
+            tdPickupHookLoad_kN = nil
+            tdSlackOffHookLoad_kN = nil
+            tdRotatingHookLoad_kN = nil
+            tdFreeHangingWeight_kN = nil
+            tdSurfaceTorque_kNm = nil
+            tdBucklingOnsetMD = nil
+            tdStretch_m = nil
+        }
     }
 
     enum ControlDepthMode: Int, Codable { case bit = 0, custom }
@@ -997,6 +1034,74 @@ class PumpScheduleViewModel {
             bhp_kPa: bhp_kPa,
             tcp_kPa: tcp_kPa,
             ecd_kgm3: ecd_kgm3
+        )
+    }
+
+    /// Compute T&D for the current wellbore state.
+    private func computeTorqueDrag(project: ProjectState, sabp_kPa: Double) -> TorqueDragEngine.MultiCaseResult? {
+        let surveys = project.surveys ?? []
+        let drillString = project.drillString ?? []
+        let annSections = project.annulus ?? []
+        guard !surveys.isEmpty, !drillString.isEmpty else { return nil }
+
+        let bitMD = effectiveBitMD(project: project)
+        let tvdSampler = TvdSampler(project: project, preferPlan: false)
+
+        let tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
+        let tdStrSegs = TorqueDragEngine.stringSegments(from: drillString)
+        let tdHoleSegs = TorqueDragEngine.holeSections(from: annSections)
+        let friction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
+
+        // Build annulus fluid layers from current stacks
+        let stg = currentStage(project: project)
+        let totalV = stg?.totalVolume_m3 ?? 0
+        let pumpedV = max(0.0, min(progress * max(totalV, 0), totalV))
+        let stacks = stacksFor(project: project, stageIndex: stageDisplayIndex, pumpedV: pumpedV)
+
+        let annulusLayers: [TripLayerSnapshot] = stacks.annulus.compactMap { seg in
+            let a = max(0, seg.top)
+            let b = min(bitMD, seg.bottom)
+            guard b - a > 1e-9 else { return nil }
+            let tvdT = project.tvd(of: a)
+            let tvdB = project.tvd(of: b)
+            return TripLayerSnapshot(
+                side: "Annulus", topMD: a, bottomMD: b,
+                topTVD: tvdT, bottomTVD: tvdB,
+                rho_kgpm3: seg.mud?.density_kgm3 ?? 1260,
+                deltaHydroStatic_kPa: (seg.mud?.density_kgm3 ?? 1260) * 0.00981 * (tvdB - tvdT),
+                volume_m3: 0
+            )
+        }
+
+        let stringLayers: [TripLayerSnapshot] = stacks.string.compactMap { seg in
+            let a = max(0, seg.top)
+            let b = min(bitMD, seg.bottom)
+            guard b - a > 1e-9 else { return nil }
+            let tvdT = project.tvd(of: a)
+            let tvdB = project.tvd(of: b)
+            return TripLayerSnapshot(
+                side: "String", topMD: a, bottomMD: b,
+                topTVD: tvdT, bottomTVD: tvdB,
+                rho_kgpm3: seg.mud?.density_kgm3 ?? 1260,
+                deltaHydroStatic_kPa: (seg.mud?.density_kgm3 ?? 1260) * 0.00981 * (tvdB - tvdT),
+                volume_m3: 0
+            )
+        }
+
+        return TorqueDragEngine.computeAllCases(
+            surveys: tdSurveys,
+            stringSegments: tdStrSegs,
+            holeSections: tdHoleSegs,
+            fluidLayers: annulusLayers,
+            bitMD: bitMD,
+            friction: friction,
+            blockWeight_kN: tdBlockWeight_kN,
+            tvdSampler: tvdSampler,
+            SABP_kPa: sabp_kPa,
+            flowRate_m3perMin: pumpRate_m3permin,
+            aplEccentricityFactor: tdAplEccentricity,
+            pressureAreaBuoyancy: tdPressureAreaBuoyancy,
+            stringFluidLayers: stringLayers
         )
     }
 

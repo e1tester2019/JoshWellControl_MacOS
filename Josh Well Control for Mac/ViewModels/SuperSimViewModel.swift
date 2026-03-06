@@ -1360,6 +1360,113 @@ class SuperSimViewModel {
         }
     }
 
+    // MARK: - Hook Load Chart Data
+
+    struct HookLoadChartPoint: Identifiable {
+        let id: Int  // globalIndex
+        let globalIndex: Int
+        let operationIndex: Int
+        let operationType: OperationType
+        let operationLabel: String
+        let bitMD_m: Double
+        let pickup_kDaN: Double?
+        let slackOff_kDaN: Double?
+        let rotating_kDaN: Double?
+        let freeHanging_kDaN: Double?
+    }
+
+    var hookLoadChartData: [HookLoadChartPoint] {
+        var points: [HookLoadChartPoint] = []
+        var globalIdx = 0
+        for (opIdx, op) in operations.enumerated() {
+            let label = "\(opIdx + 1). \(op.type.rawValue)"
+            switch op.type {
+            case .tripOut:
+                for step in tripOutResults[op.id] ?? [] {
+                    points.append(HookLoadChartPoint(
+                        id: globalIdx,
+                        globalIndex: globalIdx,
+                        operationIndex: opIdx,
+                        operationType: .tripOut,
+                        operationLabel: label,
+                        bitMD_m: step.bitMD_m,
+                        pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                        slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                        rotating_kDaN: step.rotatingHookLoad_kN.map { $0 / 10.0 },
+                        freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
+                    ))
+                    globalIdx += 1
+                }
+            case .tripIn:
+                for step in tripInResults[op.id] ?? [] {
+                    points.append(HookLoadChartPoint(
+                        id: globalIdx,
+                        globalIndex: globalIdx,
+                        operationIndex: opIdx,
+                        operationType: .tripIn,
+                        operationLabel: label,
+                        bitMD_m: step.bitMD_m,
+                        pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                        slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                        rotating_kDaN: nil,
+                        freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
+                    ))
+                    globalIdx += 1
+                }
+            case .circulate:
+                for step in circulationResults[op.id] ?? [] {
+                    points.append(HookLoadChartPoint(
+                        id: globalIdx,
+                        globalIndex: globalIdx,
+                        operationIndex: opIdx,
+                        operationType: .circulate,
+                        operationLabel: label,
+                        bitMD_m: op.startMD_m,
+                        pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                        slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                        rotating_kDaN: step.rotatingHookLoad_kN.map { $0 / 10.0 },
+                        freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
+                    ))
+                    globalIdx += 1
+                }
+            case .reamOut:
+                for step in reamOutResults[op.id] ?? [] {
+                    // Ream steps don't have hook load data — placeholder
+                    points.append(HookLoadChartPoint(
+                        id: globalIdx,
+                        globalIndex: globalIdx,
+                        operationIndex: opIdx,
+                        operationType: .reamOut,
+                        operationLabel: label,
+                        bitMD_m: step.bitMD_m,
+                        pickup_kDaN: nil,
+                        slackOff_kDaN: nil,
+                        rotating_kDaN: nil,
+                        freeHanging_kDaN: nil
+                    ))
+                    globalIdx += 1
+                }
+            case .reamIn:
+                for step in reamInResults[op.id] ?? [] {
+                    points.append(HookLoadChartPoint(
+                        id: globalIdx,
+                        globalIndex: globalIdx,
+                        operationIndex: opIdx,
+                        operationType: .reamIn,
+                        operationLabel: label,
+                        bitMD_m: step.bitMD_m,
+                        pickup_kDaN: nil,
+                        slackOff_kDaN: nil,
+                        rotating_kDaN: nil,
+                        freeHanging_kDaN: nil
+                    ))
+                    globalIdx += 1
+                }
+            }
+        }
+        return points
+    }
+
     // MARK: - Global Wellbore Scrubber
 
     var globalStepSliderValue: Double = 0
@@ -1750,7 +1857,11 @@ class SuperSimViewModel {
                             floatState: step.floatState,
                             layersAnnulus: step.layersAnnulus.map { layerRowToReportData($0) },
                             layersString: step.layersString.map { layerRowToReportData($0) },
-                            layersPocket: step.layersPocket.map { layerRowToReportData($0) }
+                            layersPocket: step.layersPocket.map { layerRowToReportData($0) },
+                            pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                            slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                            rotating_kDaN: step.rotatingHookLoad_kN.map { $0 / 10.0 },
+                            freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
                         )
                     }
                 }
@@ -1813,7 +1924,10 @@ class SuperSimViewModel {
                             dynamicESDAtControl_kgpm3: step.dynamicESDAtControl_kgpm3,
                             layersAnnulus: annulusLayers,
                             layersString: stringLayers,
-                            layersPocket: pocketLayers
+                            layersPocket: pocketLayers,
+                            pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                            slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                            freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
                         )
                     }
                 }
@@ -1836,7 +1950,11 @@ class SuperSimViewModel {
                             layersPocket: pocketOnly.map { snapshotToReportData($0) },
                             bitMD_m: circBitMD,
                             pumpRate_m3perMin: step.pumpRate_m3perMin,
-                            apl_kPa: step.apl_kPa
+                            apl_kPa: step.apl_kPa,
+                            pickup_kDaN: step.pickupHookLoad_kN.map { $0 / 10.0 },
+                            slackOff_kDaN: step.slackOffHookLoad_kN.map { $0 / 10.0 },
+                            rotating_kDaN: step.rotatingHookLoad_kN.map { $0 / 10.0 },
+                            freeHanging_kDaN: step.freeHangingWeight_kN.map { $0 / 10.0 }
                         )
                     }
                 }
@@ -1952,9 +2070,11 @@ class SuperSimViewModel {
         // Build timeline steps from chart data + wellbore layers
         var timelineSteps: [SuperSimReportData.TimelineStep] = []
         let chartData = timelineChartData
+        let hlData = hookLoadChartData
         let tvdSampler = TvdSampler(project: project)
         for point in chartData {
             if let display = wellboreDisplayAtGlobalStep(point.globalIndex) {
+                let hl = hlData.first { $0.globalIndex == point.globalIndex }
                 timelineSteps.append(SuperSimReportData.TimelineStep(
                     globalIndex: point.globalIndex,
                     operationIndex: point.operationIndex,
@@ -1967,7 +2087,11 @@ class SuperSimViewModel {
                     dynamicSABP_kPa: point.dynamicSABP_kPa,
                     layersAnnulus: display.layersAnnulus.map { snapshotToReportData($0) },
                     layersString: display.layersString.map { snapshotToReportData($0) },
-                    layersPocket: display.layersPocket.map { snapshotToReportData($0) }
+                    layersPocket: display.layersPocket.map { snapshotToReportData($0) },
+                    pickup_kDaN: hl?.pickup_kDaN,
+                    slackOff_kDaN: hl?.slackOff_kDaN,
+                    rotating_kDaN: hl?.rotating_kDaN,
+                    freeHanging_kDaN: hl?.freeHanging_kDaN
                 ))
             }
         }

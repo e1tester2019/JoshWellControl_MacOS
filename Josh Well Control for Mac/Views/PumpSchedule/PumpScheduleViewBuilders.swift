@@ -493,9 +493,18 @@ struct PumpScheduleHydraulicsPanelView: View {
     let project: ProjectState
 
     var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                hydraulicsInputsSection
+                hydraulicsOutputsSection
+                torqueDragSection
+            }
+        }
+    }
+
+    private var hydraulicsInputsSection: some View {
         GroupBox("Hydraulics") {
             VStack(alignment: .leading, spacing: 10) {
-                // Inputs
                 HStack {
                     Text("Pump rate")
                         .frame(width: 120, alignment: .trailing)
@@ -541,99 +550,238 @@ struct PumpScheduleHydraulicsPanelView: View {
                     Text("Control TVD").frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
                     Text(String(format: "%.0f m", controlTVDForDisplay)).monospacedDigit()
                 }
+                #if DEBUG
+                HStack {
+                    Button("Debug Annulus Stack") {
+                        viewModel.debugCurrentAnnulus(project: project)
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Export Debug Log") {
+                        viewModel.exportAnnulusDebugLog(project: project)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                #endif
+            }
+            .padding(4)
+        }
+    }
+
+    private var hydraulicsOutputsSection: some View {
+        GroupBox("Pressures") {
+            let h = viewModel.hydraulicsForCurrent(project: project)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Hydrostatic Ann")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", (h.annulusAtControl_Pa - h.annulusFriction_kPa * 1000.0 - h.sbp_kPa * 1000.0) / 1000.0))
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text("Friction (annulus)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", viewModel.annulusFriction_kPa)).monospacedDigit()
+                }
+                HStack {
+                    Text("Hydrostatic Str")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", (h.stringAtControl_Pa - h.stringFriction_kPa * 1000.0) / 1000.0))
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text("Friction (string)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", h.stringFriction_kPa)).monospacedDigit()
+                }
+                HStack {
+                    Text("Total friction")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", h.totalFriction_kPa)).monospacedDigit()
+                }
+                HStack {
+                    Text("Annulus at ctrl")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", viewModel.annulusAtControl_kPa)).monospacedDigit()
+                }
+                HStack {
+                    Text("String at ctrl")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", h.stringAtControl_Pa / 1000.0)).monospacedDigit()
+                }
                 Divider()
-                #if DEBUG
-                Button("Debug Annulus Stack (Visual HP)") {
-                    viewModel.debugCurrentAnnulus(project: project)
+                HStack {
+                    Text("SBP")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", h.sbp_kPa)).monospacedDigit()
                 }
-                .buttonStyle(.bordered)
-                #endif
-                #if DEBUG
-                Button("Export Debug Log") {
-                    viewModel.exportAnnulusDebugLog(project: project)
+                HStack {
+                    Text("BHP")
+                        .frame(width: 140, alignment: .trailing)
+                        .font(.headline)
+                    Text(String(format: "%.0f kPa", h.bhp_kPa))
+                        .font(.headline)
+                        .monospacedDigit()
                 }
-                .buttonStyle(.bordered)
-                #endif
-                // Outputs
-                let h = viewModel.hydraulicsForCurrent(project: project)
-                VStack(alignment: .leading, spacing: 6) {
-                    
+                HStack {
+                    Text("TCP (total circ)")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kPa", h.tcp_kPa)).monospacedDigit()
+                }
+                HStack {
+                    Text("ECD")
+                        .frame(width: 140, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.0f kg/m³", viewModel.ecd_kgm3)).monospacedDigit()
+                }
+            }
+            .padding(4)
+        }
+    }
+
+    private var torqueDragSection: some View {
+        GroupBox("Torque & Drag") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Enable T&D", isOn: $viewModel.tdEnabled)
+
+                if viewModel.tdEnabled {
                     HStack {
-                        Text("Hydrostatic Annulus")
-                            .frame(width: 140, alignment: .trailing)
+                        Text("Block Weight")
+                            .frame(width: 120, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", (h.annulusAtControl_Pa - h.annulusFriction_kPa * 1000.0 - h.sbp_kPa * 1000.0) / 1000.0))
+                        TextField("kN", value: $viewModel.tdBlockWeight_kN, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("kN").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Cased FF")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $viewModel.tdCasedFF, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
                             .monospacedDigit()
                     }
                     HStack {
-                        Text("Friction (annulus)")
-                            .frame(width: 140, alignment: .trailing)
+                        Text("Open Hole FF")
+                            .frame(width: 120, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", viewModel.annulusFriction_kPa)).monospacedDigit()
-                    }
-                    HStack {
-                        Text("Hydrostatic String")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", (h.stringAtControl_Pa - h.stringFriction_kPa * 1000.0) / 1000.0))
+                        TextField("", value: $viewModel.tdOpenHoleFF, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
                             .monospacedDigit()
                     }
                     HStack {
-                        Text("Friction (string)")
-                            .frame(width: 140, alignment: .trailing)
+                        Text("APL Eccentricity")
+                            .frame(width: 120, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.stringFriction_kPa)).monospacedDigit()
+                        TextField("", value: $viewModel.tdAplEccentricity, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
                     }
-                    HStack {
-                        Text("Total friction")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.totalFriction_kPa)).monospacedDigit()
+                    Toggle("PA Buoyancy", isOn: $viewModel.tdPressureAreaBuoyancy)
+
+                    let hasSurveys = !(project.surveys ?? []).isEmpty
+                    let hasDrillString = !(project.drillString ?? []).isEmpty
+
+                    if !hasSurveys || !hasDrillString {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text(!hasSurveys ? "No survey data" : "No drill string")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                     }
-                    HStack {
-                        Text("Annulus at control")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", viewModel.annulusAtControl_kPa)).monospacedDigit()
-                    }
-                    HStack {
-                        Text("String at control")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.stringAtControl_Pa / 1000.0)).monospacedDigit()
-                    }
+
                     Divider()
-                    HStack {
-                        Text("SBP")
-                            .frame(width: 140, alignment: .trailing)
+
+                    // T&D outputs
+                    if let pu = viewModel.tdPickupHookLoad_kN {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Pickup")
+                                    .frame(width: 120, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.1f kDaN", pu / 10.0))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.green)
+                            }
+                            if let so = viewModel.tdSlackOffHookLoad_kN {
+                                HStack {
+                                    Text("Slack-off")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kDaN", so / 10.0))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                            if let rot = viewModel.tdRotatingHookLoad_kN {
+                                HStack {
+                                    Text("Rotating")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kDaN", rot / 10.0))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            if let fh = viewModel.tdFreeHangingWeight_kN {
+                                HStack {
+                                    Text("Free Hanging")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kDaN", fh / 10.0))
+                                        .monospacedDigit()
+                                }
+                            }
+                            if let torque = viewModel.tdSurfaceTorque_kNm {
+                                HStack {
+                                    Text("Surface Torque")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kN·m", torque))
+                                        .monospacedDigit()
+                                }
+                            }
+                            if let buckle = viewModel.tdBucklingOnsetMD {
+                                HStack {
+                                    Text("Buckling Onset")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f m", buckle))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                        }
+                    } else {
+                        Text("No T&D results — check survey and drill string data")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.sbp_kPa)).monospacedDigit()
-                    }
-                    Divider()
-                    HStack {
-                        Text("BHP")
-                            .frame(width: 140, alignment: .trailing)
-                            .font(.headline)
-                        Text(String(format: "%.0f kPa", h.bhp_kPa))
-                            .font(.headline)
-                            .monospacedDigit()
-                    }
-                    HStack {
-                        Text("TCP (total circ)")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kPa", h.tcp_kPa)).monospacedDigit()
-                    }
-                    HStack {
-                        Text("ECD")
-                            .frame(width: 140, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        Text(String(format: "%.0f kg/m³", viewModel.ecd_kgm3)).monospacedDigit()
                     }
                 }
             }
             .padding(4)
         }
+        .onChange(of: viewModel.tdEnabled) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdBlockWeight_kN) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdCasedFF) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdOpenHoleFF) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdAplEccentricity) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdPressureAreaBuoyancy) { viewModel.updateHydraulics(project: project) }
     }
 }
 

@@ -727,6 +727,17 @@ struct TripInSimulationView: View {
                             Text("kDaN")
                         }
                     }
+                    LabeledContent("APL Eccentricity") {
+                        TextField("", value: $viewModel.tdAplEccentricity, format: .number.precision(.fractionLength(1)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .help("Multiplier on annular pressure loss (1.0 = concentric)")
+                    }
+                    LabeledContent("PA Buoyancy") {
+                        Toggle("Enable", isOn: $viewModel.tdPressureAreaBuoyancy)
+                            .controlSize(.small)
+                            .help("Distributed pressure-area buoyancy correction")
+                    }
                 }
             }
 
@@ -1238,6 +1249,15 @@ struct TripInSimulationView: View {
     // MARK: - Hook Load Chart
 
     /// Lightweight struct for hook load chart data points
+    private var sliderHookLoadDepth: Double? {
+        guard viewModel.steps.indices.contains(viewModel.selectedIndex) else { return nil }
+        return viewModel.steps[viewModel.selectedIndex].bitMD_m
+    }
+
+    private var activeHookLoadDepth: Double? {
+        hookLoadSelectedDepth ?? sliderHookLoadDepth
+    }
+
     private struct HookLoadPoint: Identifiable {
         let id = UUID()
         let depth: Double
@@ -1267,21 +1287,30 @@ struct TripInSimulationView: View {
     private var hookLoadChart: some View {
         let data = hookLoadChartData
         return GroupBox("Hook Load vs Depth") {
-            Chart(data) { point in
-                LineMark(
-                    x: .value("Depth", point.depth),
-                    y: .value("Hook Load", point.value)
-                )
-                .foregroundStyle(by: .value("Series", point.series))
-                .lineStyle(point.series == "Free Hanging" ? StrokeStyle(dash: [5, 3]) : StrokeStyle())
-
-                if let sel = hookLoadSelectedDepth, point.depth == sel {
-                    PointMark(
+            Chart {
+                ForEach(data) { point in
+                    LineMark(
                         x: .value("Depth", point.depth),
                         y: .value("Hook Load", point.value)
                     )
                     .foregroundStyle(by: .value("Series", point.series))
-                    .symbolSize(40)
+                    .lineStyle(point.series == "Free Hanging" ? StrokeStyle(dash: [5, 3]) : StrokeStyle())
+
+                    if let sel = activeHookLoadDepth, point.depth == sel {
+                        PointMark(
+                            x: .value("Depth", point.depth),
+                            y: .value("Hook Load", point.value)
+                        )
+                        .foregroundStyle(by: .value("Series", point.series))
+                        .symbolSize(40)
+                    }
+                }
+
+                // Vertical cursor line at selected depth
+                if let sel = activeHookLoadDepth {
+                    RuleMark(x: .value("Cursor", sel))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
             }
             .chartYAxisLabel("Hook Load (kDaN)")
@@ -1313,11 +1342,12 @@ struct TripInSimulationView: View {
                 }
             }
             .chartOverlay { proxy in
-                if let sel = hookLoadSelectedDepth {
+                if let sel = activeHookLoadDepth {
                     let pts = data.filter { $0.depth == sel }
                     if !pts.isEmpty, let xPos = proxy.position(forX: sel) {
                         GeometryReader { geo in
                             let origin = geo[proxy.plotFrame!].origin
+                            let tooltipX = min(origin.x + xPos + 60, geo.size.width - 100)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("MD: \(String(format: "%.0f", sel)) m")
                                     .font(.caption2.bold())
@@ -1331,7 +1361,7 @@ struct TripInSimulationView: View {
                             }
                             .padding(6)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                            .position(x: origin.x + xPos + 60, y: origin.y + 40)
+                            .position(x: tooltipX, y: origin.y + 40)
                         }
                     }
                 }

@@ -268,6 +268,10 @@ class TripInSimulationHTMLGenerator {
                         <div class="info-row"><span>Surge:</span> <span id="info-surge">--</span></div>
                         <div class="info-row"><span>Dyn ESD:</span> <span id="info-desd">--</span></div>
                         """ : "")
+                        <div class="info-row hl-info" style="display:none"><span>Pickup:</span> <span id="info-pu" style="color:#4caf50">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Slack-off:</span> <span id="info-so" style="color:#f44336">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Rotating:</span> <span id="info-rot" style="color:#2196f3">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Free Hanging:</span> <span id="info-fh" style="color:#999">--</span></div>
                     </div>
                 </section>
 
@@ -292,6 +296,10 @@ class TripInSimulationHTMLGenerator {
                             <canvas id="chart-fill" width="280" height="180"></canvas>
                             <div class="chart-tooltip" id="tooltip-fill"></div>
                         </div>
+                        <div class="chart-container" id="container-hl" style="display:none;grid-column:1/-1">
+                            <canvas id="chart-hl" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-hl"></div>
+                        </div>
                     </div>
                 </section>
 
@@ -299,6 +307,10 @@ class TripInSimulationHTMLGenerator {
                 <section class="card">
                     <h2>Step-by-Step Data</h2>
                     <div class="table-controls">
+                        <div class="table-toggle" id="table-toggle" style="display:none">
+                            <button class="toggle-btn active" id="btn-pressure" onclick="toggleTableView('pressure')">Pressure & Volume</button>
+                            <button class="toggle-btn" id="btn-hookload" onclick="toggleTableView('hookload')">Hook Load</button>
+                        </div>
                         <input type="text" id="table-search" placeholder="Search..." onkeyup="filterTable()">
                         <button onclick="exportTableCSV()">Export CSV</button>
                     </div>
@@ -308,20 +320,24 @@ class TripInSimulationHTMLGenerator {
                                 <tr>
                                     <th onclick="sortTable(0)">MD (m) ⇅</th>
                                     <th onclick="sortTable(1)">TVD (m) ⇅</th>
-                                    <th onclick="sortTable(2)">ESD ⇅</th>
-                                    <th onclick="sortTable(3)">Choke ⇅</th>
-                                    <th onclick="sortTable(4)">HP Ann@Bit ⇅</th>
-                                    <th onclick="sortTable(5)">HP Str@Bit ⇅</th>
-                                    <th onclick="sortTable(6)">ΔP@Float ⇅</th>
-                                    <th onclick="sortTable(7)">Fill (m³) ⇅</th>
-                                    <th onclick="sortTable(8)">Disp (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(2)">ESD ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(3)">Choke ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(4)">HP Ann@Bit ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(5)">HP Str@Bit ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(6)">ΔP@Float ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(7)">Fill (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(8)">Disp (m³) ⇅</th>
                                     \(data.hasSurge ? """
-                                    <th onclick="sortTable(9)">Surge (kPa) ⇅</th>
-                                    <th onclick="sortTable(10)">Dyn ESD ⇅</th>
-                                    <th onclick="sortTable(11)">Float ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(9)">Surge (kPa) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(10)">Dyn ESD ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(11)">Float ⇅</th>
                                     """ : """
-                                    <th onclick="sortTable(9)">Float ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(9)">Float ⇅</th>
                                     """)
+                                    <th class="hl-col" onclick="sortTable(12)" style="display:none">Pickup (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(13)" style="display:none">Slack-off (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(14)" style="display:none">Rotating (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(15)" style="display:none">Free (kDaN) ⇅</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -546,6 +562,27 @@ class TripInSimulationHTMLGenerator {
         .chart-tooltip.visible { opacity: 1; }
         .chart-hint { font-size: 0.75rem; color: var(--text-light); margin-bottom: 12px; font-style: italic; }
 
+        .table-toggle {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .table-controls .toggle-btn {
+            padding: 6px 14px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-right: 1px solid var(--border-color);
+        }
+        .table-controls .toggle-btn:last-child { border-right: none; }
+        .table-controls .toggle-btn.active {
+            background: var(--brand-color);
+            color: white;
+        }
         .table-controls { display: flex; gap: 12px; margin-bottom: 12px; }
         .table-controls input { flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; }
         .table-controls button {
@@ -627,6 +664,14 @@ class TripInSimulationHTMLGenerator {
             if (document.getElementById('info-surge')) {
                 document.getElementById('info-surge').textContent = step.surge.toFixed(0) + ' kPa';
                 document.getElementById('info-desd').textContent = step.desd.toFixed(0) + ' kg/m³';
+            }
+
+            // Hook load info
+            if (step.pu !== null) {
+                document.getElementById('info-pu').textContent = step.pu.toFixed(1) + ' kDaN';
+                document.getElementById('info-so').textContent = step.so !== null ? step.so.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-rot').textContent = step.rot !== null ? step.rot.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-fh').textContent = step.fh !== null ? step.fh.toFixed(1) + ' kDaN' : '--';
             }
 
             drawPocketCanvas(step);
@@ -812,6 +857,20 @@ class TripInSimulationHTMLGenerator {
                 { data: steps.map(s => s.cumFill), label: 'Fill (m³)', color: '#4caf50' },
                 { data: steps.map(s => s.cumDisp), label: 'Disp (m³)', color: '#9c27b0' }
             ]);
+
+            // Hook load chart (only if data exists)
+            const hasHL = steps.some(s => s.pu !== null);
+            if (hasHL) {
+                document.getElementById('container-hl').style.display = '';
+                document.querySelectorAll('.hl-info').forEach(el => el.style.display = '');
+                document.getElementById('table-toggle').style.display = '';
+                charts.hl = createChart('chart-hl', 'Hook Load vs Depth', depths, [
+                    { data: steps.map(s => s.pu), label: 'Pickup', color: '#4caf50' },
+                    { data: steps.map(s => s.so), label: 'Slack-off', color: '#f44336' },
+                    { data: steps.map(s => s.rot), label: 'Rotating', color: '#2196f3' },
+                    { data: steps.map(s => s.fh), label: 'Free Hanging', color: '#999', dash: [4,3] }
+                ]);
+            }
         }
 
         function createChart(canvasId, title, xData, datasets) {
@@ -832,7 +891,9 @@ class TripInSimulationHTMLGenerator {
 
             const xMin = Math.min(...xData), xMax = Math.max(...xData);
             let yMin = Infinity, yMax = -Infinity;
-            datasets.forEach(ds => { yMin = Math.min(yMin, ...ds.data); yMax = Math.max(yMax, ...ds.data); });
+            datasets.forEach(ds => {
+                ds.data.forEach(v => { if (v !== null && v !== undefined) { if (v < yMin) yMin = v; if (v > yMax) yMax = v; } });
+            });
             const yPad = (yMax - yMin) * 0.1 || 1;
             yMin -= yPad; yMax += yPad;
 
@@ -873,13 +934,19 @@ class TripInSimulationHTMLGenerator {
 
                 datasets.forEach(ds => {
                     ctx.strokeStyle = ds.color; ctx.lineWidth = 1.5;
+                    ctx.setLineDash(ds.dash || []);
                     ctx.beginPath();
+                    let penDown = false;
                     xData.forEach((x, i) => {
+                        const val = ds.data[i];
+                        if (val === null || val === undefined) { penDown = false; return; }
                         const px = margin.left + ((x - xMin) / (xMax - xMin)) * plotW;
-                        const py = margin.top + ((yMax - ds.data[i]) / (yMax - yMin)) * plotH;
-                        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                        const py = margin.top + ((yMax - val) / (yMax - yMin)) * plotH;
+                        if (!penDown) { ctx.moveTo(px, py); penDown = true; }
+                        else ctx.lineTo(px, py);
                     });
                     ctx.stroke();
+                    ctx.setLineDash([]);
                 });
 
                 if (highlightIndex >= 0 && highlightIndex < xData.length) {
@@ -889,7 +956,9 @@ class TripInSimulationHTMLGenerator {
                     ctx.beginPath(); ctx.moveTo(px, margin.top); ctx.lineTo(px, h - margin.bottom); ctx.stroke();
                     ctx.setLineDash([]);
                     datasets.forEach(ds => {
-                        const py = margin.top + ((yMax - ds.data[highlightIndex]) / (yMax - yMin)) * plotH;
+                        const val = ds.data[highlightIndex];
+                        if (val === null || val === undefined) return;
+                        const py = margin.top + ((yMax - val) / (yMax - yMin)) * plotH;
                         ctx.fillStyle = ds.color;
                         ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
                     });
@@ -909,7 +978,9 @@ class TripInSimulationHTMLGenerator {
                 if (!tooltip || idx < 0 || idx >= xData.length) { if (tooltip) tooltip.classList.remove('visible'); return; }
                 let html = '<div style="font-weight:600;color:#aaa">MD: ' + xData[idx].toFixed(0) + ' m</div>';
                 datasets.forEach(ds => {
-                    html += '<div style="display:flex;justify-content:space-between;gap:12px"><span>' + ds.label + ':</span><span style="font-weight:600;color:' + ds.color + '">' + ds.data[idx].toFixed(ds.data[idx] >= 100 ? 0 : 2) + '</span></div>';
+                    const val = ds.data[idx];
+                    if (val === null || val === undefined) return;
+                    html += '<div style="display:flex;justify-content:space-between;gap:12px"><span>' + ds.label + ':</span><span style="font-weight:600;color:' + ds.color + '">' + val.toFixed(val >= 100 ? 0 : 2) + '</span></div>';
                 });
                 tooltip.innerHTML = html;
                 tooltip.style.right = '8px'; tooltip.style.top = '8px'; tooltip.style.left = 'auto';
@@ -959,6 +1030,24 @@ class TripInSimulationHTMLGenerator {
             a.download = 'trip_in_simulation_data.csv';
             a.click();
         }
+
+        function toggleTableView(view) {
+            const pvCols = document.querySelectorAll('.pv-col');
+            const hlCols = document.querySelectorAll('.hl-col');
+            const btnP = document.getElementById('btn-pressure');
+            const btnH = document.getElementById('btn-hookload');
+            if (view === 'hookload') {
+                pvCols.forEach(el => el.style.display = 'none');
+                hlCols.forEach(el => el.style.display = '');
+                btnP.classList.remove('active');
+                btnH.classList.add('active');
+            } else {
+                pvCols.forEach(el => el.style.display = '');
+                hlCols.forEach(el => el.style.display = 'none');
+                btnP.classList.add('active');
+                btnH.classList.remove('active');
+            }
+        }
         """
     }
 
@@ -975,13 +1064,18 @@ class TripInSimulationHTMLGenerator {
     private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+    private func optF1(_ v: Double?) -> String { v.map { String(format: "%.1f", $0 / 10.0) } ?? "" }
 
     private func stepsToJSON(_ steps: [TripInSimulationViewModel.TripInStep]) -> String {
         var json = "["
         for (i, step) in steps.enumerated() {
             if i > 0 { json += "," }
+            let puStr = step.pickupHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let soStr = step.slackOffHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let rotStr = step.rotatingHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let fhStr = step.freeHangingWeight_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
             json += """
-            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDAtControl_kgpm3)),"choke":\(f0(step.requiredChokePressure_kPa)),"hpAnn":\(f0(step.annulusPressureAtBit_kPa)),"hpStr":\(f0(step.stringPressureAtBit_kPa)),"deltaP":\(f0(step.differentialPressureAtBottom_kPa)),"cumFill":\(f2(step.cumulativeFillVolume_m3)),"cumDisp":\(f2(step.cumulativeDisplacementReturns_m3)),"surge":\(f0(step.surgePressure_kPa)),"desd":\(f1(step.dynamicESDAtControl_kgpm3)),"fs":"\(step.floatState)","lp":\(layersToJSON(step.layersPocket))}
+            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDAtControl_kgpm3)),"choke":\(f0(step.requiredChokePressure_kPa)),"hpAnn":\(f0(step.annulusPressureAtBit_kPa)),"hpStr":\(f0(step.stringPressureAtBit_kPa)),"deltaP":\(f0(step.differentialPressureAtBottom_kPa)),"cumFill":\(f2(step.cumulativeFillVolume_m3)),"cumDisp":\(f2(step.cumulativeDisplacementReturns_m3)),"surge":\(f0(step.surgePressure_kPa)),"desd":\(f1(step.dynamicESDAtControl_kgpm3)),"fs":"\(step.floatState)","pu":\(puStr),"so":\(soStr),"rot":\(rotStr),"fh":\(fhStr),"lp":\(layersToJSON(step.layersPocket))}
             """
         }
         json += "]"
@@ -1004,6 +1098,7 @@ class TripInSimulationHTMLGenerator {
     }
 
     private func generateTableRows(_ steps: [TripInSimulationViewModel.TripInStep], hasSurge: Bool) -> String {
+        let hasHL = steps.contains(where: { $0.pickupHookLoad_kN != nil })
         var html = ""
         for step in steps {
             // True ΔP at float = (Ann HP + Choke) - String HP
@@ -1012,17 +1107,28 @@ class TripInSimulationHTMLGenerator {
             <tr>
                 <td>\(String(format: "%.0f", step.bitMD_m))</td>
                 <td>\(String(format: "%.0f", step.bitTVD_m))</td>
-                <td>\(String(format: "%.0f", step.ESDAtControl_kgpm3))</td>
-                <td>\(String(format: "%.0f", step.requiredChokePressure_kPa))</td>
-                <td>\(String(format: "%.0f", step.annulusPressureAtBit_kPa))</td>
-                <td>\(String(format: "%.0f", step.stringPressureAtBit_kPa))</td>
-                <td>\(String(format: "%.0f", trueDeltaP))</td>
-                <td>\(String(format: "%.3f", step.cumulativeFillVolume_m3))</td>
-                <td>\(String(format: "%.3f", step.cumulativeDisplacementReturns_m3))</td>
-                \(hasSurge ? "<td>\(String(format: "%.0f", step.surgePressure_kPa))</td><td>\(String(format: "%.0f", step.dynamicESDAtControl_kgpm3))</td>" : "")
-                <td>\(step.floatState)</td>
-            </tr>
+                <td class="pv-col">\(String(format: "%.0f", step.ESDAtControl_kgpm3))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.requiredChokePressure_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.annulusPressureAtBit_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.stringPressureAtBit_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", trueDeltaP))</td>
+                <td class="pv-col">\(String(format: "%.3f", step.cumulativeFillVolume_m3))</td>
+                <td class="pv-col">\(String(format: "%.3f", step.cumulativeDisplacementReturns_m3))</td>
+                \(hasSurge ? """
+                <td class="pv-col">\(String(format: "%.0f", step.surgePressure_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.dynamicESDAtControl_kgpm3))</td>
+                """ : "")
+                <td class="pv-col">\(step.floatState)</td>
             """
+            if hasHL {
+                html += """
+                    <td class="hl-col" style="display:none">\(optF1(step.pickupHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.slackOffHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.rotatingHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.freeHangingWeight_kN))</td>
+                """
+            }
+            html += "</tr>"
         }
         return html
     }

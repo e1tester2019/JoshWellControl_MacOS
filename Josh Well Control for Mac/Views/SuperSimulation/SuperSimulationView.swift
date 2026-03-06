@@ -186,8 +186,13 @@ struct SuperSimulationView: View {
                             project: project
                         )
                     } else {
-                        SuperSimTimelineChart(viewModel: viewModel)
+                        ScrollView {
+                            VStack(spacing: 16) {
+                                SuperSimTimelineChart(viewModel: viewModel)
+                                SuperSimHookLoadChart(viewModel: viewModel)
+                            }
                             .padding()
+                        }
                     }
 
                     // Right: wellbore (full height)
@@ -424,10 +429,13 @@ struct OperationDetailView: View {
                         .padding(.horizontal)
                 }
 
-                // Timeline chart (wellbore is full-height on the right side)
+                // Timeline + Hook Load charts
                 if viewModel.totalGlobalSteps > 0 {
                     Divider()
                     SuperSimTimelineChart(viewModel: viewModel)
+                        .padding(.horizontal)
+                    Divider()
+                    SuperSimHookLoadChart(viewModel: viewModel)
                         .padding(.horizontal)
                 }
             }

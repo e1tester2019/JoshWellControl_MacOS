@@ -102,6 +102,10 @@ final class TripInSimulation {
     var tdBlockWeight_kN: Double = 0
     /// Whether to compute T&D during simulation
     var tdEnabled: Bool = false
+    /// APL eccentricity factor for T&D
+    var tdAplEccentricity: Double = 1.0
+    /// Pressure-area buoyancy correction
+    var tdPressureAreaBuoyancy: Bool = true
     /// Hold SABP open (don't apply choke pressure)
     var holdSABPOpen: Bool = false
 
@@ -158,6 +162,8 @@ final class TripInSimulation {
         tdOpenHoleFF: Double = 0.30,
         tdBlockWeight_kN: Double = 0,
         tdEnabled: Bool = false,
+        tdAplEccentricity: Double = 1.0,
+        tdPressureAreaBuoyancy: Bool = true,
         project: ProjectState? = nil,
         well: Well? = nil
     ) {
@@ -184,6 +190,8 @@ final class TripInSimulation {
         self.tdOpenHoleFF = tdOpenHoleFF
         self.tdBlockWeight_kN = tdBlockWeight_kN
         self.tdEnabled = tdEnabled
+        self.tdAplEccentricity = tdAplEccentricity
+        self.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
         self.project = project
         self.well = well
     }
@@ -221,6 +229,8 @@ extension TripInSimulation {
             "tdOpenHoleFF": tdOpenHoleFF,
             "tdBlockWeight_kN": tdBlockWeight_kN,
             "tdEnabled": tdEnabled,
+            "tdAplEccentricity": tdAplEccentricity,
+            "tdPressureAreaBuoyancy": tdPressureAreaBuoyancy,
             "fillMudID": fillMudID?.uuidString as Any
         ]
     }

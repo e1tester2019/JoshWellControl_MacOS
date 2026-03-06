@@ -50,6 +50,8 @@ extension TripSimulationView {
     var tdCasedFF: Double = 0.20
     var tdOpenHoleFF: Double = 0.30
     var tdBlockWeight_kN: Double = 0
+    var tdAplEccentricity: Double = 1.0
+    var tdPressureAreaBuoyancy: Bool = true
 
     // Observed pit gain calibration
     // When useObservedPitGain is true, the simulation uses observedInitialPitGain_m3
@@ -167,7 +169,9 @@ extension TripSimulationView {
         tdStringSegments: tdStrSegs,
         tdHoleSections: tdHoleSegs,
         tdFriction: tdFriction,
-        tdBlockWeight_kN: tdBlockWeight_kN
+        tdBlockWeight_kN: tdBlockWeight_kN,
+        tdAplEccentricity: tdAplEccentricity,
+        tdPressureAreaBuoyancy: tdPressureAreaBuoyancy
       )
 
       circulateOutSchedule = result.schedule
@@ -393,6 +397,8 @@ extension TripSimulationView {
           input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
           input.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
           input.tdBlockWeight_kN = tdBlockWeight_kN
+          input.tdAplEccentricity = tdAplEccentricity
+          input.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
           input.tdTvdSampler = tvdSampler
         }
       }
@@ -514,6 +520,8 @@ extension TripSimulationView {
       simulation.tdCasedFF = tdCasedFF
       simulation.tdOpenHoleFF = tdOpenHoleFF
       simulation.tdBlockWeight_kN = tdBlockWeight_kN
+      simulation.tdAplEccentricity = tdAplEccentricity
+      simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -542,6 +550,8 @@ extension TripSimulationView {
       tdCasedFF = simulation.tdCasedFF
       tdOpenHoleFF = simulation.tdOpenHoleFF
       tdBlockWeight_kN = simulation.tdBlockWeight_kN
+      tdAplEccentricity = simulation.tdAplEccentricity
+      tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID
@@ -650,6 +660,8 @@ extension TripSimulationViewIOS {
     var tdCasedFF: Double = 0.20
     var tdOpenHoleFF: Double = 0.30
     var tdBlockWeight_kN: Double = 0
+    var tdAplEccentricity: Double = 1.0
+    var tdPressureAreaBuoyancy: Bool = true
 
     // Observed pit gain calibration
     var useObservedPitGain: Bool = false
@@ -816,6 +828,8 @@ extension TripSimulationViewIOS {
           input.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
           input.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
           input.tdBlockWeight_kN = tdBlockWeight_kN
+          input.tdAplEccentricity = tdAplEccentricity
+          input.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
           input.tdTvdSampler = tvdSampler
         }
       }
@@ -937,6 +951,8 @@ extension TripSimulationViewIOS {
       simulation.tdCasedFF = tdCasedFF
       simulation.tdOpenHoleFF = tdOpenHoleFF
       simulation.tdBlockWeight_kN = tdBlockWeight_kN
+      simulation.tdAplEccentricity = tdAplEccentricity
+      simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -965,6 +981,8 @@ extension TripSimulationViewIOS {
       tdCasedFF = simulation.tdCasedFF
       tdOpenHoleFF = simulation.tdOpenHoleFF
       tdBlockWeight_kN = simulation.tdBlockWeight_kN
+      tdAplEccentricity = simulation.tdAplEccentricity
+      tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID

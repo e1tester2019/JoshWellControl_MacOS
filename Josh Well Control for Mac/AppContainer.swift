@@ -31,7 +31,8 @@ enum AppContainer {
     // v16: Added priorityRaw to HandoverNote, priority to ArchivedNote, htmlData to HandoverReportArchive
     // v17: Removed simulation result persistence; inputs-only
     // v18: Added tripSpeed_m_per_min to TripInSimulation
-    private static let schemaVersion = 18
+    // v19: Added tdAplEccentricity, tdPressureAreaBuoyancy to TripSimulation and TripInSimulation
+    private static let schemaVersion = 19
     private static let schemaVersionKey = "AppContainerSchemaVersion"
     private static let resetPendingKey = "AppContainerResetPending"
 

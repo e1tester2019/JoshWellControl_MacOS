@@ -87,6 +87,10 @@ final class TripSimulation {
     var tdBlockWeight_kN: Double = 0
     /// Whether to compute T&D during simulation
     var tdEnabled: Bool = false
+    /// APL eccentricity factor for T&D
+    var tdAplEccentricity: Double = 1.0
+    /// Pressure-area buoyancy correction
+    var tdPressureAreaBuoyancy: Bool = true
 
     // MARK: - Pit Gain Calibration
 
@@ -138,6 +142,8 @@ final class TripSimulation {
         tdOpenHoleFF: Double = 0.30,
         tdBlockWeight_kN: Double = 0,
         tdEnabled: Bool = false,
+        tdAplEccentricity: Double = 1.0,
+        tdPressureAreaBuoyancy: Bool = true,
         useObservedPitGain: Bool = false,
         observedInitialPitGain_m3: Double = 0,
         project: ProjectState? = nil,
@@ -163,6 +169,8 @@ final class TripSimulation {
         self.tdOpenHoleFF = tdOpenHoleFF
         self.tdBlockWeight_kN = tdBlockWeight_kN
         self.tdEnabled = tdEnabled
+        self.tdAplEccentricity = tdAplEccentricity
+        self.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
         self.useObservedPitGain = useObservedPitGain
         self.observedInitialPitGain_m3 = observedInitialPitGain_m3
         self.project = project
@@ -199,6 +207,8 @@ extension TripSimulation {
             "tdOpenHoleFF": tdOpenHoleFF,
             "tdBlockWeight_kN": tdBlockWeight_kN,
             "tdEnabled": tdEnabled,
+            "tdAplEccentricity": tdAplEccentricity,
+            "tdPressureAreaBuoyancy": tdPressureAreaBuoyancy,
             "useObservedPitGain": useObservedPitGain,
             "observedInitialPitGain_m3": observedInitialPitGain_m3,
             "calculatedInitialPitGain_m3": calculatedInitialPitGain_m3,

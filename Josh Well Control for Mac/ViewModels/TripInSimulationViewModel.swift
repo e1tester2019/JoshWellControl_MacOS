@@ -48,6 +48,8 @@ class TripInSimulationViewModel {
     var tdCasedFF: Double = 0.20
     var tdOpenHoleFF: Double = 0.30
     var tdBlockWeight_kN: Double = 0
+    var tdAplEccentricity: Double = 1.0
+    var tdPressureAreaBuoyancy: Bool = true
 
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
@@ -381,6 +383,8 @@ class TripInSimulationViewModel {
                 serviceInput.tdHoleSections = TorqueDragEngine.holeSections(from: annulusSections)
                 serviceInput.tdFriction = TorqueDragEngine.FrictionFactors(cased: tdCasedFF, openHole: tdOpenHoleFF)
                 serviceInput.tdBlockWeight_kN = tdBlockWeight_kN
+                serviceInput.tdAplEccentricity = tdAplEccentricity
+                serviceInput.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
             }
         }
 
@@ -480,6 +484,8 @@ class TripInSimulationViewModel {
         simulation.tdCasedFF = tdCasedFF
         simulation.tdOpenHoleFF = tdOpenHoleFF
         simulation.tdBlockWeight_kN = tdBlockWeight_kN
+        simulation.tdAplEccentricity = tdAplEccentricity
+        simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
         simulation.holdSABPOpen = holdSABPOpen
         simulation.updatedAt = .now
 
@@ -513,6 +519,8 @@ class TripInSimulationViewModel {
         tdCasedFF = simulation.tdCasedFF
         tdOpenHoleFF = simulation.tdOpenHoleFF
         tdBlockWeight_kN = simulation.tdBlockWeight_kN
+        tdAplEccentricity = simulation.tdAplEccentricity
+        tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
         holdSABPOpen = simulation.holdSABPOpen
         return true
     }

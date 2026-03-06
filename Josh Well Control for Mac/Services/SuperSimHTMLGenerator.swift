@@ -60,6 +60,10 @@ struct SuperSimReportData {
         let layersAnnulus: [LayerData]
         let layersString: [LayerData]
         let layersPocket: [LayerData]
+        let pickup_kDaN: Double?
+        let slackOff_kDaN: Double?
+        let rotating_kDaN: Double?
+        let freeHanging_kDaN: Double?
     }
 
     struct TripInStep {
@@ -79,6 +83,9 @@ struct SuperSimReportData {
         let layersAnnulus: [LayerData]
         let layersString: [LayerData]
         let layersPocket: [LayerData]
+        let pickup_kDaN: Double?
+        let slackOff_kDaN: Double?
+        let freeHanging_kDaN: Double?
     }
 
     struct CirculationStep {
@@ -93,6 +100,10 @@ struct SuperSimReportData {
         let bitMD_m: Double
         let pumpRate_m3perMin: Double
         let apl_kPa: Double
+        let pickup_kDaN: Double?
+        let slackOff_kDaN: Double?
+        let rotating_kDaN: Double?
+        let freeHanging_kDaN: Double?
     }
 
     struct ReamOutStep {
@@ -155,6 +166,10 @@ struct SuperSimReportData {
         let layersAnnulus: [LayerData]
         let layersString: [LayerData]
         let layersPocket: [LayerData]
+        let pickup_kDaN: Double?
+        let slackOff_kDaN: Double?
+        let rotating_kDaN: Double?
+        let freeHanging_kDaN: Double?
     }
 
     let operations: [OperationData]
@@ -267,6 +282,7 @@ class SuperSimHTMLGenerator {
                 <div class="info-row"><span>ESD:</span> <span id="gi-esd">--</span></div>
                 <div class="info-row"><span>Static SABP:</span> <span id="gi-sabp-s">--</span></div>
                 <div class="info-row"><span>Dynamic SABP:</span> <span id="gi-sabp-d">--</span></div>
+                <div class="info-row" id="gi-hl-row" style="display:none"><span>Hook Load:</span> <span id="gi-hl">--</span></div>
             </div>
         </section>
 
@@ -276,9 +292,11 @@ class SuperSimHTMLGenerator {
             <div class="chart-tabs">
                 <button class="chart-tab active" onclick="showChart('esd',this)">ESD</button>
                 <button class="chart-tab" onclick="showChart('sabp',this)">Back Pressure</button>
+                <button class="chart-tab" onclick="showChart('hl',this)">Hook Load</button>
             </div>
             <div id="container-esd" class="chart-container"><canvas id="chart-esd"></canvas></div>
             <div id="container-sabp" class="chart-container" style="display:none"><canvas id="chart-sabp"></canvas></div>
+            <div id="container-hl" class="chart-container" style="display:none"><canvas id="chart-hl"></canvas></div>
             <div id="chart-values" class="chart-value-label"></div>
         </section>
         """
@@ -405,6 +423,7 @@ class SuperSimHTMLGenerator {
     // MARK: - Trip Out Table
 
     private func generateTripOutTable(_ steps: [SuperSimReportData.TripOutStep], opId: String) -> String {
+        let hasHL = steps.contains { $0.pickup_kDaN != nil }
         var html = """
         <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
         <thead><tr>
@@ -418,8 +437,16 @@ class SuperSimHTMLGenerator {
             <th onclick="sortOpTable('\(opId)',7)">Actual (m&sup3;) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',8)">Tank &Delta; (m&sup3;) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',9)">Float &#8693;</th>
-        </tr></thead><tbody>
         """
+        if hasHL {
+            html += """
+                <th onclick="sortOpTable('\(opId)',10)">Pickup (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',11)">Slack-off (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',12)">Rotating (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',13)">Free (kDaN) &#8693;</th>
+            """
+        }
+        html += "</tr></thead><tbody>"
         for (i, s) in steps.enumerated() {
             html += """
             <tr onclick="opGoToStep('\(opId)',\(i))" class="clickable-row">
@@ -429,8 +456,12 @@ class SuperSimHTMLGenerator {
                 <td>\(f2(s.expectedFillIfClosed_m3))</td><td>\(f2(s.expectedFillIfOpen_m3))</td>
                 <td>\(f2(s.stepBackfill_m3))</td><td>\(f2(s.cumulativeSurfaceTankDelta_m3))</td>
                 <td>\(esc(s.floatState))</td>
-            </tr>
             """
+            if hasHL {
+                html += "<td>\(optF1(s.pickup_kDaN))</td><td>\(optF1(s.slackOff_kDaN))</td>"
+                html += "<td>\(optF1(s.rotating_kDaN))</td><td>\(optF1(s.freeHanging_kDaN))</td>"
+            }
+            html += "</tr>"
         }
         html += "</tbody></table></div>"
         return html
@@ -440,6 +471,7 @@ class SuperSimHTMLGenerator {
 
     private func generateTripInTable(_ steps: [SuperSimReportData.TripInStep], opId: String) -> String {
         let hasSurge = steps.contains { $0.surgePressure_kPa > 0 }
+        let hasHL = steps.contains { $0.pickup_kDaN != nil }
         var html = """
         <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
         <thead><tr>
@@ -462,8 +494,16 @@ class SuperSimHTMLGenerator {
             <th onclick="sortOpTable('\(opId)',\(colOffset+4))">Fill (m&sup3;) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',\(colOffset+5))">Disp (m&sup3;) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',\(colOffset+6))">Float &#8693;</th>
-        </tr></thead><tbody>
         """
+        if hasHL {
+            let hlOff = colOffset + 7
+            html += """
+                <th onclick="sortOpTable('\(opId)',\(hlOff))">Pickup (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',\(hlOff+1))">Slack-off (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',\(hlOff+2))">Free (kDaN) &#8693;</th>
+            """
+        }
+        html += "</tr></thead><tbody>"
         for (i, s) in steps.enumerated() {
             let deltaP = (s.annulusPressureAtBit_kPa + s.requiredChokePressure_kPa) - s.stringPressureAtBit_kPa
             html += """
@@ -480,8 +520,11 @@ class SuperSimHTMLGenerator {
                 <td>\(f0(deltaP))</td>
                 <td>\(f2(s.cumulativeFillVolume_m3))</td><td>\(f2(s.cumulativeDisplacementReturns_m3))</td>
                 <td>\(esc(s.floatState))</td>
-            </tr>
             """
+            if hasHL {
+                html += "<td>\(optF1(s.pickup_kDaN))</td><td>\(optF1(s.slackOff_kDaN))</td><td>\(optF1(s.freeHanging_kDaN))</td>"
+            }
+            html += "</tr>"
         }
         html += "</tbody></table></div>"
         return html
@@ -490,6 +533,7 @@ class SuperSimHTMLGenerator {
     // MARK: - Circulation Table
 
     private func generateCirculationTable(_ steps: [SuperSimReportData.CirculationStep], opId: String) -> String {
+        let hasHL = steps.contains { $0.pickup_kDaN != nil }
         var html = """
         <div class="table-wrapper"><table id="\(opId)-table" class="op-table">
         <thead><tr>
@@ -499,9 +543,17 @@ class SuperSimHTMLGenerator {
             <th onclick="sortOpTable('\(opId)',3)">&Delta;BP (kPa) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',4)">Pump Rate (m&sup3;/min) &#8693;</th>
             <th onclick="sortOpTable('\(opId)',5)">APL (kPa) &#8693;</th>
-            <th onclick="sortOpTable('\(opId)',6)">Action</th>
-        </tr></thead><tbody>
         """
+        if hasHL {
+            html += """
+                <th onclick="sortOpTable('\(opId)',6)">Pickup (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',7)">Slack-off (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',8)">Rotating (kDaN) &#8693;</th>
+                <th onclick="sortOpTable('\(opId)',9)">Free (kDaN) &#8693;</th>
+            """
+        }
+        html += "<th>Action</th>"
+        html += "</tr></thead><tbody>"
         for (i, s) in steps.enumerated() {
             let deltaStr: String
             if s.deltaSABP_kPa > 0.5 {
@@ -519,9 +571,12 @@ class SuperSimHTMLGenerator {
                 <td class="\(s.deltaSABP_kPa > 0.5 ? "delta-up" : s.deltaSABP_kPa < -0.5 ? "delta-down" : "")">\(deltaStr)</td>
                 <td>\(f2(s.pumpRate_m3perMin))</td>
                 <td>\(f0(s.apl_kPa))</td>
-                <td>\(esc(s.description))</td>
-            </tr>
             """
+            if hasHL {
+                html += "<td>\(optF1(s.pickup_kDaN))</td><td>\(optF1(s.slackOff_kDaN))</td>"
+                html += "<td>\(optF1(s.rotating_kDaN))</td><td>\(optF1(s.freeHanging_kDaN))</td>"
+            }
+            html += "<td>\(esc(s.description))</td></tr>"
         }
         html += "</tbody></table></div>"
         return html
@@ -613,8 +668,12 @@ class SuperSimHTMLGenerator {
         var json = "["
         for (i, s) in steps.enumerated() {
             if i > 0 { json += "," }
+            let pu = s.pickup_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+            let so = s.slackOff_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+            let rot = s.rotating_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+            let fh = s.freeHanging_kDaN.map { String(format: "%.1f", $0) } ?? "null"
             json += """
-            {"gi":\(s.globalIndex),"oi":\(s.operationIndex),"ot":"\(escJSON(s.operationType.rawValue))","ol":"\(escJSON(s.operationLabel))","md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESD_kgpm3)),"ss":\(f0(s.staticSABP_kPa)),"sd":\(f0(s.dynamicSABP_kPa)),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+            {"gi":\(s.globalIndex),"oi":\(s.operationIndex),"ot":"\(escJSON(s.operationType.rawValue))","ol":"\(escJSON(s.operationLabel))","md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESD_kgpm3)),"ss":\(f0(s.staticSABP_kPa)),"sd":\(f0(s.dynamicSABP_kPa)),"pu":\(pu),"so":\(so),"rot":\(rot),"fh":\(fh),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
             """
         }
         json += "]"
@@ -627,23 +686,34 @@ class SuperSimHTMLGenerator {
         case .tripOut:
             for (i, s) in (op.tripOutSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
+                let pu = s.pickup_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let so = s.slackOff_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let rot = s.rotating_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let fh = s.freeHanging_kDaN.map { String(format: "%.1f", $0) } ?? "null"
                 json += """
-                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDatTD_kgpm3)),"ss":\(f0(s.SABP_kPa)),"sd":\(f0(s.SABP_Dynamic_kPa)),"dpW":\(f2(s.expectedFillIfClosed_m3)),"dpD":\(f2(s.expectedFillIfOpen_m3)),"bf":\(f2(s.stepBackfill_m3)),"td":\(f2(s.cumulativeSurfaceTankDelta_m3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDatTD_kgpm3)),"ss":\(f0(s.SABP_kPa)),"sd":\(f0(s.SABP_Dynamic_kPa)),"dpW":\(f2(s.expectedFillIfClosed_m3)),"dpD":\(f2(s.expectedFillIfOpen_m3)),"bf":\(f2(s.stepBackfill_m3)),"td":\(f2(s.cumulativeSurfaceTankDelta_m3)),"fs":"\(escJSON(s.floatState))","pu":\(pu),"so":\(so),"rot":\(rot),"fh":\(fh),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .tripIn:
             for (i, s) in (op.tripInSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
                 let deltaP = (s.annulusPressureAtBit_kPa + s.requiredChokePressure_kPa) - s.stringPressureAtBit_kPa
+                let pu = s.pickup_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let so = s.slackOff_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let fh = s.freeHanging_kDaN.map { String(format: "%.1f", $0) } ?? "null"
                 json += """
-                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"choke":\(f0(s.requiredChokePressure_kPa)),"hpA":\(f0(s.annulusPressureAtBit_kPa)),"hpS":\(f0(s.stringPressureAtBit_kPa)),"dp":\(f0(deltaP)),"fill":\(f2(s.cumulativeFillVolume_m3)),"disp":\(f2(s.cumulativeDisplacementReturns_m3)),"surge":\(f0(s.surgePressure_kPa)),"desd":\(f1(s.dynamicESDAtControl_kgpm3)),"fs":"\(escJSON(s.floatState))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"md":\(f1(s.bitMD_m)),"tvd":\(f1(s.bitTVD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"choke":\(f0(s.requiredChokePressure_kPa)),"hpA":\(f0(s.annulusPressureAtBit_kPa)),"hpS":\(f0(s.stringPressureAtBit_kPa)),"dp":\(f0(deltaP)),"fill":\(f2(s.cumulativeFillVolume_m3)),"disp":\(f2(s.cumulativeDisplacementReturns_m3)),"surge":\(f0(s.surgePressure_kPa)),"desd":\(f1(s.dynamicESDAtControl_kgpm3)),"fs":"\(escJSON(s.floatState))","pu":\(pu),"so":\(so),"fh":\(fh),"la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .circulate:
             for (i, s) in (op.circulationSteps ?? []).enumerated() {
                 if i > 0 { json += "," }
+                let pu = s.pickup_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let so = s.slackOff_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let rot = s.rotating_kDaN.map { String(format: "%.1f", $0) } ?? "null"
+                let fh = s.freeHanging_kDaN.map { String(format: "%.1f", $0) } ?? "null"
                 json += """
-                {"vol":\(f2(s.volumePumped_m3)),"md":\(f1(s.bitMD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"bp":\(f0(s.requiredSABP_kPa)),"dbp":\(f0(s.deltaSABP_kPa)),"pr":\(f2(s.pumpRate_m3perMin)),"apl":\(f0(s.apl_kPa)),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
+                {"vol":\(f2(s.volumePumped_m3)),"md":\(f1(s.bitMD_m)),"esd":\(f1(s.ESDAtControl_kgpm3)),"bp":\(f0(s.requiredSABP_kPa)),"dbp":\(f0(s.deltaSABP_kPa)),"pr":\(f2(s.pumpRate_m3perMin)),"apl":\(f0(s.apl_kPa)),"pu":\(pu),"so":\(so),"rot":\(rot),"fh":\(fh),"desc":"\(escJSON(s.description))","la":\(layersJSON(s.layersAnnulus)),"ls":\(layersJSON(s.layersString)),"lp":\(layersJSON(s.layersPocket))}
                 """
             }
         case .reamOut:
@@ -711,6 +781,7 @@ class SuperSimHTMLGenerator {
     private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+    private func optF1(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "" }
 
     // MARK: - CSS
 
@@ -848,6 +919,18 @@ class SuperSimHTMLGenerator {
             setText('gi-esd', s.esd.toFixed(1) + ' kg/m\\u00B3');
             setText('gi-sabp-s', s.ss.toFixed(0) + ' kPa');
             setText('gi-sabp-d', s.sd.toFixed(0) + ' kPa');
+            const hlRow = document.getElementById('gi-hl-row');
+            if (s.pu !== null || s.so !== null) {
+                if (hlRow) hlRow.style.display = '';
+                let hlText = '';
+                if (s.pu !== null) hlText += 'PU: ' + s.pu.toFixed(1);
+                if (s.so !== null) hlText += (hlText ? ' / ' : '') + 'SO: ' + s.so.toFixed(1);
+                if (s.fh !== null) hlText += (hlText ? ' / ' : '') + 'FH: ' + s.fh.toFixed(1);
+                hlText += ' kDaN';
+                setText('gi-hl', hlText);
+            } else {
+                if (hlRow) hlRow.style.display = 'none';
+            }
             const gLabel = document.getElementById('global-op-label');
             if (gLabel) {
                 const activityText = s.ot === 'Trip Out' ? '\\u25B2 Tripping Out' : s.ot === 'Trip In' ? '\\u25BC Tripping In' : '\\u27F3 Circulating';
@@ -895,6 +978,10 @@ class SuperSimHTMLGenerator {
                            infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +
                            infoRow('Static SABP', s.ss.toFixed(0) + ' kPa') + infoRow('Dynamic SABP', s.sd.toFixed(0) + ' kPa') +
                            infoRow('Float', s.fs) + infoRow('Tank \\u0394', s.td.toFixed(2) + ' m\\u00B3');
+                    if (s.pu !== null) html += infoRow('Pickup', s.pu.toFixed(1) + ' kDaN');
+                    if (s.so !== null) html += infoRow('Slack-off', s.so.toFixed(1) + ' kDaN');
+                    if (s.rot !== null) html += infoRow('Rotating', s.rot.toFixed(1) + ' kDaN');
+                    if (s.fh !== null) html += infoRow('Free Hang', s.fh.toFixed(1) + ' kDaN');
                 } else if (od.type === 'Trip In') {
                     html = infoRow('Bit MD', s.md.toFixed(0) + ' m') + infoRow('Bit TVD', s.tvd.toFixed(0) + ' m') +
                            infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +
@@ -902,14 +989,25 @@ class SuperSimHTMLGenerator {
                            infoRow('HP Ann@Bit', s.hpA.toFixed(0) + ' kPa') + infoRow('HP Str@Bit', s.hpS.toFixed(0) + ' kPa') +
                            infoRow('\\u0394P@Float', s.dp.toFixed(0) + ' kPa') + infoRow('Float', s.fs);
                     if (s.surge > 0) html += infoRow('Surge', s.surge.toFixed(0) + ' kPa') + infoRow('Dyn ESD', s.desd.toFixed(1) + ' kg/m\\u00B3');
-                } else {
+                    if (s.pu !== null) html += infoRow('Pickup', s.pu.toFixed(1) + ' kDaN');
+                    if (s.so !== null) html += infoRow('Slack-off', s.so.toFixed(1) + ' kDaN');
+                    if (s.fh !== null) html += infoRow('Free Hang', s.fh.toFixed(1) + ' kDaN');
+                } else if (od.type === 'Circulate') {
                     html = infoRow('Vol Pumped', s.vol.toFixed(2) + ' m\\u00B3') +
                            infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +
                            infoRow('Choke', s.bp.toFixed(0) + ' kPa') +
                            infoRow('\\u0394BP', s.dbp.toFixed(0) + ' kPa') +
                            infoRow('Pump Rate', s.pr.toFixed(2) + ' m\\u00B3/min') +
-                           infoRow('APL', s.apl.toFixed(0) + ' kPa') +
-                           infoRow('Action', s.desc);
+                           infoRow('APL', s.apl.toFixed(0) + ' kPa');
+                    if (s.pu !== null) html += infoRow('Pickup', s.pu.toFixed(1) + ' kDaN');
+                    if (s.so !== null) html += infoRow('Slack-off', s.so.toFixed(1) + ' kDaN');
+                    if (s.rot !== null) html += infoRow('Rotating', s.rot.toFixed(1) + ' kDaN');
+                    if (s.fh !== null) html += infoRow('Free Hang', s.fh.toFixed(1) + ' kDaN');
+                    html += infoRow('Action', s.desc);
+                } else {
+                    html = infoRow('Vol Pumped', (s.vol || 0).toFixed(2) + ' m\\u00B3') +
+                           infoRow('ESD', s.esd.toFixed(1) + ' kg/m\\u00B3') +
+                           infoRow('Choke', (s.bp || s.choke || 0).toFixed(0) + ' kPa');
                 }
                 info.innerHTML = html;
             }
@@ -1068,11 +1166,14 @@ class SuperSimHTMLGenerator {
         }
 
         function drawChartMarker() {
-            drawESD(); drawSABP();
-            const vis = document.getElementById('container-esd').style.display !== 'none' ? 'chart-esd' : 'chart-sabp';
+            drawESD(); drawSABP(); drawHL();
+            let vis = 'chart-esd';
+            if (document.getElementById('container-sabp').style.display !== 'none') vis = 'chart-sabp';
+            if (document.getElementById('container-hl').style.display !== 'none') vis = 'chart-hl';
             const cv = initCanvas(vis); if (!cv) return;
-            // Redraw then marker
-            if (vis === 'chart-esd') drawESD(); else drawSABP();
+            if (vis === 'chart-esd') drawESD();
+            else if (vis === 'chart-sabp') drawSABP();
+            else drawHL();
             const { ctx, w, h } = cv;
             const pad = { l: 65, r: 20, t: 25, b: 30 };
             const pw = w - pad.l - pad.r;
@@ -1084,13 +1185,17 @@ class SuperSimHTMLGenerator {
             const valEl = document.getElementById('chart-values');
             if (s && valEl) {
                 const totalESD = controlTVD > 0 ? s.esd + s.ss / (0.00981 * controlTVD) : s.esd;
-                valEl.innerHTML = s.ol + ' \\u2014 ' +
+                let html = s.ol + ' \\u2014 ' +
                     'Step <span>' + s.gi + '</span> \\u2022 ' +
                     'MD <span>' + s.md.toFixed(0) + ' m</span> \\u2022 ' +
                     'ESD <span>' + s.esd.toFixed(1) + ' kg/m\\u00B3</span> \\u2022 ' +
                     'ESD+BP <span>' + totalESD.toFixed(1) + ' kg/m\\u00B3</span> \\u2022 ' +
                     'Static SABP <span>' + s.ss.toFixed(0) + ' kPa</span> \\u2022 ' +
                     'Dynamic SABP <span>' + s.sd.toFixed(0) + ' kPa</span>';
+                if (s.pu !== null) html += ' \\u2022 PU <span style="color:#388e3c">' + s.pu.toFixed(1) + ' kDaN</span>';
+                if (s.so !== null) html += ' \\u2022 SO <span style="color:#d32f2f">' + s.so.toFixed(1) + ' kDaN</span>';
+                if (s.fh !== null) html += ' \\u2022 FH <span style="color:#666">' + s.fh.toFixed(1) + ' kDaN</span>';
+                valEl.innerHTML = html;
             }
         }
 
@@ -1104,13 +1209,84 @@ class SuperSimHTMLGenerator {
         function drawSABP() {
             drawLineChart('chart-sabp', s => [s.map(x => x.ss), s.map(x => x.sd)], 'SABP (kPa)', ['#d32f2f', '#ef9a9a']);
         }
+        function drawHL() {
+            const hasData = gSteps.some(s => s.pu !== null || s.so !== null);
+            if (!hasData) return;
+            const cv = initCanvas('chart-hl'); if (!cv) return;
+            const { ctx, w, h } = cv;
+            const pad = { l: 65, r: 20, t: 25, b: 30 };
+            const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
 
-        function initCharts() { drawESD(); drawSABP(); }
+            const allVals = gSteps.flatMap(s => [s.pu, s.so, s.rot, s.fh].filter(v => v !== null));
+            if (allVals.length === 0) return;
+            const yMin = Math.min(...allVals) - 5;
+            const yMax = Math.max(...allVals) + 5;
+            const yRange = yMax - yMin || 1;
+
+            // Grid
+            ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
+            for (let i = 0; i <= 5; i++) {
+                const y = pad.t + ph - (i / 5) * ph;
+                ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pw, y); ctx.stroke();
+                ctx.fillStyle = '#666'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+                ctx.fillText((yMin + (i / 5) * yRange).toFixed(0), pad.l - 6, y + 4);
+            }
+            ctx.fillStyle = '#666'; ctx.font = '11px sans-serif';
+            ctx.textAlign = 'center'; ctx.fillText('Step', pad.l + pw / 2, h - 4);
+            ctx.textAlign = 'left'; ctx.fillText('Hook Load (kDaN)', 4, pad.t + 12);
+
+            // Op boundaries
+            ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+            for (const b of boundaries) {
+                const bx = pad.l + (b.i / Math.max(1, gSteps.length - 1)) * pw;
+                ctx.beginPath(); ctx.moveTo(bx, pad.t); ctx.lineTo(bx, pad.t + ph); ctx.stroke();
+                ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+                ctx.fillText(b.l, bx + 3, pad.t + 12);
+            }
+            ctx.setLineDash([]);
+
+            // Helper to draw a series with null gaps
+            function drawSeries(key, color, lineWidth, dash) {
+                ctx.strokeStyle = color; ctx.lineWidth = lineWidth;
+                if (dash) ctx.setLineDash(dash);
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < gSteps.length; i++) {
+                    const v = gSteps[i][key];
+                    if (v === null) { started = false; continue; }
+                    const x = pad.l + (i / Math.max(1, gSteps.length - 1)) * pw;
+                    const y = pad.t + ph - ((v - yMin) / yRange) * ph;
+                    if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+                }
+                ctx.stroke(); ctx.setLineDash([]);
+            }
+            drawSeries('pu', '#388e3c', 2, null);
+            drawSeries('so', '#d32f2f', 2, null);
+            drawSeries('rot', '#1976d2', 1.5, null);
+            drawSeries('fh', '#999', 1.5, [5, 3]);
+
+            // Legend
+            const legendY = pad.t + ph + 18;
+            const items = [['Pickup','#388e3c'],['Slack-off','#d32f2f'],['Rotating','#1976d2'],['Free Hang','#999']];
+            let lx = pad.l;
+            ctx.font = '10px sans-serif';
+            for (const [label, color] of items) {
+                ctx.fillStyle = color;
+                ctx.fillRect(lx, legendY - 6, 12, 2);
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'left';
+                ctx.fillText(label, lx + 15, legendY);
+                lx += ctx.measureText(label).width + 30;
+            }
+        }
+
+        function initCharts() { drawESD(); drawSABP(); drawHL(); }
         function showChart(type, btn) {
             document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
             if (btn) btn.classList.add('active');
             document.getElementById('container-esd').style.display = type === 'esd' ? '' : 'none';
             document.getElementById('container-sabp').style.display = type === 'sabp' ? '' : 'none';
+            document.getElementById('container-hl').style.display = type === 'hl' ? '' : 'none';
             drawChartMarker();
         }
 

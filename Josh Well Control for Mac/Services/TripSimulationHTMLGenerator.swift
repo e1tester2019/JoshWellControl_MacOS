@@ -196,6 +196,10 @@ class TripSimulationHTMLGenerator {
                         <div class="info-row"><span>Static SABP:</span> <span id="info-sabp">--</span></div>
                         <div class="info-row"><span>Float State:</span> <span id="info-float">--</span></div>
                         <div class="info-row"><span>Step Backfill:</span> <span id="info-backfill">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Pickup:</span> <span id="info-pu" style="color:#4caf50">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Slack-off:</span> <span id="info-so" style="color:#f44336">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Rotating:</span> <span id="info-rot" style="color:#2196f3">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Free Hanging:</span> <span id="info-fh" style="color:#999">--</span></div>
                     </div>
                 </section>
 
@@ -219,6 +223,10 @@ class TripSimulationHTMLGenerator {
                         <div class="chart-container" id="container-backfill">
                             <canvas id="chart-backfill" width="280" height="180"></canvas>
                             <div class="chart-tooltip" id="tooltip-backfill"></div>
+                        </div>
+                        <div class="chart-container" id="container-hl" style="display:none;grid-column:1/-1">
+                            <canvas id="chart-hl" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-hl"></div>
                         </div>
                     </div>
                 </section>
@@ -246,6 +254,10 @@ class TripSimulationHTMLGenerator {
                 <section class="card">
                     <h2>Step-by-Step Data</h2>
                     <div class="table-controls">
+                        <div class="table-toggle" id="table-toggle" style="display:none">
+                            <button class="toggle-btn active" id="btn-pressure" onclick="toggleTableView('pressure')">Pressure & Volume</button>
+                            <button class="toggle-btn" id="btn-hookload" onclick="toggleTableView('hookload')">Hook Load</button>
+                        </div>
                         <input type="text" id="table-search" placeholder="Search..." onkeyup="filterTable()">
                         <button onclick="exportTableCSV()">Export CSV</button>
                     </div>
@@ -255,14 +267,18 @@ class TripSimulationHTMLGenerator {
                                 <tr>
                                     <th onclick="sortTable(0)">MD (m) ⇅</th>
                                     <th onclick="sortTable(1)">TVD (m) ⇅</th>
-                                    <th onclick="sortTable(2)">Static SABP ⇅</th>
-                                    <th onclick="sortTable(3)">Dynamic SABP ⇅</th>
-                                    <th onclick="sortTable(4)">ESD (kg/m³) ⇅</th>
-                                    <th onclick="sortTable(5)">DP Wet (m³) ⇅</th>
-                                    <th onclick="sortTable(6)">DP Dry (m³) ⇅</th>
-                                    <th onclick="sortTable(7)">Actual (m³) ⇅</th>
-                                    <th onclick="sortTable(8)">Tank Δ (m³) ⇅</th>
-                                    <th onclick="sortTable(9)">Float ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(2)">Static SABP ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(3)">Dynamic SABP ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(4)">ESD (kg/m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(5)">DP Wet (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(6)">DP Dry (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(7)">Actual (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(8)">Tank Δ (m³) ⇅</th>
+                                    <th class="pv-col" onclick="sortTable(9)">Float ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(10)" style="display:none">Pickup (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(11)" style="display:none">Slack-off (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(12)" style="display:none">Rotating (kDaN) ⇅</th>
+                                    <th class="hl-col" onclick="sortTable(13)" style="display:none">Free (kDaN) ⇅</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -716,10 +732,32 @@ class TripSimulationHTMLGenerator {
         }
 
         /* Tables */
+        .table-toggle {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .table-controls .toggle-btn {
+            padding: 6px 14px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-right: 1px solid var(--border-color);
+        }
+        .table-controls .toggle-btn:last-child { border-right: none; }
+        .table-controls .toggle-btn.active {
+            background: var(--brand-color);
+            color: white;
+        }
         .table-controls {
             display: flex;
             gap: 12px;
             margin-bottom: 12px;
+            align-items: center;
         }
 
         .table-controls input {
@@ -970,6 +1008,14 @@ class TripSimulationHTMLGenerator {
             document.getElementById('info-float').textContent = step.fs;
             document.getElementById('info-backfill').textContent = step.sbf.toFixed(3) + ' m³';
 
+            // Hook load info
+            if (step.pu !== null) {
+                document.getElementById('info-pu').textContent = step.pu.toFixed(1) + ' kDaN';
+                document.getElementById('info-so').textContent = step.so !== null ? step.so.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-rot').textContent = step.rot !== null ? step.rot.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-fh').textContent = step.fh !== null ? step.fh.toFixed(1) + ' kDaN' : '--';
+            }
+
             // Draw wellbore canvases
             drawWellboreColumn('annulus-left', step.la, step.md, 'annulus');
             drawWellboreColumn('string-canvas', step.ls, step.md, 'string');
@@ -1202,6 +1248,24 @@ class TripSimulationHTMLGenerator {
             charts.backfill = createChart('chart-backfill', 'Cumulative Backfill', depths, [
                 { data: backfills, label: 'Backfill (m³)', color: '#009688' }
             ]);
+
+            // Hook load chart (only if data exists)
+            const hasHL = steps.some(s => s.pu !== null);
+            if (hasHL) {
+                document.getElementById('container-hl').style.display = '';
+                document.querySelectorAll('.hl-info').forEach(el => el.style.display = '');
+                document.getElementById('table-toggle').style.display = '';
+                const puData = steps.map(s => s.pu);
+                const soData = steps.map(s => s.so);
+                const rotData = steps.map(s => s.rot);
+                const fhData = steps.map(s => s.fh);
+                charts.hl = createChart('chart-hl', 'Hook Load vs Depth', depths, [
+                    { data: puData, label: 'Pickup', color: '#4caf50' },
+                    { data: soData, label: 'Slack-off', color: '#f44336' },
+                    { data: rotData, label: 'Rotating', color: '#2196f3' },
+                    { data: fhData, label: 'Free Hanging', color: '#999', dash: [4,3] }
+                ]);
+            }
         }
 
         function createChart(canvasId, title, xData, datasets) {
@@ -1237,8 +1301,7 @@ class TripSimulationHTMLGenerator {
             const xMax = Math.max(...xData);
             let yMin = Infinity, yMax = -Infinity;
             datasets.forEach(ds => {
-                yMin = Math.min(yMin, ...ds.data);
-                yMax = Math.max(yMax, ...ds.data);
+                ds.data.forEach(v => { if (v !== null && v !== undefined) { if (v < yMin) yMin = v; if (v > yMax) yMax = v; } });
             });
             const yPad = (yMax - yMin) * 0.1 || 1;
             yMin -= yPad;
@@ -1316,14 +1379,19 @@ class TripSimulationHTMLGenerator {
                 datasets.forEach(ds => {
                     ctx.strokeStyle = ds.color;
                     ctx.lineWidth = 1.5;
+                    ctx.setLineDash(ds.dash || []);
                     ctx.beginPath();
+                    let penDown = false;
                     xData.forEach((x, i) => {
+                        const val = ds.data[i];
+                        if (val === null || val === undefined) { penDown = false; return; }
                         const px = margin.left + ((xMax - x) / (xMax - xMin)) * plotW;
-                        const py = margin.top + ((yMax - ds.data[i]) / (yMax - yMin)) * plotH;
-                        if (i === 0) ctx.moveTo(px, py);
+                        const py = margin.top + ((yMax - val) / (yMax - yMin)) * plotH;
+                        if (!penDown) { ctx.moveTo(px, py); penDown = true; }
                         else ctx.lineTo(px, py);
                     });
                     ctx.stroke();
+                    ctx.setLineDash([]);
                 });
 
                 // Highlight marker
@@ -1341,7 +1409,9 @@ class TripSimulationHTMLGenerator {
 
                     // Draw data points at highlight
                     datasets.forEach(ds => {
-                        const py = margin.top + ((yMax - ds.data[highlightIndex]) / (yMax - yMin)) * plotH;
+                        const val = ds.data[highlightIndex];
+                        if (val === null || val === undefined) return;
+                        const py = margin.top + ((yMax - val) / (yMax - yMin)) * plotH;
                         ctx.fillStyle = ds.color;
                         ctx.beginPath();
                         ctx.arc(px, py, 4, 0, Math.PI * 2);
@@ -1373,6 +1443,7 @@ class TripSimulationHTMLGenerator {
                 let html = '<div class="tooltip-title">MD: ' + depth.toFixed(0) + ' m</div>';
                 datasets.forEach(ds => {
                     const val = ds.data[idx];
+                    if (val === null || val === undefined) return;
                     html += '<div class="tooltip-row"><span>' + ds.label + ':</span><span class="tooltip-value" style="color:' + ds.color + '">' + val.toFixed(val >= 100 ? 0 : 2) + '</span></div>';
                 });
                 tooltip.innerHTML = html;
@@ -1452,6 +1523,24 @@ class TripSimulationHTMLGenerator {
             a.click();
             URL.revokeObjectURL(url);
         }
+
+        function toggleTableView(view) {
+            const pvCols = document.querySelectorAll('.pv-col');
+            const hlCols = document.querySelectorAll('.hl-col');
+            const btnP = document.getElementById('btn-pressure');
+            const btnH = document.getElementById('btn-hookload');
+            if (view === 'hookload') {
+                pvCols.forEach(el => el.style.display = 'none');
+                hlCols.forEach(el => el.style.display = '');
+                btnP.classList.remove('active');
+                btnH.classList.add('active');
+            } else {
+                pvCols.forEach(el => el.style.display = '');
+                hlCols.forEach(el => el.style.display = 'none');
+                btnP.classList.add('active');
+                btnH.classList.remove('active');
+            }
+        }
         """
     }
 
@@ -1473,8 +1562,12 @@ class TripSimulationHTMLGenerator {
         var json = "["
         for (i, step) in steps.enumerated() {
             if i > 0 { json += "," }
+            let puStr = step.pickupHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let soStr = step.slackOffHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let rotStr = step.rotatingHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let fhStr = step.freeHangingWeight_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
             json += """
-            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDatTD_kgpm3)),"ss":\(f0(step.SABP_kPa)),"sd":\(f0(step.SABP_Dynamic_kPa)),"td":\(f2(step.cumulativeSurfaceTankDelta_m3)),"cbf":\(f2(step.cumulativeBackfill_m3)),"sbf":\(f2(step.stepBackfill_m3)),"fs":"\(step.floatState)","la":\(layersToJSON(step.layersAnnulus)),"ls":\(layersToJSON(step.layersString)),"lp":\(layersToJSON(step.layersPocket))}
+            {"md":\(f1(step.bitMD_m)),"tvd":\(f1(step.bitTVD_m)),"esd":\(f1(step.ESDatTD_kgpm3)),"ss":\(f0(step.SABP_kPa)),"sd":\(f0(step.SABP_Dynamic_kPa)),"td":\(f2(step.cumulativeSurfaceTankDelta_m3)),"cbf":\(f2(step.cumulativeBackfill_m3)),"sbf":\(f2(step.stepBackfill_m3)),"fs":"\(step.floatState)","pu":\(puStr),"so":\(soStr),"rot":\(rotStr),"fh":\(fhStr),"la":\(layersToJSON(step.layersAnnulus)),"ls":\(layersToJSON(step.layersString)),"lp":\(layersToJSON(step.layersPocket))}
             """
         }
         json += "]"
@@ -1497,23 +1590,34 @@ class TripSimulationHTMLGenerator {
         return json
     }
 
+    private func optF1(_ v: Double?) -> String { v.map { String(format: "%.1f", $0 / 10.0) } ?? "" }
+
     private func generateTableRows(_ steps: [NumericalTripModel.TripStep]) -> String {
+        let hasHL = steps.contains(where: { $0.pickupHookLoad_kN != nil })
         var html = ""
         for step in steps {
             html += """
             <tr>
                 <td>\(String(format: "%.0f", step.bitMD_m))</td>
                 <td>\(String(format: "%.0f", step.bitTVD_m))</td>
-                <td>\(String(format: "%.0f", step.SABP_kPa))</td>
-                <td>\(String(format: "%.0f", step.SABP_Dynamic_kPa))</td>
-                <td>\(String(format: "%.0f", step.ESDatTD_kgpm3))</td>
-                <td>\(String(format: "%.3f", step.expectedFillIfClosed_m3))</td>
-                <td>\(String(format: "%.3f", step.expectedFillIfOpen_m3))</td>
-                <td>\(String(format: "%.3f", step.stepBackfill_m3))</td>
-                <td>\(String(format: "%+.2f", step.cumulativeSurfaceTankDelta_m3))</td>
-                <td>\(step.floatState)</td>
-            </tr>
+                <td class="pv-col">\(String(format: "%.0f", step.SABP_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.SABP_Dynamic_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", step.ESDatTD_kgpm3))</td>
+                <td class="pv-col">\(String(format: "%.3f", step.expectedFillIfClosed_m3))</td>
+                <td class="pv-col">\(String(format: "%.3f", step.expectedFillIfOpen_m3))</td>
+                <td class="pv-col">\(String(format: "%.3f", step.stepBackfill_m3))</td>
+                <td class="pv-col">\(String(format: "%+.2f", step.cumulativeSurfaceTankDelta_m3))</td>
+                <td class="pv-col">\(step.floatState)</td>
             """
+            if hasHL {
+                html += """
+                    <td class="hl-col" style="display:none">\(optF1(step.pickupHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.slackOffHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.rotatingHookLoad_kN))</td>
+                    <td class="hl-col" style="display:none">\(optF1(step.freeHangingWeight_kN))</td>
+                """
+            }
+            html += "</tr>"
         }
         return html
     }
