@@ -81,6 +81,11 @@ enum TripInService {
         var tdBlockWeight_kN: Double = 0
         var tdAplEccentricity: Double = 1.0
         var tdPressureAreaBuoyancy: Bool = true
+        var tdRPM: Double = 0
+        var tdTripSpeedUp_m_per_s: Double = 0
+        var tdTripSpeedDown_m_per_s: Double = 0
+        var tdRotationEfficiencyUp: Double = 1.0
+        var tdRotationEfficiencyDown: Double = 1.0
         var holdSABPOpen: Bool = false
         // Continuation support: start cumulative counters from existing values
         var initialCumulativeFill_m3: Double = 0
@@ -370,7 +375,12 @@ enum TripInService {
                     surgePressure_kPa: surgePressure,
                     aplEccentricityFactor: input.tdAplEccentricity,
                     pressureAreaBuoyancy: input.tdPressureAreaBuoyancy,
-                    stringFluidLayers: strFluidLayers
+                    stringFluidLayers: strFluidLayers,
+                    rpm: input.tdRPM,
+                    tripSpeedUp_m_per_s: input.tdTripSpeedUp_m_per_s,
+                    tripSpeedDown_m_per_s: input.tdTripSpeedDown_m_per_s,
+                    rotationEfficiencyUp: input.tdRotationEfficiencyUp,
+                    rotationEfficiencyDown: input.tdRotationEfficiencyDown
                 )
                 tdPickup = multi.pickupHookLoad_kN
                 tdSlackOff = multi.slackOffHookLoad_kN

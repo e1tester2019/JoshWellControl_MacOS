@@ -69,6 +69,11 @@ class PumpScheduleViewModel {
     var tdOpenHoleFF: Double = 0.30
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
+    var tdRPM: Double = 0
+    var tdTripSpeedUp_m_per_s: Double = 0
+    var tdTripSpeedDown_m_per_s: Double = 0
+    var tdRotationEfficiencyUp: Double = 0.5
+    var tdRotationEfficiencyDown: Double = 0.5
 
     // MARK: - Live hydraulics outputs (bind the UI to these)
     var annulusAtControl_kPa: Double = 0
@@ -89,6 +94,10 @@ class PumpScheduleViewModel {
     var tdSurfaceTorque_kNm: Double? = nil
     var tdBucklingOnsetMD: Double? = nil
     var tdStretch_m: Double? = nil
+    var tdRotatingHoistHookLoad_kN: Double? = nil
+    var tdRotatingHoistTorque_kNm: Double? = nil
+    var tdRotatingSlackOffHookLoad_kN: Double? = nil
+    var tdRotatingSlackOffTorque_kNm: Double? = nil
 
     // Hold onto the current project so we can refresh automatically on progress changes.
     var boundProject: ProjectState?
@@ -120,6 +129,10 @@ class PumpScheduleViewModel {
             tdSurfaceTorque_kNm   = td?.surfaceTorque_kNm
             tdBucklingOnsetMD     = td?.bucklingOnsetMD
             tdStretch_m           = td?.slackOffStretch_m
+            tdRotatingHoistHookLoad_kN   = td?.rotatingHoistHookLoad_kN
+            tdRotatingHoistTorque_kNm    = td?.rotatingHoistTorque_kNm
+            tdRotatingSlackOffHookLoad_kN = td?.rotatingSlackOffHookLoad_kN
+            tdRotatingSlackOffTorque_kNm  = td?.rotatingSlackOffTorque_kNm
         } else {
             tdPickupHookLoad_kN = nil
             tdSlackOffHookLoad_kN = nil
@@ -128,6 +141,10 @@ class PumpScheduleViewModel {
             tdSurfaceTorque_kNm = nil
             tdBucklingOnsetMD = nil
             tdStretch_m = nil
+            tdRotatingHoistHookLoad_kN = nil
+            tdRotatingHoistTorque_kNm = nil
+            tdRotatingSlackOffHookLoad_kN = nil
+            tdRotatingSlackOffTorque_kNm = nil
         }
     }
 
@@ -1101,7 +1118,12 @@ class PumpScheduleViewModel {
             flowRate_m3perMin: pumpRate_m3permin,
             aplEccentricityFactor: tdAplEccentricity,
             pressureAreaBuoyancy: tdPressureAreaBuoyancy,
-            stringFluidLayers: stringLayers
+            stringFluidLayers: stringLayers,
+            rpm: tdRPM,
+            tripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
+            tripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+            rotationEfficiencyUp: tdRotationEfficiencyUp,
+            rotationEfficiencyDown: tdRotationEfficiencyDown
         )
     }
 

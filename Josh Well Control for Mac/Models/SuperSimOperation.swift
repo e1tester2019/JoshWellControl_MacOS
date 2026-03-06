@@ -70,6 +70,11 @@ struct SuperSimOperation: Identifiable {
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
     var tdEnabled: Bool = false
+    var tdRPM: Double = 0
+    var tdTripSpeedUp_m_per_s: Double = 0
+    var tdTripSpeedDown_m_per_s: Double = 0
+    var tdRotationEfficiencyUp: Double = 0.5
+    var tdRotationEfficiencyDown: Double = 0.5
 
     // MARK: - Trip In Config
 
@@ -180,7 +185,12 @@ struct SuperSimOperation: Identifiable {
             tdOpenHoleFF: tdOpenHoleFF,
             tdBlockWeight_kN: tdBlockWeight_kN,
             tdAplEccentricity: tdAplEccentricity,
-            tdPressureAreaBuoyancy: tdPressureAreaBuoyancy
+            tdPressureAreaBuoyancy: tdPressureAreaBuoyancy,
+            tdRPM: tdRPM,
+            tdTripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
+            tdTripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+            tdRotationEfficiencyUp: tdRotationEfficiencyUp,
+            tdRotationEfficiencyDown: tdRotationEfficiencyDown
         )
     }
 
@@ -235,6 +245,11 @@ struct SuperSimOperation: Identifiable {
         op.tdBlockWeight_kN = config.tdBlockWeight_kN ?? 0
         op.tdAplEccentricity = config.tdAplEccentricity ?? 1.0
         op.tdPressureAreaBuoyancy = config.tdPressureAreaBuoyancy ?? true
+        op.tdRPM = config.tdRPM ?? 0
+        op.tdTripSpeedUp_m_per_s = config.tdTripSpeedUp_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
+        op.tdTripSpeedDown_m_per_s = config.tdTripSpeedDown_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
+        op.tdRotationEfficiencyUp = config.tdRotationEfficiencyUp ?? config.tdRotationEfficiency ?? 0.5
+        op.tdRotationEfficiencyDown = config.tdRotationEfficiencyDown ?? config.tdRotationEfficiency ?? 0.5
         return op
     }
 }
@@ -307,5 +322,13 @@ struct SuperSimPreset: Codable, Identifiable {
         var tdBlockWeight_kN: Double?
         var tdAplEccentricity: Double?
         var tdPressureAreaBuoyancy: Bool?
+        var tdRPM: Double?
+        var tdTripSpeedUp_m_per_s: Double?
+        var tdTripSpeedDown_m_per_s: Double?
+        var tdRotationEfficiencyUp: Double?
+        var tdRotationEfficiencyDown: Double?
+        // Legacy single-value keys for backward compatibility on decode
+        var tdTripSpeed_m_per_s: Double?
+        var tdRotationEfficiency: Double?
     }
 }

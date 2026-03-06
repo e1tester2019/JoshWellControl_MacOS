@@ -219,7 +219,8 @@ struct PumpScheduleView: View {
                 let pumpedThisStage = prog * stage.totalVolume_m3
                 let cumVolume = cumulativeVolume + pumpedThisStage
 
-                // Get current hydraulics
+                // Get current hydraulics (also triggers T&D computation via updateHydraulics)
+                viewModel.updateHydraulics(project: project)
                 let h = viewModel.hydraulicsForCurrent(project: project)
 
                 // Get current stack visualization
@@ -259,6 +260,10 @@ struct PumpScheduleView: View {
                     tcp_kPa: h.tcp_kPa,
                     annulusFriction_kPa: h.annulusFriction_kPa,
                     stringFriction_kPa: h.stringFriction_kPa,
+                    pickupHookLoad_kN: viewModel.tdPickupHookLoad_kN,
+                    slackOffHookLoad_kN: viewModel.tdSlackOffHookLoad_kN,
+                    rotatingHookLoad_kN: viewModel.tdRotatingHookLoad_kN,
+                    freeHangingWeight_kN: viewModel.tdFreeHangingWeight_kN,
                     stringLayers: stringLayers,
                     annulusLayers: annulusLayers
                 )

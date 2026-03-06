@@ -148,6 +148,10 @@ class CirculationService {
         var surfaceTorque_kNm: Double? = nil
         var bucklingOnsetMD: Double? = nil
         var stretch_m: Double? = nil
+        var rotatingHoistHookLoad_kN: Double? = nil
+        var rotatingHoistTorque_kNm: Double? = nil
+        var rotatingSlackOffHookLoad_kN: Double? = nil
+        var rotatingSlackOffTorque_kNm: Double? = nil
     }
 
     struct CirculationRecord: Identifiable {
@@ -603,6 +607,11 @@ class CirculationService {
         tdFloatIsOpen: Bool = false,
         tdAplEccentricity: Double = 1.0,
         tdPressureAreaBuoyancy: Bool = true,
+        tdRPM: Double = 0,
+        tdTripSpeedUp_m_per_s: Double = 0,
+        tdTripSpeedDown_m_per_s: Double = 0,
+        tdRotationEfficiencyUp: Double = 1.0,
+        tdRotationEfficiencyDown: Double = 1.0,
         progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
@@ -909,6 +918,10 @@ class CirculationService {
                 var tdTorque: Double? = nil
                 var tdBucklingMD: Double? = nil
                 var tdStretch: Double? = nil
+                var tdRotHoistHL: Double? = nil
+                var tdRotHoistTorque: Double? = nil
+                var tdRotSOHL: Double? = nil
+                var tdRotSOTorque: Double? = nil
 
                 if let surveys = tdSurveys,
                    let strSegs = tdStringSegments,
@@ -928,7 +941,12 @@ class CirculationService {
                         flowRate_m3perMin: stepPumpRate,
                         aplEccentricityFactor: tdAplEccentricity,
                         pressureAreaBuoyancy: tdPressureAreaBuoyancy,
-                        stringFluidLayers: currentStringLayers()
+                        stringFluidLayers: currentStringLayers(),
+                        rpm: tdRPM,
+                        tripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
+                        tripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+                        rotationEfficiencyUp: tdRotationEfficiencyUp,
+                        rotationEfficiencyDown: tdRotationEfficiencyDown
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN
@@ -937,6 +955,10 @@ class CirculationService {
                     tdTorque = multi.surfaceTorque_kNm
                     tdBucklingMD = multi.bucklingOnsetMD
                     tdStretch = multi.slackOffStretch_m
+                    tdRotHoistHL = multi.rotatingHoistHookLoad_kN
+                    tdRotHoistTorque = multi.rotatingHoistTorque_kNm
+                    tdRotSOHL = multi.rotatingSlackOffHookLoad_kN
+                    tdRotSOTorque = multi.rotatingSlackOffTorque_kNm
                 }
 
                 schedule.append(CirculateOutStep(
@@ -959,7 +981,11 @@ class CirculationService {
                     freeHangingWeight_kN: tdFreeHanging,
                     surfaceTorque_kNm: tdTorque,
                     bucklingOnsetMD: tdBucklingMD,
-                    stretch_m: tdStretch
+                    stretch_m: tdStretch,
+                    rotatingHoistHookLoad_kN: tdRotHoistHL,
+                    rotatingHoistTorque_kNm: tdRotHoistTorque,
+                    rotatingSlackOffHookLoad_kN: tdRotSOHL,
+                    rotatingSlackOffTorque_kNm: tdRotSOTorque
                 ))
 
                 stepIndex += 1

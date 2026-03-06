@@ -19,21 +19,25 @@ enum TorqueDragEngine {
 
     /// Operation mode determines sign convention for friction
     enum OperationMode: String, Codable, CaseIterable, Identifiable {
-        case tripOut       // pulling out — friction adds to tension
-        case tripIn        // running in — friction reduces tension
-        case rotatingOB    // rotating off-bottom — no axial friction, torque only
-        case rotatingDrill // rotating on-bottom with WOB — torque + axial
-        case sliding       // sliding (no rotation) with WOB — axial friction only
+        case tripOut         // pulling out — friction adds to tension
+        case tripIn          // running in — friction reduces tension
+        case rotatingOB      // rotating off-bottom — no axial friction, torque only
+        case rotatingDrill   // rotating on-bottom with WOB — torque + axial
+        case sliding         // sliding (no rotation) with WOB — axial friction only
+        case rotatingHoist   // rotating + pulling out — friction split between axial and torque
+        case rotatingSlackOff // rotating + running in — friction split between axial and torque
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
-            case .tripOut:       return "Trip Out (Pickup)"
-            case .tripIn:        return "Trip In (Slack-off)"
-            case .rotatingOB:    return "Rotating Off-Bottom"
-            case .rotatingDrill: return "Rotating (Drilling)"
-            case .sliding:       return "Sliding"
+            case .tripOut:          return "Trip Out (Pickup)"
+            case .tripIn:           return "Trip In (Slack-off)"
+            case .rotatingOB:       return "Rotating Off-Bottom"
+            case .rotatingDrill:    return "Rotating (Drilling)"
+            case .sliding:          return "Sliding"
+            case .rotatingHoist:    return "Rotating + Hoist"
+            case .rotatingSlackOff: return "Rotating + Slack-off"
             }
         }
     }
@@ -117,6 +121,9 @@ enum TorqueDragEngine {
         let surgePressure_kPa: Double          // surge/swab at shoe (kPa, + = surge, − = swab)
         let aplEccentricityFactor: Double      // multiplier on annular pressure loss (1.0 = concentric)
         let pressureAreaBuoyancy: Bool          // per-element pressure-area correction for circulating buoyancy
+        let rpm: Double                         // string rotation speed (rev/min), 0 = no rotation
+        let tripSpeed_m_per_s: Double           // axial pipe speed (m/s), 0 = stationary
+        let rotationEfficiency: Double          // 0–1 scale on velocity-ratio split (1.0 = full model, 0 = no torque benefit)
 
         init(surveys: [SurveyPoint], stringSegments: [StringSegment],
              holeSections: [HoleSection], fluidLayers: [TripLayerSnapshot],
@@ -126,7 +133,10 @@ enum TorqueDragEngine {
              flowRate_m3perMin: Double = 0, surgePressure_kPa: Double = 0,
              aplEccentricityFactor: Double = 1.0,
              pressureAreaBuoyancy: Bool = true,
-             stringFluidLayers: [TripLayerSnapshot] = []) {
+             stringFluidLayers: [TripLayerSnapshot] = [],
+             rpm: Double = 0,
+             tripSpeed_m_per_s: Double = 0,
+             rotationEfficiency: Double = 1.0) {
             self.surveys = surveys
             self.stringSegments = stringSegments
             self.holeSections = holeSections
@@ -144,6 +154,9 @@ enum TorqueDragEngine {
             self.surgePressure_kPa = surgePressure_kPa
             self.aplEccentricityFactor = aplEccentricityFactor
             self.pressureAreaBuoyancy = pressureAreaBuoyancy
+            self.rpm = rpm
+            self.tripSpeed_m_per_s = tripSpeed_m_per_s
+            self.rotationEfficiency = rotationEfficiency
         }
     }
 
@@ -228,7 +241,7 @@ enum TorqueDragEngine {
         var torque_Nm: Double = 0
 
         switch input.mode {
-        case .tripOut, .tripIn, .rotatingOB:
+        case .tripOut, .tripIn, .rotatingOB, .rotatingHoist, .rotatingSlackOff:
             axialForce_N = 0  // no load at bit
         case .rotatingDrill, .sliding:
             axialForce_N = -input.WOB_kN * 1000  // compression from WOB (negative = compression)
@@ -414,6 +427,28 @@ enum TorqueDragEngine {
                 axialForce_N += gravityComponent
                 // Torque increment (also uses reduced friction)
                 torque_Nm += mu * normalForce_N * (contactOD / 2.0)
+            case .rotatingHoist, .rotatingSlackOff:
+                // Combined rotation + axial motion: friction vector splits between
+                // axial and tangential based on velocity ratio.
+                // V_tangential = π * contactOD * RPM / 60
+                // V_axial = tripSpeed (m/s)
+                // α = atan2(V_tangential, V_axial)
+                // axial friction = mu * N * cos(α)
+                // tangential friction (torque) = mu * N * sin(α)
+                let vTan = Double.pi * contactOD * input.rpm / 60.0 * input.rotationEfficiency
+                let vAxial = max(input.tripSpeed_m_per_s, 1e-6)
+                let alpha = atan2(vTan, vAxial)
+                let totalFriction = mu * normalForce_N
+                let axialFriction = totalFriction * cos(alpha)
+                let tangentialFriction = totalFriction * sin(alpha)
+                if input.mode == .rotatingHoist {
+                    frictionForce_N = axialFriction
+                    axialForce_N += gravityComponent + axialFriction
+                } else {
+                    frictionForce_N = axialFriction
+                    axialForce_N += gravityComponent - axialFriction
+                }
+                torque_Nm += tangentialFriction * (contactOD / 2.0)
             }
 
             // Distributed viscous drag (acts regardless of pipe movement direction)
@@ -581,6 +616,11 @@ enum TorqueDragEngine {
         let pickupResult: TorqueDragResult
         let slackOffResult: TorqueDragResult
         let rotatingResult: TorqueDragResult
+        // Combined rotation + axial cases (nil when rpm/tripSpeed not provided)
+        let rotatingHoistHookLoad_kN: Double?
+        let rotatingHoistTorque_kNm: Double?
+        let rotatingSlackOffHookLoad_kN: Double?
+        let rotatingSlackOffTorque_kNm: Double?
     }
 
     static func computeAllCases(
@@ -598,7 +638,12 @@ enum TorqueDragEngine {
         surgePressure_kPa: Double = 0,
         aplEccentricityFactor: Double = 1.0,
         pressureAreaBuoyancy: Bool = true,
-        stringFluidLayers: [TripLayerSnapshot] = []
+        stringFluidLayers: [TripLayerSnapshot] = [],
+        rpm: Double = 0,
+        tripSpeedUp_m_per_s: Double = 0,
+        tripSpeedDown_m_per_s: Double = 0,
+        rotationEfficiencyUp: Double = 1.0,
+        rotationEfficiencyDown: Double = 1.0
     ) -> MultiCaseResult {
         let pickup = compute(TorqueDragInput(
             surveys: surveys, stringSegments: stringSegments,
@@ -636,6 +681,50 @@ enum TorqueDragEngine {
             stringFluidLayers: stringFluidLayers
         ))
 
+        // Combined rotation + axial cases (velocity-ratio model):
+        // Friction splits between axial and torque based on velocity ratio.
+        // rotationEfficiency scales the tangential velocity (0 = no torque benefit, 1 = full model).
+        var rotHoistHL: Double? = nil
+        var rotHoistTorque: Double? = nil
+        var rotSOHL: Double? = nil
+        var rotSOTorque: Double? = nil
+
+        if rpm > 0 && tripSpeedUp_m_per_s > 0 {
+            let rotHoist = compute(TorqueDragInput(
+                surveys: surveys, stringSegments: stringSegments,
+                holeSections: holeSections, fluidLayers: fluidLayers,
+                bitMD: bitMD, mode: .rotatingHoist, friction: friction,
+                WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+                SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+                flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
+                aplEccentricityFactor: aplEccentricityFactor,
+                pressureAreaBuoyancy: pressureAreaBuoyancy,
+                stringFluidLayers: stringFluidLayers,
+                rpm: rpm, tripSpeed_m_per_s: tripSpeedUp_m_per_s,
+                rotationEfficiency: rotationEfficiencyUp
+            ))
+            rotHoistHL = rotHoist.hookLoad_kN
+            rotHoistTorque = rotHoist.surfaceTorque_kNm
+        }
+
+        if rpm > 0 && tripSpeedDown_m_per_s > 0 {
+            let rotSO = compute(TorqueDragInput(
+                surveys: surveys, stringSegments: stringSegments,
+                holeSections: holeSections, fluidLayers: fluidLayers,
+                bitMD: bitMD, mode: .rotatingSlackOff, friction: friction,
+                WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
+                SABP_kPa: SABP_kPa, floatIsOpen: floatIsOpen,
+                flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
+                aplEccentricityFactor: aplEccentricityFactor,
+                pressureAreaBuoyancy: pressureAreaBuoyancy,
+                stringFluidLayers: stringFluidLayers,
+                rpm: rpm, tripSpeed_m_per_s: tripSpeedDown_m_per_s,
+                rotationEfficiency: rotationEfficiencyDown
+            ))
+            rotSOHL = rotSO.hookLoad_kN
+            rotSOTorque = rotSO.surfaceTorque_kNm
+        }
+
         return MultiCaseResult(
             pickupHookLoad_kN: pickup.hookLoad_kN,
             slackOffHookLoad_kN: slackOff.hookLoad_kN,
@@ -652,7 +741,11 @@ enum TorqueDragEngine {
             stringBuoyedWeight_kN: pickup.stringBuoyedWeight_kN,
             pickupResult: pickup,
             slackOffResult: slackOff,
-            rotatingResult: rotating
+            rotatingResult: rotating,
+            rotatingHoistHookLoad_kN: rotHoistHL,
+            rotatingHoistTorque_kNm: rotHoistTorque,
+            rotatingSlackOffHookLoad_kN: rotSOHL,
+            rotatingSlackOffTorque_kNm: rotSOTorque
         )
     }
 
@@ -833,7 +926,7 @@ enum TorqueDragEngine {
             return isCased ? friction.casedUp : friction.openHoleUp
         case .tripIn, .sliding:
             return isCased ? friction.casedDown : friction.openHoleDown
-        case .rotatingOB, .rotatingDrill:
+        case .rotatingOB, .rotatingDrill, .rotatingHoist, .rotatingSlackOff:
             return isCased ? friction.casedRotating : friction.openHoleRotating
         }
     }

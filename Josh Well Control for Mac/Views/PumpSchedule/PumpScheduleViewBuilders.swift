@@ -657,11 +657,14 @@ struct PumpScheduleHydraulicsPanelView: View {
                         Text("Block Weight")
                             .frame(width: 120, alignment: .trailing)
                             .foregroundStyle(.secondary)
-                        TextField("kN", value: $viewModel.tdBlockWeight_kN, format: .number)
+                        TextField("kDaN", value: Binding(
+                            get: { viewModel.tdBlockWeight_kN / 10.0 },
+                            set: { viewModel.tdBlockWeight_kN = $0 * 10.0 }
+                        ), format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
                             .monospacedDigit()
-                        Text("kN").foregroundStyle(.secondary)
+                        Text("kDaN").foregroundStyle(.secondary)
                     }
                     HStack {
                         Text("Cased FF")
@@ -691,6 +694,63 @@ struct PumpScheduleHydraulicsPanelView: View {
                             .monospacedDigit()
                     }
                     Toggle("PA Buoyancy", isOn: $viewModel.tdPressureAreaBuoyancy)
+
+                    HStack {
+                        Text("RPM")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $viewModel.tdRPM, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("rpm").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Trip Speed Up")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: Binding(
+                            get: { viewModel.tdTripSpeedUp_m_per_s * 60.0 },
+                            set: { viewModel.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("m/min").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Trip Speed Down")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: Binding(
+                            get: { viewModel.tdTripSpeedDown_m_per_s * 60.0 },
+                            set: { viewModel.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("m/min").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Rot. Eff. Up")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $viewModel.tdRotationEfficiencyUp, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("0–1").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Rot. Eff. Down")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        TextField("", value: $viewModel.tdRotationEfficiencyDown, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .monospacedDigit()
+                        Text("0–1").foregroundStyle(.secondary)
+                    }
 
                     let hasSurveys = !(project.surveys ?? []).isEmpty
                     let hasDrillString = !(project.drillString ?? []).isEmpty
@@ -752,7 +812,7 @@ struct PumpScheduleHydraulicsPanelView: View {
                                     Text("Surface Torque")
                                         .frame(width: 120, alignment: .trailing)
                                         .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kN·m", torque))
+                                    Text(String(format: "%.0f ft·lbs", torque * 737.5621))
                                         .monospacedDigit()
                                 }
                             }
@@ -766,6 +826,44 @@ struct PumpScheduleHydraulicsPanelView: View {
                                         .foregroundStyle(.orange)
                                 }
                             }
+                            if let rh = viewModel.tdRotatingHoistHookLoad_kN {
+                                HStack {
+                                    Text("Rot. Hoist")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kDaN", rh / 10.0))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            if let rht = viewModel.tdRotatingHoistTorque_kNm {
+                                HStack {
+                                    Text("Rot. Hoist Torque")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f ft·lbs", rht * 737.5621))
+                                        .monospacedDigit()
+                                }
+                            }
+                            if let rs = viewModel.tdRotatingSlackOffHookLoad_kN {
+                                HStack {
+                                    Text("Rot. Slack-off")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f kDaN", rs / 10.0))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                            if let rst = viewModel.tdRotatingSlackOffTorque_kNm {
+                                HStack {
+                                    Text("Rot. SO Torque")
+                                        .frame(width: 120, alignment: .trailing)
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f ft·lbs", rst * 737.5621))
+                                        .monospacedDigit()
+                                }
+                            }
                         }
                     } else {
                         Text("No T&D results — check survey and drill string data")
@@ -776,12 +874,22 @@ struct PumpScheduleHydraulicsPanelView: View {
             }
             .padding(4)
         }
+        .onChange(of: viewModel.pumpRate_m3permin) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.mpdEnabled) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.targetEMD_kgm3) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.controlDepthModeRaw) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.controlMD_m) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdEnabled) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdBlockWeight_kN) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdCasedFF) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdOpenHoleFF) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdAplEccentricity) { viewModel.updateHydraulics(project: project) }
         .onChange(of: viewModel.tdPressureAreaBuoyancy) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdRPM) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdTripSpeedUp_m_per_s) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdTripSpeedDown_m_per_s) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdRotationEfficiencyUp) { viewModel.updateHydraulics(project: project) }
+        .onChange(of: viewModel.tdRotationEfficiencyDown) { viewModel.updateHydraulics(project: project) }
     }
 }
 

@@ -24,6 +24,7 @@ struct MudPlacementView: View {
     // Preview mud density for quick interval pressure/step add
     @State private var previewDensity_kgm3: Double = 1260
     @State private var intervalMudID: UUID? = nil
+    @State private var showNoActiveMudAlert = false
 
     init(project: ProjectState) {
         self._project = Bindable(wrappedValue: project)
@@ -487,6 +488,11 @@ struct MudPlacementView: View {
         .onChange(of: project) { _, newProject in
             viewmodel.project = newProject
         }
+        .alert("No Active Mud Selected", isPresented: $showNoActiveMudAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please select an active mud from the Mud Properties section before applying placement. The active mud is used as the base fluid for the well.")
+        }
     }
 
     // MARK: - Section Header Helper
@@ -551,6 +557,12 @@ struct MudPlacementView: View {
 
     /// Rebuild finalAnnulus/finalString from base fill + user steps
     private func rebuildFinalFromBase() {
+        let hasExplicitActiveMud = (project.muds ?? []).contains(where: { $0.isActive })
+        if !hasExplicitActiveMud {
+            showNoActiveMudAlert = true
+            return
+        }
+
         var ann: [FinalLayer] = [ baseLayer(for: .annulus) ]
         var str: [FinalLayer] = [ baseLayer(for: .string) ]
 

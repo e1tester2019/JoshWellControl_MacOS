@@ -194,7 +194,7 @@ struct OperationResultView: View {
                         metricPill("Free", format1(free / 10.0), "kDaN")
                     }
                     if let torque = step.surfaceTorque_kNm {
-                        metricPill("Torque", format1(torque), "kN·m")
+                        metricPill("Torque", String(format: "%.0f", torque * 737.5621), "ft·lbs")
                     }
                 }
             }
@@ -356,7 +356,7 @@ struct OperationResultView: View {
                         metricPill("Free", format1(free / 10.0), "kDaN")
                     }
                     if let torque = step.surfaceTorque_kNm {
-                        metricPill("Torque", format1(torque), "kN·m")
+                        metricPill("Torque", String(format: "%.0f", torque * 737.5621), "ft·lbs")
                     }
                 }
             }

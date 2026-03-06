@@ -42,6 +42,12 @@ struct PumpScheduleReportData {
         let annulusFriction_kPa: Double
         let stringFriction_kPa: Double
 
+        // Torque & Drag at this snapshot
+        let pickupHookLoad_kN: Double?
+        let slackOffHookLoad_kN: Double?
+        let rotatingHookLoad_kN: Double?
+        let freeHangingWeight_kN: Double?
+
         // Fluid positions (for visualization)
         struct FluidLayer {
             let topMD: Double
@@ -246,6 +252,10 @@ class PumpScheduleHTMLGenerator {
                         <div class="info-row"><span>ECD:</span> <span id="info-ecd">--</span></div>
                         <div class="info-row"><span>BHP:</span> <span id="info-bhp">--</span></div>
                         <div class="info-row"><span>TCP:</span> <span id="info-tcp">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Pickup:</span> <span id="info-pu" style="color:#4caf50">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Slack-off:</span> <span id="info-so" style="color:#f44336">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Rotating:</span> <span id="info-rot" style="color:#2196f3">--</span></div>
+                        <div class="info-row hl-info" style="display:none"><span>Free Hanging:</span> <span id="info-fh" style="color:#999">--</span></div>
                     </div>
                 </section>
 
@@ -270,6 +280,10 @@ class PumpScheduleHTMLGenerator {
                             <canvas id="chart-friction" width="280" height="180"></canvas>
                             <div class="chart-tooltip" id="tooltip-friction"></div>
                         </div>
+                        <div class="chart-container" id="container-hl" style="display:none;grid-column:1/-1">
+                            <canvas id="chart-hl" width="280" height="180"></canvas>
+                            <div class="chart-tooltip" id="tooltip-hl"></div>
+                        </div>
                     </div>
                 </section>
 
@@ -293,6 +307,10 @@ class PumpScheduleHTMLGenerator {
                 <section class="card">
                     <h2>Step-by-Step Data</h2>
                     <div class="table-controls">
+                        <div class="table-toggle" id="table-toggle" style="display:none">
+                            <button class="toggle-btn active" id="btn-pressure" onclick="toggleTableView('pressure')">Pressure & Volume</button>
+                            <button class="toggle-btn" id="btn-hookload" onclick="toggleTableView('hookload')">Hook Load</button>
+                        </div>
                         <input type="text" id="table-search" placeholder="Search..." onkeyup="filterTable()">
                         <button onclick="exportTableCSV()">Export CSV</button>
                     </div>
@@ -302,14 +320,18 @@ class PumpScheduleHTMLGenerator {
                                 <tr>
                                     <th onclick="sortTable(0)">Stage \u{21C5}</th>
                                     <th onclick="sortTable(1)">Progress \u{21C5}</th>
-                                    <th onclick="sortTable(2)">Pumped (m\u{00B3}) \u{21C5}</th>
-                                    <th onclick="sortTable(3)">Cumulative (m\u{00B3}) \u{21C5}</th>
-                                    <th onclick="sortTable(4)">ECD (kg/m\u{00B3}) \u{21C5}</th>
-                                    <th onclick="sortTable(5)">BHP (kPa) \u{21C5}</th>
-                                    <th onclick="sortTable(6)">SBP (kPa) \u{21C5}</th>
-                                    <th onclick="sortTable(7)">TCP (kPa) \u{21C5}</th>
-                                    <th onclick="sortTable(8)">Ann Friction (kPa) \u{21C5}</th>
-                                    <th onclick="sortTable(9)">Str Friction (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(2)">Pumped (m\u{00B3}) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(3)">Cumulative (m\u{00B3}) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(4)">ECD (kg/m\u{00B3}) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(5)">BHP (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(6)">SBP (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(7)">TCP (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(8)">Ann Friction (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(9)">Str Friction (kPa) \u{21C5}</th>
+                                    <th class="hl-col" onclick="sortTable(10)" style="display:none">Pickup (kDaN) \u{21C5}</th>
+                                    <th class="hl-col" onclick="sortTable(11)" style="display:none">Slack-off (kDaN) \u{21C5}</th>
+                                    <th class="hl-col" onclick="sortTable(12)" style="display:none">Rotating (kDaN) \u{21C5}</th>
+                                    <th class="hl-col" onclick="sortTable(13)" style="display:none">Free (kDaN) \u{21C5}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -725,6 +747,27 @@ class PumpScheduleHTMLGenerator {
             font-size: 0.85rem;
         }
 
+        .table-toggle {
+            display: flex;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .table-controls .toggle-btn {
+            padding: 6px 14px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-right: 1px solid var(--border-color);
+        }
+        .table-controls .toggle-btn:last-child { border-right: none; }
+        .table-controls .toggle-btn.active {
+            background: var(--brand-color);
+            color: white;
+        }
+
         .table-wrapper {
             overflow-x: auto;
             max-height: 500px;
@@ -877,6 +920,13 @@ class PumpScheduleHTMLGenerator {
             document.getElementById('info-bhp').textContent = snap.bhp.toFixed(0) + ' kPa';
             document.getElementById('info-tcp').textContent = snap.tcp.toFixed(0) + ' kPa';
 
+            if (snap.pu !== null) {
+                document.getElementById('info-pu').textContent = snap.pu.toFixed(1) + ' kDaN';
+                document.getElementById('info-so').textContent = snap.so !== null ? snap.so.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-rot').textContent = snap.rot !== null ? snap.rot.toFixed(1) + ' kDaN' : '--';
+                document.getElementById('info-fh').textContent = snap.fh !== null ? snap.fh.toFixed(1) + ' kDaN' : '--';
+            }
+
             // Draw wellbore canvases
             drawWellboreColumn('annulus-left', snap.annulusLayers);
             drawWellboreColumn('string-canvas', snap.stringLayers);
@@ -977,6 +1027,20 @@ class PumpScheduleHTMLGenerator {
                 { data: annFrictions, label: 'Annulus (kPa)', color: '#4caf50' },
                 { data: strFrictions, label: 'String (kPa)', color: '#f44336' }
             ]);
+
+            // Hook load chart (only if data exists)
+            const hasHL = snapshots.some(s => s.pu !== null);
+            if (hasHL) {
+                document.getElementById('container-hl').style.display = '';
+                document.querySelectorAll('.hl-info').forEach(el => el.style.display = '');
+                document.getElementById('table-toggle').style.display = '';
+                charts.hl = createChart('chart-hl', 'Hook Load vs Volume Pumped', cumVolumes, [
+                    { data: snapshots.map(s => s.pu), label: 'Pickup', color: '#4caf50' },
+                    { data: snapshots.map(s => s.so), label: 'Slack-off', color: '#f44336' },
+                    { data: snapshots.map(s => s.rot), label: 'Rotating', color: '#2196f3' },
+                    { data: snapshots.map(s => s.fh), label: 'Free Hanging', color: '#999', dash: [4,3] }
+                ]);
+            }
         }
 
         function createChart(canvasId, title, xData, datasets) {
@@ -1003,9 +1067,9 @@ class PumpScheduleHTMLGenerator {
             const xMax = Math.max(...xData);
             let yMin = Infinity, yMax = -Infinity;
             datasets.forEach(ds => {
-                yMin = Math.min(yMin, ...ds.data);
-                yMax = Math.max(yMax, ...ds.data);
+                ds.data.forEach(v => { if (v !== null && v !== undefined) { if (v < yMin) yMin = v; if (v > yMax) yMax = v; } });
             });
+            if (!isFinite(yMin)) { yMin = 0; yMax = 1; }
             const yPad = (yMax - yMin) * 0.1 || 1;
             yMin -= yPad;
             yMax += yPad;
@@ -1065,14 +1129,19 @@ class PumpScheduleHTMLGenerator {
                 datasets.forEach(ds => {
                     ctx.strokeStyle = ds.color;
                     ctx.lineWidth = 1.5;
+                    if (ds.dash) ctx.setLineDash(ds.dash); else ctx.setLineDash([]);
                     ctx.beginPath();
+                    let penDown = false;
                     xData.forEach((x, i) => {
+                        const val = ds.data[i];
+                        if (val === null || val === undefined) { penDown = false; return; }
                         const px = margin.left + ((x - xMin) / (xMax - xMin || 1)) * plotW;
-                        const py = margin.top + ((yMax - ds.data[i]) / (yMax - yMin || 1)) * plotH;
-                        if (i === 0) ctx.moveTo(px, py);
+                        const py = margin.top + ((yMax - val) / (yMax - yMin || 1)) * plotH;
+                        if (!penDown) { ctx.moveTo(px, py); penDown = true; }
                         else ctx.lineTo(px, py);
                     });
                     ctx.stroke();
+                    ctx.setLineDash([]);
                 });
 
                 // Highlight marker
@@ -1089,7 +1158,9 @@ class PumpScheduleHTMLGenerator {
                     ctx.setLineDash([]);
 
                     datasets.forEach(ds => {
-                        const py = margin.top + ((yMax - ds.data[highlightIndex]) / (yMax - yMin || 1)) * plotH;
+                        const val = ds.data[highlightIndex];
+                        if (val === null || val === undefined) return;
+                        const py = margin.top + ((yMax - val) / (yMax - yMin || 1)) * plotH;
                         ctx.fillStyle = ds.color;
                         ctx.beginPath();
                         ctx.arc(px, py, 4, 0, Math.PI * 2);
@@ -1120,6 +1191,7 @@ class PumpScheduleHTMLGenerator {
                 let html = '<div style="font-weight:600;margin-bottom:4px;">Vol: ' + x.toFixed(2) + ' m\\u00B3</div>';
                 datasets.forEach(ds => {
                     const val = ds.data[idx];
+                    if (val === null || val === undefined) return;
                     html += '<div style="color:' + ds.color + '">' + ds.label + ': ' + val.toFixed(val >= 100 ? 0 : 2) + '</div>';
                 });
                 tooltip.innerHTML = html;
@@ -1199,6 +1271,24 @@ class PumpScheduleHTMLGenerator {
             a.click();
             URL.revokeObjectURL(url);
         }
+
+        function toggleTableView(view) {
+            const pvCols = document.querySelectorAll('.pv-col');
+            const hlCols = document.querySelectorAll('.hl-col');
+            const btnP = document.getElementById('btn-pressure');
+            const btnH = document.getElementById('btn-hookload');
+            if (view === 'hookload') {
+                pvCols.forEach(el => el.style.display = 'none');
+                hlCols.forEach(el => el.style.display = '');
+                btnP.classList.remove('active');
+                btnH.classList.add('active');
+            } else {
+                pvCols.forEach(el => el.style.display = '');
+                hlCols.forEach(el => el.style.display = 'none');
+                btnP.classList.add('active');
+                btnH.classList.remove('active');
+            }
+        }
         """
     }
 
@@ -1215,13 +1305,18 @@ class PumpScheduleHTMLGenerator {
     private func f0(_ v: Double) -> String { String(format: "%.0f", v) }
     private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
+    private func optF1(_ v: Double?) -> String { v.map { String(format: "%.1f", $0 / 10.0) } ?? "" }
 
     private func snapshotsToJSON(_ snapshots: [PumpScheduleReportData.StageSnapshot]) -> String {
         var json = "["
         for (i, snap) in snapshots.enumerated() {
             if i > 0 { json += "," }
+            let puStr = snap.pickupHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let soStr = snap.slackOffHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let rotStr = snap.rotatingHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
+            let fhStr = snap.freeHangingWeight_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
             json += """
-            {"stageName":"\(escapeHTML(snap.stageName))","stageIndex":\(snap.stageIndex),"progress":\(f2(snap.progress)),"pumpedVolume":\(f2(snap.pumpedVolume_m3)),"cumulativePumped":\(f2(snap.cumulativePumpedVolume_m3)),"ecd":\(f1(snap.ecd_kgm3)),"bhp":\(f0(snap.bhp_kPa)),"sbp":\(f0(snap.sbp_kPa)),"tcp":\(f0(snap.tcp_kPa)),"annulusFriction":\(f0(snap.annulusFriction_kPa)),"stringFriction":\(f0(snap.stringFriction_kPa)),"stringLayers":\(layersToJSON(snap.stringLayers)),"annulusLayers":\(layersToJSON(snap.annulusLayers))}
+            {"stageName":"\(escapeHTML(snap.stageName))","stageIndex":\(snap.stageIndex),"progress":\(f2(snap.progress)),"pumpedVolume":\(f2(snap.pumpedVolume_m3)),"cumulativePumped":\(f2(snap.cumulativePumpedVolume_m3)),"ecd":\(f1(snap.ecd_kgm3)),"bhp":\(f0(snap.bhp_kPa)),"sbp":\(f0(snap.sbp_kPa)),"tcp":\(f0(snap.tcp_kPa)),"annulusFriction":\(f0(snap.annulusFriction_kPa)),"stringFriction":\(f0(snap.stringFriction_kPa)),"pu":\(puStr),"so":\(soStr),"rot":\(rotStr),"fh":\(fhStr),"stringLayers":\(layersToJSON(snap.stringLayers)),"annulusLayers":\(layersToJSON(snap.annulusLayers))}
             """
         }
         json += "]"
@@ -1286,14 +1381,18 @@ class PumpScheduleHTMLGenerator {
             <tr>
                 <td>\(escapeHTML(snap.stageName))</td>
                 <td>\(String(format: "%.0f%%", snap.progress * 100))</td>
-                <td>\(String(format: "%.3f", snap.pumpedVolume_m3))</td>
-                <td>\(String(format: "%.3f", snap.cumulativePumpedVolume_m3))</td>
-                <td>\(String(format: "%.0f", snap.ecd_kgm3))</td>
-                <td>\(String(format: "%.0f", snap.bhp_kPa))</td>
-                <td>\(String(format: "%.0f", snap.sbp_kPa))</td>
-                <td>\(String(format: "%.0f", snap.tcp_kPa))</td>
-                <td>\(String(format: "%.1f", snap.annulusFriction_kPa))</td>
-                <td>\(String(format: "%.1f", snap.stringFriction_kPa))</td>
+                <td class="pv-col">\(String(format: "%.3f", snap.pumpedVolume_m3))</td>
+                <td class="pv-col">\(String(format: "%.3f", snap.cumulativePumpedVolume_m3))</td>
+                <td class="pv-col">\(String(format: "%.0f", snap.ecd_kgm3))</td>
+                <td class="pv-col">\(String(format: "%.0f", snap.bhp_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", snap.sbp_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", snap.tcp_kPa))</td>
+                <td class="pv-col">\(String(format: "%.1f", snap.annulusFriction_kPa))</td>
+                <td class="pv-col">\(String(format: "%.1f", snap.stringFriction_kPa))</td>
+                <td class="hl-col" style="display:none">\(optF1(snap.pickupHookLoad_kN))</td>
+                <td class="hl-col" style="display:none">\(optF1(snap.slackOffHookLoad_kN))</td>
+                <td class="hl-col" style="display:none">\(optF1(snap.rotatingHookLoad_kN))</td>
+                <td class="hl-col" style="display:none">\(optF1(snap.freeHangingWeight_kN))</td>
             </tr>
             """
         }

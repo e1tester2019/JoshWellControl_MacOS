@@ -92,6 +92,11 @@ class SuperSimViewModel {
             op.tdBlockWeight_kN = lastOp.tdBlockWeight_kN
             op.tdAplEccentricity = lastOp.tdAplEccentricity
             op.tdPressureAreaBuoyancy = lastOp.tdPressureAreaBuoyancy
+            op.tdRPM = lastOp.tdRPM
+            op.tdTripSpeedUp_m_per_s = lastOp.tdTripSpeedUp_m_per_s
+            op.tdTripSpeedDown_m_per_s = lastOp.tdTripSpeedDown_m_per_s
+            op.tdRotationEfficiencyUp = lastOp.tdRotationEfficiencyUp
+            op.tdRotationEfficiencyDown = lastOp.tdRotationEfficiencyDown
 
             // Start where previous operation ends (use output if run, else configured end)
             let prevEndMD = lastOp.outputState?.bitMD_m ?? lastOp.endMD_m
@@ -839,6 +844,11 @@ class SuperSimViewModel {
             tdFloatIsOpen: true,  // circulating = pipe is open
             tdAplEccentricity: op.tdAplEccentricity,
             tdPressureAreaBuoyancy: op.tdPressureAreaBuoyancy,
+            tdRPM: op.tdRPM,
+            tdTripSpeedUp_m_per_s: op.tdTripSpeedUp_m_per_s,
+            tdTripSpeedDown_m_per_s: op.tdTripSpeedDown_m_per_s,
+            tdRotationEfficiencyUp: op.tdRotationEfficiencyUp,
+            tdRotationEfficiencyDown: op.tdRotationEfficiencyDown,
             progressCallback: { [weak self] pumped, total in
                 guard let self else { return }
                 let fraction = total > 0 ? pumped / total : 0
@@ -966,6 +976,11 @@ class SuperSimViewModel {
             input.tdAplEccentricity = op.tdAplEccentricity
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdTvdSampler = tvdSampler
+            input.tdRPM = op.tdRPM
+            input.tdTripSpeedUp_m_per_s = op.tdTripSpeedUp_m_per_s
+            input.tdTripSpeedDown_m_per_s = op.tdTripSpeedDown_m_per_s
+            input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
+            input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
         }
 
         // Run through ReamEngine (free function from ReamEngine.swift)
@@ -1101,6 +1116,11 @@ class SuperSimViewModel {
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
+            input.tdRPM = op.tdRPM
+            input.tdTripSpeedUp_m_per_s = op.tdTripSpeedUp_m_per_s
+            input.tdTripSpeedDown_m_per_s = op.tdTripSpeedDown_m_per_s
+            input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
+            input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
         }
 
         // Run through ReamEngine (free function from ReamEngine.swift)

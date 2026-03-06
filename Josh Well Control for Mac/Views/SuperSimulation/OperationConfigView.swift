@@ -657,6 +657,55 @@ struct OperationConfigView: View {
                 Toggle("Hold SABP open", isOn: $operation.holdSABPOpen)
                     .controlSize(.small)
             }
+            GridRow {
+                Text("Torque & Drag:")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Enable", isOn: $operation.tdEnabled)
+                    .controlSize(.small)
+            }
+            if operation.tdEnabled {
+                GridRow {
+                    Text("RPM:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRPM, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed Up (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed Down (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Up:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Down:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+            }
         }
         .onChange(of: operation.baseMudID) { _, newID in
             if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
@@ -807,6 +856,55 @@ struct OperationConfigView: View {
                 Toggle("", isOn: $operation.isFloatedCasing)
                     .labelsHidden()
             }
+            GridRow {
+                Text("Torque & Drag:")
+                    .frame(width: 140, alignment: .trailing)
+                Toggle("Enable", isOn: $operation.tdEnabled)
+                    .controlSize(.small)
+            }
+            if operation.tdEnabled {
+                GridRow {
+                    Text("RPM:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRPM, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed Up (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed Down (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Up:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Down:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+            }
         }
         .onChange(of: operation.fillMudID) { _, newID in
             if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
@@ -924,6 +1022,49 @@ struct OperationConfigView: View {
                         Toggle("Enable", isOn: $operation.tdPressureAreaBuoyancy)
                             .controlSize(.small)
                             .help("Distributed pressure-area buoyancy correction during circulation")
+                    }
+                    GridRow {
+                        Text("RPM:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdRPM, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Trip Speed Up (m/min):")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
+                            set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Trip Speed Down (m/min):")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: Binding(
+                            get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
+                            set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                        ), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
+                    GridRow {
+                        Text("Rot. Eff. Up:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .help("0–1: scales velocity-ratio friction split for hoist")
+                    }
+                    GridRow {
+                        Text("Rot. Eff. Down:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .help("0–1: scales velocity-ratio friction split for slack-off")
                     }
                 }
             }
