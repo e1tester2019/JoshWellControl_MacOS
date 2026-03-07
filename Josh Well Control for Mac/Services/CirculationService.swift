@@ -608,10 +608,11 @@ class CirculationService {
         tdAplEccentricity: Double = 1.0,
         tdPressureAreaBuoyancy: Bool = true,
         tdRPM: Double = 0,
-        tdTripSpeedUp_m_per_s: Double = 0,
-        tdTripSpeedDown_m_per_s: Double = 0,
+        tdTripSpeedCased_m_per_s: Double = 0,
+        tdTripSpeedOpenHole_m_per_s: Double = 0,
         tdRotationEfficiencyUp: Double = 1.0,
         tdRotationEfficiencyDown: Double = 1.0,
+        tdSheaveLineFriction: Double = 0,
         progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
@@ -943,10 +944,11 @@ class CirculationService {
                         pressureAreaBuoyancy: tdPressureAreaBuoyancy,
                         stringFluidLayers: currentStringLayers(),
                         rpm: tdRPM,
-                        tripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
-                        tripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+                        tripSpeedCased_m_per_s: tdTripSpeedCased_m_per_s,
+                        tripSpeedOpenHole_m_per_s: tdTripSpeedOpenHole_m_per_s,
                         rotationEfficiencyUp: tdRotationEfficiencyUp,
-                        rotationEfficiencyDown: tdRotationEfficiencyDown
+                        rotationEfficiencyDown: tdRotationEfficiencyDown,
+                        sheaveLineFriction: tdSheaveLineFriction
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN

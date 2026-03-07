@@ -411,6 +411,23 @@ enum TorqueDragEngine {
                 }
             }
 
+            // Trip-induced viscous drag: pipe moving through stationary mud creates
+            // Couette-style shear in the annulus. Uses power-law wall shear stress
+            // from pipe velocity relative to the annular gap.
+            var tripViscousDrag_N: Double = 0
+            if input.tripSpeed_m_per_s > 0 && input.flowRate_m3perMin == 0 {
+                let rheology = fluidRheologyAtMD(midMD, layers: input.fluidLayers)
+                let n = rheology.n
+                let K = rheology.K_Pa_sn
+                let gap = (holeID - pipeOD) / 2.0
+                if gap > 1e-6 {
+                    // Couette shear rate: V_pipe / gap (narrow annulus approximation)
+                    let gamma_trip = input.tripSpeed_m_per_s / gap
+                    let tau_trip = K * pow(max(gamma_trip, 1e-6), n)
+                    tripViscousDrag_N = tau_trip * Double.pi * pipeOD * deltaL
+                }
+            }
+
             // Axial force increment
             let gravityComponent = buoyedWeight_N * cos(incAvg)
             let frictionForce_N: Double
@@ -455,6 +472,18 @@ enum TorqueDragEngine {
             // Annular upflow → upward on pipe → reduces tension at surface
             // String downflow → downward on pipe → adds tension at surface
             axialForce_N += stringDrag_N - annularDrag_N
+
+            // Trip-induced viscous drag opposes pipe motion:
+            // Trip out → drag resists upward motion → adds tension at surface
+            // Trip in → drag resists downward motion → reduces tension (adds to axial, since we accumulate bit→surface)
+            switch input.mode {
+            case .tripOut, .rotatingHoist:
+                axialForce_N += tripViscousDrag_N
+            case .tripIn, .sliding, .rotatingSlackOff:
+                axialForce_N -= tripViscousDrag_N
+            case .rotatingOB, .rotatingDrill:
+                break  // stationary or no axial movement
+            }
 
             // Free-hanging weight (no friction, but includes viscous drag)
             freeHangingForce_N += buoyedWeight_N * cos(incAvg) + stringDrag_N - annularDrag_N
@@ -640,13 +669,37 @@ enum TorqueDragEngine {
         pressureAreaBuoyancy: Bool = true,
         stringFluidLayers: [TripLayerSnapshot] = [],
         rpm: Double = 0,
-        tripSpeedUp_m_per_s: Double = 0,
-        tripSpeedDown_m_per_s: Double = 0,
+        tripSpeedCased_m_per_s: Double = 0,
+        tripSpeedOpenHole_m_per_s: Double = 0,
         rotationEfficiencyUp: Double = 1.0,
-        rotationEfficiencyDown: Double = 1.0
+        rotationEfficiencyDown: Double = 1.0,
+        sheaveLineFriction: Double = 0
     ) -> MultiCaseResult {
+        // Shift string segments so the bottom of the string aligns with the current bit MD.
+        // During a trip, the entire string slides as one piece — the BHA stays at the bottom,
+        // heavy DP above it, light DP on top. The original section depths are relative to when
+        // the string was at its deepest point, so we offset them to match the current bit position.
+        let originalBottom = stringSegments.map(\.bottomMD).max() ?? bitMD
+        let shift = bitMD - originalBottom
+        let shiftedSegments: [StringSegment] = shift == 0 ? stringSegments : stringSegments.map { seg in
+            StringSegment(
+                topMD: max(0, seg.topMD + shift),
+                bottomMD: seg.bottomMD + shift,
+                outerDiameter_m: seg.outerDiameter_m,
+                innerDiameter_m: seg.innerDiameter_m,
+                linearWeight_kg_per_m: seg.linearWeight_kg_per_m,
+                toolJointOD_m: seg.toolJointOD_m,
+                steelDensity_kg_per_m3: seg.steelDensity_kg_per_m3,
+                totalFlowArea_m2: seg.totalFlowArea_m2
+            )
+        }
+
+        // Resolve trip speed based on whether bit is in cased or open hole
+        let bitIsCased = holeSections.first(where: { bitMD >= $0.topMD && bitMD <= $0.bottomMD })?.isCased ?? false
+        let tripSpeed = bitIsCased ? tripSpeedCased_m_per_s : tripSpeedOpenHole_m_per_s
+
         let pickup = compute(TorqueDragInput(
-            surveys: surveys, stringSegments: stringSegments,
+            surveys: surveys, stringSegments: shiftedSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .tripOut, friction: friction,
             WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
@@ -654,11 +707,12 @@ enum TorqueDragEngine {
             flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
             aplEccentricityFactor: aplEccentricityFactor,
             pressureAreaBuoyancy: pressureAreaBuoyancy,
-            stringFluidLayers: stringFluidLayers
+            stringFluidLayers: stringFluidLayers,
+            tripSpeed_m_per_s: tripSpeed
         ))
 
         let slackOff = compute(TorqueDragInput(
-            surveys: surveys, stringSegments: stringSegments,
+            surveys: surveys, stringSegments: shiftedSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .tripIn, friction: friction,
             WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
@@ -666,11 +720,12 @@ enum TorqueDragEngine {
             flowRate_m3perMin: flowRate_m3perMin, surgePressure_kPa: surgePressure_kPa,
             aplEccentricityFactor: aplEccentricityFactor,
             pressureAreaBuoyancy: pressureAreaBuoyancy,
-            stringFluidLayers: stringFluidLayers
+            stringFluidLayers: stringFluidLayers,
+            tripSpeed_m_per_s: tripSpeed
         ))
 
         let rotating = compute(TorqueDragInput(
-            surveys: surveys, stringSegments: stringSegments,
+            surveys: surveys, stringSegments: shiftedSegments,
             holeSections: holeSections, fluidLayers: fluidLayers,
             bitMD: bitMD, mode: .rotatingOB, friction: friction,
             WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
@@ -689,9 +744,9 @@ enum TorqueDragEngine {
         var rotSOHL: Double? = nil
         var rotSOTorque: Double? = nil
 
-        if rpm > 0 && tripSpeedUp_m_per_s > 0 {
+        if rpm > 0 && tripSpeed > 0 {
             let rotHoist = compute(TorqueDragInput(
-                surveys: surveys, stringSegments: stringSegments,
+                surveys: surveys, stringSegments: shiftedSegments,
                 holeSections: holeSections, fluidLayers: fluidLayers,
                 bitMD: bitMD, mode: .rotatingHoist, friction: friction,
                 WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
@@ -700,16 +755,16 @@ enum TorqueDragEngine {
                 aplEccentricityFactor: aplEccentricityFactor,
                 pressureAreaBuoyancy: pressureAreaBuoyancy,
                 stringFluidLayers: stringFluidLayers,
-                rpm: rpm, tripSpeed_m_per_s: tripSpeedUp_m_per_s,
+                rpm: rpm, tripSpeed_m_per_s: tripSpeed,
                 rotationEfficiency: rotationEfficiencyUp
             ))
             rotHoistHL = rotHoist.hookLoad_kN
             rotHoistTorque = rotHoist.surfaceTorque_kNm
         }
 
-        if rpm > 0 && tripSpeedDown_m_per_s > 0 {
+        if rpm > 0 && tripSpeed > 0 {
             let rotSO = compute(TorqueDragInput(
-                surveys: surveys, stringSegments: stringSegments,
+                surveys: surveys, stringSegments: shiftedSegments,
                 holeSections: holeSections, fluidLayers: fluidLayers,
                 bitMD: bitMD, mode: .rotatingSlackOff, friction: friction,
                 WOB_kN: 0, blockWeight_kN: blockWeight_kN, tvdSampler: tvdSampler,
@@ -718,16 +773,18 @@ enum TorqueDragEngine {
                 aplEccentricityFactor: aplEccentricityFactor,
                 pressureAreaBuoyancy: pressureAreaBuoyancy,
                 stringFluidLayers: stringFluidLayers,
-                rpm: rpm, tripSpeed_m_per_s: tripSpeedDown_m_per_s,
+                rpm: rpm, tripSpeed_m_per_s: tripSpeed,
                 rotationEfficiency: rotationEfficiencyDown
             ))
             rotSOHL = rotSO.hookLoad_kN
             rotSOTorque = rotSO.surfaceTorque_kNm
         }
 
+        // Sheave/line friction: hoisting increases measured load, lowering decreases it.
+        let sf = sheaveLineFriction
         return MultiCaseResult(
-            pickupHookLoad_kN: pickup.hookLoad_kN,
-            slackOffHookLoad_kN: slackOff.hookLoad_kN,
+            pickupHookLoad_kN: pickup.hookLoad_kN * (1 + sf),
+            slackOffHookLoad_kN: slackOff.hookLoad_kN * (1 - sf),
             rotatingHookLoad_kN: rotating.hookLoad_kN,
             freeHangingWeight_kN: pickup.freeHangingWeight_kN,
             surfaceTorque_kNm: rotating.surfaceTorque_kNm,
@@ -742,9 +799,9 @@ enum TorqueDragEngine {
             pickupResult: pickup,
             slackOffResult: slackOff,
             rotatingResult: rotating,
-            rotatingHoistHookLoad_kN: rotHoistHL,
+            rotatingHoistHookLoad_kN: rotHoistHL.map { $0 * (1 + sf) },
             rotatingHoistTorque_kNm: rotHoistTorque,
-            rotatingSlackOffHookLoad_kN: rotSOHL,
+            rotatingSlackOffHookLoad_kN: rotSOHL.map { $0 * (1 - sf) },
             rotatingSlackOffTorque_kNm: rotSOTorque
         )
     }

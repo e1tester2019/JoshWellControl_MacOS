@@ -91,6 +91,15 @@ final class TripSimulation {
     var tdAplEccentricity: Double = 1.0
     /// Pressure-area buoyancy correction
     var tdPressureAreaBuoyancy: Bool = true
+    /// T&D trip speed in cased hole (m/s)
+    var tdTripSpeedCased_m_per_s: Double = 0
+    /// T&D trip speed in open hole (m/s)
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
+    /// T&D rotation efficiency for upward motion (0-1)
+    var tdRotationEfficiencyUp: Double = 0.5
+    /// T&D rotation efficiency for downward motion (0-1)
+    var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // MARK: - Pit Gain Calibration
 
@@ -144,6 +153,11 @@ final class TripSimulation {
         tdEnabled: Bool = false,
         tdAplEccentricity: Double = 1.0,
         tdPressureAreaBuoyancy: Bool = true,
+        tdTripSpeedCased_m_per_s: Double = 0,
+        tdTripSpeedOpenHole_m_per_s: Double = 0,
+        tdRotationEfficiencyUp: Double = 0.5,
+        tdRotationEfficiencyDown: Double = 0.5,
+        tdSheaveLineFriction: Double = 0,
         useObservedPitGain: Bool = false,
         observedInitialPitGain_m3: Double = 0,
         project: ProjectState? = nil,
@@ -171,6 +185,11 @@ final class TripSimulation {
         self.tdEnabled = tdEnabled
         self.tdAplEccentricity = tdAplEccentricity
         self.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+        self.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+        self.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+        self.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+        self.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+        self.tdSheaveLineFriction = tdSheaveLineFriction
         self.useObservedPitGain = useObservedPitGain
         self.observedInitialPitGain_m3 = observedInitialPitGain_m3
         self.project = project
@@ -209,6 +228,11 @@ extension TripSimulation {
             "tdEnabled": tdEnabled,
             "tdAplEccentricity": tdAplEccentricity,
             "tdPressureAreaBuoyancy": tdPressureAreaBuoyancy,
+            "tdTripSpeedCased_m_per_s": tdTripSpeedCased_m_per_s,
+            "tdTripSpeedOpenHole_m_per_s": tdTripSpeedOpenHole_m_per_s,
+            "tdRotationEfficiencyUp": tdRotationEfficiencyUp,
+            "tdRotationEfficiencyDown": tdRotationEfficiencyDown,
+            "tdSheaveLineFriction": tdSheaveLineFriction,
             "useObservedPitGain": useObservedPitGain,
             "observedInitialPitGain_m3": observedInitialPitGain_m3,
             "calculatedInitialPitGain_m3": calculatedInitialPitGain_m3,

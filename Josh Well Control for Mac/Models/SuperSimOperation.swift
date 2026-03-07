@@ -71,10 +71,11 @@ struct SuperSimOperation: Identifiable {
     var tdPressureAreaBuoyancy: Bool = true
     var tdEnabled: Bool = false
     var tdRPM: Double = 0
-    var tdTripSpeedUp_m_per_s: Double = 0
-    var tdTripSpeedDown_m_per_s: Double = 0
+    var tdTripSpeedCased_m_per_s: Double = 0
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
     var tdRotationEfficiencyUp: Double = 0.5
     var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // MARK: - Trip In Config
 
@@ -187,10 +188,11 @@ struct SuperSimOperation: Identifiable {
             tdAplEccentricity: tdAplEccentricity,
             tdPressureAreaBuoyancy: tdPressureAreaBuoyancy,
             tdRPM: tdRPM,
-            tdTripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
-            tdTripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+            tdTripSpeedCased_m_per_s: tdTripSpeedCased_m_per_s,
+            tdTripSpeedOpenHole_m_per_s: tdTripSpeedOpenHole_m_per_s,
             tdRotationEfficiencyUp: tdRotationEfficiencyUp,
-            tdRotationEfficiencyDown: tdRotationEfficiencyDown
+            tdRotationEfficiencyDown: tdRotationEfficiencyDown,
+            tdSheaveLineFriction: tdSheaveLineFriction
         )
     }
 
@@ -246,10 +248,11 @@ struct SuperSimOperation: Identifiable {
         op.tdAplEccentricity = config.tdAplEccentricity ?? 1.0
         op.tdPressureAreaBuoyancy = config.tdPressureAreaBuoyancy ?? true
         op.tdRPM = config.tdRPM ?? 0
-        op.tdTripSpeedUp_m_per_s = config.tdTripSpeedUp_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
-        op.tdTripSpeedDown_m_per_s = config.tdTripSpeedDown_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
+        op.tdTripSpeedCased_m_per_s = config.tdTripSpeedCased_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
+        op.tdTripSpeedOpenHole_m_per_s = config.tdTripSpeedOpenHole_m_per_s ?? config.tdTripSpeed_m_per_s ?? 0
         op.tdRotationEfficiencyUp = config.tdRotationEfficiencyUp ?? config.tdRotationEfficiency ?? 0.5
         op.tdRotationEfficiencyDown = config.tdRotationEfficiencyDown ?? config.tdRotationEfficiency ?? 0.5
+        op.tdSheaveLineFriction = config.tdSheaveLineFriction ?? 0
         return op
     }
 }
@@ -323,10 +326,11 @@ struct SuperSimPreset: Codable, Identifiable {
         var tdAplEccentricity: Double?
         var tdPressureAreaBuoyancy: Bool?
         var tdRPM: Double?
-        var tdTripSpeedUp_m_per_s: Double?
-        var tdTripSpeedDown_m_per_s: Double?
+        var tdTripSpeedCased_m_per_s: Double?
+        var tdTripSpeedOpenHole_m_per_s: Double?
         var tdRotationEfficiencyUp: Double?
         var tdRotationEfficiencyDown: Double?
+        var tdSheaveLineFriction: Double?
         // Legacy single-value keys for backward compatibility on decode
         var tdTripSpeed_m_per_s: Double?
         var tdRotationEfficiency: Double?

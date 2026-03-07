@@ -50,6 +50,11 @@ class TripInSimulationViewModel {
     var tdBlockWeight_kN: Double = 0
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
+    var tdTripSpeedCased_m_per_s: Double = 0
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
+    var tdRotationEfficiencyUp: Double = 0.5
+    var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
@@ -385,6 +390,11 @@ class TripInSimulationViewModel {
                 serviceInput.tdBlockWeight_kN = tdBlockWeight_kN
                 serviceInput.tdAplEccentricity = tdAplEccentricity
                 serviceInput.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+                serviceInput.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+                serviceInput.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+                serviceInput.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+                serviceInput.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+                serviceInput.tdSheaveLineFriction = tdSheaveLineFriction
             }
         }
 
@@ -486,6 +496,11 @@ class TripInSimulationViewModel {
         simulation.tdBlockWeight_kN = tdBlockWeight_kN
         simulation.tdAplEccentricity = tdAplEccentricity
         simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+        simulation.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+        simulation.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+        simulation.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+        simulation.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+        simulation.tdSheaveLineFriction = tdSheaveLineFriction
         simulation.holdSABPOpen = holdSABPOpen
         simulation.updatedAt = .now
 
@@ -521,6 +536,11 @@ class TripInSimulationViewModel {
         tdBlockWeight_kN = simulation.tdBlockWeight_kN
         tdAplEccentricity = simulation.tdAplEccentricity
         tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
+        tdTripSpeedCased_m_per_s = simulation.tdTripSpeedCased_m_per_s
+        tdTripSpeedOpenHole_m_per_s = simulation.tdTripSpeedOpenHole_m_per_s
+        tdRotationEfficiencyUp = simulation.tdRotationEfficiencyUp
+        tdRotationEfficiencyDown = simulation.tdRotationEfficiencyDown
+        tdSheaveLineFriction = simulation.tdSheaveLineFriction
         holdSABPOpen = simulation.holdSABPOpen
         return true
     }
@@ -644,7 +664,14 @@ class TripInSimulationViewModel {
             tdStringSegments: tdStrSegs,
             tdHoleSections: tdHoleSegs,
             tdFriction: tdFriction,
-            tdBlockWeight_kN: tdBlockWeight_kN
+            tdBlockWeight_kN: tdBlockWeight_kN,
+            tdAplEccentricity: tdAplEccentricity,
+            tdPressureAreaBuoyancy: tdPressureAreaBuoyancy,
+            tdTripSpeedCased_m_per_s: tdTripSpeedCased_m_per_s,
+            tdTripSpeedOpenHole_m_per_s: tdTripSpeedOpenHole_m_per_s,
+            tdRotationEfficiencyUp: tdRotationEfficiencyUp,
+            tdRotationEfficiencyDown: tdRotationEfficiencyDown,
+            tdSheaveLineFriction: tdSheaveLineFriction
         )
 
         circulateOutSchedule = result.schedule

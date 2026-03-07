@@ -225,6 +225,47 @@ struct OperationConfigView: View {
                         .controlSize(.small)
                         .help("Distributed pressure-area buoyancy correction during circulation")
                 }
+                GridRow {
+                    Text("Trip Speed Cased (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedCased_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedCased_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed OH (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Up:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Down:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Sheave Friction:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
             }
             GridRow {
                 Text("")
@@ -503,6 +544,47 @@ struct OperationConfigView: View {
                         .controlSize(.small)
                         .help("Distributed pressure-area buoyancy correction during circulation")
                 }
+                GridRow {
+                    Text("Trip Speed Cased (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedCased_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedCased_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Trip Speed OH (m/min):")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: Binding(
+                        get: { operation.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
+                    ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Up:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Rot. Eff. Down:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Sheave Friction:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
             }
         }
         .onChange(of: operation.fillMudID) { _, newID in
@@ -672,21 +754,21 @@ struct OperationConfigView: View {
                         .frame(width: 120)
                 }
                 GridRow {
-                    Text("Trip Speed Up (m/min):")
+                    Text("Trip Speed Cased (m/min):")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: Binding(
-                        get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
-                        set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                        get: { operation.tdTripSpeedCased_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedCased_m_per_s = $0 / 60.0 }
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
                 }
                 GridRow {
-                    Text("Trip Speed Down (m/min):")
+                    Text("Trip Speed OH (m/min):")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: Binding(
-                        get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
-                        set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                        get: { operation.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
@@ -702,6 +784,13 @@ struct OperationConfigView: View {
                     Text("Rot. Eff. Down:")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Sheave Friction:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
                 }
@@ -871,21 +960,21 @@ struct OperationConfigView: View {
                         .frame(width: 120)
                 }
                 GridRow {
-                    Text("Trip Speed Up (m/min):")
+                    Text("Trip Speed Cased (m/min):")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: Binding(
-                        get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
-                        set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                        get: { operation.tdTripSpeedCased_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedCased_m_per_s = $0 / 60.0 }
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
                 }
                 GridRow {
-                    Text("Trip Speed Down (m/min):")
+                    Text("Trip Speed OH (m/min):")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: Binding(
-                        get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
-                        set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                        get: { operation.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                        set: { operation.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
                     ), format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
@@ -901,6 +990,13 @@ struct OperationConfigView: View {
                     Text("Rot. Eff. Down:")
                         .frame(width: 140, alignment: .trailing)
                     TextField("", value: $operation.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+                GridRow {
+                    Text("Sheave Friction:")
+                        .frame(width: 140, alignment: .trailing)
+                    TextField("", value: $operation.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 120)
                 }
@@ -1031,21 +1127,21 @@ struct OperationConfigView: View {
                             .frame(width: 120)
                     }
                     GridRow {
-                        Text("Trip Speed Up (m/min):")
+                        Text("Trip Speed Cased (m/min):")
                             .frame(width: 140, alignment: .trailing)
                         TextField("", value: Binding(
-                            get: { operation.tdTripSpeedUp_m_per_s * 60.0 },
-                            set: { operation.tdTripSpeedUp_m_per_s = $0 / 60.0 }
+                            get: { operation.tdTripSpeedCased_m_per_s * 60.0 },
+                            set: { operation.tdTripSpeedCased_m_per_s = $0 / 60.0 }
                         ), format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
                     }
                     GridRow {
-                        Text("Trip Speed Down (m/min):")
+                        Text("Trip Speed OH (m/min):")
                             .frame(width: 140, alignment: .trailing)
                         TextField("", value: Binding(
-                            get: { operation.tdTripSpeedDown_m_per_s * 60.0 },
-                            set: { operation.tdTripSpeedDown_m_per_s = $0 / 60.0 }
+                            get: { operation.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                            set: { operation.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
                         ), format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
@@ -1065,6 +1161,13 @@ struct OperationConfigView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
                             .help("0–1: scales velocity-ratio friction split for slack-off")
+                    }
+                    GridRow {
+                        Text("Sheave Friction:")
+                            .frame(width: 140, alignment: .trailing)
+                        TextField("", value: $operation.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
                     }
                 }
             }

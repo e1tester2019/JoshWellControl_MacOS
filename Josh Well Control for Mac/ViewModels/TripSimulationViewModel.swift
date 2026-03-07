@@ -52,6 +52,11 @@ extension TripSimulationView {
     var tdBlockWeight_kN: Double = 0
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
+    var tdTripSpeedCased_m_per_s: Double = 0
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
+    var tdRotationEfficiencyUp: Double = 0.5
+    var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // Observed pit gain calibration
     // When useObservedPitGain is true, the simulation uses observedInitialPitGain_m3
@@ -171,7 +176,12 @@ extension TripSimulationView {
         tdFriction: tdFriction,
         tdBlockWeight_kN: tdBlockWeight_kN,
         tdAplEccentricity: tdAplEccentricity,
-        tdPressureAreaBuoyancy: tdPressureAreaBuoyancy
+        tdPressureAreaBuoyancy: tdPressureAreaBuoyancy,
+        tdTripSpeedCased_m_per_s: tdTripSpeedCased_m_per_s,
+        tdTripSpeedOpenHole_m_per_s: tdTripSpeedOpenHole_m_per_s,
+        tdRotationEfficiencyUp: tdRotationEfficiencyUp,
+        tdRotationEfficiencyDown: tdRotationEfficiencyDown,
+        tdSheaveLineFriction: tdSheaveLineFriction
       )
 
       circulateOutSchedule = result.schedule
@@ -400,6 +410,11 @@ extension TripSimulationView {
           input.tdAplEccentricity = tdAplEccentricity
           input.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
           input.tdTvdSampler = tvdSampler
+          input.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+          input.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+          input.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+          input.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+          input.tdSheaveLineFriction = tdSheaveLineFriction
         }
       }
 
@@ -522,6 +537,11 @@ extension TripSimulationView {
       simulation.tdBlockWeight_kN = tdBlockWeight_kN
       simulation.tdAplEccentricity = tdAplEccentricity
       simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+      simulation.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+      simulation.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+      simulation.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+      simulation.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+      simulation.tdSheaveLineFriction = tdSheaveLineFriction
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -552,6 +572,11 @@ extension TripSimulationView {
       tdBlockWeight_kN = simulation.tdBlockWeight_kN
       tdAplEccentricity = simulation.tdAplEccentricity
       tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
+      tdTripSpeedCased_m_per_s = simulation.tdTripSpeedCased_m_per_s
+      tdTripSpeedOpenHole_m_per_s = simulation.tdTripSpeedOpenHole_m_per_s
+      tdRotationEfficiencyUp = simulation.tdRotationEfficiencyUp
+      tdRotationEfficiencyDown = simulation.tdRotationEfficiencyDown
+      tdSheaveLineFriction = simulation.tdSheaveLineFriction
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID
@@ -662,6 +687,11 @@ extension TripSimulationViewIOS {
     var tdBlockWeight_kN: Double = 0
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
+    var tdTripSpeedCased_m_per_s: Double = 0
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
+    var tdRotationEfficiencyUp: Double = 0.5
+    var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // Observed pit gain calibration
     var useObservedPitGain: Bool = false
@@ -831,6 +861,11 @@ extension TripSimulationViewIOS {
           input.tdAplEccentricity = tdAplEccentricity
           input.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
           input.tdTvdSampler = tvdSampler
+          input.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+          input.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+          input.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+          input.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+          input.tdSheaveLineFriction = tdSheaveLineFriction
         }
       }
 
@@ -953,6 +988,11 @@ extension TripSimulationViewIOS {
       simulation.tdBlockWeight_kN = tdBlockWeight_kN
       simulation.tdAplEccentricity = tdAplEccentricity
       simulation.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+      simulation.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+      simulation.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+      simulation.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+      simulation.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+      simulation.tdSheaveLineFriction = tdSheaveLineFriction
       simulation.useObservedPitGain = useObservedPitGain
       simulation.observedInitialPitGain_m3 = observedInitialPitGain_m3
       simulation.backfillMudID = backfillMudID
@@ -983,6 +1023,11 @@ extension TripSimulationViewIOS {
       tdBlockWeight_kN = simulation.tdBlockWeight_kN
       tdAplEccentricity = simulation.tdAplEccentricity
       tdPressureAreaBuoyancy = simulation.tdPressureAreaBuoyancy
+      tdTripSpeedCased_m_per_s = simulation.tdTripSpeedCased_m_per_s
+      tdTripSpeedOpenHole_m_per_s = simulation.tdTripSpeedOpenHole_m_per_s
+      tdRotationEfficiencyUp = simulation.tdRotationEfficiencyUp
+      tdRotationEfficiencyDown = simulation.tdRotationEfficiencyDown
+      tdSheaveLineFriction = simulation.tdSheaveLineFriction
       useObservedPitGain = simulation.useObservedPitGain
       observedInitialPitGain_m3 = simulation.observedInitialPitGain_m3
       backfillMudID = simulation.backfillMudID

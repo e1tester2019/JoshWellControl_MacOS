@@ -653,243 +653,282 @@ struct PumpScheduleHydraulicsPanelView: View {
                 Toggle("Enable T&D", isOn: $viewModel.tdEnabled)
 
                 if viewModel.tdEnabled {
-                    HStack {
-                        Text("Block Weight")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("kDaN", value: Binding(
-                            get: { viewModel.tdBlockWeight_kN / 10.0 },
-                            set: { viewModel.tdBlockWeight_kN = $0 * 10.0 }
-                        ), format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("kDaN").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Cased FF")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdCasedFF, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                    }
-                    HStack {
-                        Text("Open Hole FF")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdOpenHoleFF, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                    }
-                    HStack {
-                        Text("APL Eccentricity")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdAplEccentricity, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                    }
-                    Toggle("PA Buoyancy", isOn: $viewModel.tdPressureAreaBuoyancy)
-
-                    HStack {
-                        Text("RPM")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdRPM, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("rpm").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Trip Speed Up")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: Binding(
-                            get: { viewModel.tdTripSpeedUp_m_per_s * 60.0 },
-                            set: { viewModel.tdTripSpeedUp_m_per_s = $0 / 60.0 }
-                        ), format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("m/min").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Trip Speed Down")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: Binding(
-                            get: { viewModel.tdTripSpeedDown_m_per_s * 60.0 },
-                            set: { viewModel.tdTripSpeedDown_m_per_s = $0 / 60.0 }
-                        ), format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("m/min").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Rot. Eff. Up")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdRotationEfficiencyUp, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("0–1").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Rot. Eff. Down")
-                            .frame(width: 120, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                        TextField("", value: $viewModel.tdRotationEfficiencyDown, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .monospacedDigit()
-                        Text("0–1").foregroundStyle(.secondary)
-                    }
-
-                    let hasSurveys = !(project.surveys ?? []).isEmpty
-                    let hasDrillString = !(project.drillString ?? []).isEmpty
-
-                    if !hasSurveys || !hasDrillString {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text(!hasSurveys ? "No survey data" : "No drill string")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
+                    tdInputsSection
 
                     Divider()
 
-                    // T&D outputs
-                    if let pu = viewModel.tdPickupHookLoad_kN {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Pickup")
-                                    .frame(width: 120, alignment: .trailing)
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.1f kDaN", pu / 10.0))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.green)
-                            }
-                            if let so = viewModel.tdSlackOffHookLoad_kN {
-                                HStack {
-                                    Text("Slack-off")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kDaN", so / 10.0))
-                                        .monospacedDigit()
-                                        .foregroundStyle(.red)
-                                }
-                            }
-                            if let rot = viewModel.tdRotatingHookLoad_kN {
-                                HStack {
-                                    Text("Rotating")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kDaN", rot / 10.0))
-                                        .monospacedDigit()
-                                        .foregroundStyle(.blue)
-                                }
-                            }
-                            if let fh = viewModel.tdFreeHangingWeight_kN {
-                                HStack {
-                                    Text("Free Hanging")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kDaN", fh / 10.0))
-                                        .monospacedDigit()
-                                }
-                            }
-                            if let torque = viewModel.tdSurfaceTorque_kNm {
-                                HStack {
-                                    Text("Surface Torque")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.0f ft·lbs", torque * 737.5621))
-                                        .monospacedDigit()
-                                }
-                            }
-                            if let buckle = viewModel.tdBucklingOnsetMD {
-                                HStack {
-                                    Text("Buckling Onset")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.0f m", buckle))
-                                        .monospacedDigit()
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                            if let rh = viewModel.tdRotatingHoistHookLoad_kN {
-                                HStack {
-                                    Text("Rot. Hoist")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kDaN", rh / 10.0))
-                                        .monospacedDigit()
-                                        .foregroundStyle(.green)
-                                }
-                            }
-                            if let rht = viewModel.tdRotatingHoistTorque_kNm {
-                                HStack {
-                                    Text("Rot. Hoist Torque")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.0f ft·lbs", rht * 737.5621))
-                                        .monospacedDigit()
-                                }
-                            }
-                            if let rs = viewModel.tdRotatingSlackOffHookLoad_kN {
-                                HStack {
-                                    Text("Rot. Slack-off")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.1f kDaN", rs / 10.0))
-                                        .monospacedDigit()
-                                        .foregroundStyle(.red)
-                                }
-                            }
-                            if let rst = viewModel.tdRotatingSlackOffTorque_kNm {
-                                HStack {
-                                    Text("Rot. SO Torque")
-                                        .frame(width: 120, alignment: .trailing)
-                                        .foregroundStyle(.secondary)
-                                    Text(String(format: "%.0f ft·lbs", rst * 737.5621))
-                                        .monospacedDigit()
-                                }
-                            }
-                        }
-                    } else {
-                        Text("No T&D results — check survey and drill string data")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    tdOutputsSection
                 }
             }
             .padding(4)
         }
-        .onChange(of: viewModel.pumpRate_m3permin) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.mpdEnabled) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.targetEMD_kgm3) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.controlDepthModeRaw) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.controlMD_m) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdEnabled) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdBlockWeight_kN) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdCasedFF) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdOpenHoleFF) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdAplEccentricity) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdPressureAreaBuoyancy) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdRPM) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdTripSpeedUp_m_per_s) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdTripSpeedDown_m_per_s) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdRotationEfficiencyUp) { viewModel.updateHydraulics(project: project) }
-        .onChange(of: viewModel.tdRotationEfficiencyDown) { viewModel.updateHydraulics(project: project) }
+        .modifier(TDOnChangeModifierA(viewModel: viewModel, project: project))
+        .modifier(TDOnChangeModifierB(viewModel: viewModel, project: project))
+    }
+
+    @ViewBuilder
+    private var tdInputsSection: some View {
+        HStack {
+            Text("Block Weight")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("kDaN", value: Binding(
+                get: { viewModel.tdBlockWeight_kN / 10.0 },
+                set: { viewModel.tdBlockWeight_kN = $0 * 10.0 }
+            ), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("kDaN").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Cased FF")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdCasedFF, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+        }
+        HStack {
+            Text("Open Hole FF")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdOpenHoleFF, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+        }
+        HStack {
+            Text("APL Eccentricity")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdAplEccentricity, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+        }
+        Toggle("PA Buoyancy", isOn: $viewModel.tdPressureAreaBuoyancy)
+        HStack {
+            Text("RPM")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdRPM, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("rpm").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Trip Speed Cased")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: Binding(
+                get: { viewModel.tdTripSpeedCased_m_per_s * 60.0 },
+                set: { viewModel.tdTripSpeedCased_m_per_s = $0 / 60.0 }
+            ), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("m/min").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Trip Speed OH")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: Binding(
+                get: { viewModel.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                set: { viewModel.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
+            ), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("m/min").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Rot. Eff. Up")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdRotationEfficiencyUp, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("0–1").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Rot. Eff. Down")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdRotationEfficiencyDown, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+            Text("0–1").foregroundStyle(.secondary)
+        }
+        HStack {
+            Text("Sheave Friction")
+                .frame(width: 120, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            TextField("", value: $viewModel.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .monospacedDigit()
+        }
+
+        let hasSurveys = !(project.surveys ?? []).isEmpty
+        let hasDrillString = !(project.drillString ?? []).isEmpty
+
+        if !hasSurveys || !hasDrillString {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(!hasSurveys ? "No survey data" : "No drill string")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tdOutputsSection: some View {
+        if let pu = viewModel.tdPickupHookLoad_kN {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Pickup")
+                        .frame(width: 120, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                    Text(String(format: "%.1f kDaN", pu / 10.0))
+                        .monospacedDigit()
+                        .foregroundStyle(.green)
+                }
+                if let so = viewModel.tdSlackOffHookLoad_kN {
+                    HStack {
+                        Text("Slack-off")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f kDaN", so / 10.0))
+                            .monospacedDigit()
+                            .foregroundStyle(.red)
+                    }
+                }
+                if let rot = viewModel.tdRotatingHookLoad_kN {
+                    HStack {
+                        Text("Rotating")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f kDaN", rot / 10.0))
+                            .monospacedDigit()
+                            .foregroundStyle(.blue)
+                    }
+                }
+                if let fh = viewModel.tdFreeHangingWeight_kN {
+                    HStack {
+                        Text("Free Hanging")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f kDaN", fh / 10.0))
+                            .monospacedDigit()
+                    }
+                }
+                if let torque = viewModel.tdSurfaceTorque_kNm {
+                    HStack {
+                        Text("Surface Torque")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f ft·lbs", torque * 737.5621))
+                            .monospacedDigit()
+                    }
+                }
+                if let buckle = viewModel.tdBucklingOnsetMD {
+                    HStack {
+                        Text("Buckling Onset")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f m", buckle))
+                            .monospacedDigit()
+                            .foregroundStyle(.orange)
+                    }
+                }
+                if let rh = viewModel.tdRotatingHoistHookLoad_kN {
+                    HStack {
+                        Text("Rot. Hoist")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f kDaN", rh / 10.0))
+                            .monospacedDigit()
+                            .foregroundStyle(.green)
+                    }
+                }
+                if let rht = viewModel.tdRotatingHoistTorque_kNm {
+                    HStack {
+                        Text("Rot. Hoist Torque")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f ft·lbs", rht * 737.5621))
+                            .monospacedDigit()
+                    }
+                }
+                if let rs = viewModel.tdRotatingSlackOffHookLoad_kN {
+                    HStack {
+                        Text("Rot. Slack-off")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f kDaN", rs / 10.0))
+                            .monospacedDigit()
+                            .foregroundStyle(.red)
+                    }
+                }
+                if let rst = viewModel.tdRotatingSlackOffTorque_kNm {
+                    HStack {
+                        Text("Rot. SO Torque")
+                            .frame(width: 120, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f ft·lbs", rst * 737.5621))
+                            .monospacedDigit()
+                    }
+                }
+            }
+        } else {
+            Text("No T&D results — check survey and drill string data")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - T&D onChange helpers
+private struct TDOnChangeModifierA: ViewModifier {
+    @Bindable var viewModel: PumpScheduleViewModel
+    let project: ProjectState
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: viewModel.pumpRate_m3permin) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.mpdEnabled) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.targetEMD_kgm3) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.controlDepthModeRaw) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.controlMD_m) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdEnabled) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdBlockWeight_kN) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdCasedFF) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdOpenHoleFF) { viewModel.updateHydraulics(project: project) }
+    }
+}
+
+private struct TDOnChangeModifierB: ViewModifier {
+    @Bindable var viewModel: PumpScheduleViewModel
+    let project: ProjectState
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: viewModel.tdAplEccentricity) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdPressureAreaBuoyancy) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdRPM) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdTripSpeedCased_m_per_s) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdTripSpeedOpenHole_m_per_s) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdRotationEfficiencyUp) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdRotationEfficiencyDown) { viewModel.updateHydraulics(project: project) }
+            .onChange(of: viewModel.tdSheaveLineFriction) { viewModel.updateHydraulics(project: project) }
     }
 }
 

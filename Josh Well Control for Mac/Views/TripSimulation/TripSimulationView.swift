@@ -324,6 +324,43 @@ struct TripSimulationView: View {
                             .controlSize(.small)
                             .help("Distributed pressure-area buoyancy correction")
                     }
+                    LabeledContent("Trip Speed Cased") {
+                        HStack(spacing: 4) {
+                            TextField("", value: Binding(
+                                get: { viewmodel.tdTripSpeedCased_m_per_s * 60.0 },
+                                set: { viewmodel.tdTripSpeedCased_m_per_s = $0 / 60.0 }
+                            ), format: .number.precision(.fractionLength(0)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                            Text("m/min").foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("Trip Speed OH") {
+                        HStack(spacing: 4) {
+                            TextField("", value: Binding(
+                                get: { viewmodel.tdTripSpeedOpenHole_m_per_s * 60.0 },
+                                set: { viewmodel.tdTripSpeedOpenHole_m_per_s = $0 / 60.0 }
+                            ), format: .number.precision(.fractionLength(0)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                            Text("m/min").foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("Rot Efficiency Up") {
+                        TextField("", value: $viewmodel.tdRotationEfficiencyUp, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("Rot Efficiency Down") {
+                        TextField("", value: $viewmodel.tdRotationEfficiencyDown, format: .number.precision(.fractionLength(2)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+                    LabeledContent("Sheave Friction") {
+                        TextField("", value: $viewmodel.tdSheaveLineFriction, format: .number.precision(.fractionLength(3)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
                 }
             }
 

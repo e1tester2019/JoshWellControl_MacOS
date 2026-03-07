@@ -106,6 +106,15 @@ final class TripInSimulation {
     var tdAplEccentricity: Double = 1.0
     /// Pressure-area buoyancy correction
     var tdPressureAreaBuoyancy: Bool = true
+    /// T&D trip speed in cased hole (m/s)
+    var tdTripSpeedCased_m_per_s: Double = 0
+    /// T&D trip speed in open hole (m/s)
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
+    /// T&D rotation efficiency for upward motion (0-1)
+    var tdRotationEfficiencyUp: Double = 0.5
+    /// T&D rotation efficiency for downward motion (0-1)
+    var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
     /// Hold SABP open (don't apply choke pressure)
     var holdSABPOpen: Bool = false
 
@@ -164,6 +173,11 @@ final class TripInSimulation {
         tdEnabled: Bool = false,
         tdAplEccentricity: Double = 1.0,
         tdPressureAreaBuoyancy: Bool = true,
+        tdTripSpeedCased_m_per_s: Double = 0,
+        tdTripSpeedOpenHole_m_per_s: Double = 0,
+        tdRotationEfficiencyUp: Double = 0.5,
+        tdRotationEfficiencyDown: Double = 0.5,
+        tdSheaveLineFriction: Double = 0,
         project: ProjectState? = nil,
         well: Well? = nil
     ) {
@@ -192,6 +206,11 @@ final class TripInSimulation {
         self.tdEnabled = tdEnabled
         self.tdAplEccentricity = tdAplEccentricity
         self.tdPressureAreaBuoyancy = tdPressureAreaBuoyancy
+        self.tdTripSpeedCased_m_per_s = tdTripSpeedCased_m_per_s
+        self.tdTripSpeedOpenHole_m_per_s = tdTripSpeedOpenHole_m_per_s
+        self.tdRotationEfficiencyUp = tdRotationEfficiencyUp
+        self.tdRotationEfficiencyDown = tdRotationEfficiencyDown
+        self.tdSheaveLineFriction = tdSheaveLineFriction
         self.project = project
         self.well = well
     }
@@ -231,6 +250,11 @@ extension TripInSimulation {
             "tdEnabled": tdEnabled,
             "tdAplEccentricity": tdAplEccentricity,
             "tdPressureAreaBuoyancy": tdPressureAreaBuoyancy,
+            "tdTripSpeedCased_m_per_s": tdTripSpeedCased_m_per_s,
+            "tdTripSpeedOpenHole_m_per_s": tdTripSpeedOpenHole_m_per_s,
+            "tdRotationEfficiencyUp": tdRotationEfficiencyUp,
+            "tdRotationEfficiencyDown": tdRotationEfficiencyDown,
+            "tdSheaveLineFriction": tdSheaveLineFriction,
             "fillMudID": fillMudID?.uuidString as Any
         ]
     }

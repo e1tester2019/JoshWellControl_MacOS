@@ -70,10 +70,11 @@ class PumpScheduleViewModel {
     var tdAplEccentricity: Double = 1.0
     var tdPressureAreaBuoyancy: Bool = true
     var tdRPM: Double = 0
-    var tdTripSpeedUp_m_per_s: Double = 0
-    var tdTripSpeedDown_m_per_s: Double = 0
+    var tdTripSpeedCased_m_per_s: Double = 0
+    var tdTripSpeedOpenHole_m_per_s: Double = 0
     var tdRotationEfficiencyUp: Double = 0.5
     var tdRotationEfficiencyDown: Double = 0.5
+    var tdSheaveLineFriction: Double = 0
 
     // MARK: - Live hydraulics outputs (bind the UI to these)
     var annulusAtControl_kPa: Double = 0
@@ -1120,10 +1121,11 @@ class PumpScheduleViewModel {
             pressureAreaBuoyancy: tdPressureAreaBuoyancy,
             stringFluidLayers: stringLayers,
             rpm: tdRPM,
-            tripSpeedUp_m_per_s: tdTripSpeedUp_m_per_s,
-            tripSpeedDown_m_per_s: tdTripSpeedDown_m_per_s,
+            tripSpeedCased_m_per_s: tdTripSpeedCased_m_per_s,
+            tripSpeedOpenHole_m_per_s: tdTripSpeedOpenHole_m_per_s,
             rotationEfficiencyUp: tdRotationEfficiencyUp,
-            rotationEfficiencyDown: tdRotationEfficiencyDown
+            rotationEfficiencyDown: tdRotationEfficiencyDown,
+            sheaveLineFriction: tdSheaveLineFriction
         )
     }
 

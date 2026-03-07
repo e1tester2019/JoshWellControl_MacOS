@@ -513,10 +513,11 @@ final class NumericalTripModel: @unchecked Sendable {
         var tdPressureAreaBuoyancy: Bool = true
         var tdTvdSampler: TvdSampler? = nil
         var tdRPM: Double = 0
-        var tdTripSpeedUp_m_per_s: Double = 0
-        var tdTripSpeedDown_m_per_s: Double = 0
+        var tdTripSpeedCased_m_per_s: Double = 0
+        var tdTripSpeedOpenHole_m_per_s: Double = 0
         var tdRotationEfficiencyUp: Double = 1.0
         var tdRotationEfficiencyDown: Double = 1.0
+        var tdSheaveLineFriction: Double = 0
         // Super Simulation: custom initial layer state
         // When set, seeds stacks from these layers instead of ProjectSnapshot.
         // This enables chaining operations (e.g., trip out after circulation).
@@ -1401,10 +1402,11 @@ final class NumericalTripModel: @unchecked Sendable {
                         pressureAreaBuoyancy: input.tdPressureAreaBuoyancy,
                         stringFluidLayers: strFluidLayers,
                         rpm: input.tdRPM,
-                        tripSpeedUp_m_per_s: input.tdTripSpeedUp_m_per_s,
-                        tripSpeedDown_m_per_s: input.tdTripSpeedDown_m_per_s,
+                        tripSpeedCased_m_per_s: input.tdTripSpeedCased_m_per_s,
+                        tripSpeedOpenHole_m_per_s: input.tdTripSpeedOpenHole_m_per_s,
                         rotationEfficiencyUp: input.tdRotationEfficiencyUp,
-                        rotationEfficiencyDown: input.tdRotationEfficiencyDown
+                        rotationEfficiencyDown: input.tdRotationEfficiencyDown,
+                        sheaveLineFriction: input.tdSheaveLineFriction
                     )
                     tdPickup = multi.pickupHookLoad_kN
                     tdSlackOff = multi.slackOffHookLoad_kN

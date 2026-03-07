@@ -93,10 +93,11 @@ class SuperSimViewModel {
             op.tdAplEccentricity = lastOp.tdAplEccentricity
             op.tdPressureAreaBuoyancy = lastOp.tdPressureAreaBuoyancy
             op.tdRPM = lastOp.tdRPM
-            op.tdTripSpeedUp_m_per_s = lastOp.tdTripSpeedUp_m_per_s
-            op.tdTripSpeedDown_m_per_s = lastOp.tdTripSpeedDown_m_per_s
+            op.tdTripSpeedCased_m_per_s = lastOp.tdTripSpeedCased_m_per_s
+            op.tdTripSpeedOpenHole_m_per_s = lastOp.tdTripSpeedOpenHole_m_per_s
             op.tdRotationEfficiencyUp = lastOp.tdRotationEfficiencyUp
             op.tdRotationEfficiencyDown = lastOp.tdRotationEfficiencyDown
+            op.tdSheaveLineFriction = lastOp.tdSheaveLineFriction
 
             // Start where previous operation ends (use output if run, else configured end)
             let prevEndMD = lastOp.outputState?.bitMD_m ?? lastOp.endMD_m
@@ -569,6 +570,12 @@ class SuperSimViewModel {
             input.tdAplEccentricity = op.tdAplEccentricity
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdTvdSampler = tvdSampler
+            input.tdRPM = op.tdRPM
+            input.tdTripSpeedCased_m_per_s = op.tdTripSpeedCased_m_per_s
+            input.tdTripSpeedOpenHole_m_per_s = op.tdTripSpeedOpenHole_m_per_s
+            input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
+            input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
+            input.tdSheaveLineFriction = op.tdSheaveLineFriction
         }
 
         let model = NumericalTripModel()
@@ -704,6 +711,12 @@ class SuperSimViewModel {
             input.tdBlockWeight_kN = op.tdBlockWeight_kN
             input.tdAplEccentricity = op.tdAplEccentricity
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
+            input.tdRPM = op.tdRPM
+            input.tdTripSpeedCased_m_per_s = op.tdTripSpeedCased_m_per_s
+            input.tdTripSpeedOpenHole_m_per_s = op.tdTripSpeedOpenHole_m_per_s
+            input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
+            input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
+            input.tdSheaveLineFriction = op.tdSheaveLineFriction
         }
 
         let result = TripInService.run(input)
@@ -845,10 +858,11 @@ class SuperSimViewModel {
             tdAplEccentricity: op.tdAplEccentricity,
             tdPressureAreaBuoyancy: op.tdPressureAreaBuoyancy,
             tdRPM: op.tdRPM,
-            tdTripSpeedUp_m_per_s: op.tdTripSpeedUp_m_per_s,
-            tdTripSpeedDown_m_per_s: op.tdTripSpeedDown_m_per_s,
+            tdTripSpeedCased_m_per_s: op.tdTripSpeedCased_m_per_s,
+            tdTripSpeedOpenHole_m_per_s: op.tdTripSpeedOpenHole_m_per_s,
             tdRotationEfficiencyUp: op.tdRotationEfficiencyUp,
             tdRotationEfficiencyDown: op.tdRotationEfficiencyDown,
+            tdSheaveLineFriction: op.tdSheaveLineFriction,
             progressCallback: { [weak self] pumped, total in
                 guard let self else { return }
                 let fraction = total > 0 ? pumped / total : 0
@@ -977,10 +991,11 @@ class SuperSimViewModel {
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdTvdSampler = tvdSampler
             input.tdRPM = op.tdRPM
-            input.tdTripSpeedUp_m_per_s = op.tdTripSpeedUp_m_per_s
-            input.tdTripSpeedDown_m_per_s = op.tdTripSpeedDown_m_per_s
+            input.tdTripSpeedCased_m_per_s = op.tdTripSpeedCased_m_per_s
+            input.tdTripSpeedOpenHole_m_per_s = op.tdTripSpeedOpenHole_m_per_s
             input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
             input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
+            input.tdSheaveLineFriction = op.tdSheaveLineFriction
         }
 
         // Run through ReamEngine (free function from ReamEngine.swift)
@@ -1117,10 +1132,11 @@ class SuperSimViewModel {
             input.tdAplEccentricity = op.tdAplEccentricity
             input.tdPressureAreaBuoyancy = op.tdPressureAreaBuoyancy
             input.tdRPM = op.tdRPM
-            input.tdTripSpeedUp_m_per_s = op.tdTripSpeedUp_m_per_s
-            input.tdTripSpeedDown_m_per_s = op.tdTripSpeedDown_m_per_s
+            input.tdTripSpeedCased_m_per_s = op.tdTripSpeedCased_m_per_s
+            input.tdTripSpeedOpenHole_m_per_s = op.tdTripSpeedOpenHole_m_per_s
             input.tdRotationEfficiencyUp = op.tdRotationEfficiencyUp
             input.tdRotationEfficiencyDown = op.tdRotationEfficiencyDown
+            input.tdSheaveLineFriction = op.tdSheaveLineFriction
         }
 
         // Run through ReamEngine (free function from ReamEngine.swift)
