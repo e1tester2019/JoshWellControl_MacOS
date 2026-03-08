@@ -209,6 +209,7 @@ class APLCalculationService {
 
     /// Annular APL from pre-computed Power-Law K and n values.
     /// This is the primary method — `aplPowerLaw(dial600:dial300:)` derives K/n and delegates here.
+    /// When density is provided, checks for turbulent flow and uses Dodge-Metzner correlation.
     ///
     /// - Parameters:
     ///   - length_m: Section length (m)
@@ -217,6 +218,7 @@ class APLCalculationService {
     ///   - pipeDiameter_m: Pipe OD (m)
     ///   - K: Power-law consistency index (Pa·sⁿ)
     ///   - n: Power-law flow behavior index
+    ///   - density_kgm3: Fluid density (kg/m³). If provided, enables turbulent flow check.
     /// - Returns: APL in kPa
     func aplFromKN(
         length_m: Double,
@@ -224,7 +226,8 @@ class APLCalculationService {
         holeDiameter_m: Double,
         pipeDiameter_m: Double,
         K: Double,
-        n: Double
+        n: Double,
+        density_kgm3: Double? = nil
     ) -> Double {
         guard K > 0, n > 0, flowRate_m3_per_min > 0 else { return 0 }
         let hydraulicDiameter = holeDiameter_m - pipeDiameter_m
@@ -234,6 +237,16 @@ class APLCalculationService {
         guard area_m2 > 1e-9 else { return 0 }
         let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
 
+        // Check for turbulent flow when density is available
+        if let rho = density_kgm3 {
+            let re = generalizedReynolds(V: velocity_m_per_s, D: hydraulicDiameter, rho: rho, K: K, n: n)
+            if re > HydraulicsDefaults.laminarReynoldsThreshold {
+                let f = dodgeMetznerFrictionFactor(Re: re, n: n)
+                let gradient_Pa_per_m = 2.0 * f * rho * velocity_m_per_s * velocity_m_per_s / hydraulicDiameter
+                return (gradient_Pa_per_m * length_m) / 1000.0
+            }
+        }
+
         let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / hydraulicDiameter)
         let tau_w = K * pow(gamma_w, n)
         let gradient_Pa_per_m = 4.0 * tau_w / hydraulicDiameter
@@ -242,6 +255,7 @@ class APLCalculationService {
     }
 
     /// Pipe (internal) flow APL from pre-computed Power-Law K and n values.
+    /// When density is provided, checks for turbulent flow and uses Dodge-Metzner correlation.
     ///
     /// - Parameters:
     ///   - length_m: Section length (m)
@@ -249,13 +263,15 @@ class APLCalculationService {
     ///   - pipeDiameter_m: Pipe internal diameter (m)
     ///   - K: Power-law consistency index (Pa·sⁿ)
     ///   - n: Power-law flow behavior index
+    ///   - density_kgm3: Fluid density (kg/m³). If provided, enables turbulent flow check.
     /// - Returns: Friction pressure loss in kPa
     func pipeFlowAPLFromKN(
         length_m: Double,
         flowRate_m3_per_min: Double,
         pipeDiameter_m: Double,
         K: Double,
-        n: Double
+        n: Double,
+        density_kgm3: Double? = nil
     ) -> Double {
         guard K > 0, n > 0, flowRate_m3_per_min > 0 else { return 0 }
         guard pipeDiameter_m > 1e-6 else { return 0 }
@@ -263,6 +279,16 @@ class APLCalculationService {
         let area_m2 = Double.pi / 4.0 * pow(pipeDiameter_m, 2)
         guard area_m2 > 1e-9 else { return 0 }
         let velocity_m_per_s = (flowRate_m3_per_min / 60.0) / area_m2
+
+        // Check for turbulent flow when density is available
+        if let rho = density_kgm3 {
+            let re = generalizedReynolds(V: velocity_m_per_s, D: pipeDiameter_m, rho: rho, K: K, n: n)
+            if re > HydraulicsDefaults.laminarReynoldsThreshold {
+                let f = dodgeMetznerFrictionFactor(Re: re, n: n)
+                let gradient_Pa_per_m = 2.0 * f * rho * velocity_m_per_s * velocity_m_per_s / pipeDiameter_m
+                return (gradient_Pa_per_m * length_m) / 1000.0
+            }
+        }
 
         let gamma_w = ((3.0 * n + 1.0) / (4.0 * n)) * (8.0 * velocity_m_per_s / pipeDiameter_m)
         let tau_w = K * pow(gamma_w, n)
@@ -279,7 +305,8 @@ class APLCalculationService {
         holeDiameter_m: Double,
         pipeDiameter_m: Double,
         dial600: Double,
-        dial300: Double
+        dial300: Double,
+        density_kgm3: Double? = nil
     ) -> Double {
         guard dial600 > 0, dial300 > 0 else { return 0 }
         let n = log(dial600 / dial300) / log(600.0 / 300.0)
@@ -292,7 +319,8 @@ class APLCalculationService {
             flowRate_m3_per_min: flowRate_m3_per_min,
             holeDiameter_m: holeDiameter_m,
             pipeDiameter_m: pipeDiameter_m,
-            K: K, n: n
+            K: K, n: n,
+            density_kgm3: density_kgm3
         )
     }
 
@@ -303,7 +331,8 @@ class APLCalculationService {
         flowRate_m3_per_min: Double,
         pipeDiameter_m: Double,
         dial600: Double,
-        dial300: Double
+        dial300: Double,
+        density_kgm3: Double? = nil
     ) -> Double {
         guard dial600 > 0, dial300 > 0 else { return 0 }
         let n = log(dial600 / dial300) / log(600.0 / 300.0)
@@ -315,8 +344,40 @@ class APLCalculationService {
             length_m: length_m,
             flowRate_m3_per_min: flowRate_m3_per_min,
             pipeDiameter_m: pipeDiameter_m,
-            K: K, n: n
+            K: K, n: n,
+            density_kgm3: density_kgm3
         )
+    }
+
+    // MARK: - Turbulent Flow
+
+    /// Metzner-Reed generalized Reynolds number for power-law fluids.
+    private func generalizedReynolds(V: Double, D: Double, rho: Double, K: Double, n: Double) -> Double {
+        // Re_MR = (D^n × V^(2-n) × ρ) / (K' × 8^(n-1))
+        // K' = K × ((3n+1)/(4n))^n
+        let Kprime = K * pow((3.0 * n + 1.0) / (4.0 * n), n)
+        let numerator = pow(D, n) * pow(V, 2.0 - n) * rho
+        let denominator = Kprime * pow(8.0, n - 1.0)
+        guard denominator > 1e-30 else { return 0 }
+        return numerator / denominator
+    }
+
+    /// Dodge-Metzner Fanning friction factor for turbulent power-law flow.
+    /// Solves iteratively: 1/√f = (4/n^0.75) × log₁₀(Re × f^(1-n/2)) - 0.395/n^1.2
+    private func dodgeMetznerFrictionFactor(Re: Double, n: Double) -> Double {
+        let A = 4.0 / pow(n, 0.75)
+        let B = 0.395 / pow(n, 1.2)
+        let exponent = 1.0 - n / 2.0
+
+        var f = 0.01 // initial guess
+        for _ in 0..<50 {
+            let rhs = A * log10(Re * pow(f, exponent)) - B
+            guard rhs > 0 else { break }
+            let f_new = 1.0 / (rhs * rhs)
+            if abs(f_new - f) < 1e-8 { break }
+            f = f_new
+        }
+        return max(f, 1e-6)
     }
 
     // MARK: - Helper Functions

@@ -1,0 +1,2021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slug and Backfill: A Numerical Approach to Managed Pressure Tripping</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg-slide: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --text: #eee;
+    --text-muted: #a0a0b8;
+    --success: #4ecca3;
+    --warning: #f0a500;
+    --code-bg: #0d1b2a;
+    --border: #2a2a4a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Navigation */
+  .nav {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .nav button {
+    background: var(--accent);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background 0.2s;
+  }
+  .nav button:hover { background: var(--highlight); }
+  .nav .counter {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  /* Slide container */
+  .slide {
+    display: none;
+    min-height: 100vh;
+    padding: 60px 80px;
+    animation: fadeIn 0.3s ease;
+  }
+  .slide.active { display: flex; flex-direction: column; justify-content: center; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Title slide */
+  .slide.title-slide {
+    align-items: center;
+    text-align: center;
+  }
+  .slide.title-slide h1 {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, var(--text), var(--highlight));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .slide.title-slide .subtitle {
+    font-size: 22px;
+    color: var(--text-muted);
+    margin-bottom: 40px;
+    max-width: 700px;
+  }
+  .slide.title-slide .meta {
+    font-size: 16px;
+    color: var(--text-muted);
+  }
+
+  /* Content slides */
+  .slide h2 {
+    font-size: 36px;
+    font-weight: 600;
+    margin-bottom: 32px;
+    color: var(--text);
+    border-bottom: 3px solid var(--highlight);
+    padding-bottom: 12px;
+    display: inline-block;
+  }
+  .slide h3 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 20px 0 12px 0;
+    color: var(--highlight);
+  }
+  .slide p, .slide li {
+    font-size: 20px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .slide ul, .slide ol {
+    margin: 12px 0 12px 28px;
+  }
+  .slide li {
+    margin-bottom: 8px;
+  }
+  .slide li strong {
+    color: var(--success);
+  }
+
+  /* Emphasis */
+  .callout {
+    background: var(--accent);
+    border-left: 4px solid var(--highlight);
+    padding: 20px 24px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+    font-size: 20px;
+  }
+  .callout.success {
+    border-left-color: var(--success);
+  }
+  .callout.warning {
+    border-left-color: var(--warning);
+  }
+
+  /* Tables */
+  table {
+    border-collapse: collapse;
+    margin: 20px 0;
+    width: 100%;
+    max-width: 900px;
+    font-size: 18px;
+  }
+  th {
+    background: var(--accent);
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--highlight);
+  }
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:hover td { background: rgba(233, 69, 96, 0.05); }
+
+  /* Two column layout */
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin: 20px 0;
+  }
+  .column {
+    background: var(--code-bg);
+    padding: 24px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .column h4 {
+    font-size: 18px;
+    color: var(--highlight);
+    margin-bottom: 12px;
+  }
+
+  /* Equations */
+  .equation {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 18px;
+    background: var(--code-bg);
+    padding: 16px 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin: 12px 0;
+    display: inline-block;
+  }
+
+  /* Timeline */
+  .timeline {
+    position: relative;
+    padding-left: 32px;
+    margin: 16px 0;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    background: var(--highlight);
+    border-radius: 2px;
+  }
+  .timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+    padding-left: 20px;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -28px;
+    top: 8px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--highlight);
+    border: 3px solid var(--bg-slide);
+  }
+  .timeline-item.success::before { background: var(--success); }
+  .timeline-item h4 {
+    font-size: 20px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .timeline-item p {
+    font-size: 17px;
+    color: var(--text-muted);
+  }
+
+  /* Stats row */
+  .stats {
+    display: flex;
+    gap: 24px;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 28px;
+    text-align: center;
+    flex: 1;
+    min-width: 160px;
+  }
+  .stat .value {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--success);
+  }
+  .stat .label {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .stat.bad .value { color: var(--highlight); }
+
+  /* Screenshot placeholder */
+  .screenshot {
+    background: var(--code-bg);
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 16px;
+    margin: 20px 0;
+  }
+
+  /* Keyboard hints */
+  .keyboard-hint {
+    position: fixed;
+    bottom: 24px;
+    left: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0.5;
+  }
+
+  /* Print styles */
+  @media print {
+    .nav, .keyboard-hint { display: none; }
+    .slide { display: flex !important; page-break-after: always; min-height: 100vh; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- SLIDE 1: TITLE -->
+<!-- ============================================================ -->
+<div class="slide title-slide active" id="slide-1">
+  <h1>Slug and Backfill</h1>
+  <div class="subtitle">A Numerical Approach</div>
+  <div class="meta">
+    <p style="margin-top: 8px;">Mar 3, 2026</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2: WHAT IS SLUG AND BACKFILL -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-2">
+  <h2>What is Slug and Backfill?</h2>
+
+  <p>A managed pressure tripping method that kills the well while tripping with the minimum additional pressure exerted on the wellbore.</p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin: 24px 0;">
+
+    <!-- STEP 1: Pump Slug -->
+    <div class="column" style="text-align: center; padding: 16px 12px;">
+      <h4>1. Pump Slug</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="200" height="260" viewBox="0 0 200 260" style="display: block; margin: 0 auto 8px auto;">
+        <!-- Casing -->
+        <rect x="20" y="8" width="160" height="220" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+        <!-- String — bit near bottom -->
+        <rect x="60" y="8" width="80" height="190" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+        <!-- Bit -->
+        <line x1="60" y1="198" x2="140" y2="198" stroke="#eee" stroke-width="3"/>
+        <!-- Annulus — active mud -->
+        <rect x="22" y="10" width="36" height="186" fill="#4a7fb5" opacity="0.6"/>
+        <rect x="142" y="10" width="36" height="186" fill="#4a7fb5" opacity="0.6"/>
+        <!-- String — slug (green) on top, active mud (blue) at bottom -->
+        <rect x="62" y="10" width="76" height="148" fill="#4ecca3" opacity="0.7"/>
+        <rect x="62" y="158" width="76" height="38" fill="#4a7fb5" opacity="0.6"/>
+        <!-- Pocket below bit -->
+        <rect x="22" y="200" width="156" height="26" rx="2" fill="#4a7fb5" opacity="0.4"/>
+        <!-- Labels -->
+        <text x="40" y="100" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,40,100)">Active Mud</text>
+        <text x="100" y="85" fill="#eee" font-size="11" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="100" y="101" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">(heavy)</text>
+        <text x="100" y="182" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Active</text>
+        <text x="160" y="100" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(90,160,100)">Active Mud</text>
+        <!-- Arrow showing pump direction -->
+        <defs><marker id="arr-sbf1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5 Z" fill="#4ecca3"/></marker></defs>
+        <line x1="100" y1="4" x2="100" y2="30" stroke="#4ecca3" stroke-width="2" marker-end="url(#arr-sbf1)"/>
+        <text x="100" y="248" fill="#a0a0b8" font-size="10" font-family="sans-serif" text-anchor="middle">Heavy slug pumped into string</text>
+      </svg>
+    </div>
+
+    <!-- STEP 2: Trip Out & Backfill -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--warning);">
+      <h4 style="color: var(--warning);">2. Trip Out &amp; Backfill</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="200" height="260" viewBox="0 0 200 260" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <!-- Green/blue blend gradient for pocket -->
+          <linearGradient id="grad-green-blue" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4ecca3" stop-opacity="0.7"/>
+            <stop offset="100%" stop-color="#4a7fb5" stop-opacity="0.7"/>
+          </linearGradient>
+          <marker id="arr-sbf2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/></marker>
+          <marker id="arr-sbf3" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5 Z" fill="#e94560"/></marker>
+        </defs>
+        <!-- Casing -->
+        <rect x="20" y="8" width="160" height="220" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+        <!-- String (shorter — pulled up) -->
+        <rect x="60" y="8" width="80" height="100" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+        <!-- Bit -->
+        <line x1="60" y1="108" x2="140" y2="108" stroke="#eee" stroke-width="3"/>
+        <!-- Annulus above bit — kill mud on top, active mud near bit -->
+        <rect x="22" y="10" width="36" height="46" fill="#e94560" opacity="0.7"/>
+        <rect x="142" y="10" width="36" height="46" fill="#e94560" opacity="0.7"/>
+        <rect x="22" y="56" width="36" height="50" fill="#4a7fb5" opacity="0.6"/>
+        <rect x="142" y="56" width="36" height="50" fill="#4a7fb5" opacity="0.6"/>
+        <!-- String — air at top, residual slug -->
+        <rect x="62" y="10" width="76" height="60" fill="#0d1b2a" opacity="0.9"/>
+        <rect x="62" y="70" width="76" height="36" fill="#4ecca3" opacity="0.7"/>
+        <!-- Pocket — slug + active mud blend on top, active mud on bottom -->
+        <rect x="22" y="110" width="156" height="76" fill="#4ca6ac" opacity="0.7"/>
+        <rect x="22" y="186" width="156" height="40" rx="2" fill="#4a7fb5" opacity="0.6"/>
+        <!-- Labels -->
+        <text x="100" y="38" fill="#aaa" font-size="10" font-family="sans-serif" text-anchor="middle">Air</text>
+        <text x="40" y="37" fill="#eee" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,40,37)">Kill Mud</text>
+        <text x="40" y="84" fill="#eee" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,40,84)">Active</text>
+        <text x="100" y="165" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Slug + Active</text>
+        <text x="100" y="179" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">(blended)</text>
+        <!-- Pipe moving up arrow -->
+        <line x1="10" y1="80" x2="10" y2="30" stroke="#eee" stroke-width="2" marker-end="url(#arr-sbf2)"/>
+        <text x="10" y="94" fill="#aaa" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,10,94)">Pipe out</text>
+        <!-- SABP gauge at surface — on annulus side -->
+        <rect x="132" y="2" width="50" height="14" rx="4" fill="#0f3460" stroke="#4ecca3" stroke-width="1"/>
+        <text x="157" y="12" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle">SABP</text>
+        <!-- Backfill arrow -->
+        <line x1="190" y1="20" x2="190" y2="60" stroke="#e94560" stroke-width="2" marker-end="url(#arr-sbf3)"/>
+        <text x="190" y="14" fill="#e94560" font-size="8" font-family="sans-serif" text-anchor="middle">Backfill</text>
+        <text x="100" y="248" fill="#a0a0b8" font-size="10" font-family="sans-serif" text-anchor="middle">Void backfilled with kill mud</text>
+      </svg>
+    </div>
+
+    <!-- STEP 3: Pressure Maintained -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--success);">
+      <h4 style="color: var(--success);">3. Pressure Maintained</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="200" height="260" viewBox="0 0 200 260" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <!-- Green/red blend gradient -->
+          <linearGradient id="grad-green-red" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#e94560" stop-opacity="0.7"/>
+            <stop offset="100%" stop-color="#4ecca3" stop-opacity="0.7"/>
+          </linearGradient>
+          <!-- Green/blue blend gradient -->
+          <linearGradient id="grad-green-blue-2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4ecca3" stop-opacity="0.7"/>
+            <stop offset="100%" stop-color="#4a7fb5" stop-opacity="0.7"/>
+          </linearGradient>
+          <marker id="arr-sbf4" markerWidth="7" markerHeight="5" refX="3.5" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5 Z" fill="#4ecca3"/></marker>
+        </defs>
+        <!-- Casing -->
+        <rect x="20" y="8" width="160" height="220" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+        <!-- No string — fully out -->
+        <!-- 4 layers, each ~54px (total 216px from y=10 to y=226) -->
+        <!-- Layer 1: Kill mud (red) — top 1/4 -->
+        <rect x="22" y="10" width="156" height="54" fill="#e94560" opacity="0.7"/>
+        <!-- Layer 2: Slug + kill mud blend (green/red) — 1/4 -->
+        <rect x="22" y="64" width="156" height="54" fill="url(#grad-green-red)"/>
+        <!-- Layer 3: Slug + active mud blend (green/blue) — 1/4 -->
+        <rect x="22" y="118" width="156" height="54" fill="url(#grad-green-blue-2)"/>
+        <!-- Layer 4: Active mud (blue) — bottom 1/4 -->
+        <rect x="22" y="172" width="156" height="54" fill="#4a7fb5" opacity="0.6"/>
+        <!-- Labels -->
+        <text x="100" y="42" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Kill Mud</text>
+        <text x="100" y="95" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Kill + Slug</text>
+        <text x="100" y="149" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Slug + Active</text>
+        <text x="100" y="203" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Active Mud</text>
+        <!-- Control depth marker -->
+        <line x1="18" y1="185" x2="180" y2="185" stroke="#f0a500" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <text x="100" y="182" fill="#f0a500" font-size="9" font-family="sans-serif" text-anchor="middle" font-weight="bold">Constant</text>
+        <!-- ESD arrow at control -->
+        <line x1="12" y1="6" x2="12" y2="185" stroke="#4ecca3" stroke-width="1.5" marker-end="url(#arr-sbf4)"/>
+        <text x="8" y="88" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,8,88)">ESD at control</text>
+        <text x="100" y="248" fill="#4ecca3" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Well dead to control depth</text>
+      </svg>
+    </div>
+
+  </div>
+
+  <div class="callout success" style="margin-top: 16px;">
+    The method is proven over 15+ wells &mdash; thanks to the spreadsheets and experience developed at the wellsite.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: THE CHALLENGE -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-3">
+  <h2>The Challenge</h2>
+  <p>How do you take a successful execution of a complex operation and turn it into something that can scale when the software models used to support the well site misrepresent the actual fluid dynamics in the well? </p>
+
+  <h3>When the model doesn't match reality</h3>
+  <ul>
+    <li><strong>Added stress on the crew</strong> &mdash; the well isn't doing what the model says it should, and people are making critical decisions under pressure</li>
+    <li><strong>Decisions without adequate information</strong> &mdash; you can't see in the well, and the computations are too complex to do by hand. When the model doesn't match reality, you're forced to make assumptions and calculate complex scenarios on the fly</li>
+    <li><strong>Mistakes</strong> &mdash; got out of the well, but on losses &mdash; exceeded desired EMD</li>
+    <li><strong>Resistance</strong> &mdash; people won't want to do it if it doesn't work reliably</li>
+  </ul>
+
+  <div class="callout success" style="margin-top: 32px;">
+    <strong>The approach:</strong> Build a software model that does.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: ROOT CAUSE -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-4">
+  <h2>What the Software Models Were Missing</h2>
+
+  <h3>1. Slugging behavior</h3>
+  <p>The existing software models did not account for the drill string float or pipe slugging. Air in the string must be replaced with mud by the time you're out of the well. Backfill was treated as pipe displacement only &mdash; no slug equalization, no intermittent draining.</p>
+
+  <h3>2. Single-rheology assumptions</h3>
+  <p>With kill mud, active mud, slugs, and spacers all in the wellbore, a single-rheology causes incorrect dynamic back pressure recommendations.</p>
+
+  <div class="callout warning" style="margin-top: 32px;">
+    Not modeling slugging behavior and use of a single rheology, compounded to make operations unreliable and difficult to execute.
+  </div>
+
+  <h3 style="margin-top: 32px;">What this unlocked: kill at any depth</h3>
+  <p>We knew from experience that the existing software was overestimating required kill mud density and swab pressure. Killing the well at 1000m was desired, but seemed impossible based on the previous season's results. By properly accounting for slugging and multi-fluid rheology, we could now apply kill muds in different ways &mdash; killing the well at any depth.</p>
+
+  <div class="stats">
+    <div class="stat bad">
+      <div class="value">1000m</div>
+      <div class="label">Previously thought impossible</div>
+    </div>
+    <div class="stat">
+      <div class="value">~4 m&sup3;</div>
+      <div class="label">Extra kill mud slug equalization gets in</div>
+    </div>
+    <div class="stat good">
+      <div class="value">2000m</div>
+      <div class="label">Mud Cap + Slug and Backfill</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: THE MODEL -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-5">
+  <h2>Float Valve Physics</h2>
+
+  <p>When slug is pumped, its hydrostatic column eventually exceeds annulus pressure at the bit &mdash; the float cracks open and mud U-tubes into the annulus.</p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin: 20px 0;">
+
+    <!-- STAGE 1: Slug Pumped, Float Closed -->
+    <div class="column" style="text-align: center; padding: 16px 12px;">
+      <h4>1. Slug Pumped</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <marker id="arr-s1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/>
+          </marker>
+        </defs>
+
+        <!-- Casing (outer wellbore) -->
+        <rect x="20" y="8" width="180" height="260" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String (inner pipe) -->
+        <rect x="70" y="8" width="80" height="180" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit — solid line (closed) -->
+        <line x1="70" y1="188" x2="150" y2="188" stroke="#eee" stroke-width="3"/>
+
+        <!-- Annulus — kill mud (red) -->
+        <rect x="22" y="10" width="46" height="176" fill="#e94560" opacity="0.7"/>
+        <rect x="152" y="10" width="46" height="176" fill="#e94560" opacity="0.7"/>
+
+        <!-- String — slug (green, heavy) pumped from surface -->
+        <rect x="72" y="10" width="76" height="176" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- Pocket below bit — kill mud -->
+        <rect x="22" y="190" width="176" height="76" rx="2" fill="#e94560" opacity="0.5"/>
+
+        <!-- Labels -->
+        <text x="45" y="100" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,45,100)">Kill Mud</text>
+        <text x="110" y="95" fill="#eee" font-size="11" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="110" y="111" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">(heavy)</text>
+        <text x="175" y="100" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(90,175,100)">Kill Mud</text>
+        <text x="110" y="233" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Kill Mud</text>
+
+        <!-- Float closed label -->
+        <text x="158" y="185" fill="#aaa" font-size="9" font-family="sans-serif">Float closed</text>
+
+        <!-- Pressure comparison -->
+        <text x="110" y="285" fill="#f0a500" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">P&#x2082;string &gt; P&#x2082;annulus at bit</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Slug pumped into string. Heavier column builds hydrostatic pressure at the float.</p>
+    </div>
+
+    <!-- STAGE 2: Float Opens, U-Tube in Progress -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--warning);">
+      <h4 style="color: var(--warning);">2. U-Tube</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <marker id="arr-s2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/>
+          </marker>
+          <marker id="arr-s2g" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#4ecca3"/>
+          </marker>
+        </defs>
+
+        <!-- Casing -->
+        <rect x="20" y="8" width="180" height="260" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String -->
+        <rect x="70" y="8" width="80" height="180" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit — open float (gap in middle) -->
+        <line x1="70" y1="188" x2="95" y2="188" stroke="#eee" stroke-width="3"/>
+        <line x1="125" y1="188" x2="150" y2="188" stroke="#eee" stroke-width="3"/>
+        <line x1="95" y1="188" x2="99" y2="194" stroke="#eee" stroke-width="2"/>
+        <line x1="125" y1="188" x2="121" y2="194" stroke="#eee" stroke-width="2"/>
+
+        <!-- Annulus — kill mud (red) with slug layer appearing above bit -->
+        <rect x="22" y="10" width="46" height="130" fill="#e94560" opacity="0.7"/>
+        <rect x="152" y="10" width="46" height="130" fill="#e94560" opacity="0.7"/>
+        <!-- Slug arriving in annulus above bit (green layer) -->
+        <rect x="22" y="140" width="46" height="46" fill="#4ecca3" opacity="0.7"/>
+        <rect x="152" y="140" width="46" height="46" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- String — air at top (dark), slug dropping (green, shorter) -->
+        <rect x="72" y="10" width="76" height="70" fill="#0d1b2a" opacity="0.9"/>
+        <rect x="72" y="80" width="76" height="106" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- Pocket below bit -->
+        <rect x="22" y="190" width="176" height="76" rx="2" fill="#e94560" opacity="0.5"/>
+
+        <!-- Labels -->
+        <text x="45" y="75" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,45,75)">Kill Mud</text>
+        <text x="110" y="42" fill="#aaa" font-size="10" font-family="sans-serif" text-anchor="middle">Air</text>
+        <text x="110" y="138" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="175" y="75" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(90,175,75)">Kill Mud</text>
+
+        <!-- Label: slug arriving in annulus -->
+        <text x="9" y="166" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,9,166)">Slug</text>
+        <text x="211" y="166" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(90,211,166)">Slug</text>
+
+        <!-- Float open label -->
+        <text x="158" y="185" fill="#f0a500" font-size="9" font-family="sans-serif">Float open</text>
+
+        <!-- U-TUBE FLOW ARROWS -->
+        <!-- Arrow: slug down the string -->
+        <line x1="110" y1="60" x2="110" y2="170" stroke="#4ecca3" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arr-s2g)"/>
+
+        <!-- Arrow: through float -->
+        <line x1="110" y1="182" x2="110" y2="196" stroke="#eee" stroke-width="1.5" marker-end="url(#arr-s2)"/>
+
+        <!-- Arrow: up the annulus (left) -->
+        <line x1="45" y1="178" x2="45" y2="148" stroke="#4ecca3" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arr-s2g)"/>
+
+        <!-- Arrow: up the annulus (right) -->
+        <line x1="175" y1="178" x2="175" y2="148" stroke="#4ecca3" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arr-s2g)"/>
+
+        <!-- Curved path hint: small connector arrows at the bit level -->
+        <path d="M105,192 C100,200 60,200 50,192" fill="none" stroke="#4ecca3" stroke-width="1.5" stroke-dasharray="3,2"/>
+        <path d="M115,192 C120,200 160,200 170,192" fill="none" stroke="#4ecca3" stroke-width="1.5" stroke-dasharray="3,2"/>
+
+        <!-- Bottom label -->
+        <text x="110" y="285" fill="#f0a500" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Slug U-tubes around the bit</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Float cracks open. Slug flows down the string, through the bit, and up into the annulus. Air backfills from surface.</p>
+    </div>
+
+    <!-- STAGE 3: Equilibrium Reached -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--success);">
+      <h4 style="color: var(--success);">3. Equilibrium</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300" style="display: block; margin: 0 auto 8px auto;">
+
+        <!-- Casing -->
+        <rect x="20" y="8" width="180" height="260" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String -->
+        <rect x="70" y="8" width="80" height="180" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit — closed again -->
+        <line x1="70" y1="188" x2="150" y2="188" stroke="#eee" stroke-width="3"/>
+
+        <!-- Annulus — kill mud with slug layer settled above bit -->
+        <rect x="22" y="10" width="46" height="100" fill="#e94560" opacity="0.7"/>
+        <rect x="152" y="10" width="46" height="100" fill="#e94560" opacity="0.7"/>
+        <!-- Slug now in annulus (larger layer — it all drained) -->
+        <rect x="22" y="110" width="46" height="76" fill="#4ecca3" opacity="0.7"/>
+        <rect x="152" y="110" width="46" height="76" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- String — mostly air, small residual slug at bottom -->
+        <rect x="72" y="10" width="76" height="140" fill="#0d1b2a" opacity="0.9"/>
+        <rect x="72" y="150" width="76" height="36" fill="#4ecca3" opacity="0.5"/>
+
+        <!-- Pocket below bit -->
+        <rect x="22" y="190" width="176" height="76" rx="2" fill="#e94560" opacity="0.5"/>
+
+        <!-- Labels -->
+        <text x="45" y="60" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,45,60)">Kill Mud</text>
+        <text x="110" y="65" fill="#aaa" font-size="10" font-family="sans-serif" text-anchor="middle">Air</text>
+        <text x="110" y="82" fill="#aaa" font-size="9" font-family="sans-serif" text-anchor="middle">(dry pipe)</text>
+        <text x="175" y="60" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(90,175,60)">Kill Mud</text>
+        <text x="110" y="172" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Residual</text>
+
+        <!-- Slug in annulus labels -->
+        <text x="9" y="152" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,9,152)">Slug</text>
+        <text x="211" y="152" fill="#4ecca3" font-size="8" font-family="sans-serif" text-anchor="middle" transform="rotate(90,211,152)">Slug</text>
+
+        <!-- Float closed label -->
+        <text x="158" y="185" fill="#aaa" font-size="9" font-family="sans-serif">Float closed</text>
+
+        <!-- Pressure balance -->
+        <text x="110" y="285" fill="#4ecca3" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">P&#x2082;string = P&#x2082;annulus at bit</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Pressures balanced &mdash; float closes. String is dry, slug now sits in annulus above the bit. Backfill = steel displacement + slug drop.</p>
+    </div>
+
+  </div>
+
+  <div class="callout" style="margin-top: 20px;">
+    <strong>Key insight:</strong> Control of slugging and float state is imperative to ensure adequate surface back pressure is applied.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: SABP AT CONTROL DEPTH -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-6">
+  <h2>Fluid Blending Below the Bit</h2>
+
+  <p>As the bit moves up during trip out, fluid flows into the growing pocket below the bit. What ends up there depends on the float.</p>
+
+  <div class="columns">
+    <!-- LEFT COLUMN: Float Closed -->
+    <div class="column" style="text-align: center;">
+      <h4>Float Closed</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="280" height="320" viewBox="0 0 280 320" style="display: block; margin: 0 auto 12px auto;">
+        <defs>
+          <marker id="arrow-closed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#eee"/>
+          </marker>
+        </defs>
+
+        <!-- Wellbore walls (outer casing) -->
+        <rect x="40" y="10" width="200" height="300" rx="4" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String (inner pipe) -->
+        <rect x="100" y="10" width="80" height="190" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit / float barrier -->
+        <line x1="100" y1="200" x2="180" y2="200" stroke="#eee" stroke-width="3"/>
+        <text x="185" y="204" fill="#eee" font-size="11" font-family="sans-serif">Bit (float closed)</text>
+
+        <!-- Annulus fluid above bit — kill mud (red) -->
+        <rect x="42" y="12" width="56" height="186" fill="#e94560" opacity="0.7"/>
+        <rect x="182" y="12" width="56" height="186" fill="#e94560" opacity="0.7"/>
+
+        <!-- String fluid above bit — slug (green) -->
+        <rect x="102" y="12" width="76" height="186" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- Labels above bit -->
+        <text x="65" y="100" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle" transform="rotate(-90, 65, 100)">Kill Mud</text>
+        <text x="140" y="110" fill="#eee" font-size="11" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="215" y="100" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle" transform="rotate(90, 215, 100)">Kill Mud</text>
+
+        <!-- Pocket below bit — annulus fluid only (red) -->
+        <rect x="42" y="202" width="196" height="106" rx="2" fill="#e94560" opacity="0.6"/>
+        <text x="140" y="260" fill="#eee" font-size="12" font-family="sans-serif" text-anchor="middle" font-weight="bold">Annulus Fluid</text>
+        <text x="140" y="276" fill="#eee" font-size="11" font-family="sans-serif" text-anchor="middle">Only</text>
+
+        <!-- Arrow: annulus down into pocket (left side) -->
+        <line x1="68" y1="170" x2="68" y2="225" stroke="#eee" stroke-width="1.5" marker-end="url(#arrow-closed)"/>
+
+        <!-- Arrow: annulus down into pocket (right side) -->
+        <line x1="210" y1="170" x2="210" y2="225" stroke="#eee" stroke-width="1.5" marker-end="url(#arrow-closed)"/>
+
+        <!-- X mark on string — no flow through float -->
+        <line x1="130" y1="188" x2="150" y2="208" stroke="#eee" stroke-width="2"/>
+        <line x1="150" y1="188" x2="130" y2="208" stroke="#eee" stroke-width="2"/>
+      </svg>
+      <p style="font-size: 16px; color: var(--text-muted);">Pocket = annulus fluid only<br>
+      <span style="font-size: 14px;">Slug stays in string &mdash; density, rheology, color from annulus</span></p>
+    </div>
+
+    <!-- RIGHT COLUMN: Float Open -->
+    <div class="column" style="text-align: center; border-color: var(--success);">
+      <h4 style="color: var(--success);">Float Open</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="280" height="320" viewBox="0 0 280 320" style="display: block; margin: 0 auto 12px auto;">
+        <defs>
+          <marker id="arrow-open" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#eee"/>
+          </marker>
+        </defs>
+
+        <!-- Wellbore walls (outer casing) -->
+        <rect x="40" y="10" width="200" height="300" rx="4" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String (inner pipe) -->
+        <rect x="100" y="10" width="80" height="190" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit / float opening -->
+        <line x1="100" y1="200" x2="125" y2="200" stroke="#eee" stroke-width="3"/>
+        <line x1="155" y1="200" x2="180" y2="200" stroke="#eee" stroke-width="3"/>
+        <!-- gap in middle indicates open float -->
+        <line x1="125" y1="200" x2="130" y2="206" stroke="#eee" stroke-width="2"/>
+        <line x1="155" y1="200" x2="150" y2="206" stroke="#eee" stroke-width="2"/>
+        <text x="185" y="204" fill="#eee" font-size="11" font-family="sans-serif">Bit (float open)</text>
+
+        <!-- Annulus fluid above bit — kill mud (red) -->
+        <rect x="42" y="12" width="56" height="186" fill="#e94560" opacity="0.7"/>
+        <rect x="182" y="12" width="56" height="186" fill="#e94560" opacity="0.7"/>
+
+        <!-- String fluid above bit — air at top (dark), slug draining (green, shorter) -->
+        <rect x="102" y="12" width="76" height="80" fill="#0d1b2a" opacity="0.9"/>
+        <rect x="102" y="92" width="76" height="106" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- Labels above bit -->
+        <text x="65" y="100" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle" transform="rotate(-90, 65, 100)">Kill Mud</text>
+        <text x="140" y="50" fill="#aaa" font-size="11" font-family="sans-serif" text-anchor="middle">Air</text>
+        <text x="140" y="150" fill="#eee" font-size="11" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="140" y="164" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">(draining)</text>
+        <text x="215" y="100" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle" transform="rotate(90, 215, 100)">Kill Mud</text>
+
+        <!-- Pocket below bit — blended mix (orange) -->
+        <rect x="42" y="202" width="196" height="106" rx="2" fill="#f0a500" opacity="0.6"/>
+        <text x="140" y="256" fill="#eee" font-size="12" font-family="sans-serif" text-anchor="middle" font-weight="bold">Blended Fluid</text>
+        <text x="140" y="272" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">(volume-weighted density,</text>
+        <text x="140" y="286" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">rheology &amp; color)</text>
+
+        <!-- Arrow: annulus down into pocket (left side) -->
+        <line x1="68" y1="170" x2="68" y2="225" stroke="#eee" stroke-width="1.5" marker-end="url(#arrow-open)"/>
+
+        <!-- Arrow: annulus down into pocket (right side) -->
+        <line x1="210" y1="170" x2="210" y2="225" stroke="#eee" stroke-width="1.5" marker-end="url(#arrow-open)"/>
+
+        <!-- Arrow: string fluid through float into pocket -->
+        <line x1="140" y1="175" x2="140" y2="225" stroke="#eee" stroke-width="1.5" marker-end="url(#arrow-open)"/>
+      </svg>
+      <p style="font-size: 16px; color: var(--text-muted);">Pocket = volume-weighted blend<br>
+      <span style="font-size: 14px;">Annulus + string fluids mix &mdash; density, rheology, color all blended</span></p>
+    </div>
+  </div>
+
+  <div class="callout success" style="margin-top: 24px;">
+    <strong>Coriolis validation:</strong> Density readings at surface during trips back in matched the model's predicted blended pocket density &mdash; confirming the algorithm is correct.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: PREDICTING & CONTROLLING SLUG DROP -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-7">
+  <h2>Intermittent Slugging &amp; the Fill-Up Schedule</h2>
+
+  <p>Slugging creates an air volume in the string. As you trip out, that air has to be replaced &mdash; but how much fill per interval depends on the float state and whether a slugging event occurs.</p>
+
+  <div class="columns" style="align-items: start;">
+
+    <!-- LEFT: What's happening downhole -->
+    <div class="column" style="text-align: center; padding: 16px 12px;">
+      <h4>What's Happening Downhole</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="260" height="300" viewBox="0 0 260 300" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <marker id="arr-fill" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/>
+          </marker>
+          <marker id="arr-fill-down" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#4ecca3"/>
+          </marker>
+        </defs>
+
+        <!-- Casing -->
+        <rect x="30" y="30" width="170" height="250" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- String -->
+        <rect x="75" y="30" width="80" height="175" rx="2" fill="none" stroke="#2a2a4a" stroke-width="2"/>
+
+        <!-- Bit — shown mid-toggle (dashed to indicate intermittent) -->
+        <line x1="75" y1="205" x2="155" y2="205" stroke="#eee" stroke-width="2.5" stroke-dasharray="6,4"/>
+
+        <!-- Annulus — kill mud -->
+        <rect x="32" y="32" width="41" height="171" fill="#e94560" opacity="0.7"/>
+        <rect x="157" y="32" width="41" height="171" fill="#e94560" opacity="0.7"/>
+
+        <!-- String — large air pocket at top, slug remainder below -->
+        <rect x="77" y="32" width="76" height="120" fill="#0d1b2a" opacity="0.9"/>
+        <rect x="77" y="152" width="76" height="51" fill="#4ecca3" opacity="0.6"/>
+
+        <!-- Pocket below bit -->
+        <rect x="32" y="207" width="166" height="71" rx="2" fill="#e94560" opacity="0.4"/>
+
+        <!-- Fill arrow from surface (top) into annulus -->
+        <line x1="22" y1="8" x2="22" y2="28" stroke="#eee" stroke-width="1.5" marker-end="url(#arr-fill)"/>
+        <text x="24" y="8" fill="#eee" font-size="9" font-family="sans-serif" dominant-baseline="middle">Fill at surface</text>
+
+        <!-- Air pocket label -->
+        <text x="115" y="75" fill="#aaa" font-size="11" font-family="sans-serif" text-anchor="middle">Air Volume</text>
+        <text x="115" y="90" fill="#aaa" font-size="9" font-family="sans-serif" text-anchor="middle">(must be replaced)</text>
+
+        <!-- Air pocket bracket on left of string -->
+        <line x1="70" y1="36" x2="70" y2="150" stroke="#f0a500" stroke-width="1.5"/>
+        <line x1="66" y1="36" x2="74" y2="36" stroke="#f0a500" stroke-width="1.5"/>
+        <line x1="66" y1="150" x2="74" y2="150" stroke="#f0a500" stroke-width="1.5"/>
+
+        <!-- Slug label -->
+        <text x="115" y="182" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Slug</text>
+
+        <!-- Annulus labels -->
+        <text x="52" y="115" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,52,115)">Kill Mud</text>
+        <text x="178" y="115" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(90,178,115)">Kill Mud</text>
+
+        <!-- Float state toggle indicator -->
+        <text x="207" y="200" fill="#f0a500" font-size="9" font-family="sans-serif">Float</text>
+        <text x="207" y="212" fill="#f0a500" font-size="9" font-family="sans-serif">toggles</text>
+
+        <!-- Pressure differential oscillation symbol at bit -->
+        <path d="M210,222 Q215,217 220,222 Q225,227 230,222 Q235,217 240,222" fill="none" stroke="#f0a500" stroke-width="1.5"/>
+        <text x="225" y="237" fill="#a0a0b8" font-size="8" font-family="sans-serif" text-anchor="middle">&Delta;P fluctuates</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">As pipe is pulled, pressure at the bit shifts. The float opens and closes intermittently &mdash; each interval sees a different fill requirement.</p>
+    </div>
+
+    <!-- RIGHT: Fill volume per float state -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--success);">
+      <h4 style="color: var(--success);">Fill Volume by Float State</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="280" height="300" viewBox="0 0 280 300" style="display: block; margin: 0 auto 8px auto;">
+
+        <!-- Y axis -->
+        <line x1="40" y1="20" x2="40" y2="220" stroke="#eee" stroke-width="1.5"/>
+        <text x="16" y="120" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,16,120)">Fill Volume</text>
+
+        <!-- X axis -->
+        <line x1="40" y1="220" x2="270" y2="220" stroke="#eee" stroke-width="1.5"/>
+
+        <!-- Wet displacement reference line -->
+        <line x1="40" y1="40" x2="270" y2="40" stroke="#e94560" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="38" y="38" fill="#e94560" font-size="9" font-family="sans-serif" text-anchor="end">Wet</text>
+
+        <!-- Dry displacement reference line -->
+        <line x1="40" y1="140" x2="270" y2="140" stroke="#a0a0b8" stroke-width="1" stroke-dasharray="4,3"/>
+        <text x="38" y="138" fill="#a0a0b8" font-size="9" font-family="sans-serif" text-anchor="end">Dry</text>
+
+        <!-- Zero line label -->
+        <text x="38" y="218" fill="#555" font-size="9" font-family="sans-serif" text-anchor="end">0</text>
+
+        <!-- BAR 1: Float Open — dry displacement -->
+        <rect x="52" y="140" width="42" height="80" rx="3" fill="#4ecca3" opacity="0.8"/>
+        <text x="73" y="185" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Dry</text>
+        <text x="73" y="198" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">disp.</text>
+        <text x="73" y="236" fill="#4ecca3" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Open</text>
+
+        <!-- BAR 2: Float Closed — wet displacement -->
+        <rect x="108" y="40" width="42" height="180" rx="3" fill="#e94560" opacity="0.7"/>
+        <text x="129" y="115" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Wet</text>
+        <text x="129" y="128" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">disp.</text>
+        <text x="129" y="236" fill="#e94560" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Closed</text>
+
+        <!-- BAR 3: Partial — range from dry to wet -->
+        <!-- Solid portion: minimum = dry displacement -->
+        <rect x="164" y="140" width="42" height="80" rx="3" fill="#f0a500" opacity="0.7"/>
+        <!-- Hatched/lighter portion: possible range up to wet -->
+        <rect x="164" y="40" width="42" height="100" rx="3" fill="#f0a500" opacity="0.25" stroke="#f0a500" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- Range arrow -->
+        <line x1="210" y1="140" x2="210" y2="44" stroke="#f0a500" stroke-width="1.5"/>
+        <line x1="207" y1="140" x2="213" y2="140" stroke="#f0a500" stroke-width="1.5"/>
+        <line x1="207" y1="44" x2="213" y2="44" stroke="#f0a500" stroke-width="1.5"/>
+        <text x="224" y="88" fill="#f0a500" font-size="8" font-family="sans-serif">range</text>
+        <text x="185" y="185" fill="#eee" font-size="10" font-family="sans-serif" text-anchor="middle">Dry</text>
+        <text x="185" y="198" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">to wet</text>
+        <text x="185" y="236" fill="#f0a500" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Partial</text>
+
+        <!-- BAR 4: Slugging event — less than dry displacement -->
+        <rect x="220" y="180" width="42" height="40" rx="3" fill="#0f3460" opacity="0.9" stroke="#4ecca3" stroke-width="1.5"/>
+        <text x="241" y="204" fill="#4ecca3" font-size="9" font-family="sans-serif" text-anchor="middle">&lt; Dry</text>
+        <text x="241" y="236" fill="#4ecca3" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">Slugging</text>
+
+        <!-- Annotation: slug adds volume to annulus -->
+        <text x="241" y="252" fill="#a0a0b8" font-size="8" font-family="sans-serif" text-anchor="middle">Slug adds fluid</text>
+        <text x="241" y="262" fill="#a0a0b8" font-size="8" font-family="sans-serif" text-anchor="middle">to annulus</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">The simulator tracks the float state at every interval and outputs a fill-up schedule &mdash; replacing the air volume incrementally, one stand at a time.</p>
+    </div>
+
+  </div>
+
+  <h3 style="margin-top: 24px;">Real Data: Cumulative Fill Volume vs Depth</h3>
+  <p style="font-size: 16px; color: var(--text-muted); margin-bottom: 8px;">4&quot; DP, trip out from 5250m</p>
+
+  <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 580 260" style="display: block; max-width: 900px; margin: 0 auto;">
+    <!-- Chart background -->
+    <rect x="55" y="15" width="475" height="200" fill="#0d1b2a" rx="4"/>
+
+    <!-- Grid lines -->
+    <line x1="60" y1="40" x2="520" y2="40" stroke="#2a2a4a" stroke-width="0.5" stroke-dasharray="3,3"/>
+    <line x1="60" y1="82" x2="520" y2="82" stroke="#2a2a4a" stroke-width="0.5" stroke-dasharray="3,3"/>
+    <line x1="60" y1="124" x2="520" y2="124" stroke="#2a2a4a" stroke-width="0.5" stroke-dasharray="3,3"/>
+    <line x1="60" y1="167" x2="520" y2="167" stroke="#2a2a4a" stroke-width="0.5" stroke-dasharray="3,3"/>
+
+    <!-- Y axis labels (0 to 23 m³) -->
+    <text x="50" y="213" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="end">0</text>
+    <text x="50" y="170" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="end">5</text>
+    <text x="50" y="127" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="end">10</text>
+    <text x="50" y="85" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="end">15</text>
+    <text x="50" y="43" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="end">20</text>
+    <text x="12" y="120" fill="#a0a0b8" font-size="9" font-family="sans-serif" text-anchor="middle" transform="rotate(-90,12,120)">Cumulative Fill (m&#179;)</text>
+
+    <!-- X axis labels -->
+    <text x="60" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">5250</text>
+    <text x="148" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">4250</text>
+    <text x="235" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">3250</text>
+    <text x="323" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">2250</text>
+    <text x="411" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">1250</text>
+    <text x="498" y="228" fill="#a0a0b8" font-size="9" font-family="monospace" text-anchor="middle">250</text>
+    <text x="290" y="248" fill="#a0a0b8" font-size="10" font-family="sans-serif" text-anchor="middle">MD (m) &mdash; tripping out &#8594;</text>
+
+    <!-- Shaded area between DP Dry and Actual (slug contribution) -->
+    <polygon fill="#4ecca3" opacity="0.15" points="
+      60,210 69,207 104,196 148,183 191,169 235,155 279,142 323,128 367,114 411,100 454,87 498,73 520,66
+      520,37 498,46 454,62 411,79 367,97 323,115 279,133 235,151 191,165 148,179 104,193 69,204 60,210
+    "/>
+
+    <!-- Cumulative DP Dry line -->
+    <polyline fill="none" stroke="#a0a0b8" stroke-width="2" stroke-dasharray="6,4" stroke-linejoin="round"
+      points="60,210 69,207 104,196 148,183 191,169 235,155 279,142 323,128 367,114 411,100 454,87 498,73 520,66"/>
+
+    <!-- Cumulative Actual line -->
+    <polyline fill="none" stroke="#4ecca3" stroke-width="2.5" stroke-linejoin="round"
+      points="60,210 69,204 104,193 148,179 191,165 235,151 279,133 323,115 367,97 411,79 454,62 498,46 520,37"/>
+
+    <!-- End point annotations -->
+    <circle cx="520" cy="66" r="3" fill="#a0a0b8"/>
+    <text x="525" y="69" fill="#a0a0b8" font-size="9" font-family="sans-serif">18.4</text>
+    <circle cx="520" cy="37" r="3" fill="#4ecca3"/>
+    <text x="525" y="35" fill="#4ecca3" font-size="9" font-family="sans-serif">22.1</text>
+
+    <!-- Difference bracket -->
+    <line x1="550" y1="39" x2="550" y2="64" stroke="#f0a500" stroke-width="1.5"/>
+    <line x1="547" y1="39" x2="553" y2="39" stroke="#f0a500" stroke-width="1.5"/>
+    <line x1="547" y1="64" x2="553" y2="64" stroke="#f0a500" stroke-width="1.5"/>
+    <text x="556" y="55" fill="#f0a500" font-size="9" font-family="sans-serif">&#916; 3.7 m&#179;</text>
+
+    <!-- Legend -->
+    <line x1="70" y1="24" x2="90" y2="24" stroke="#a0a0b8" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="93" y="27" fill="#a0a0b8" font-size="9" font-family="sans-serif">Cumulative DP Dry</text>
+    <line x1="230" y1="24" x2="250" y2="24" stroke="#4ecca3" stroke-width="2.5"/>
+    <text x="253" y="27" fill="#4ecca3" font-size="9" font-family="sans-serif">Cumulative Actual</text>
+    <rect x="370" y="20" width="8" height="8" fill="#4ecca3" opacity="0.15" stroke="#4ecca3" stroke-width="0.5"/>
+    <text x="382" y="27" fill="#f0a500" font-size="9" font-family="sans-serif">Slug Contribution</text>
+  </svg>
+
+  <div class="callout warning" style="margin-top: 16px;">
+    <strong>The payoff:</strong> We are in control of the well in every aspect &mdash; kill mud placed on modeled depth, fill volumes known before the stand is pulled. Fill-up goes from guesswork to routine.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10: MULTI-FLUID RHEOLOGY (was slide 16) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-8">
+  <h2>Swab, Surge &amp; APL</h2>
+
+  <p>Moving pipe creates surge and swab. Circulating creates APL. The models for both already existed &mdash; they just needed to be linked to the multi-fluid stack.</p>
+
+  <div class="columns" style="align-items: start;">
+
+    <!-- LEFT: Single Rheology -->
+    <div class="column" style="text-align: center; padding: 16px 12px;">
+      <h4>Single Rheology</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="260" height="320" viewBox="0 0 260 320" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <marker id="arr-sw1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/>
+          </marker>
+        </defs>
+
+        <!-- Casing -->
+        <rect x="40" y="10" width="160" height="270" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- Pipe (string) -->
+        <rect x="95" y="10" width="50" height="240" rx="2" fill="#2a2a4a" stroke="#aaa" stroke-width="1.5"/>
+
+        <!-- Annulus — single uniform fluid (one color) -->
+        <rect x="42" y="12" width="51" height="266" fill="#e94560" opacity="0.5"/>
+        <rect x="147" y="12" width="51" height="266" fill="#e94560" opacity="0.5"/>
+
+        <!-- Pipe moving up arrow -->
+        <line x1="120" y1="80" x2="120" y2="30" stroke="#eee" stroke-width="2" marker-end="url(#arr-sw1)"/>
+        <text x="120" y="95" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Pipe</text>
+
+        <!-- Annulus flow arrows (fluid dragged down — swab) -->
+        <line x1="67" y1="60" x2="67" y2="110" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+        <line x1="67" y1="130" x2="67" y2="180" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+        <line x1="67" y1="200" x2="67" y2="250" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+        <line x1="173" y1="60" x2="173" y2="110" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+        <line x1="173" y1="130" x2="173" y2="180" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+        <line x1="173" y1="200" x2="173" y2="250" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw1)" opacity="0.6"/>
+
+        <!-- Single ΔP bracket spanning entire column -->
+        <line x1="210" y1="16" x2="210" y2="274" stroke="#e94560" stroke-width="2"/>
+        <line x1="206" y1="16" x2="214" y2="16" stroke="#e94560" stroke-width="2"/>
+        <line x1="206" y1="274" x2="214" y2="274" stroke="#e94560" stroke-width="2"/>
+        <text x="230" y="145" fill="#e94560" font-size="11" font-family="sans-serif" text-anchor="middle" transform="rotate(90,230,145)">&Delta;P = one PV/YP</text>
+
+        <!-- Single rheology label -->
+        <text x="67" y="295" fill="#a0a0b8" font-size="10" font-family="sans-serif" text-anchor="middle">Same PV/YP</text>
+        <text x="67" y="308" fill="#a0a0b8" font-size="10" font-family="sans-serif" text-anchor="middle">everywhere</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">One friction calculation for the whole column. Overestimates in some zones, underestimates in others.</p>
+    </div>
+
+    <!-- RIGHT: Per-Layer Rheology -->
+    <div class="column" style="text-align: center; padding: 16px 12px; border-color: var(--success);">
+      <h4 style="color: var(--success);">Per-Layer Rheology</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" width="260" height="320" viewBox="0 0 260 320" style="display: block; margin: 0 auto 8px auto;">
+        <defs>
+          <marker id="arr-sw2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+            <path d="M0,0 L7,2.5 L0,5 Z" fill="#eee"/>
+          </marker>
+        </defs>
+
+        <!-- Casing -->
+        <rect x="40" y="10" width="160" height="270" rx="3" fill="none" stroke="#2a2a4a" stroke-width="2.5"/>
+
+        <!-- Pipe (string) -->
+        <rect x="95" y="10" width="50" height="240" rx="2" fill="#2a2a4a" stroke="#aaa" stroke-width="1.5"/>
+
+        <!-- Annulus — distinct fluid layers -->
+        <!-- Layer 1: Kill mud (red) — top -->
+        <rect x="42" y="12" width="51" height="80" fill="#e94560" opacity="0.7"/>
+        <rect x="147" y="12" width="51" height="80" fill="#e94560" opacity="0.7"/>
+
+        <!-- Layer 2: Active mud (muted blue) -->
+        <rect x="42" y="92" width="51" height="70" fill="#4a7fb5" opacity="0.7"/>
+        <rect x="147" y="92" width="51" height="70" fill="#4a7fb5" opacity="0.7"/>
+
+        <!-- Layer 3: Slug (green) -->
+        <rect x="42" y="162" width="51" height="55" fill="#4ecca3" opacity="0.7"/>
+        <rect x="147" y="162" width="51" height="55" fill="#4ecca3" opacity="0.7"/>
+
+        <!-- Layer 4: Kill mud again (red) — bottom -->
+        <rect x="42" y="217" width="51" height="61" fill="#e94560" opacity="0.7"/>
+        <rect x="147" y="217" width="51" height="61" fill="#e94560" opacity="0.7"/>
+
+        <!-- Layer boundaries -->
+        <line x1="42" y1="92" x2="93" y2="92" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+        <line x1="147" y1="92" x2="198" y2="92" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+        <line x1="42" y1="162" x2="93" y2="162" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+        <line x1="147" y1="162" x2="198" y2="162" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+        <line x1="42" y1="217" x2="93" y2="217" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+        <line x1="147" y1="217" x2="198" y2="217" stroke="#eee" stroke-width="0.5" opacity="0.5"/>
+
+        <!-- Pipe moving up arrow -->
+        <line x1="120" y1="80" x2="120" y2="30" stroke="#eee" stroke-width="2" marker-end="url(#arr-sw2)"/>
+        <text x="120" y="95" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Pipe</text>
+
+        <!-- Annulus flow arrows per layer -->
+        <line x1="67" y1="30" x2="67" y2="75" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw2)" opacity="0.6"/>
+        <line x1="67" y1="105" x2="67" y2="148" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw2)" opacity="0.6"/>
+        <line x1="67" y1="172" x2="67" y2="208" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw2)" opacity="0.6"/>
+        <line x1="67" y1="228" x2="67" y2="265" stroke="#eee" stroke-width="1.2" marker-end="url(#arr-sw2)" opacity="0.6"/>
+
+        <!-- Layer labels (right side of annulus) -->
+        <text x="173" y="55" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Kill Mud</text>
+        <text x="173" y="130" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Active</text>
+        <text x="173" y="193" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Slug</text>
+        <text x="173" y="252" fill="#eee" font-size="9" font-family="sans-serif" text-anchor="middle">Kill Mud</text>
+
+        <!-- Per-layer ΔP brackets -->
+        <line x1="208" y1="14" x2="208" y2="90" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="205" y1="14" x2="211" y2="14" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="205" y1="90" x2="211" y2="90" stroke="#e94560" stroke-width="1.5"/>
+        <text x="220" y="55" fill="#e94560" font-size="9" font-family="sans-serif">&Delta;P&#x2081;</text>
+
+        <line x1="208" y1="94" x2="208" y2="160" stroke="#4a7fb5" stroke-width="1.5"/>
+        <line x1="205" y1="94" x2="211" y2="94" stroke="#4a7fb5" stroke-width="1.5"/>
+        <line x1="205" y1="160" x2="211" y2="160" stroke="#4a7fb5" stroke-width="1.5"/>
+        <text x="220" y="130" fill="#4a7fb5" font-size="9" font-family="sans-serif">&Delta;P&#x2082;</text>
+
+        <line x1="208" y1="164" x2="208" y2="215" stroke="#4ecca3" stroke-width="1.5"/>
+        <line x1="205" y1="164" x2="211" y2="164" stroke="#4ecca3" stroke-width="1.5"/>
+        <line x1="205" y1="215" x2="211" y2="215" stroke="#4ecca3" stroke-width="1.5"/>
+        <text x="220" y="193" fill="#4ecca3" font-size="9" font-family="sans-serif">&Delta;P&#x2083;</text>
+
+        <line x1="208" y1="219" x2="208" y2="276" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="205" y1="219" x2="211" y2="219" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="205" y1="276" x2="211" y2="276" stroke="#e94560" stroke-width="1.5"/>
+        <text x="220" y="250" fill="#e94560" font-size="9" font-family="sans-serif">&Delta;P&#x2084;</text>
+
+        <!-- Sum -->
+        <text x="240" y="290" fill="#4ecca3" font-size="10" font-family="sans-serif" text-anchor="middle" font-weight="bold">&Sigma;&Delta;P</text>
+
+        <!-- Eccentricity cross-section at bottom -->
+        <!-- Hole circle -->
+        <circle cx="67" cy="300" r="14" fill="none" stroke="#2a2a4a" stroke-width="1.5"/>
+        <!-- Pipe circle — offset (eccentric) -->
+        <circle cx="70" cy="303" r="7" fill="#2a2a4a" stroke="#aaa" stroke-width="1"/>
+        <!-- Narrow side indicator -->
+        <line x1="78" y1="308" x2="85" y2="312" stroke="#f0a500" stroke-width="1"/>
+        <text x="100" y="296" fill="#f0a500" font-size="8" font-family="sans-serif">Eccentricity</text>
+        <text x="100" y="308" fill="#a0a0b8" font-size="8" font-family="sans-serif">adjustable</text>
+      </svg>
+      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Each layer contributes friction based on its own PV/YP. Total swab or surge = sum of all layers. Eccentricity factor adjusts for pipe position.</p>
+    </div>
+
+  </div>
+
+  <div class="callout warning" style="margin-top: 16px;">
+    <strong>Why this matters:</strong> The fluid distribution changes every time you pull a stand or circulate. If your friction model is wrong, your back pressure recommendation is wrong &mdash; you are either fracturing the well or going underbalanced without knowing it.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: SEASON PROGRESSION OVERVIEW (cleaned — titles only) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-9">
+  <h2>The Numerical Model: Core Concepts</h2>
+
+  <p>Multi-layer fluid column with three compartments: <strong>String</strong>, <strong>Annulus</strong>, <strong>Pocket</strong> (below bit)</p>
+  <p>Each layer tracks density, rheology (PV/YP), volume, position, and color.</p>
+
+  <table style="margin-top: 24px;">
+    <tr><th>Traditional Models</th><th>This Model</th></tr>
+    <tr><td>Simplified columns</td><td>1m layers with individual densities</td></tr>
+    <tr><td>Single rheology for APL</td><td>Per-layer rheology for accurate friction</td></tr>
+    <tr><td>No float valve physics</td><td>Dynamic float open/closed state drives wet vs dry pipe behavior</td></tr>
+    <tr><td>Pipe displacement only</td><td>Backfill = pipe displacement + slug drop volume</td></tr>
+    <tr><td>No slug equalization</td><td>U-tube iterates until pressure balance across float</td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: SWAB AND SURGE -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-10">
+  <h2>Season Progression</h2>
+
+  <p>The previous slides covered the physics and modelling approach. This is how we got there &mdash; step by step through the season, each stage building on the last.</p>
+
+  <div class="timeline">
+    <div class="timeline-item">
+      <h4>Observe Slugging on Regular Trips</h4>
+      <p>Noticed fill volumes didn't match expectations &mdash; draining was intermittent, not continuous. This motivated the float valve model.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Optimize Dry Pipe on Trips</h4>
+      <p>Tuned slug volume and density to pull dry pipe to surface. Prerequisite for slug and backfill.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>ECD Mud Caps</h4>
+      <p>Spotted annulus and pipe caps to maintain EMD at ECD while tripping. Proved fluid placement concept.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Cementing &amp; Circulating</h4>
+      <p>Extended the multi-fluid model to cementing (pump rate vs ECD) and circulation (fluid displacement tracking).</p>
+    </div>
+    <div class="timeline-item success">
+      <h4>First Slug and Backfill &mdash; No Losses</h4>
+      <p>First execution using the model. Fill volumes matched, no losses.</p>
+    </div>
+    <div class="timeline-item success">
+      <h4>Dry Pipe to Surface &rarr; Production Casing Run</h4>
+      <p>Pulled dry pipe to surface, then ran casing using the model's fluid placement and back pressure predictions.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Kill Mud &amp; Density Optimization</h4>
+      <p>Model showed we were using too much or too heavy kill mud. Reduced density closer to target &mdash; less fracture risk.</p>
+    </div>
+    <div class="timeline-item success">
+      <h4>Mud Cap + Slug and Backfill &mdash; Dead at 2000m</h4>
+      <p>Combined mud cap with slug and backfill. Doubled the previous season's kill depth.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>Plans Change &rarr; Super Simulation</h4>
+      <p>MWD failure forced a new plan. Needed to chain operations with full fluid carry-over &mdash; Super Sim was born.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11: OBSERVE SLUGGING ON REGULAR TRIPS (NEW) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-11">
+  <h2>Observe Slugging on Regular Trips</h2>
+
+  <p>Before building the model, careful observation of the dry pipe slug was done during regular trips and it revealed something important.</p>
+
+  <h3>Stand-by-stand trip volumes</h3>
+  <div class="stats">
+    <div class="stat"><div class="value">0.1</div><div class="label">Stand 1</div></div>
+    <div class="stat"><div class="value">0.12</div><div class="label">Stand 2</div></div>
+    <div class="stat"><div class="value">0.08</div><div class="label">Stand 3</div></div>
+    <div class="stat"><div class="value">0.1</div><div class="label">Stand 4</div></div>
+    <div class="stat"><div class="value">0.1</div><div class="label">Stand 5</div></div>
+  </div>
+
+  <div class="callout warning" style="margin-top: 24px;">
+    <strong>Key observation:</strong> The pipe does not drain continuously &mdash; it slugs. The string floats opens and closes constantly, this intermittent draining is non-existent in legacy models.
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12: OPTIMIZE DRY PIPE ON TRIPS (NEW) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-12">
+  <h2>Optimize Dry Pipe on Trips</h2>
+
+  <p>Adjusted the dry pipe slug's volume and density and utilized the pressure method to determine rig surface line volume to optimize pulling dry pipe to surface with RSS.</p>
+
+  <div class="columns" style="align-items: stretch;">
+
+    <!-- LEFT: Pressure Method Chart (vertical, matching rig display) -->
+    <div class="column" style="text-align: center; padding: 16px 8px; display: flex; flex-direction: column;">
+      <h4>Pressure Method &mdash; Slug Displacement on Ensign 816</h4>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 460" style="display: block; flex: 1 1 0; min-height: 0; width: 100%;">
+
+        <!-- Dark background to match rig display -->
+        <rect x="0" y="0" width="340" height="460" rx="4" fill="#0a0a14"/>
+
+        <defs>
+        </defs>
+
+        <!-- Grid lines -->
+        <line x1="45" y1="430" x2="300" y2="430" stroke="#2a2a4a" stroke-width="0.5"/>
+        <line x1="45" y1="20" x2="45" y2="430" stroke="#2a2a4a" stroke-width="0.5"/>
+        <!-- Horizontal grid -->
+        <line x1="45" y1="88" x2="300" y2="88" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="45" y1="157" x2="300" y2="157" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="45" y1="225" x2="300" y2="225" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="45" y1="293" x2="300" y2="293" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="45" y1="362" x2="300" y2="362" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <!-- Vertical grid at pressure tick marks -->
+        <line x1="85" y1="20" x2="85" y2="430" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="152" y1="20" x2="152" y2="430" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="219" y1="20" x2="219" y2="430" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+        <line x1="287" y1="20" x2="287" y2="430" stroke="#2a2a4a" stroke-width="0.3" stroke-dasharray="2,4"/>
+
+        <!-- ICP reference line -->
+        <line x1="253" y1="20" x2="253" y2="430" stroke="#4ecca3" stroke-width="0.6" stroke-dasharray="6,4" opacity="0.4"/>
+        <text x="253" y="15" fill="#4ecca3" font-size="8" font-family="monospace" text-anchor="middle" opacity="0.7">ICP</text>
+
+        <!-- Y axis tick marks (no volume labels — kept generic) -->
+        <line x1="42" y1="430" x2="48" y2="430" stroke="#555" stroke-width="0.5"/>
+        <line x1="42" y1="327" x2="48" y2="327" stroke="#555" stroke-width="0.5"/>
+        <line x1="42" y1="225" x2="48" y2="225" stroke="#555" stroke-width="0.5"/>
+        <line x1="42" y1="122" x2="48" y2="122" stroke="#555" stroke-width="0.5"/>
+        <line x1="42" y1="20" x2="48" y2="20" stroke="#555" stroke-width="0.5"/>
+
+        <!-- Pressure scale (kPa) on bottom axis -->
+        <text x="85" y="442" fill="#888" font-size="7" font-family="monospace" text-anchor="middle">38.0</text>
+        <text x="152" y="442" fill="#888" font-size="7" font-family="monospace" text-anchor="middle">39.0</text>
+        <text x="219" y="442" fill="#888" font-size="7" font-family="monospace" text-anchor="middle">40.0</text>
+        <text x="287" y="442" fill="#888" font-size="7" font-family="monospace" text-anchor="middle">41.0</text>
+
+        <!-- Axes labels -->
+        <text x="172" y="454" fill="#888" font-size="9" font-family="monospace" text-anchor="middle">SPP (MPa) &#8594;</text>
+        <text x="10" y="225" fill="#888" font-size="10" font-family="monospace" text-anchor="middle" transform="rotate(-90,10,225)">Volume Pumped (m&#179;) &#8593;</text>
+
+        <!-- Standpipe pressure trace (calibrated kPa) -->
+        <path d="M253.0,430.0 C253.0,421.8 254.1,419.1 253.0,405.4 C251.9,391.7 252.4,399.9 249.7,389.0 C247.0,378.1 247.2,383.5 245.0,372.6 C242.7,361.7 243.6,369.9 243.0,356.2 C242.3,342.5 243.0,348.0 243.0,331.6 C243.0,315.2 241.8,322.0 243.0,307.0 C244.1,292.0 243.0,300.2 246.3,286.5 C249.7,272.8 248.1,278.3 253.0,266.0 C257.9,253.7 256.2,260.5 261.1,249.6 C266.0,238.7 264.0,242.8 267.8,233.2 C271.6,223.6 270.7,227.7 272.5,220.9 C274.3,214.1 273.6,218.2 273.2,212.7 C272.7,207.2 273.8,210.0 271.1,204.5 C268.5,199.0 267.8,201.8 265.1,196.3 C262.4,190.8 262.6,193.6 263.1,188.1 C263.5,182.6 264.2,185.4 266.4,179.9 C268.7,174.4 269.4,178.5 269.8,171.7 C270.3,164.9 269.4,167.6 267.8,159.4 C266.2,151.2 267.3,155.3 265.1,147.1 C262.9,138.9 264.7,143.0 261.1,134.8 C257.5,126.6 260.4,130.7 254.4,122.5 C248.3,114.3 253.5,118.4 243.0,110.2 C232.4,102.0 239.6,106.1 222.8,97.9 C206.1,89.7 216.1,93.8 192.6,85.6 C169.1,77.4 177.0,81.5 152.4,73.3 C127.8,65.1 138.9,69.2 118.8,61.0 C98.7,52.8 88.0,51.0 80.0,49.0 C72.0,47.0 67.0,45.0 65.0,40.0 C65.0,33.0 65.0,26.0 65.0,20.0"
+              fill="none" stroke="#4ecca3" stroke-width="2.5" stroke-linejoin="round"/>
+
+        <!-- ========== PHASE BRACKETS (right side) ========== -->
+        <!-- Pumping Slug (2.5 m3 = 64% of volume) -->
+        <line x1="306" y1="430" x2="306" y2="188" stroke="#4ecca3" stroke-width="2"/>
+        <line x1="302" y1="430" x2="310" y2="430" stroke="#4ecca3" stroke-width="2"/>
+        <line x1="302" y1="188" x2="310" y2="188" stroke="#4ecca3" stroke-width="2"/>
+        <text x="314" y="309" fill="#4ecca3" font-size="9" font-family="sans-serif" transform="rotate(90,314,309)" text-anchor="middle">Pumping Slug (2.5 m&#179;)</text>
+
+        <!-- Displacing with chase (1.4 m3 = 36% of volume) -->
+        <line x1="306" y1="188" x2="306" y2="53" stroke="#f0a500" stroke-width="2"/>
+        <line x1="302" y1="53" x2="310" y2="53" stroke="#f0a500" stroke-width="2"/>
+        <text x="314" y="120" fill="#f0a500" font-size="9" font-family="sans-serif" transform="rotate(90,314,120)" text-anchor="middle">Chase (1.4 m&#179;)</text>
+
+        <!-- Done -->
+        <line x1="306" y1="53" x2="306" y2="20" stroke="#e94560" stroke-width="2"/>
+        <line x1="302" y1="20" x2="310" y2="20" stroke="#e94560" stroke-width="2"/>
+        <text x="314" y="36" fill="#e94560" font-size="9" font-family="sans-serif" transform="rotate(90,314,36)" text-anchor="middle">Done</text>
+
+        <!-- ========== CALLOUT: ICP — stable pump pressure ========== -->
+        <circle cx="253" cy="418" r="5" fill="none" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="248" y1="418" x2="195" y2="424" stroke="#e94560" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="193" y="427" fill="#e94560" font-size="9" font-family="sans-serif" text-anchor="end">ICP 40,500</text>
+
+        <!-- ========== CALLOUT: SPP dip — slug harder to suck ========== -->
+        <circle cx="243" cy="332" r="5" fill="none" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="238" y1="332" x2="195" y2="338" stroke="#e94560" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="193" y="335" fill="#e94560" font-size="9" font-family="sans-serif" text-anchor="end">-150</text>
+        <text x="193" y="346" fill="#e94560" font-size="8" font-family="sans-serif" text-anchor="end">Slug harder to suck</text>
+
+        <!-- ========== CALLOUT: Peak SPP — slug at top of standpipe ========== -->
+        <circle cx="273" cy="213" r="6" fill="none" stroke="#f0a500" stroke-width="2"/>
+        <line x1="267" y1="218" x2="57" y2="240" stroke="#f0a500" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="55" y="238" fill="#f0a500" font-size="10" font-family="sans-serif" text-anchor="start" font-weight="bold">+300 kPa</text>
+        <text x="55" y="250" fill="#f0a500" font-size="8" font-family="sans-serif" text-anchor="start">Slug at top of standpipe</text>
+
+        <!-- ========== CALLOUT: Kelly hose ========== -->
+        <circle cx="263" cy="188" r="5" fill="none" stroke="#e94560" stroke-width="1.5"/>
+        <line x1="257" y1="185" x2="57" y2="175" stroke="#e94560" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="55" y="172" fill="#e94560" font-size="9" font-family="sans-serif" text-anchor="start">+250 kPa</text>
+        <text x="55" y="183" fill="#e94560" font-size="8" font-family="sans-serif" text-anchor="start">Kelly hose dip</text>
+
+        <!-- ========== CALLOUT: Flat — all slug in pipe ========== -->
+        <circle cx="65" cy="32" r="6" fill="none" stroke="#f0a500" stroke-width="2"/>
+        <line x1="73" y1="32" x2="100" y2="27" stroke="#f0a500" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="102" y="24" fill="#f0a500" font-size="10" font-family="sans-serif" text-anchor="start" font-weight="bold">-2,800 kPa</text>
+        <text x="102" y="36" fill="#f0a500" font-size="8" font-family="sans-serif" text-anchor="start">All slug in pipe</text>
+
+        <!-- Dashed line at slug-in-pipe transition -->
+        <line x1="45" y1="41" x2="300" y2="41" stroke="#f0a500" stroke-width="0.8" stroke-dasharray="4,4" opacity="0.4"/>
+
+
+      </svg>
+    </div>
+
+    <!-- RIGHT: What the chart tells us -->
+    <div class="column" style="padding: 16px 12px;">
+      <h4>Reading the pressure trace</h4>
+      <p style="font-size: 0.85em; color: #bbb; margin-bottom: 12px;">Slug pumped, then displaced with chase fluid</p>
+      <ul>
+        <li><strong>ICP 40,500 kPa</strong> &mdash; stable pump pressure while pumping slug</li>
+        <li><strong>&minus;150 kPa</strong> &mdash; SPP dips as heavier slug is harder to suck from the tank</li>
+        <li><strong style="color:#f0a500;">+300 kPa</strong> &mdash; peak when slug reaches top of standpipe</li>
+        <li><strong>+250 kPa</strong> &mdash; small U-shape as slug travels down and back up the kelly hose</li>
+        <li><strong>Gradual &rarr; linear decrease</strong> &mdash; slug enters drill string, accelerating pressure drop</li>
+        <li><strong style="color:#f0a500;">&minus;2,800 kPa</strong> &mdash; flat &mdash; all slug is in the pipe</li>
+      </ul>
+
+      <div class="callout warning" style="margin-top: 16px;">
+        <strong>Key measurement:</strong> The volume pumped until pressure goes flat tells us how much chase is needed to get all the slug into the pipe. This is the rig's surface line volume.
+      </div>
+
+      <div class="callout" style="margin-top: 12px;">
+        <strong>Why it matters:</strong> If you don't account for the surface line volume, slug gets left in the surface piping and you pull wet pipe.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 13: TAPERED STRING -->
+<!-- ============================================================ -->
+<!-- SLIDE 13: ECD MUD CAPS (was slide 9) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-13">
+  <h2>ECD Mud Caps</h2>
+
+  <p>Before performing slug and backfill this season, the software was updated to support pumping ECD mud caps for tripping.</p>
+
+  <ul>
+    <li>Spot fluid in both annulus and drill string</li>
+    <li>Annulus cap maintains EMD at ECD while tripping</li>
+    <li>Additional pressure holds open tight spots &mdash; improved trips back to bottom</li>
+  </ul>
+
+  <div class="callout success" style="margin-top: 24px;">
+    <strong>Model contribution:</strong> Calculated the annulus and pipe cap placements so they meet up at the desired depth while POOH.
+  </div>
+
+  <div class="callout warning">
+    <strong>Observation:</strong> Failure to correctly position the pipe and annulus caps in the well causes the well to be under the desired EMD.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14: CIRCULATING -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-14">
+  <h2>Circulating</h2>
+
+  <p>A circulation model was added to track fluid displacement through the wellbore and determine correct pump rate and back pressure to maintain ECD.</p>
+
+  <h3>Why circulation modeling matters</h3>
+  <ul>
+    <li>Circulating changes the fluid distribution in the wellbore</li>
+    <li>Kill mud gets displaced, active mud moves in</li>
+    <li>APL changes with the fluid composition at each depth</li>
+  </ul>
+
+  <h3>What the model provides</h3>
+  <ul>
+    <li>Pump rate vs ECD relationship with actual fluid stack</li>
+    <li>Required back pressure to maintain target ESD</li>
+    <li>Prediction of how fluid distribution changes over time</li>
+  </ul>
+
+  <div class="callout" style="margin-top: 24px;">
+    <strong>Key point:</strong> Every time you circulate, it changes the fluid distribution &mdash; which changes everything downstream.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 15: CEMENTING -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-15">
+  <h2>Cementing</h2>
+
+  <p>The numerical model's multi-fluid approach proved useful beyond tripping operations. A feature was added that supports cementing schedules with operational steps, loss zones, and pump rate recommendations.</p>
+
+  <h3>The problem</h3>
+  <ul>
+    <li>Loss zone present in the well</li>
+    <li>Pump rate directly affects ECD and whether returns are maintained</li>
+    <li>Too fast &rarr; losses; too slow &rarr; poor cement job</li>
+  </ul>
+
+  <h3>What the feature provides</h3>
+  <ul>
+    <li>Cementing schedule with operational steps and fluid volumes</li>
+    <li>Loss zone awareness &mdash; pump rate recommendations to maintain returns</li>
+    <li>Multi-layer rheology accounts for cement, spacer, and mud interactions</li>
+  </ul>
+
+  <div class="callout success" style="margin-top: 24px;">
+    <strong>Result:</strong> The same numerical approach that models tripping can model cementing &mdash; any operation that moves fluids through a multi-layer wellbore.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 16: FIRST SLUG AND BACKFILL (was slide 10) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-16">
+  <h2>First Slug and Backfill Execution</h2>
+
+  <p>Not the first slug and backfill, but the first time running the app alongside the operation. The MPD calc sheet was used as the primary model &mdash; the app was run in tandem to compare.</p>
+
+  <div class="columns">
+    <div class="column">
+      <h4>Trip 1</h4>
+      <ul>
+        <li>MPD calc sheet as primary, app running in parallel</li>
+        <li style="color: var(--success);">Successfully got out of hole &mdash; no losses</li>
+        <li style="color: var(--highlight);">Pulled wet pipe</li>
+      </ul>
+    </div>
+    <div class="column" style="border-color: var(--success);">
+      <h4>Trip 2</h4>
+      <ul>
+        <li>Placed normal tripping slug on top of pipe kill slug</li>
+        <li style="color: var(--success);">No losses AND dry pipe to surface</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 17: TRIP IN SIMULATION (was slide 14) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-17">
+  <h2>Trip In Simulation</h2>
+
+  <h3>Why it was needed</h3>
+  <p>We had the math and model for tripping out that we believed in, but we had to rely on the existing software model for tripping in &mdash; which seemed to underestimate surge pressure.</p>
+  <ul>
+    <li>After tripping out, what happens when you trip back in with a different string size?</li>
+    <li>Where are the fluids at each depth?</li>
+    <li>When do you go underbalanced?</li>
+  </ul>
+
+  <div class="callout warning" style="margin-top: 20px;">
+    <strong>Limitation:</strong>The trip in simulation inherits the fluid state from the trip out sim but was tedious to do.
+  </div>
+
+  <h3>What the trip-in model tracks</h3>
+  <ul>
+    <li><strong>Layer expansion</strong> &mdash; fluid layers expand vertically as fluid enters pipe annulus</li>
+    <li><strong>Displacement returns</strong> to surface</li>
+    <li><strong>ESD at control depth</strong> at every step</li>
+    <li><strong>Required choke pressure</strong> to maintain target ESD</li>
+    <li><strong>Surge pressure</strong> with per-layer rheology</li>
+  </ul>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 18: SUCCESSFUL PRODUCTION CASING RUN (NEW) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-18">
+  <h2>Successful Production Casing Run</h2>
+
+  <p>The trip-in model was used for the production casing run &mdash; this is what proved the model's practical value.</p>
+
+  <h3>What happened</h3>
+  <ul>
+    <li>Ran casing using the model's predictions for fluid placement and back pressure</li>
+    <li>Got to the expected depth before needing to strip in hole</li>
+  </ul>
+
+  <div class="callout" style="margin-top: 24px;">
+    <strong>The question that drove further development:</strong> Could we get all the way to bottom, without stripping?
+  </div>
+
+  <h3>Why this mattered</h3>
+  <ul>
+    <li>Proved slug and backfill could support casing operations, not just drill pipe trips</li>
+    <li>Showed the model was accurate enough for high-stakes operations</li>
+    <li>Motivated further optimization of kill mud density and mud cap combinations</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 19: KILL MUD OPTIMIZATION (was slide 11) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-19">
+  <h2>Kill Mud Optimization</h2>
+
+  <p>By this point, several successful trips had been made using the model &mdash; in and out, at depths from the heel to the toe.</p>
+
+  <h3>Model showed the problem</h3>
+  <div class="callout warning">
+    Model showed an increase in EMD 10&ndash;20 kg/m&sup3; higher at surface than target.
+  </div>
+
+  <h3>Model validation</h3>
+  <div class="callout success">
+    Fill volumes matched actual rig trip sheet volumes &mdash; confirming accuracy. No increase in flare size on return to bottom.
+  </div>
+
+  <h3>More kill mud than they thought possible</h3>
+  <ul>
+    <li>Old software models limited kill mud to pipe displacement volume &mdash; slugging was not modeled</li>
+    <li>Model showed that slug equalization gets <strong>~4 m&sup3; more</strong> kill mud into the well</li>
+    <li>Use more but lighter kill mud &mdash; was told it was not possible, you cannot place that much mud in the well</li>
+    <li style="color: var(--success);">On every trip, the trip record sheet showed fill volume was equivalent to pipe volume + slug drop volume &mdash; assisted by the use of the Iron Maiden and Mud Dog</li>
+  </ul>
+
+  <h3>Then reduced the density</h3>
+  <ul>
+    <li>Once volumes were proved, started reducing kill mud density to stay closer to target pressure</li>
+    <li>Closer to target = less risk of exceeding fracture pressure</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 20: DENSITY OPTIMIZATION -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-20">
+  <h2>Density Optimization</h2>
+
+  <h3>The problem</h3>
+  <p>Using full kill mud for the entire backfill can cause you to exceed the desired EMD.
+    Could switch to lighter active mud partway through the trip.</p>
+
+  <h3>The model showed</h3>
+  <ul>
+    <li>How different densities and volumes allowed killing the well at different depths</li>
+    <li>The effect on stripping pressures</li>
+    <li>How active mud near the end of the backfill can help with pulling dry pipe</li>
+  </ul>
+
+  <div class="callout success" style="margin-top: 24px;">
+    <strong>Real-time adjustment:</strong> On one trip, kill mud density came in higher than modeled. Adjusted backfill kill volume quickly using the app. No losses, no problems.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 21: ANNULUS MUD CAP + SLUG AND BACKFILL -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-21">
+  <h2>Annulus Mud Cap + Slug and Backfill</h2>
+
+  <p>Spotted annulus mud cap prior to performing slug and backfill.</p>
+
+  <div class="stats" style="margin: 32px 0;">
+    <div class="stat bad">
+      <div class="value">1000m</div>
+      <div class="label">Previous season attempt (failed, losses)</div>
+    </div>
+    <div class="stat">
+      <div class="value">300m</div>
+      <div class="label">First modeled kill depth (success)</div>
+    </div>
+    <div class="stat" style="border-color: var(--success);">
+      <div class="value" style="font-size: 42px;">2000m</div>
+      <div class="label">With mud cap (success)</div>
+    </div>
+  </div>
+
+  <h3>Benefits of the mud cap + SBF combination</h3>
+  <ul>
+    <li><strong>Reduced stripping pressures</strong></li>
+    <li><strong>Can use lighter fluids to drill the well</strong></li>
+    <li><strong>Easier to SBF from shallower depths</strong></li>
+    <li><strong>Restart SBF after circulating</strong> &mdash; know exactly where fluids are</li>
+    <li><strong>Deeper flow check gives you options</strong></li>
+  </ul>
+
+  <h3>Why 2000m is significant</h3>
+  <ul>
+    <li>Earlier chance to prove the well is dead, and time to adjust if it's not.</li>
+    <li>Helps keep the well overbalanced while running casing</li>
+    <li>2&times; the original desired depth</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 22: PLANS CHANGE — NEED FOR SUPER SIM (NEW) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-22">
+  <h2>Plans Change &mdash; Need for Super Sim</h2>
+
+  <div class="stats" style="margin: 24px 0;">
+    <div class="stat bad">
+      <div class="value">2400m</div>
+      <div class="label">MWD failure</div>
+    </div>
+  </div>
+
+  <h3>What happened</h3>
+  <ul>
+    <li>MWD failure at 2400m &mdash; needed to trip out</li>
+    <li>This was not in the plan &mdash; no pre-built simulation for this scenario</li>
+    <li>Needed to quickly model: trip out from 2400m, possible circulation, trip back in with different string</li>
+    <li>Well was rolled over, lost 10m³</li>
+  </ul>
+
+  <div class="callout warning" style="margin-top: 24px;">
+    <strong>The realization:</strong> Plans change, tools fail, simulations need to be as dynamic as the rig site.
+  </div>
+
+  <h3>This drove the creation of Super Simulation</h3>
+  <ul>
+    <li>Individual simulations (trip out, circulate, trip in) existed but were isolated</li>
+    <li>Needed a way to chain operations with full fluid state carry-over</li>
+    <li>What if we pump and move the string simultaneously?</li>
+    <li>The rig site needed answers in minutes, not hours of re-building models</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 22: REAM IN/OUT -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-23">
+  <h2>Ream In/Out</h2>
+
+  <p>Reaming combines pipe movement and circulation at the same time &mdash; surge/swab and APL are happening simultaneously.</p>
+
+  <h3>Why it needed its own model</h3>
+  <ul>
+    <li>Pipe movement creates surge or swab while the pumps are also generating APL</li>
+    <li>The combined effect on bottomhole pressure is not simply additive &mdash; fluid distribution is changing as you ream</li>
+    <li>Needed for tight spots where you cannot just trip &mdash; you have to ream through</li>
+  </ul>
+
+  <h3>What was added</h3>
+  <ul>
+    <li>Ream in and ream out model with full fluid state tracking</li>
+    <li>Simultaneous pipe speed + pump rate inputs</li>
+    <li>Continuous ESD and back pressure output through the ream interval</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 23: SUPER SIMULATION (was slide 15) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-24">
+  <h2>Super Simulation: Chaining Operations</h2>
+
+  <h3>Real operations are not isolated</h3>
+  <p>A trip involves: trip out, hit tight hole, pump/circulate, continue tripping, circulate at shoe, trip back in. <strong>Each operation changes the fluid distribution, which changes everything downstream.</strong></p>
+
+  <h3>What Super Simulation does</h3>
+  <ul>
+    <li>Chains any sequence: <strong>Trip Out &rarr; Circulate &rarr; Trip In &rarr; Ream In &rarr; Ream Out</strong></li>
+    <li>Carries the complete fluid state (all layers, densities, rheologies) between operations</li>
+    <li>Shows continuous ESD, back pressure, and pump rate across all operations</li>
+    <li>Enables "what if" planning: what happens if I need to circulate at 2000m?</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 25: TIGHT HOLE SCENARIO (was slide 17) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-25">
+  <h2>Example: Tight Hole During Trip Out</h2>
+
+  <div class="timeline">
+    <div class="timeline-item">
+      <h4>1. Tripping out with slug and backfill</h4>
+      <p>Well is dead at 300m. Everything going to plan.</p>
+    </div>
+    <div class="timeline-item" style="--highlight: var(--warning);">
+      <h4>2. Hit tight hole at 2500m &mdash; need to ream</h4>
+      <p>Cannot trip freely. Ream through the tight spot &mdash; this changes the fluid distribution.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>3. Circulate</h4>
+      <p>Pump to clean hole and restore circulation. Kill mud gets displaced, kill zone retreats.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>4. Reset slug and backfill</h4>
+      <p>Re-establish the fluid state to where it was before reaming. Slug and backfill picks up from the new starting point.</p>
+    </div>
+    <div class="timeline-item">
+      <h4>5. Continue tripping</h4>
+      <p>Resume trip out with updated fluid distribution, back pressure, and fill schedule.</p>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top: 16px;">
+    <strong>Without the model:</strong> You don't know what the reaming and circulation did to the fluid distribution, or what back pressure to use going forward.<br><br>
+    <strong style="color: var(--success);">With the model:</strong> Chain the events in Super Sim &mdash; ream, circulate, reset, continue. The fluid state carries through every step.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 26: WHAT'S NEXT — NEW CAPABILITIES -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-26">
+  <h2>New Challenge: Pressure, Torque &amp; Hook Load</h2>
+
+  <p>These models exist, but their inputs are limited and cannot capture all wellbore states. Can we connect them to the numerical model and deliver a more accurate, prediction?</p>
+
+  <h3>Standpipe Pressure</h3>
+  <ul>
+    <li><strong>Existing models use a single mud weight</strong> &mdash; during displacement, the fluid stack is changing. SPP should change with it</li>
+    <li><strong>Laminar-only friction</strong> &mdash; at typical drilling flow rates, flow is turbulent. Laminar models underestimate SPP by 40&ndash;60%</li>
+    <li><strong>No geometry awareness</strong> &mdash; a tapered string changes annular velocity at every section boundary</li>
+  </ul>
+
+  <h3>Torque &amp; Hook Load</h3>
+  <ul>
+    <li><strong>Single buoyancy factor</strong> &mdash; with multiple fluids in the well, buoyancy varies along the string</li>
+    <li><strong>No circulating effects</strong> &mdash; APL and surface back pressure change the load on the string</li>
+    <li><strong>Static predictions</strong> &mdash; hook load and torque should update as the fluid state changes during the operation</li>
+  </ul>
+
+  <div class="callout success" style="margin-top: 24px;">
+    <strong>The approach:</strong> Hook 'em up and see what happens.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 27: TORQUE & DRAG -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-27">
+  <h2>Torque &amp; Drag</h2>
+
+  <p>Hook load and rotary torque prediction integrated across all simulations &mdash; trip out, trip in, circulating, cementing, and Super Sim. Calibrated against actual rig data.</p>
+
+  <div class="columns" style="align-items: stretch;">
+
+    <div class="column" style="padding: 16px 12px; flex: 1.6; display: flex; flex-direction: column;">
+      <div style="margin-bottom: 8px;">
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">Well 09-17-049-20W5 &nbsp;|&nbsp; Mud = 1510 kg/m&sup3; &nbsp;|&nbsp; Cased FF = 0.32 &nbsp;|&nbsp; OH FF = 0.10 &nbsp;|&nbsp; Sheave = 4%</div>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px;">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#00ff88;margin-right:4px;"></span>Sim Pickup</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff4444;margin-right:4px;"></span>Sim Slackoff</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#888;margin-right:4px;"></span>Sim Free Hanging</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff8800;margin-right:4px;"></span>Rig Pickup (avg)</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(255,136,0,0.2);border:1px solid rgba(255,136,0,0.4);margin-right:4px;"></span>Rig Min-Max</span>
+        </div>
+      </div>
+      <div style="flex: 1; position: relative; min-height: 200px;">
+        <canvas id="td-chart" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:6px;background:#0d1b2a;"></canvas>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;">
+        <div style="background:var(--accent);border-radius:6px;padding:8px 14px;"><div style="font-size:11px;color:var(--text-muted);">Lateral (&gt;3400m)</div><div style="font-size:18px;font-weight:bold;color:#ff6b6b;">+1.6 kDaN</div></div>
+        <div style="background:var(--accent);border-radius:6px;padding:8px 14px;"><div style="font-size:11px;color:var(--text-muted);">Build (2800&ndash;3400m)</div><div style="font-size:18px;font-weight:bold;color:#ff6b6b;">+3.0 kDaN</div></div>
+        <div style="background:var(--accent);border-radius:6px;padding:8px 14px;"><div style="font-size:11px;color:var(--text-muted);">Vertical (&lt;2800m)</div><div style="font-size:18px;font-weight:bold;color:#f9ca24;">&minus;0.4 kDaN</div></div>
+        <div style="background:var(--accent);border-radius:6px;padding:8px 14px;"><div style="font-size:11px;color:var(--text-muted);">Overall</div><div style="font-size:18px;font-weight:bold;color:#f9ca24;">+1.0 kDaN</div></div>
+      </div>
+    </div>
+
+    <div class="column" style="padding: 16px 12px; flex: 0.7;">
+      <h4 style="color: var(--success);">What it computes</h4>
+      <ul>
+        <li><strong>Pickup, slackoff, rotating hook load</strong> and free-hanging weight</li>
+        <li><strong>Surface torque</strong> &mdash; rotary torque at surface for rotating on/off bottom</li>
+        <li><strong>Rotating hoist/slackoff torque</strong> &mdash; combined rotation + axial motion with velocity-ratio friction splitting</li>
+        <li><strong>String weight reduction</strong> from circulating effects (APL piston force) and application of surface back pressure</li>
+        <li><strong>Pressure-area buoyancy</strong> &mdash; accounts for different fluids inside and outside the string, and varying cross-sections along a tapered string</li>
+      </ul>
+
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Calibration:</strong> Friction factors tuned per section until sim matches rig data. Once calibrated, the model predicts hook loads and torque at any depth.
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+(function() {
+  const sim = [{"md": 4943.0, "pickup": 98.3, "slackoff": 56.5, "rotating": 73.4, "free": 73.4}, {"md": 4933.0, "pickup": 98.1, "slackoff": 56.5, "rotating": 73.4, "free": 73.4}, {"md": 4923.0, "pickup": 98.0, "slackoff": 56.6, "rotating": 73.4, "free": 73.4}, {"md": 4913.0, "pickup": 98.2, "slackoff": 56.5, "rotating": 73.4, "free": 73.4}, {"md": 4903.0, "pickup": 98.0, "slackoff": 56.5, "rotating": 73.4, "free": 73.4}, {"md": 4893.0, "pickup": 98.0, "slackoff": 56.6, "rotating": 73.4, "free": 73.4}, {"md": 4883.0, "pickup": 98.0, "slackoff": 56.5, "rotating": 73.4, "free": 73.4}, {"md": 4873.0, "pickup": 98.0, "slackoff": 56.6, "rotating": 73.5, "free": 73.5}, {"md": 4863.0, "pickup": 97.8, "slackoff": 56.6, "rotating": 73.4, "free": 73.4}, {"md": 4853.0, "pickup": 97.9, "slackoff": 56.6, "rotating": 73.4, "free": 73.4}, {"md": 4843.0, "pickup": 97.9, "slackoff": 56.7, "rotating": 73.5, "free": 73.5}, {"md": 4833.0, "pickup": 97.8, "slackoff": 56.7, "rotating": 73.5, "free": 73.5}, {"md": 4823.0, "pickup": 97.8, "slackoff": 56.7, "rotating": 73.5, "free": 73.5}, {"md": 4813.0, "pickup": 97.8, "slackoff": 56.8, "rotating": 73.5, "free": 73.5}, {"md": 4803.0, "pickup": 97.7, "slackoff": 56.8, "rotating": 73.5, "free": 73.5}, {"md": 4793.0, "pickup": 97.8, "slackoff": 56.8, "rotating": 73.5, "free": 73.5}, {"md": 4783.0, "pickup": 97.8, "slackoff": 56.9, "rotating": 73.6, "free": 73.6}, {"md": 4773.0, "pickup": 97.7, "slackoff": 56.9, "rotating": 73.6, "free": 73.6}, {"md": 4763.0, "pickup": 97.8, "slackoff": 56.9, "rotating": 73.6, "free": 73.6}, {"md": 4753.0, "pickup": 97.8, "slackoff": 57.0, "rotating": 73.7, "free": 73.7}, {"md": 4743.0, "pickup": 97.6, "slackoff": 57.0, "rotating": 73.7, "free": 73.7}, {"md": 4733.0, "pickup": 97.8, "slackoff": 57.0, "rotating": 73.7, "free": 73.7}, {"md": 4723.0, "pickup": 97.8, "slackoff": 57.1, "rotating": 73.8, "free": 73.8}, {"md": 4713.0, "pickup": 97.9, "slackoff": 57.1, "rotating": 73.8, "free": 73.8}, {"md": 4703.0, "pickup": 97.8, "slackoff": 57.2, "rotating": 73.8, "free": 73.8}, {"md": 4693.0, "pickup": 97.7, "slackoff": 57.2, "rotating": 73.8, "free": 73.8}, {"md": 4683.0, "pickup": 98.0, "slackoff": 57.3, "rotating": 74.0, "free": 74.0}, {"md": 4673.0, "pickup": 97.9, "slackoff": 57.3, "rotating": 74.0, "free": 74.0}, {"md": 4663.0, "pickup": 97.8, "slackoff": 57.4, "rotating": 74.0, "free": 74.0}, {"md": 4653.0, "pickup": 97.9, "slackoff": 57.3, "rotating": 74.0, "free": 74.0}, {"md": 4643.0, "pickup": 97.8, "slackoff": 57.4, "rotating": 73.9, "free": 73.9}, {"md": 4633.0, "pickup": 97.8, "slackoff": 57.5, "rotating": 74.0, "free": 74.0}, {"md": 4623.0, "pickup": 97.8, "slackoff": 57.4, "rotating": 74.0, "free": 74.0}, {"md": 4613.0, "pickup": 97.7, "slackoff": 57.5, "rotating": 74.0, "free": 74.0}, {"md": 4603.0, "pickup": 97.7, "slackoff": 57.6, "rotating": 74.1, "free": 74.1}, {"md": 4593.0, "pickup": 97.8, "slackoff": 57.5, "rotating": 74.1, "free": 74.1}, {"md": 4583.0, "pickup": 97.7, "slackoff": 57.6, "rotating": 74.1, "free": 74.1}, {"md": 4573.0, "pickup": 97.6, "slackoff": 57.7, "rotating": 74.1, "free": 74.1}, {"md": 4563.0, "pickup": 97.7, "slackoff": 57.6, "rotating": 74.1, "free": 74.1}, {"md": 4553.0, "pickup": 97.6, "slackoff": 57.7, "rotating": 74.1, "free": 74.1}, {"md": 4543.0, "pickup": 97.8, "slackoff": 57.7, "rotating": 74.2, "free": 74.2}, {"md": 4533.0, "pickup": 97.7, "slackoff": 57.8, "rotating": 74.2, "free": 74.2}, {"md": 4523.0, "pickup": 97.7, "slackoff": 57.9, "rotating": 74.3, "free": 74.3}, {"md": 4513.0, "pickup": 97.8, "slackoff": 57.8, "rotating": 74.3, "free": 74.3}, {"md": 4503.0, "pickup": 97.6, "slackoff": 57.8, "rotating": 74.2, "free": 74.2}, {"md": 4493.0, "pickup": 97.6, "slackoff": 57.9, "rotating": 74.3, "free": 74.3}, {"md": 4483.0, "pickup": 97.7, "slackoff": 57.9, "rotating": 74.3, "free": 74.3}, {"md": 4473.0, "pickup": 97.5, "slackoff": 57.9, "rotating": 74.3, "free": 74.3}, {"md": 4463.0, "pickup": 97.5, "slackoff": 58.0, "rotating": 74.3, "free": 74.3}, {"md": 4453.0, "pickup": 97.6, "slackoff": 58.0, "rotating": 74.3, "free": 74.3}, {"md": 4443.0, "pickup": 97.5, "slackoff": 58.0, "rotating": 74.3, "free": 74.3}, {"md": 4433.0, "pickup": 97.5, "slackoff": 58.1, "rotating": 74.4, "free": 74.4}, {"md": 4423.0, "pickup": 97.5, "slackoff": 58.1, "rotating": 74.4, "free": 74.4}, {"md": 4413.0, "pickup": 97.4, "slackoff": 58.1, "rotating": 74.4, "free": 74.4}, {"md": 4403.0, "pickup": 97.4, "slackoff": 58.2, "rotating": 74.5, "free": 74.5}, {"md": 4393.0, "pickup": 97.5, "slackoff": 58.2, "rotating": 74.5, "free": 74.5}, {"md": 4383.0, "pickup": 97.4, "slackoff": 58.2, "rotating": 74.5, "free": 74.5}, {"md": 4373.0, "pickup": 97.6, "slackoff": 58.3, "rotating": 74.5, "free": 74.5}, {"md": 4363.0, "pickup": 97.5, "slackoff": 58.3, "rotating": 74.5, "free": 74.5}, {"md": 4353.0, "pickup": 97.4, "slackoff": 58.4, "rotating": 74.5, "free": 74.5}, {"md": 4343.0, "pickup": 97.6, "slackoff": 58.4, "rotating": 74.6, "free": 74.6}, {"md": 4333.0, "pickup": 97.5, "slackoff": 58.4, "rotating": 74.6, "free": 74.6}, {"md": 4323.0, "pickup": 97.4, "slackoff": 58.5, "rotating": 74.6, "free": 74.6}, {"md": 4313.0, "pickup": 97.5, "slackoff": 58.5, "rotating": 74.7, "free": 74.7}, {"md": 4303.0, "pickup": 97.4, "slackoff": 58.6, "rotating": 74.7, "free": 74.7}, {"md": 4293.0, "pickup": 97.3, "slackoff": 58.6, "rotating": 74.7, "free": 74.7}, {"md": 4283.0, "pickup": 97.5, "slackoff": 58.6, "rotating": 74.8, "free": 74.8}, {"md": 4273.0, "pickup": 97.4, "slackoff": 58.7, "rotating": 74.8, "free": 74.8}, {"md": 4263.0, "pickup": 97.3, "slackoff": 58.7, "rotating": 74.7, "free": 74.7}, {"md": 4253.0, "pickup": 97.5, "slackoff": 58.8, "rotating": 74.8, "free": 74.8}, {"md": 4243.0, "pickup": 97.4, "slackoff": 58.8, "rotating": 74.8, "free": 74.8}, {"md": 4233.0, "pickup": 97.3, "slackoff": 58.8, "rotating": 74.8, "free": 74.8}, {"md": 4223.0, "pickup": 97.4, "slackoff": 58.9, "rotating": 74.9, "free": 74.9}, {"md": 4213.0, "pickup": 97.3, "slackoff": 58.9, "rotating": 74.9, "free": 74.9}, {"md": 4203.0, "pickup": 97.4, "slackoff": 58.9, "rotating": 74.9, "free": 74.9}, {"md": 4193.0, "pickup": 97.4, "slackoff": 59.0, "rotating": 75.0, "free": 75.0}, {"md": 4183.0, "pickup": 97.3, "slackoff": 59.0, "rotating": 74.9, "free": 74.9}, {"md": 4173.0, "pickup": 97.3, "slackoff": 59.0, "rotating": 74.9, "free": 74.9}, {"md": 4163.0, "pickup": 97.3, "slackoff": 59.1, "rotating": 75.0, "free": 75.0}, {"md": 4153.0, "pickup": 97.2, "slackoff": 59.1, "rotating": 75.0, "free": 75.0}, {"md": 4143.0, "pickup": 97.4, "slackoff": 59.1, "rotating": 75.1, "free": 75.1}, {"md": 4133.0, "pickup": 97.3, "slackoff": 59.2, "rotating": 75.1, "free": 75.1}, {"md": 4123.0, "pickup": 97.2, "slackoff": 59.2, "rotating": 75.1, "free": 75.1}, {"md": 4113.0, "pickup": 97.4, "slackoff": 59.3, "rotating": 75.1, "free": 75.1}, {"md": 4103.0, "pickup": 97.3, "slackoff": 59.3, "rotating": 75.2, "free": 75.2}, {"md": 4093.0, "pickup": 97.2, "slackoff": 59.4, "rotating": 75.2, "free": 75.2}, {"md": 4083.0, "pickup": 97.4, "slackoff": 59.4, "rotating": 75.2, "free": 75.2}, {"md": 4073.0, "pickup": 97.3, "slackoff": 59.5, "rotating": 75.2, "free": 75.2}, {"md": 4063.0, "pickup": 97.2, "slackoff": 59.5, "rotating": 75.2, "free": 75.2}, {"md": 4053.0, "pickup": 97.4, "slackoff": 59.5, "rotating": 75.3, "free": 75.3}, {"md": 4043.0, "pickup": 97.3, "slackoff": 59.6, "rotating": 75.3, "free": 75.3}, {"md": 4033.0, "pickup": 97.4, "slackoff": 59.5, "rotating": 75.3, "free": 75.3}, {"md": 4023.0, "pickup": 97.4, "slackoff": 59.7, "rotating": 75.4, "free": 75.4}, {"md": 4013.0, "pickup": 97.3, "slackoff": 59.7, "rotating": 75.4, "free": 75.4}, {"md": 4003.0, "pickup": 97.4, "slackoff": 59.7, "rotating": 75.4, "free": 75.4}, {"md": 3993.0, "pickup": 97.4, "slackoff": 59.8, "rotating": 75.5, "free": 75.5}, {"md": 3983.0, "pickup": 97.3, "slackoff": 59.9, "rotating": 75.5, "free": 75.5}, {"md": 3973.0, "pickup": 97.4, "slackoff": 59.8, "rotating": 75.5, "free": 75.5}, {"md": 3963.0, "pickup": 97.4, "slackoff": 60.0, "rotating": 75.6, "free": 75.6}, {"md": 3953.0, "pickup": 97.3, "slackoff": 60.0, "rotating": 75.6, "free": 75.6}, {"md": 3943.0, "pickup": 97.4, "slackoff": 60.0, "rotating": 75.7, "free": 75.7}, {"md": 3933.0, "pickup": 97.4, "slackoff": 60.1, "rotating": 75.7, "free": 75.7}, {"md": 3923.0, "pickup": 97.3, "slackoff": 60.1, "rotating": 75.7, "free": 75.7}, {"md": 3913.0, "pickup": 97.5, "slackoff": 60.2, "rotating": 75.8, "free": 75.8}, {"md": 3903.0, "pickup": 97.4, "slackoff": 60.2, "rotating": 75.8, "free": 75.8}, {"md": 3893.0, "pickup": 97.3, "slackoff": 60.3, "rotating": 75.8, "free": 75.8}, {"md": 3883.0, "pickup": 97.4, "slackoff": 60.2, "rotating": 75.8, "free": 75.8}, {"md": 3873.0, "pickup": 97.4, "slackoff": 60.4, "rotating": 75.9, "free": 75.9}, {"md": 3863.0, "pickup": 97.3, "slackoff": 60.4, "rotating": 75.9, "free": 75.9}, {"md": 3853.0, "pickup": 97.4, "slackoff": 60.4, "rotating": 75.9, "free": 75.9}, {"md": 3843.0, "pickup": 97.4, "slackoff": 60.5, "rotating": 76.0, "free": 76.0}, {"md": 3833.0, "pickup": 97.4, "slackoff": 60.4, "rotating": 76.0, "free": 76.0}, {"md": 3823.0, "pickup": 97.4, "slackoff": 60.5, "rotating": 76.0, "free": 76.0}, {"md": 3813.0, "pickup": 97.3, "slackoff": 60.6, "rotating": 76.0, "free": 76.0}, {"md": 3803.0, "pickup": 97.4, "slackoff": 60.5, "rotating": 76.0, "free": 76.0}, {"md": 3793.0, "pickup": 97.4, "slackoff": 60.7, "rotating": 76.1, "free": 76.1}, {"md": 3783.0, "pickup": 97.3, "slackoff": 60.7, "rotating": 76.1, "free": 76.1}, {"md": 3773.0, "pickup": 97.4, "slackoff": 60.7, "rotating": 76.1, "free": 76.1}, {"md": 3763.0, "pickup": 97.3, "slackoff": 60.8, "rotating": 76.2, "free": 76.2}, {"md": 3753.0, "pickup": 97.2, "slackoff": 60.8, "rotating": 76.1, "free": 76.1}, {"md": 3743.0, "pickup": 97.3, "slackoff": 60.8, "rotating": 76.2, "free": 76.2}, {"md": 3733.0, "pickup": 97.3, "slackoff": 60.9, "rotating": 76.2, "free": 76.2}, {"md": 3723.0, "pickup": 97.2, "slackoff": 60.9, "rotating": 76.2, "free": 76.2}, {"md": 3713.0, "pickup": 97.3, "slackoff": 60.9, "rotating": 76.2, "free": 76.2}, {"md": 3703.0, "pickup": 97.2, "slackoff": 61.0, "rotating": 76.3, "free": 76.3}, {"md": 3693.0, "pickup": 97.1, "slackoff": 61.0, "rotating": 76.3, "free": 76.3}, {"md": 3683.0, "pickup": 97.3, "slackoff": 61.1, "rotating": 76.3, "free": 76.3}, {"md": 3673.0, "pickup": 97.2, "slackoff": 61.1, "rotating": 76.3, "free": 76.3}, {"md": 3663.0, "pickup": 97.3, "slackoff": 61.1, "rotating": 76.3, "free": 76.3}, {"md": 3653.0, "pickup": 97.3, "slackoff": 61.2, "rotating": 76.4, "free": 76.4}, {"md": 3643.0, "pickup": 97.2, "slackoff": 61.2, "rotating": 76.4, "free": 76.4}, {"md": 3633.0, "pickup": 97.3, "slackoff": 61.2, "rotating": 76.4, "free": 76.4}, {"md": 3623.0, "pickup": 97.2, "slackoff": 61.3, "rotating": 76.5, "free": 76.5}, {"md": 3613.0, "pickup": 97.1, "slackoff": 61.3, "rotating": 76.5, "free": 76.5}, {"md": 3603.0, "pickup": 97.2, "slackoff": 61.3, "rotating": 76.5, "free": 76.5}, {"md": 3593.0, "pickup": 97.2, "slackoff": 61.4, "rotating": 76.5, "free": 76.5}, {"md": 3583.0, "pickup": 97.0, "slackoff": 61.4, "rotating": 76.5, "free": 76.5}, {"md": 3573.0, "pickup": 97.1, "slackoff": 61.4, "rotating": 76.5, "free": 76.5}, {"md": 3563.0, "pickup": 97.1, "slackoff": 61.5, "rotating": 76.6, "free": 76.6}, {"md": 3553.0, "pickup": 97.0, "slackoff": 61.5, "rotating": 76.6, "free": 76.6}, {"md": 3543.0, "pickup": 97.1, "slackoff": 61.5, "rotating": 76.6, "free": 76.6}, {"md": 3533.0, "pickup": 97.0, "slackoff": 61.6, "rotating": 76.6, "free": 76.6}, {"md": 3523.0, "pickup": 96.9, "slackoff": 61.6, "rotating": 76.6, "free": 76.6}, {"md": 3513.0, "pickup": 97.0, "slackoff": 61.6, "rotating": 76.6, "free": 76.6}, {"md": 3503.0, "pickup": 97.0, "slackoff": 61.7, "rotating": 76.7, "free": 76.7}, {"md": 3493.0, "pickup": 97.1, "slackoff": 61.7, "rotating": 76.7, "free": 76.7}, {"md": 3483.0, "pickup": 97.0, "slackoff": 61.8, "rotating": 76.8, "free": 76.8}, {"md": 3473.0, "pickup": 96.9, "slackoff": 61.8, "rotating": 76.7, "free": 76.7}, {"md": 3463.0, "pickup": 97.1, "slackoff": 61.8, "rotating": 76.8, "free": 76.8}, {"md": 3453.0, "pickup": 97.1, "slackoff": 62.0, "rotating": 76.9, "free": 76.9}, {"md": 3443.0, "pickup": 97.0, "slackoff": 62.0, "rotating": 76.9, "free": 76.9}, {"md": 3433.0, "pickup": 97.3, "slackoff": 62.1, "rotating": 77.0, "free": 77.0}, {"md": 3423.0, "pickup": 97.2, "slackoff": 62.2, "rotating": 77.1, "free": 77.1}, {"md": 3413.0, "pickup": 97.1, "slackoff": 62.2, "rotating": 77.0, "free": 77.0}, {"md": 3403.0, "pickup": 97.5, "slackoff": 62.4, "rotating": 77.3, "free": 77.3}, {"md": 3393.0, "pickup": 97.5, "slackoff": 62.5, "rotating": 77.4, "free": 77.4}, {"md": 3383.0, "pickup": 97.5, "slackoff": 62.6, "rotating": 77.4, "free": 77.4}, {"md": 3373.0, "pickup": 97.9, "slackoff": 62.7, "rotating": 77.7, "free": 77.7}, {"md": 3363.0, "pickup": 97.8, "slackoff": 62.8, "rotating": 77.7, "free": 77.7}, {"md": 3353.0, "pickup": 97.7, "slackoff": 62.8, "rotating": 77.6, "free": 77.6}, {"md": 3343.0, "pickup": 98.1, "slackoff": 62.9, "rotating": 77.9, "free": 77.9}, {"md": 3333.0, "pickup": 98.1, "slackoff": 63.0, "rotating": 77.9, "free": 77.9}, {"md": 3323.0, "pickup": 98.6, "slackoff": 63.2, "rotating": 78.2, "free": 78.2}, {"md": 3313.0, "pickup": 98.2, "slackoff": 63.1, "rotating": 78.0, "free": 78.0}, {"md": 3303.0, "pickup": 98.0, "slackoff": 63.1, "rotating": 77.9, "free": 77.9}, {"md": 3293.0, "pickup": 98.8, "slackoff": 63.5, "rotating": 78.5, "free": 78.5}, {"md": 3283.0, "pickup": 98.4, "slackoff": 63.4, "rotating": 78.3, "free": 78.3}, {"md": 3273.0, "pickup": 98.1, "slackoff": 63.3, "rotating": 78.1, "free": 78.1}, {"md": 3263.0, "pickup": 98.8, "slackoff": 63.6, "rotating": 78.6, "free": 78.6}, {"md": 3253.0, "pickup": 98.4, "slackoff": 63.4, "rotating": 78.3, "free": 78.3}, {"md": 3243.0, "pickup": 98.0, "slackoff": 63.3, "rotating": 78.1, "free": 78.1}, {"md": 3233.0, "pickup": 98.7, "slackoff": 63.6, "rotating": 78.5, "free": 78.5}, {"md": 3223.0, "pickup": 98.2, "slackoff": 63.4, "rotating": 78.3, "free": 78.3}, {"md": 3213.0, "pickup": 97.8, "slackoff": 63.3, "rotating": 78.0, "free": 78.0}, {"md": 3203.0, "pickup": 98.5, "slackoff": 63.6, "rotating": 78.5, "free": 78.5}, {"md": 3193.0, "pickup": 97.9, "slackoff": 63.4, "rotating": 78.1, "free": 78.1}, {"md": 3183.0, "pickup": 97.4, "slackoff": 63.2, "rotating": 77.8, "free": 77.8}, {"md": 3173.0, "pickup": 98.1, "slackoff": 63.5, "rotating": 78.3, "free": 78.3}, {"md": 3163.0, "pickup": 97.5, "slackoff": 63.3, "rotating": 77.9, "free": 77.9}, {"md": 3153.0, "pickup": 97.0, "slackoff": 63.1, "rotating": 77.6, "free": 77.6}, {"md": 3143.0, "pickup": 97.6, "slackoff": 63.4, "rotating": 78.0, "free": 78.0}, {"md": 3133.0, "pickup": 97.0, "slackoff": 63.1, "rotating": 77.6, "free": 77.6}, {"md": 3123.0, "pickup": 96.4, "slackoff": 62.9, "rotating": 77.2, "free": 77.2}, {"md": 3113.0, "pickup": 97.0, "slackoff": 63.2, "rotating": 77.7, "free": 77.7}, {"md": 3103.0, "pickup": 96.4, "slackoff": 63.0, "rotating": 77.3, "free": 77.3}, {"md": 3093.0, "pickup": 95.7, "slackoff": 62.7, "rotating": 76.8, "free": 76.8}, {"md": 3083.0, "pickup": 96.3, "slackoff": 63.0, "rotating": 77.3, "free": 77.3}, {"md": 3073.0, "pickup": 95.6, "slackoff": 62.7, "rotating": 76.9, "free": 76.9}, {"md": 3063.0, "pickup": 94.9, "slackoff": 62.4, "rotating": 76.4, "free": 76.4}, {"md": 3053.0, "pickup": 95.5, "slackoff": 62.8, "rotating": 76.9, "free": 76.9}, {"md": 3043.0, "pickup": 94.9, "slackoff": 62.5, "rotating": 76.4, "free": 76.4}, {"md": 3033.0, "pickup": 94.1, "slackoff": 62.1, "rotating": 75.9, "free": 75.9}, {"md": 3023.0, "pickup": 94.8, "slackoff": 62.5, "rotating": 76.4, "free": 76.4}, {"md": 3013.0, "pickup": 94.0, "slackoff": 62.2, "rotating": 75.9, "free": 75.9}, {"md": 3003.0, "pickup": 94.7, "slackoff": 62.5, "rotating": 76.3, "free": 76.3}, {"md": 2993.0, "pickup": 93.9, "slackoff": 62.1, "rotating": 75.8, "free": 75.8}, {"md": 2983.0, "pickup": 93.2, "slackoff": 61.8, "rotating": 75.3, "free": 75.3}, {"md": 2973.0, "pickup": 93.8, "slackoff": 62.1, "rotating": 75.8, "free": 75.8}, {"md": 2963.0, "pickup": 93.1, "slackoff": 61.8, "rotating": 75.3, "free": 75.3}, {"md": 2953.0, "pickup": 92.4, "slackoff": 61.4, "rotating": 74.8, "free": 74.8}, {"md": 2943.0, "pickup": 93.0, "slackoff": 61.7, "rotating": 75.2, "free": 75.2}, {"md": 2933.0, "pickup": 92.3, "slackoff": 61.4, "rotating": 74.7, "free": 74.7}, {"md": 2923.0, "pickup": 91.5, "slackoff": 61.0, "rotating": 74.2, "free": 74.2}, {"md": 2913.0, "pickup": 92.2, "slackoff": 61.3, "rotating": 74.7, "free": 74.7}, {"md": 2903.0, "pickup": 91.4, "slackoff": 61.0, "rotating": 74.2, "free": 74.2}, {"md": 2893.0, "pickup": 90.7, "slackoff": 60.6, "rotating": 73.6, "free": 73.6}, {"md": 2883.0, "pickup": 91.3, "slackoff": 61.0, "rotating": 74.1, "free": 74.1}, {"md": 2873.0, "pickup": 90.6, "slackoff": 60.6, "rotating": 73.6, "free": 73.6}, {"md": 2863.0, "pickup": 89.9, "slackoff": 60.3, "rotating": 73.1, "free": 73.1}, {"md": 2853.0, "pickup": 90.5, "slackoff": 60.6, "rotating": 73.5, "free": 73.5}, {"md": 2843.0, "pickup": 89.8, "slackoff": 60.2, "rotating": 73.0, "free": 73.0}, {"md": 2833.0, "pickup": 89.1, "slackoff": 59.9, "rotating": 72.5, "free": 72.5}, {"md": 2823.0, "pickup": 89.7, "slackoff": 60.2, "rotating": 73.0, "free": 73.0}, {"md": 2813.0, "pickup": 89.0, "slackoff": 59.8, "rotating": 72.4, "free": 72.4}, {"md": 2803.0, "pickup": 88.2, "slackoff": 59.5, "rotating": 71.9, "free": 71.9}, {"md": 2793.0, "pickup": 88.8, "slackoff": 59.7, "rotating": 72.3, "free": 72.3}, {"md": 2783.0, "pickup": 88.0, "slackoff": 59.4, "rotating": 71.8, "free": 71.8}, {"md": 2773.0, "pickup": 87.3, "slackoff": 59.0, "rotating": 71.3, "free": 71.3}, {"md": 2763.0, "pickup": 87.9, "slackoff": 59.3, "rotating": 71.7, "free": 71.7}, {"md": 2753.0, "pickup": 87.2, "slackoff": 59.0, "rotating": 71.2, "free": 71.2}, {"md": 2743.0, "pickup": 86.5, "slackoff": 58.6, "rotating": 70.7, "free": 70.7}, {"md": 2733.0, "pickup": 87.1, "slackoff": 58.9, "rotating": 71.2, "free": 71.2}, {"md": 2723.0, "pickup": 86.4, "slackoff": 58.6, "rotating": 70.7, "free": 70.7}, {"md": 2713.0, "pickup": 87.0, "slackoff": 58.9, "rotating": 71.1, "free": 71.1}, {"md": 2703.0, "pickup": 86.3, "slackoff": 58.6, "rotating": 70.6, "free": 70.6}, {"md": 2693.0, "pickup": 85.6, "slackoff": 58.2, "rotating": 70.1, "free": 70.1}, {"md": 2683.0, "pickup": 86.2, "slackoff": 58.5, "rotating": 70.5, "free": 70.5}, {"md": 2673.0, "pickup": 85.5, "slackoff": 58.2, "rotating": 70.0, "free": 70.0}, {"md": 2663.0, "pickup": 84.8, "slackoff": 57.8, "rotating": 69.5, "free": 69.5}, {"md": 2653.0, "pickup": 85.4, "slackoff": 58.1, "rotating": 70.0, "free": 70.0}, {"md": 2643.0, "pickup": 84.7, "slackoff": 57.8, "rotating": 69.5, "free": 69.5}, {"md": 2633.0, "pickup": 83.9, "slackoff": 57.4, "rotating": 69.0, "free": 69.0}, {"md": 2623.0, "pickup": 84.6, "slackoff": 57.7, "rotating": 69.4, "free": 69.4}, {"md": 2613.0, "pickup": 83.8, "slackoff": 57.4, "rotating": 68.9, "free": 68.9}, {"md": 2603.0, "pickup": 83.1, "slackoff": 57.0, "rotating": 68.4, "free": 68.4}, {"md": 2593.0, "pickup": 83.8, "slackoff": 57.3, "rotating": 68.8, "free": 68.8}, {"md": 2583.0, "pickup": 83.0, "slackoff": 57.0, "rotating": 68.3, "free": 68.3}, {"md": 2573.0, "pickup": 82.3, "slackoff": 56.6, "rotating": 67.8, "free": 67.8}, {"md": 2563.0, "pickup": 82.9, "slackoff": 56.9, "rotating": 68.3, "free": 68.3}, {"md": 2553.0, "pickup": 82.2, "slackoff": 56.6, "rotating": 67.8, "free": 67.8}, {"md": 2543.0, "pickup": 81.5, "slackoff": 56.2, "rotating": 67.3, "free": 67.3}, {"md": 2533.0, "pickup": 82.1, "slackoff": 56.5, "rotating": 67.7, "free": 67.7}, {"md": 2523.0, "pickup": 81.4, "slackoff": 56.2, "rotating": 67.2, "free": 67.2}, {"md": 2513.0, "pickup": 80.7, "slackoff": 55.8, "rotating": 66.7, "free": 66.7}, {"md": 2503.0, "pickup": 81.3, "slackoff": 56.2, "rotating": 67.1, "free": 67.1}, {"md": 2493.0, "pickup": 80.6, "slackoff": 55.8, "rotating": 66.6, "free": 66.6}, {"md": 2483.0, "pickup": 79.8, "slackoff": 55.5, "rotating": 66.1, "free": 66.1}, {"md": 2473.0, "pickup": 80.5, "slackoff": 55.8, "rotating": 66.6, "free": 66.6}, {"md": 2463.0, "pickup": 79.7, "slackoff": 55.4, "rotating": 66.1, "free": 66.1}, {"md": 2453.0, "pickup": 79.0, "slackoff": 55.1, "rotating": 65.6, "free": 65.6}, {"md": 2443.0, "pickup": 79.6, "slackoff": 55.4, "rotating": 66.0, "free": 66.0}, {"md": 2433.0, "pickup": 78.9, "slackoff": 55.0, "rotating": 65.5, "free": 65.5}, {"md": 2423.0, "pickup": 78.2, "slackoff": 54.7, "rotating": 65.0, "free": 65.0}, {"md": 2413.0, "pickup": 78.8, "slackoff": 55.0, "rotating": 65.4, "free": 65.4}, {"md": 2403.0, "pickup": 78.1, "slackoff": 54.6, "rotating": 64.9, "free": 64.9}, {"md": 2393.0, "pickup": 78.5, "slackoff": 54.8, "rotating": 65.2, "free": 65.2}, {"md": 2383.0, "pickup": 77.8, "slackoff": 54.5, "rotating": 64.7, "free": 64.7}, {"md": 2373.0, "pickup": 77.1, "slackoff": 54.1, "rotating": 64.2, "free": 64.2}, {"md": 2363.0, "pickup": 77.7, "slackoff": 54.4, "rotating": 64.6, "free": 64.6}, {"md": 2353.0, "pickup": 77.0, "slackoff": 54.1, "rotating": 64.1, "free": 64.1}, {"md": 2343.0, "pickup": 76.2, "slackoff": 53.7, "rotating": 63.6, "free": 63.6}, {"md": 2333.0, "pickup": 76.9, "slackoff": 54.0, "rotating": 64.1, "free": 64.1}, {"md": 2323.0, "pickup": 76.2, "slackoff": 53.7, "rotating": 63.6, "free": 63.6}, {"md": 2313.0, "pickup": 75.4, "slackoff": 53.3, "rotating": 63.0, "free": 63.0}, {"md": 2303.0, "pickup": 76.1, "slackoff": 53.6, "rotating": 63.5, "free": 63.5}, {"md": 2293.0, "pickup": 75.3, "slackoff": 53.3, "rotating": 63.0, "free": 63.0}, {"md": 2283.0, "pickup": 74.6, "slackoff": 52.9, "rotating": 62.5, "free": 62.5}, {"md": 2273.0, "pickup": 75.2, "slackoff": 53.2, "rotating": 62.9, "free": 62.9}, {"md": 2263.0, "pickup": 74.5, "slackoff": 52.9, "rotating": 62.4, "free": 62.4}, {"md": 2253.0, "pickup": 73.8, "slackoff": 52.5, "rotating": 61.9, "free": 61.9}, {"md": 2243.0, "pickup": 74.4, "slackoff": 52.8, "rotating": 62.4, "free": 62.4}, {"md": 2233.0, "pickup": 73.7, "slackoff": 52.5, "rotating": 61.8, "free": 61.8}, {"md": 2223.0, "pickup": 73.0, "slackoff": 52.1, "rotating": 61.3, "free": 61.3}, {"md": 2213.0, "pickup": 73.6, "slackoff": 52.4, "rotating": 61.8, "free": 61.8}, {"md": 2203.0, "pickup": 72.9, "slackoff": 52.1, "rotating": 61.3, "free": 61.3}, {"md": 2193.0, "pickup": 73.5, "slackoff": 52.4, "rotating": 61.7, "free": 61.7}, {"md": 2183.0, "pickup": 72.8, "slackoff": 52.1, "rotating": 61.2, "free": 61.2}, {"md": 2173.0, "pickup": 72.1, "slackoff": 51.7, "rotating": 60.7, "free": 60.7}, {"md": 2163.0, "pickup": 72.7, "slackoff": 52.0, "rotating": 61.2, "free": 61.2}, {"md": 2153.0, "pickup": 72.0, "slackoff": 51.7, "rotating": 60.7, "free": 60.7}, {"md": 2143.0, "pickup": 71.3, "slackoff": 51.3, "rotating": 60.1, "free": 60.1}, {"md": 2133.0, "pickup": 71.9, "slackoff": 51.6, "rotating": 60.6, "free": 60.6}, {"md": 2123.0, "pickup": 71.2, "slackoff": 51.3, "rotating": 60.1, "free": 60.1}, {"md": 2113.0, "pickup": 70.5, "slackoff": 50.9, "rotating": 59.6, "free": 59.6}, {"md": 2103.0, "pickup": 71.1, "slackoff": 51.2, "rotating": 60.0, "free": 60.0}, {"md": 2093.0, "pickup": 70.4, "slackoff": 50.9, "rotating": 59.5, "free": 59.5}, {"md": 2083.0, "pickup": 69.7, "slackoff": 50.5, "rotating": 59.0, "free": 59.0}, {"md": 2073.0, "pickup": 70.3, "slackoff": 50.8, "rotating": 59.4, "free": 59.4}, {"md": 2063.0, "pickup": 69.6, "slackoff": 50.5, "rotating": 58.9, "free": 58.9}, {"md": 2053.0, "pickup": 68.9, "slackoff": 50.1, "rotating": 58.4, "free": 58.4}, {"md": 2043.0, "pickup": 69.5, "slackoff": 50.4, "rotating": 58.9, "free": 58.9}, {"md": 2033.0, "pickup": 68.8, "slackoff": 50.1, "rotating": 58.4, "free": 58.4}, {"md": 2023.0, "pickup": 68.1, "slackoff": 49.7, "rotating": 57.9, "free": 57.9}, {"md": 2013.0, "pickup": 68.7, "slackoff": 50.0, "rotating": 58.3, "free": 58.3}, {"md": 2003.0, "pickup": 68.0, "slackoff": 49.7, "rotating": 57.8, "free": 57.8}, {"md": 1993.0, "pickup": 67.3, "slackoff": 49.3, "rotating": 57.3, "free": 57.3}, {"md": 1983.0, "pickup": 67.9, "slackoff": 49.6, "rotating": 57.7, "free": 57.7}, {"md": 1973.0, "pickup": 67.2, "slackoff": 49.3, "rotating": 57.2, "free": 57.2}, {"md": 1963.0, "pickup": 66.5, "slackoff": 48.9, "rotating": 56.7, "free": 56.7}, {"md": 1953.0, "pickup": 67.1, "slackoff": 49.2, "rotating": 57.2, "free": 57.2}, {"md": 1943.0, "pickup": 66.4, "slackoff": 48.9, "rotating": 56.7, "free": 56.7}, {"md": 1933.0, "pickup": 65.7, "slackoff": 48.5, "rotating": 56.2, "free": 56.2}, {"md": 1923.0, "pickup": 66.3, "slackoff": 48.8, "rotating": 56.6, "free": 56.6}, {"md": 1913.0, "pickup": 65.6, "slackoff": 48.4, "rotating": 56.1, "free": 56.1}, {"md": 1903.0, "pickup": 64.9, "slackoff": 48.1, "rotating": 55.6, "free": 55.6}, {"md": 1893.0, "pickup": 65.5, "slackoff": 48.4, "rotating": 56.0, "free": 56.0}, {"md": 1883.0, "pickup": 64.8, "slackoff": 48.0, "rotating": 55.5, "free": 55.5}, {"md": 1873.0, "pickup": 64.1, "slackoff": 47.7, "rotating": 55.0, "free": 55.0}, {"md": 1863.0, "pickup": 64.7, "slackoff": 48.0, "rotating": 55.5, "free": 55.5}, {"md": 1853.0, "pickup": 64.0, "slackoff": 47.6, "rotating": 55.0, "free": 55.0}, {"md": 1843.0, "pickup": 64.6, "slackoff": 47.9, "rotating": 55.4, "free": 55.4}, {"md": 1833.0, "pickup": 63.9, "slackoff": 47.6, "rotating": 54.9, "free": 54.9}, {"md": 1823.0, "pickup": 63.2, "slackoff": 47.2, "rotating": 54.4, "free": 54.4}, {"md": 1813.0, "pickup": 63.8, "slackoff": 47.5, "rotating": 54.8, "free": 54.8}, {"md": 1803.0, "pickup": 63.1, "slackoff": 47.2, "rotating": 54.3, "free": 54.3}, {"md": 1793.0, "pickup": 62.4, "slackoff": 46.8, "rotating": 53.8, "free": 53.8}, {"md": 1783.0, "pickup": 63.0, "slackoff": 47.1, "rotating": 54.3, "free": 54.3}, {"md": 1773.0, "pickup": 62.3, "slackoff": 46.8, "rotating": 53.8, "free": 53.8}, {"md": 1763.0, "pickup": 61.7, "slackoff": 46.4, "rotating": 53.3, "free": 53.3}, {"md": 1753.0, "pickup": 62.2, "slackoff": 46.7, "rotating": 53.7, "free": 53.7}, {"md": 1743.0, "pickup": 61.6, "slackoff": 46.4, "rotating": 53.2, "free": 53.2}, {"md": 1733.0, "pickup": 60.9, "slackoff": 46.0, "rotating": 52.7, "free": 52.7}, {"md": 1723.0, "pickup": 61.5, "slackoff": 46.3, "rotating": 53.1, "free": 53.1}, {"md": 1713.0, "pickup": 60.8, "slackoff": 46.0, "rotating": 52.6, "free": 52.6}, {"md": 1703.0, "pickup": 60.1, "slackoff": 45.6, "rotating": 52.1, "free": 52.1}, {"md": 1693.0, "pickup": 60.7, "slackoff": 45.9, "rotating": 52.6, "free": 52.6}, {"md": 1683.0, "pickup": 60.0, "slackoff": 45.6, "rotating": 52.1, "free": 52.1}, {"md": 1673.0, "pickup": 59.3, "slackoff": 45.2, "rotating": 51.6, "free": 51.6}, {"md": 1663.0, "pickup": 59.9, "slackoff": 45.5, "rotating": 52.0, "free": 52.0}, {"md": 1653.0, "pickup": 59.2, "slackoff": 45.1, "rotating": 51.5, "free": 51.5}, {"md": 1643.0, "pickup": 58.5, "slackoff": 44.8, "rotating": 51.0, "free": 51.0}, {"md": 1633.0, "pickup": 59.1, "slackoff": 45.1, "rotating": 51.4, "free": 51.4}, {"md": 1623.0, "pickup": 58.4, "slackoff": 44.7, "rotating": 50.9, "free": 50.9}, {"md": 1613.0, "pickup": 57.8, "slackoff": 44.4, "rotating": 50.4, "free": 50.4}, {"md": 1603.0, "pickup": 58.3, "slackoff": 44.7, "rotating": 50.9, "free": 50.9}, {"md": 1593.0, "pickup": 57.7, "slackoff": 44.3, "rotating": 50.4, "free": 50.4}, {"md": 1583.0, "pickup": 57.0, "slackoff": 43.9, "rotating": 49.9, "free": 49.9}, {"md": 1573.0, "pickup": 57.6, "slackoff": 44.3, "rotating": 50.3, "free": 50.3}, {"md": 1563.0, "pickup": 56.9, "slackoff": 43.9, "rotating": 49.8, "free": 49.8}, {"md": 1553.0, "pickup": 56.2, "slackoff": 43.5, "rotating": 49.3, "free": 49.3}, {"md": 1543.0, "pickup": 56.8, "slackoff": 43.9, "rotating": 49.7, "free": 49.7}, {"md": 1533.0, "pickup": 56.1, "slackoff": 43.5, "rotating": 49.2, "free": 49.2}, {"md": 1523.0, "pickup": 55.4, "slackoff": 43.1, "rotating": 48.7, "free": 48.7}, {"md": 1513.0, "pickup": 54.8, "slackoff": 42.7, "rotating": 48.2, "free": 48.2}, {"md": 1503.0, "pickup": 56.6, "slackoff": 43.8, "rotating": 49.6, "free": 49.6}, {"md": 1493.0, "pickup": 55.9, "slackoff": 43.4, "rotating": 49.1, "free": 49.1}, {"md": 1483.0, "pickup": 55.3, "slackoff": 43.0, "rotating": 48.6, "free": 48.6}, {"md": 1473.0, "pickup": 54.6, "slackoff": 42.6, "rotating": 48.1, "free": 48.1}, {"md": 1463.0, "pickup": 55.2, "slackoff": 43.0, "rotating": 48.5, "free": 48.5}, {"md": 1453.0, "pickup": 54.5, "slackoff": 42.6, "rotating": 48.0, "free": 48.0}, {"md": 1443.0, "pickup": 53.8, "slackoff": 42.2, "rotating": 47.5, "free": 47.5}, {"md": 1433.0, "pickup": 54.4, "slackoff": 42.6, "rotating": 48.0, "free": 48.0}, {"md": 1423.0, "pickup": 53.7, "slackoff": 42.2, "rotating": 47.5, "free": 47.5}, {"md": 1413.0, "pickup": 53.0, "slackoff": 41.8, "rotating": 47.0, "free": 47.0}, {"md": 1403.0, "pickup": 53.6, "slackoff": 42.2, "rotating": 47.4, "free": 47.4}, {"md": 1393.0, "pickup": 52.9, "slackoff": 41.8, "rotating": 46.9, "free": 46.9}, {"md": 1383.0, "pickup": 52.3, "slackoff": 41.4, "rotating": 46.4, "free": 46.4}, {"md": 1373.0, "pickup": 52.8, "slackoff": 41.7, "rotating": 46.8, "free": 46.8}, {"md": 1363.0, "pickup": 52.2, "slackoff": 41.4, "rotating": 46.3, "free": 46.3}, {"md": 1353.0, "pickup": 51.5, "slackoff": 41.0, "rotating": 45.8, "free": 45.8}, {"md": 1343.0, "pickup": 52.1, "slackoff": 41.3, "rotating": 46.3, "free": 46.3}, {"md": 1333.0, "pickup": 51.4, "slackoff": 40.9, "rotating": 45.8, "free": 45.8}, {"md": 1323.0, "pickup": 50.8, "slackoff": 40.6, "rotating": 45.3, "free": 45.3}, {"md": 1313.0, "pickup": 51.3, "slackoff": 40.9, "rotating": 45.7, "free": 45.7}, {"md": 1303.0, "pickup": 50.7, "slackoff": 40.5, "rotating": 45.2, "free": 45.2}, {"md": 1293.0, "pickup": 50.0, "slackoff": 40.1, "rotating": 44.7, "free": 44.7}, {"md": 1283.0, "pickup": 50.6, "slackoff": 40.5, "rotating": 45.1, "free": 45.1}, {"md": 1273.0, "pickup": 49.9, "slackoff": 40.1, "rotating": 44.6, "free": 44.6}, {"md": 1263.0, "pickup": 49.2, "slackoff": 39.7, "rotating": 44.1, "free": 44.1}, {"md": 1253.0, "pickup": 49.8, "slackoff": 40.1, "rotating": 44.6, "free": 44.6}, {"md": 1243.0, "pickup": 49.1, "slackoff": 39.7, "rotating": 44.1, "free": 44.1}, {"md": 1233.0, "pickup": 48.5, "slackoff": 39.3, "rotating": 43.6, "free": 43.6}, {"md": 1223.0, "pickup": 49.0, "slackoff": 39.7, "rotating": 44.0, "free": 44.0}, {"md": 1213.0, "pickup": 48.3, "slackoff": 39.3, "rotating": 43.5, "free": 43.5}, {"md": 1203.0, "pickup": 47.7, "slackoff": 38.9, "rotating": 43.0, "free": 43.0}, {"md": 1193.0, "pickup": 48.2, "slackoff": 39.3, "rotating": 43.4, "free": 43.4}, {"md": 1183.0, "pickup": 47.5, "slackoff": 38.9, "rotating": 42.9, "free": 42.9}, {"md": 1173.0, "pickup": 46.9, "slackoff": 38.5, "rotating": 42.4, "free": 42.4}, {"md": 1163.0, "pickup": 47.4, "slackoff": 38.9, "rotating": 42.9, "free": 42.9}, {"md": 1153.0, "pickup": 46.8, "slackoff": 38.5, "rotating": 42.4, "free": 42.4}, {"md": 1143.0, "pickup": 47.3, "slackoff": 38.8, "rotating": 42.8, "free": 42.8}, {"md": 1133.0, "pickup": 46.7, "slackoff": 38.4, "rotating": 42.3, "free": 42.3}, {"md": 1123.0, "pickup": 46.1, "slackoff": 38.0, "rotating": 41.8, "free": 41.8}, {"md": 1113.0, "pickup": 46.6, "slackoff": 38.4, "rotating": 42.2, "free": 42.2}, {"md": 1103.0, "pickup": 46.0, "slackoff": 38.0, "rotating": 41.7, "free": 41.7}, {"md": 1093.0, "pickup": 45.4, "slackoff": 37.6, "rotating": 41.2, "free": 41.2}, {"md": 1083.0, "pickup": 45.9, "slackoff": 37.9, "rotating": 41.7, "free": 41.7}, {"md": 1073.0, "pickup": 45.3, "slackoff": 37.5, "rotating": 41.2, "free": 41.2}, {"md": 1063.0, "pickup": 44.6, "slackoff": 37.1, "rotating": 40.7, "free": 40.7}, {"md": 1053.0, "pickup": 45.2, "slackoff": 37.5, "rotating": 41.1, "free": 41.1}, {"md": 1043.0, "pickup": 44.6, "slackoff": 37.1, "rotating": 40.6, "free": 40.6}, {"md": 1033.0, "pickup": 43.9, "slackoff": 36.7, "rotating": 40.1, "free": 40.1}, {"md": 1023.0, "pickup": 44.5, "slackoff": 37.0, "rotating": 40.5, "free": 40.5}, {"md": 1013.0, "pickup": 43.9, "slackoff": 36.6, "rotating": 40.0, "free": 40.0}, {"md": 1003.0, "pickup": 43.2, "slackoff": 36.2, "rotating": 39.5, "free": 39.5}, {"md": 993.0, "pickup": 43.8, "slackoff": 36.6, "rotating": 40.0, "free": 40.0}, {"md": 983.0, "pickup": 43.2, "slackoff": 36.2, "rotating": 39.5, "free": 39.5}, {"md": 973.0, "pickup": 42.6, "slackoff": 35.7, "rotating": 39.0, "free": 39.0}, {"md": 963.0, "pickup": 43.1, "slackoff": 36.1, "rotating": 39.4, "free": 39.4}, {"md": 953.0, "pickup": 42.5, "slackoff": 35.7, "rotating": 38.9, "free": 38.9}, {"md": 943.0, "pickup": 41.9, "slackoff": 35.3, "rotating": 38.4, "free": 38.4}, {"md": 933.0, "pickup": 42.4, "slackoff": 35.6, "rotating": 38.8, "free": 38.8}, {"md": 923.0, "pickup": 41.8, "slackoff": 35.2, "rotating": 38.3, "free": 38.3}, {"md": 913.0, "pickup": 41.2, "slackoff": 34.8, "rotating": 37.8, "free": 37.8}, {"md": 903.0, "pickup": 41.7, "slackoff": 35.2, "rotating": 38.2, "free": 38.2}, {"md": 893.0, "pickup": 41.0, "slackoff": 34.8, "rotating": 37.7, "free": 37.7}, {"md": 883.0, "pickup": 40.4, "slackoff": 34.3, "rotating": 37.2, "free": 37.2}, {"md": 873.0, "pickup": 40.9, "slackoff": 34.7, "rotating": 37.7, "free": 37.7}, {"md": 863.0, "pickup": 40.3, "slackoff": 34.3, "rotating": 37.2, "free": 37.2}, {"md": 853.0, "pickup": 39.7, "slackoff": 33.9, "rotating": 36.7, "free": 36.7}, {"md": 843.0, "pickup": 40.2, "slackoff": 34.2, "rotating": 37.1, "free": 37.1}, {"md": 833.0, "pickup": 39.6, "slackoff": 33.8, "rotating": 36.6, "free": 36.6}, {"md": 823.0, "pickup": 40.1, "slackoff": 34.2, "rotating": 37.0, "free": 37.0}, {"md": 813.0, "pickup": 39.5, "slackoff": 33.7, "rotating": 36.5, "free": 36.5}, {"md": 803.0, "pickup": 38.9, "slackoff": 33.3, "rotating": 36.0, "free": 36.0}, {"md": 793.0, "pickup": 39.4, "slackoff": 33.7, "rotating": 36.4, "free": 36.4}, {"md": 783.0, "pickup": 38.8, "slackoff": 33.3, "rotating": 35.9, "free": 35.9}, {"md": 773.0, "pickup": 38.2, "slackoff": 32.8, "rotating": 35.4, "free": 35.4}, {"md": 763.0, "pickup": 38.7, "slackoff": 33.2, "rotating": 35.9, "free": 35.9}, {"md": 753.0, "pickup": 38.1, "slackoff": 32.8, "rotating": 35.3, "free": 35.3}, {"md": 743.0, "pickup": 37.5, "slackoff": 32.4, "rotating": 34.8, "free": 34.8}, {"md": 733.0, "pickup": 38.0, "slackoff": 32.8, "rotating": 35.3, "free": 35.3}, {"md": 723.0, "pickup": 37.4, "slackoff": 32.3, "rotating": 34.8, "free": 34.8}, {"md": 713.0, "pickup": 36.8, "slackoff": 31.9, "rotating": 34.3, "free": 34.3}, {"md": 703.0, "pickup": 37.5, "slackoff": 32.5, "rotating": 34.9, "free": 34.9}, {"md": 693.0, "pickup": 36.9, "slackoff": 32.0, "rotating": 34.4, "free": 34.4}, {"md": 683.0, "pickup": 36.4, "slackoff": 31.6, "rotating": 33.9, "free": 33.9}, {"md": 673.0, "pickup": 36.6, "slackoff": 31.8, "rotating": 34.1, "free": 34.1}, {"md": 663.0, "pickup": 36.0, "slackoff": 31.3, "rotating": 33.6, "free": 33.6}, {"md": 653.0, "pickup": 35.4, "slackoff": 30.9, "rotating": 33.1, "free": 33.1}, {"md": 643.0, "pickup": 35.9, "slackoff": 31.3, "rotating": 33.5, "free": 33.5}, {"md": 633.0, "pickup": 35.3, "slackoff": 30.8, "rotating": 33.0, "free": 33.0}, {"md": 623.0, "pickup": 35.8, "slackoff": 31.2, "rotating": 33.4, "free": 33.4}, {"md": 613.0, "pickup": 35.2, "slackoff": 30.7, "rotating": 32.9, "free": 32.9}, {"md": 603.0, "pickup": 34.6, "slackoff": 30.3, "rotating": 32.4, "free": 32.4}, {"md": 593.0, "pickup": 35.1, "slackoff": 30.6, "rotating": 32.8, "free": 32.8}, {"md": 583.0, "pickup": 34.5, "slackoff": 30.2, "rotating": 32.3, "free": 32.3}, {"md": 573.0, "pickup": 33.9, "slackoff": 29.8, "rotating": 31.8, "free": 31.8}, {"md": 563.0, "pickup": 34.4, "slackoff": 30.1, "rotating": 32.2, "free": 32.2}, {"md": 553.0, "pickup": 33.8, "slackoff": 29.7, "rotating": 31.7, "free": 31.7}, {"md": 543.0, "pickup": 33.2, "slackoff": 29.2, "rotating": 31.2, "free": 31.2}, {"md": 533.0, "pickup": 33.6, "slackoff": 29.5, "rotating": 31.5, "free": 31.5}, {"md": 523.0, "pickup": 33.0, "slackoff": 29.1, "rotating": 31.0, "free": 31.0}, {"md": 513.0, "pickup": 32.4, "slackoff": 28.6, "rotating": 30.5, "free": 30.5}, {"md": 503.0, "pickup": 32.9, "slackoff": 29.0, "rotating": 30.9, "free": 30.9}, {"md": 493.0, "pickup": 32.3, "slackoff": 28.5, "rotating": 30.3, "free": 30.3}, {"md": 483.0, "pickup": 31.7, "slackoff": 28.0, "rotating": 29.8, "free": 29.8}, {"md": 473.0, "pickup": 32.1, "slackoff": 28.4, "rotating": 30.2, "free": 30.2}, {"md": 463.0, "pickup": 31.5, "slackoff": 27.9, "rotating": 29.7, "free": 29.7}, {"md": 453.0, "pickup": 30.9, "slackoff": 27.4, "rotating": 29.1, "free": 29.1}, {"md": 443.0, "pickup": 31.3, "slackoff": 27.8, "rotating": 29.5, "free": 29.5}, {"md": 433.0, "pickup": 30.7, "slackoff": 27.3, "rotating": 29.0, "free": 29.0}, {"md": 423.0, "pickup": 30.2, "slackoff": 26.8, "rotating": 28.5, "free": 28.5}, {"md": 413.0, "pickup": 30.6, "slackoff": 27.2, "rotating": 28.8, "free": 28.8}, {"md": 403.0, "pickup": 30.0, "slackoff": 26.7, "rotating": 28.3, "free": 28.3}, {"md": 393.0, "pickup": 30.4, "slackoff": 27.0, "rotating": 28.7, "free": 28.7}, {"md": 383.0, "pickup": 29.8, "slackoff": 26.6, "rotating": 28.2, "free": 28.2}, {"md": 373.0, "pickup": 29.3, "slackoff": 26.1, "rotating": 27.7, "free": 27.7}, {"md": 363.0, "pickup": 29.7, "slackoff": 26.4, "rotating": 28.0, "free": 28.0}, {"md": 353.0, "pickup": 29.1, "slackoff": 26.0, "rotating": 27.5, "free": 27.5}, {"md": 343.0, "pickup": 28.5, "slackoff": 25.5, "rotating": 27.0, "free": 27.0}, {"md": 333.0, "pickup": 28.9, "slackoff": 25.9, "rotating": 27.4, "free": 27.4}, {"md": 323.0, "pickup": 28.4, "slackoff": 25.4, "rotating": 26.9, "free": 26.9}, {"md": 313.0, "pickup": 27.8, "slackoff": 25.0, "rotating": 26.4, "free": 26.4}, {"md": 303.0, "pickup": 28.2, "slackoff": 25.3, "rotating": 26.7, "free": 26.7}, {"md": 293.0, "pickup": 27.6, "slackoff": 24.8, "rotating": 26.2, "free": 26.2}, {"md": 283.0, "pickup": 27.0, "slackoff": 24.4, "rotating": 25.7, "free": 25.7}, {"md": 273.0, "pickup": 27.5, "slackoff": 24.7, "rotating": 26.1, "free": 26.1}, {"md": 263.0, "pickup": 26.9, "slackoff": 24.2, "rotating": 25.5, "free": 25.5}, {"md": 253.0, "pickup": 26.3, "slackoff": 23.8, "rotating": 25.0, "free": 25.0}, {"md": 243.0, "pickup": 26.7, "slackoff": 24.2, "rotating": 25.4, "free": 25.4}, {"md": 233.0, "pickup": 26.1, "slackoff": 23.7, "rotating": 24.9, "free": 24.9}, {"md": 223.0, "pickup": 25.6, "slackoff": 23.2, "rotating": 24.4, "free": 24.4}, {"md": 213.0, "pickup": 25.9, "slackoff": 23.6, "rotating": 24.7, "free": 24.7}, {"md": 203.0, "pickup": 25.3, "slackoff": 23.1, "rotating": 24.2, "free": 24.2}, {"md": 193.0, "pickup": 25.7, "slackoff": 23.5, "rotating": 24.6, "free": 24.6}, {"md": 183.0, "pickup": 25.2, "slackoff": 23.0, "rotating": 24.1, "free": 24.1}, {"md": 173.0, "pickup": 24.6, "slackoff": 22.6, "rotating": 23.6, "free": 23.6}, {"md": 163.0, "pickup": 25.0, "slackoff": 22.9, "rotating": 24.0, "free": 24.0}, {"md": 153.0, "pickup": 24.4, "slackoff": 22.5, "rotating": 23.4, "free": 23.4}, {"md": 143.0, "pickup": 23.9, "slackoff": 22.0, "rotating": 22.9, "free": 22.9}, {"md": 133.0, "pickup": 23.3, "slackoff": 21.5, "rotating": 22.4, "free": 22.4}, {"md": 123.0, "pickup": 22.8, "slackoff": 21.0, "rotating": 21.9, "free": 21.9}, {"md": 113.0, "pickup": 24.6, "slackoff": 22.7, "rotating": 23.6, "free": 23.6}, {"md": 103.0, "pickup": 24.1, "slackoff": 22.2, "rotating": 23.1, "free": 23.1}, {"md": 93.0, "pickup": 23.5, "slackoff": 21.7, "rotating": 22.6, "free": 22.6}, {"md": 83.0, "pickup": 23.2, "slackoff": 21.4, "rotating": 22.3, "free": 22.3}, {"md": 73.0, "pickup": 22.6, "slackoff": 20.9, "rotating": 21.8, "free": 21.8}, {"md": 63.0, "pickup": 22.1, "slackoff": 20.4, "rotating": 21.3, "free": 21.3}, {"md": 53.0, "pickup": 21.6, "slackoff": 19.9, "rotating": 20.7, "free": 20.7}, {"md": 43.0, "pickup": 21.0, "slackoff": 19.4, "rotating": 20.2, "free": 20.2}, {"md": 33.0, "pickup": 20.5, "slackoff": 18.9, "rotating": 19.7, "free": 19.7}, {"md": 23.0, "pickup": 19.9, "slackoff": 18.4, "rotating": 19.2, "free": 19.2}, {"md": 13.0, "pickup": 19.4, "slackoff": 17.9, "rotating": 18.6, "free": 18.6}, {"md": 3.0, "pickup": 18.7, "slackoff": 17.3, "rotating": 18.0, "free": 18.0}, {"md": 0.0, "pickup": 18.7, "slackoff": 17.3, "rotating": 18.0, "free": 18.0}];
+  const comparison = [{"depth": 4925.0, "sim_pu": 98.0, "sim_so": 56.6, "sim_free": 73.4, "rig_avg": 78.50760619977038, "rig_min": 74.7, "rig_max": 86.2, "diff": 19.49239380022962}, {"depth": 4897.0, "sim_pu": 98.0, "sim_so": 56.6, "sim_free": 73.4, "rig_avg": 102.14752475247525, "rig_min": 84.0, "rig_max": 119.9, "diff": -4.147524752475249}, {"depth": 4869.0, "sim_pu": 98.0, "sim_so": 56.6, "sim_free": 73.5, "rig_avg": 100.5945652173913, "rig_min": 87.6, "rig_max": 114.9, "diff": -2.594565217391306}, {"depth": 4841.0, "sim_pu": 97.9, "sim_so": 56.7, "sim_free": 73.5, "rig_avg": 98.75666666666667, "rig_min": 91.4, "rig_max": 104.6, "diff": -0.8566666666666691}, {"depth": 4813.0, "sim_pu": 97.8, "sim_so": 56.8, "sim_free": 73.5, "rig_avg": 97.8123595505618, "rig_min": 90.6, "rig_max": 103.4, "diff": -0.01235955056179705}, {"depth": 4785.0, "sim_pu": 97.8, "sim_so": 56.9, "sim_free": 73.6, "rig_avg": 82.5656, "rig_min": 67.5, "rig_max": 103.2, "diff": 15.234399999999994}, {"depth": 4757.0, "sim_pu": 97.8, "sim_so": 57.0, "sim_free": 73.7, "rig_avg": 98.36966292134831, "rig_min": 83.2, "rig_max": 110.4, "diff": -0.5696629213483106}, {"depth": 4729.0, "sim_pu": 97.8, "sim_so": 57.0, "sim_free": 73.7, "rig_avg": 97.34494382022473, "rig_min": 89.9, "rig_max": 107.7, "diff": 0.45505617977526924}, {"depth": 4701.0, "sim_pu": 97.8, "sim_so": 57.2, "sim_free": 73.8, "rig_avg": 97.33258426966293, "rig_min": 87.8, "rig_max": 111.6, "diff": 0.4674157303370663}, {"depth": 4673.0, "sim_pu": 97.9, "sim_so": 57.3, "sim_free": 74.0, "rig_avg": 96.77865168539326, "rig_min": 88.4, "rig_max": 102.4, "diff": 1.1213483146067489}, {"depth": 4645.0, "sim_pu": 97.8, "sim_so": 57.4, "sim_free": 73.9, "rig_avg": 96.71818181818183, "rig_min": 91.6, "rig_max": 101.6, "diff": 1.0818181818181642}, {"depth": 4617.0, "sim_pu": 97.7, "sim_so": 57.5, "sim_free": 74.0, "rig_avg": 96.41477272727273, "rig_min": 91.1, "rig_max": 101.0, "diff": 1.285227272727269}, {"depth": 4589.0, "sim_pu": 97.8, "sim_so": 57.5, "sim_free": 74.1, "rig_avg": 96.64831460674158, "rig_min": 90.3, "rig_max": 103.0, "diff": 1.1516853932584183}, {"depth": 4561.0, "sim_pu": 97.7, "sim_so": 57.6, "sim_free": 74.1, "rig_avg": 97.04719101123597, "rig_min": 90.6, "rig_max": 101.6, "diff": 0.6528089887640363}, {"depth": 4533.0, "sim_pu": 97.7, "sim_so": 57.8, "sim_free": 74.2, "rig_avg": 96.54659090909091, "rig_min": 90.6, "rig_max": 100.4, "diff": 1.1534090909090935}, {"depth": 4505.0, "sim_pu": 97.6, "sim_so": 57.8, "sim_free": 74.2, "rig_avg": 96.45056179775281, "rig_min": 91.2, "rig_max": 100.0, "diff": 1.1494382022471825}, {"depth": 4477.0, "sim_pu": 97.5, "sim_so": 57.9, "sim_free": 74.3, "rig_avg": 96.45, "rig_min": 88.5, "rig_max": 101.4, "diff": 1.0499999999999972}, {"depth": 4449.0, "sim_pu": 97.6, "sim_so": 58.0, "sim_free": 74.3, "rig_avg": 95.99662921348316, "rig_min": 90.1, "rig_max": 100.0, "diff": 1.6033707865168338}, {"depth": 4421.0, "sim_pu": 97.5, "sim_so": 58.1, "sim_free": 74.4, "rig_avg": 95.99887640449438, "rig_min": 85.8, "rig_max": 100.7, "diff": 1.501123595505618}, {"depth": 4393.0, "sim_pu": 97.5, "sim_so": 58.2, "sim_free": 74.5, "rig_avg": 96.09662921348315, "rig_min": 90.9, "rig_max": 100.1, "diff": 1.4033707865168452}, {"depth": 4365.0, "sim_pu": 97.5, "sim_so": 58.3, "sim_free": 74.5, "rig_avg": 96.01222222222222, "rig_min": 90.8, "rig_max": 99.9, "diff": 1.4877777777777794}, {"depth": 4337.0, "sim_pu": 97.5, "sim_so": 58.4, "sim_free": 74.6, "rig_avg": 96.25280898876404, "rig_min": 90.5, "rig_max": 99.6, "diff": 1.2471910112359552}, {"depth": 4309.0, "sim_pu": 97.5, "sim_so": 58.5, "sim_free": 74.7, "rig_avg": 95.96516853932584, "rig_min": 90.1, "rig_max": 99.6, "diff": 1.5348314606741553}, {"depth": 4281.0, "sim_pu": 97.5, "sim_so": 58.6, "sim_free": 74.8, "rig_avg": 95.82613636363637, "rig_min": 90.9, "rig_max": 99.3, "diff": 1.6738636363636346}, {"depth": 4253.0, "sim_pu": 97.5, "sim_so": 58.8, "sim_free": 74.8, "rig_avg": 96.0314606741573, "rig_min": 86.4, "rig_max": 100.7, "diff": 1.4685393258426984}, {"depth": 4225.0, "sim_pu": 97.4, "sim_so": 58.9, "sim_free": 74.9, "rig_avg": 96.30568181818181, "rig_min": 90.5, "rig_max": 100.2, "diff": 1.0943181818181955}, {"depth": 4197.0, "sim_pu": 97.4, "sim_so": 59.0, "sim_free": 75.0, "rig_avg": 96.3067415730337, "rig_min": 90.8, "rig_max": 101.0, "diff": 1.093258426966301}, {"depth": 4169.0, "sim_pu": 97.3, "sim_so": 59.0, "sim_free": 74.9, "rig_avg": 95.97045454545454, "rig_min": 88.9, "rig_max": 99.6, "diff": 1.3295454545454533}, {"depth": 4141.0, "sim_pu": 97.4, "sim_so": 59.1, "sim_free": 75.1, "rig_avg": 95.71797752808989, "rig_min": 89.9, "rig_max": 99.2, "diff": 1.6820224719101162}, {"depth": 4113.0, "sim_pu": 97.4, "sim_so": 59.3, "sim_free": 75.1, "rig_avg": 96.05795454545455, "rig_min": 90.6, "rig_max": 100.7, "diff": 1.342045454545456}, {"depth": 4085.0, "sim_pu": 97.4, "sim_so": 59.4, "sim_free": 75.2, "rig_avg": 95.62840909090909, "rig_min": 90.3, "rig_max": 101.0, "diff": 1.7715909090909179}, {"depth": 4057.0, "sim_pu": 97.4, "sim_so": 59.5, "sim_free": 75.3, "rig_avg": 95.86363636363636, "rig_min": 89.2, "rig_max": 99.6, "diff": 1.536363636363646}, {"depth": 4029.0, "sim_pu": 97.4, "sim_so": 59.5, "sim_free": 75.3, "rig_avg": 95.71818181818183, "rig_min": 86.1, "rig_max": 99.9, "diff": 1.6818181818181728}, {"depth": 4001.0, "sim_pu": 97.4, "sim_so": 59.7, "sim_free": 75.4, "rig_avg": 95.77272727272727, "rig_min": 88.8, "rig_max": 100.2, "diff": 1.6272727272727394}, {"depth": 3973.0, "sim_pu": 97.4, "sim_so": 59.8, "sim_free": 75.5, "rig_avg": 95.9561797752809, "rig_min": 87.9, "rig_max": 100.2, "diff": 1.4438202247191043}, {"depth": 3945.0, "sim_pu": 97.4, "sim_so": 60.0, "sim_free": 75.7, "rig_avg": 96.0561797752809, "rig_min": 91.0, "rig_max": 99.5, "diff": 1.34382022471911}, {"depth": 3917.0, "sim_pu": 97.5, "sim_so": 60.2, "sim_free": 75.8, "rig_avg": 95.84772727272728, "rig_min": 90.8, "rig_max": 99.8, "diff": 1.6522727272727167}, {"depth": 3889.0, "sim_pu": 97.3, "sim_so": 60.3, "sim_free": 75.8, "rig_avg": 96.7, "rig_min": 90.3, "rig_max": 100.3, "diff": 0.5999999999999943}, {"depth": 3861.0, "sim_pu": 97.3, "sim_so": 60.4, "sim_free": 75.9, "rig_avg": 96.60416666666667, "rig_min": 89.8, "rig_max": 102.3, "diff": 0.6958333333333258}, {"depth": 3833.0, "sim_pu": 97.4, "sim_so": 60.4, "sim_free": 76.0, "rig_avg": 95.83472222222223, "rig_min": 88.0, "rig_max": 101.0, "diff": 1.56527777777778}, {"depth": 3805.0, "sim_pu": 97.4, "sim_so": 60.5, "sim_free": 76.0, "rig_avg": 96.72676056338028, "rig_min": 90.8, "rig_max": 101.8, "diff": 0.6732394366197241}, {"depth": 3777.0, "sim_pu": 97.4, "sim_so": 60.7, "sim_free": 76.1, "rig_avg": 96.01666666666667, "rig_min": 88.4, "rig_max": 100.5, "diff": 1.38333333333334}, {"depth": 3749.0, "sim_pu": 97.2, "sim_so": 60.8, "sim_free": 76.1, "rig_avg": 96.4, "rig_min": 87.1, "rig_max": 101.8, "diff": 0.7999999999999972}, {"depth": 3721.0, "sim_pu": 97.2, "sim_so": 60.9, "sim_free": 76.2, "rig_avg": 96.7875, "rig_min": 90.5, "rig_max": 100.8, "diff": 0.4125000000000085}, {"depth": 3693.0, "sim_pu": 97.1, "sim_so": 61.0, "sim_free": 76.3, "rig_avg": 95.27464788732394, "rig_min": 89.5, "rig_max": 100.4, "diff": 1.8253521126760575}, {"depth": 3665.0, "sim_pu": 97.3, "sim_so": 61.1, "sim_free": 76.3, "rig_avg": 96.27083333333333, "rig_min": 88.1, "rig_max": 101.0, "diff": 1.0291666666666686}, {"depth": 3637.0, "sim_pu": 97.3, "sim_so": 61.2, "sim_free": 76.4, "rig_avg": 94.88028169014085, "rig_min": 91.2, "rig_max": 97.7, "diff": 2.4197183098591495}, {"depth": 3609.0, "sim_pu": 97.1, "sim_so": 61.3, "sim_free": 76.5, "rig_avg": 95.40277777777777, "rig_min": 90.7, "rig_max": 99.4, "diff": 1.6972222222222229}, {"depth": 3581.0, "sim_pu": 97.0, "sim_so": 61.4, "sim_free": 76.5, "rig_avg": 95.55633802816901, "rig_min": 90.9, "rig_max": 100.1, "diff": 1.4436619718309913}, {"depth": 3553.0, "sim_pu": 97.0, "sim_so": 61.5, "sim_free": 76.6, "rig_avg": 94.58194444444445, "rig_min": 90.5, "rig_max": 97.8, "diff": 2.4180555555555543}, {"depth": 3525.0, "sim_pu": 96.9, "sim_so": 61.6, "sim_free": 76.6, "rig_avg": 96.75833333333334, "rig_min": 89.7, "rig_max": 100.5, "diff": 0.14166666666666572}, {"depth": 3497.0, "sim_pu": 97.1, "sim_so": 61.7, "sim_free": 76.7, "rig_avg": 95.97916666666667, "rig_min": 89.8, "rig_max": 100.8, "diff": 1.120833333333323}, {"depth": 3469.0, "sim_pu": 96.9, "sim_so": 61.8, "sim_free": 76.7, "rig_avg": 95.1492957746479, "rig_min": 89.9, "rig_max": 101.1, "diff": 1.7507042253521092}, {"depth": 3441.0, "sim_pu": 97.0, "sim_so": 62.0, "sim_free": 76.9, "rig_avg": 96.36111111111111, "rig_min": 84.8, "rig_max": 100.5, "diff": 0.6388888888888857}, {"depth": 3413.0, "sim_pu": 97.1, "sim_so": 62.2, "sim_free": 77.0, "rig_avg": 95.86760563380282, "rig_min": 91.2, "rig_max": 101.0, "diff": 1.2323943661971697}, {"depth": 3385.0, "sim_pu": 97.5, "sim_so": 62.6, "sim_free": 77.4, "rig_avg": 96.60845070422535, "rig_min": 91.8, "rig_max": 100.8, "diff": 0.8915492957746523}, {"depth": 3357.0, "sim_pu": 97.7, "sim_so": 62.8, "sim_free": 77.6, "rig_avg": 95.76619718309858, "rig_min": 91.9, "rig_max": 99.6, "diff": 1.9338028169014194}, {"depth": 3329.0, "sim_pu": 98.1, "sim_so": 63.0, "sim_free": 77.9, "rig_avg": 95.5625, "rig_min": 91.4, "rig_max": 100.1, "diff": 2.5374999999999943}, {"depth": 3301.0, "sim_pu": 98.0, "sim_so": 63.1, "sim_free": 77.9, "rig_avg": 94.77605633802817, "rig_min": 92.0, "rig_max": 97.6, "diff": 3.2239436619718305}, {"depth": 3273.0, "sim_pu": 98.1, "sim_so": 63.3, "sim_free": 78.1, "rig_avg": 94.94305555555555, "rig_min": 91.7, "rig_max": 100.6, "diff": 3.1569444444444485}, {"depth": 3245.0, "sim_pu": 98.0, "sim_so": 63.3, "sim_free": 78.1, "rig_avg": 94.66666666666667, "rig_min": 91.5, "rig_max": 96.7, "diff": 3.3333333333333286}, {"depth": 3217.0, "sim_pu": 97.8, "sim_so": 63.3, "sim_free": 78.0, "rig_avg": 94.33846153846154, "rig_min": 90.4, "rig_max": 97.3, "diff": 3.461538461538453}, {"depth": 3189.0, "sim_pu": 97.9, "sim_so": 63.4, "sim_free": 78.1, "rig_avg": 94.32631578947368, "rig_min": 90.0, "rig_max": 96.5, "diff": 3.5736842105263236}, {"depth": 3161.0, "sim_pu": 97.5, "sim_so": 63.3, "sim_free": 77.9, "rig_avg": 94.19473684210527, "rig_min": 89.0, "rig_max": 97.0, "diff": 3.3052631578947285}, {"depth": 3133.0, "sim_pu": 97.0, "sim_so": 63.1, "sim_free": 77.6, "rig_avg": 93.8027027027027, "rig_min": 91.8, "rig_max": 96.3, "diff": 3.197297297297297}, {"depth": 3105.0, "sim_pu": 96.4, "sim_so": 63.0, "sim_free": 77.3, "rig_avg": 93.39066666666668, "rig_min": 88.6, "rig_max": 96.2, "diff": 3.0093333333333305}, {"depth": 3077.0, "sim_pu": 95.6, "sim_so": 62.7, "sim_free": 76.9, "rig_avg": 92.80394736842106, "rig_min": 91.8, "rig_max": 95.8, "diff": 2.796052631578931}, {"depth": 3049.0, "sim_pu": 95.5, "sim_so": 62.8, "sim_free": 76.9, "rig_avg": 92.112, "rig_min": 89.5, "rig_max": 95.0, "diff": 3.3880000000000052}, {"depth": 3021.0, "sim_pu": 94.8, "sim_so": 62.5, "sim_free": 76.4, "rig_avg": 91.40666666666667, "rig_min": 89.6, "rig_max": 92.8, "diff": 3.393333333333331}, {"depth": 2993.0, "sim_pu": 93.9, "sim_so": 62.1, "sim_free": 75.8, "rig_avg": 90.825, "rig_min": 89.0, "rig_max": 92.4, "diff": 3.075000000000003}, {"depth": 2965.0, "sim_pu": 93.1, "sim_so": 61.8, "sim_free": 75.3, "rig_avg": 90.19324324324324, "rig_min": 88.2, "rig_max": 92.1, "diff": 2.9067567567567494}, {"depth": 2937.0, "sim_pu": 92.3, "sim_so": 61.4, "sim_free": 74.7, "rig_avg": 89.36753246753247, "rig_min": 81.9, "rig_max": 91.3, "diff": 2.932467532467527}, {"depth": 2909.0, "sim_pu": 92.2, "sim_so": 61.3, "sim_free": 74.7, "rig_avg": 88.81351351351351, "rig_min": 87.3, "rig_max": 90.2, "diff": 3.38648648648649}, {"depth": 2881.0, "sim_pu": 91.3, "sim_so": 61.0, "sim_free": 74.1, "rig_avg": 88.15974025974026, "rig_min": 85.8, "rig_max": 89.9, "diff": 3.1402597402597365}, {"depth": 2853.0, "sim_pu": 90.5, "sim_so": 60.6, "sim_free": 73.5, "rig_avg": 87.43698630136986, "rig_min": 85.4, "rig_max": 89.3, "diff": 3.0630136986301437}, {"depth": 2825.0, "sim_pu": 89.7, "sim_so": 60.2, "sim_free": 73.0, "rig_avg": 87.14923076923077, "rig_min": 85.2, "rig_max": 88.9, "diff": 2.550769230769234}, {"depth": 2797.0, "sim_pu": 88.8, "sim_so": 59.7, "sim_free": 72.3, "rig_avg": 86.5296875, "rig_min": 82.2, "rig_max": 88.5, "diff": 2.270312500000003}, {"depth": 2769.0, "sim_pu": 87.3, "sim_so": 59.0, "sim_free": 71.3, "rig_avg": 85.91384615384615, "rig_min": 84.4, "rig_max": 87.4, "diff": 1.3861538461538458}, {"depth": 2741.0, "sim_pu": 86.5, "sim_so": 58.6, "sim_free": 70.7, "rig_avg": 85.18923076923078, "rig_min": 83.9, "rig_max": 86.2, "diff": 1.3107692307692247}, {"depth": 2713.0, "sim_pu": 87.0, "sim_so": 58.9, "sim_free": 71.1, "rig_avg": 84.7375, "rig_min": 83.1, "rig_max": 86.4, "diff": 2.262500000000003}, {"depth": 2685.0, "sim_pu": 86.2, "sim_so": 58.5, "sim_free": 70.5, "rig_avg": 84.0515625, "rig_min": 82.2, "rig_max": 85.7, "diff": 2.1484375}, {"depth": 2657.0, "sim_pu": 85.4, "sim_so": 58.1, "sim_free": 70.0, "rig_avg": 83.3921875, "rig_min": 81.2, "rig_max": 84.8, "diff": 2.0078125}, {"depth": 2629.0, "sim_pu": 83.9, "sim_so": 57.4, "sim_free": 69.0, "rig_avg": 82.746875, "rig_min": 80.7, "rig_max": 84.4, "diff": 1.1531250000000028}, {"depth": 2601.0, "sim_pu": 83.1, "sim_so": 57.0, "sim_free": 68.4, "rig_avg": 82.09365079365078, "rig_min": 80.6, "rig_max": 83.4, "diff": 1.0063492063492134}, {"depth": 2573.0, "sim_pu": 82.3, "sim_so": 56.6, "sim_free": 67.8, "rig_avg": 81.3875, "rig_min": 79.7, "rig_max": 83.2, "diff": 0.9124999999999943}, {"depth": 2545.0, "sim_pu": 81.5, "sim_so": 56.2, "sim_free": 67.3, "rig_avg": 80.690625, "rig_min": 76.2, "rig_max": 82.5, "diff": 0.8093750000000028}, {"depth": 2517.0, "sim_pu": 80.7, "sim_so": 55.8, "sim_free": 66.7, "rig_avg": 80.19047619047619, "rig_min": 77.7, "rig_max": 81.3, "diff": 0.509523809523813}, {"depth": 2489.0, "sim_pu": 80.6, "sim_so": 55.8, "sim_free": 66.6, "rig_avg": 79.65901639344261, "rig_min": 78.4, "rig_max": 81.6, "diff": 0.9409836065573813}, {"depth": 2461.0, "sim_pu": 79.7, "sim_so": 55.4, "sim_free": 66.1, "rig_avg": 79.04193548387097, "rig_min": 76.7, "rig_max": 80.6, "diff": 0.6580645161290306}, {"depth": 2433.0, "sim_pu": 78.9, "sim_so": 55.0, "sim_free": 65.5, "rig_avg": 78.45483870967742, "rig_min": 76.5, "rig_max": 79.5, "diff": 0.4451612903225879}, {"depth": 2405.0, "sim_pu": 78.1, "sim_so": 54.6, "sim_free": 64.9, "rig_avg": 77.7015873015873, "rig_min": 69.7, "rig_max": 78.8, "diff": 0.3984126984126988}, {"depth": 2377.0, "sim_pu": 77.1, "sim_so": 54.1, "sim_free": 64.2, "rig_avg": 77.14193548387097, "rig_min": 72.7, "rig_max": 78.9, "diff": -0.041935483870972234}, {"depth": 2349.0, "sim_pu": 77.0, "sim_so": 54.1, "sim_free": 64.1, "rig_avg": 76.17323943661972, "rig_min": 74.2, "rig_max": 77.4, "diff": 0.8267605633802759}, {"depth": 2321.0, "sim_pu": 76.2, "sim_so": 53.7, "sim_free": 63.6, "rig_avg": 76.15454545454546, "rig_min": 71.6, "rig_max": 77.8, "diff": 0.045454545454546746}, {"depth": 2293.0, "sim_pu": 75.3, "sim_so": 53.3, "sim_free": 63.0, "rig_avg": 75.57037037037037, "rig_min": 74.5, "rig_max": 76.9, "diff": -0.27037037037037237}, {"depth": 2265.0, "sim_pu": 74.5, "sim_so": 52.9, "sim_free": 62.4, "rig_avg": 74.88727272727273, "rig_min": 70.8, "rig_max": 76.5, "diff": -0.3872727272727303}, {"depth": 2237.0, "sim_pu": 73.7, "sim_so": 52.5, "sim_free": 61.8, "rig_avg": 74.23703703703704, "rig_min": 73.0, "rig_max": 76.0, "diff": -0.5370370370370381}, {"depth": 2209.0, "sim_pu": 73.6, "sim_so": 52.4, "sim_free": 61.8, "rig_avg": 73.626, "rig_min": 66.0, "rig_max": 74.8, "diff": -0.02600000000001046}, {"depth": 2181.0, "sim_pu": 72.8, "sim_so": 52.1, "sim_free": 61.2, "rig_avg": 73.09, "rig_min": 71.4, "rig_max": 73.9, "diff": -0.29000000000000625}, {"depth": 2153.0, "sim_pu": 72.0, "sim_so": 51.7, "sim_free": 60.7, "rig_avg": 72.35094339622641, "rig_min": 67.0, "rig_max": 75.0, "diff": -0.3509433962264126}, {"depth": 2125.0, "sim_pu": 71.2, "sim_so": 51.3, "sim_free": 60.1, "rig_avg": 71.75882352941176, "rig_min": 70.2, "rig_max": 73.4, "diff": -0.5588235294117538}, {"depth": 2097.0, "sim_pu": 70.4, "sim_so": 50.9, "sim_free": 59.5, "rig_avg": 71.134, "rig_min": 69.6, "rig_max": 72.4, "diff": -0.7339999999999947}, {"depth": 2069.0, "sim_pu": 70.3, "sim_so": 50.8, "sim_free": 59.4, "rig_avg": 70.07884615384616, "rig_min": 59.6, "rig_max": 71.6, "diff": 0.2211538461538396}, {"depth": 2041.0, "sim_pu": 69.5, "sim_so": 50.4, "sim_free": 58.9, "rig_avg": 69.748, "rig_min": 67.9, "rig_max": 71.2, "diff": -0.24800000000000466}, {"depth": 2013.0, "sim_pu": 68.7, "sim_so": 50.0, "sim_free": 58.3, "rig_avg": 69.058, "rig_min": 67.1, "rig_max": 70.0, "diff": -0.3580000000000041}, {"depth": 1985.0, "sim_pu": 67.9, "sim_so": 49.6, "sim_free": 57.7, "rig_avg": 68.41, "rig_min": 66.2, "rig_max": 69.4, "diff": -0.5099999999999909}, {"depth": 1957.0, "sim_pu": 67.1, "sim_so": 49.2, "sim_free": 57.2, "rig_avg": 67.682, "rig_min": 64.0, "rig_max": 68.9, "diff": -0.5820000000000078}, {"depth": 1929.0, "sim_pu": 65.7, "sim_so": 48.5, "sim_free": 56.2, "rig_avg": 67.08653846153847, "rig_min": 64.3, "rig_max": 68.9, "diff": -1.3865384615384642}, {"depth": 1901.0, "sim_pu": 64.9, "sim_so": 48.1, "sim_free": 55.6, "rig_avg": 66.492, "rig_min": 65.4, "rig_max": 67.8, "diff": -1.5919999999999987}, {"depth": 1873.0, "sim_pu": 64.1, "sim_so": 47.7, "sim_free": 55.0, "rig_avg": 65.702, "rig_min": 64.0, "rig_max": 67.1, "diff": -1.6020000000000039}, {"depth": 1845.0, "sim_pu": 64.6, "sim_so": 47.9, "sim_free": 55.4, "rig_avg": 65.15102040816326, "rig_min": 63.3, "rig_max": 66.2, "diff": -0.5510204081632679}, {"depth": 1817.0, "sim_pu": 63.8, "sim_so": 47.5, "sim_free": 54.8, "rig_avg": 64.484, "rig_min": 61.5, "rig_max": 65.3, "diff": -0.6839999999999975}, {"depth": 1789.0, "sim_pu": 62.4, "sim_so": 46.8, "sim_free": 53.8, "rig_avg": 63.803999999999995, "rig_min": 62.3, "rig_max": 65.6, "diff": -1.4039999999999964}, {"depth": 1761.0, "sim_pu": 61.7, "sim_so": 46.4, "sim_free": 53.3, "rig_avg": 63.07254901960784, "rig_min": 60.6, "rig_max": 64.3, "diff": -1.3725490196078383}, {"depth": 1733.0, "sim_pu": 60.9, "sim_so": 46.0, "sim_free": 52.7, "rig_avg": 62.364705882352936, "rig_min": 61.1, "rig_max": 63.6, "diff": -1.4647058823529377}, {"depth": 1705.0, "sim_pu": 60.1, "sim_so": 45.6, "sim_free": 52.1, "rig_avg": 61.622, "rig_min": 60.2, "rig_max": 63.2, "diff": -1.5219999999999985}, {"depth": 1677.0, "sim_pu": 59.3, "sim_so": 45.2, "sim_free": 51.6, "rig_avg": 61.07, "rig_min": 59.0, "rig_max": 62.1, "diff": -1.7700000000000031}, {"depth": 1649.0, "sim_pu": 59.2, "sim_so": 45.1, "sim_free": 51.5, "rig_avg": 60.31399999999999, "rig_min": 58.8, "rig_max": 61.8, "diff": -1.11399999999999}, {"depth": 1621.0, "sim_pu": 58.4, "sim_so": 44.7, "sim_free": 50.9, "rig_avg": 59.62352941176471, "rig_min": 57.0, "rig_max": 61.0, "diff": -1.2235294117647086}, {"depth": 1593.0, "sim_pu": 57.7, "sim_so": 44.3, "sim_free": 50.4, "rig_avg": 59.148, "rig_min": 57.8, "rig_max": 60.6, "diff": -1.4480000000000004}, {"depth": 1565.0, "sim_pu": 56.9, "sim_so": 43.9, "sim_free": 49.8, "rig_avg": 58.43, "rig_min": 56.6, "rig_max": 59.9, "diff": -1.5300000000000011}, {"depth": 1537.0, "sim_pu": 56.1, "sim_so": 43.5, "sim_free": 49.2, "rig_avg": 57.768750000000004, "rig_min": 55.3, "rig_max": 58.6, "diff": -1.6687500000000028}, {"depth": 1509.0, "sim_pu": 54.8, "sim_so": 42.7, "sim_free": 48.2, "rig_avg": 57.136, "rig_min": 56.5, "rig_max": 57.8, "diff": -2.3360000000000056}, {"depth": 1481.0, "sim_pu": 55.3, "sim_so": 43.0, "sim_free": 48.6, "rig_avg": 56.44375, "rig_min": 55.3, "rig_max": 57.0, "diff": -1.1437500000000043}, {"depth": 1453.0, "sim_pu": 54.5, "sim_so": 42.6, "sim_free": 48.0, "rig_avg": 55.77916666666667, "rig_min": 55.2, "rig_max": 56.9, "diff": -1.2791666666666686}, {"depth": 1425.0, "sim_pu": 53.7, "sim_so": 42.2, "sim_free": 47.5, "rig_avg": 55.06938775510204, "rig_min": 54.3, "rig_max": 56.5, "diff": -1.3693877551020393}, {"depth": 1397.0, "sim_pu": 52.9, "sim_so": 41.8, "sim_free": 46.9, "rig_avg": 54.40408163265307, "rig_min": 53.7, "rig_max": 55.8, "diff": -1.5040816326530688}, {"depth": 1369.0, "sim_pu": 52.8, "sim_so": 41.7, "sim_free": 46.8, "rig_avg": 53.755102040816325, "rig_min": 50.6, "rig_max": 54.6, "diff": -0.9551020408163282}, {"depth": 1341.0, "sim_pu": 52.1, "sim_so": 41.3, "sim_free": 46.3, "rig_avg": 53.097959183673474, "rig_min": 50.3, "rig_max": 54.1, "diff": -0.9979591836734727}, {"depth": 1313.0, "sim_pu": 51.3, "sim_so": 40.9, "sim_free": 45.7, "rig_avg": 52.36, "rig_min": 50.1, "rig_max": 53.3, "diff": -1.0600000000000023}, {"depth": 1285.0, "sim_pu": 50.6, "sim_so": 40.5, "sim_free": 45.1, "rig_avg": 51.74375, "rig_min": 50.8, "rig_max": 52.7, "diff": -1.1437499999999972}, {"depth": 1257.0, "sim_pu": 49.8, "sim_so": 40.1, "sim_free": 44.6, "rig_avg": 50.983999999999995, "rig_min": 50.4, "rig_max": 51.7, "diff": -1.1839999999999975}, {"depth": 1229.0, "sim_pu": 48.5, "sim_so": 39.3, "sim_free": 43.6, "rig_avg": 50.4, "rig_min": 50.1, "rig_max": 51.3, "diff": -1.8999999999999986}];
+  let tdDrawn = false;
+  function drawTDChart() {
+  if (tdDrawn) return;
+  const canvas = document.getElementById('td-chart');
+  if (!canvas) return;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  if (rect.width < 10 || rect.height < 10) return;
+  tdDrawn = true;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const margin = {top: 30, right: 30, bottom: 50, left: 60};
+  const pw = W - margin.left - margin.right, ph = H - margin.top - margin.bottom;
+  const maxDepth = 5000, minHL = 10, maxHL = 130;
+  function xScale(d) { return margin.left + (d / maxDepth) * pw; }
+  function yScale(hl) { return margin.top + ph - ((hl - minHL) / (maxHL - minHL)) * ph; }
+  ctx.strokeStyle = '#2a2a4a'; ctx.lineWidth = 0.5;
+  for (let d = 0; d <= maxDepth; d += 500) { const x = xScale(d); ctx.beginPath(); ctx.moveTo(x, margin.top); ctx.lineTo(x, H-margin.bottom); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.fillText(d+'m', x, H-margin.bottom+14); }
+  for (let hl = 20; hl <= maxHL; hl += 10) { const y = yScale(hl); ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(W-margin.right, y); ctx.stroke(); ctx.fillStyle='#888'; ctx.font='10px sans-serif'; ctx.textAlign='right'; ctx.fillText(hl.toFixed(0), margin.left-6, y+3); }
+  ctx.fillStyle='rgba(255,255,0,0.03)'; ctx.fillRect(xScale(3400), margin.top, xScale(5000)-xScale(3400), ph);
+  ctx.fillStyle='rgba(0,255,255,0.03)'; ctx.fillRect(xScale(2800), margin.top, xScale(3400)-xScale(2800), ph);
+  ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillStyle='rgba(255,255,0,0.4)'; ctx.fillText('LATERAL', xScale(4200), margin.top+16);
+  ctx.fillStyle='rgba(0,255,255,0.4)'; ctx.fillText('BUILD', xScale(3100), margin.top+16);
+  ctx.fillStyle='rgba(200,200,200,0.3)'; ctx.fillText('VERTICAL', xScale(1400), margin.top+16);
+  const rigSorted = comparison.sort((a,b) => a.depth - b.depth);
+  ctx.fillStyle='rgba(255,136,0,0.15)'; ctx.beginPath();
+  for (let i=0;i<rigSorted.length;i++) { const x=xScale(rigSorted[i].depth), y=yScale(rigSorted[i].rig_max); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  for (let i=rigSorted.length-1;i>=0;i--) ctx.lineTo(xScale(rigSorted[i].depth), yScale(rigSorted[i].rig_min));
+  ctx.closePath(); ctx.fill();
+  const simSorted = [...sim].sort((a,b) => a.md - b.md);
+  ctx.strokeStyle='#666'; ctx.lineWidth=1.5; ctx.setLineDash([4,4]); ctx.beginPath();
+  simSorted.forEach((p,i) => { i===0?ctx.moveTo(xScale(p.md),yScale(p.free)):ctx.lineTo(xScale(p.md),yScale(p.free)); }); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle='#ff4444'; ctx.lineWidth=2; ctx.beginPath();
+  simSorted.forEach((p,i) => { i===0?ctx.moveTo(xScale(p.md),yScale(p.slackoff)):ctx.lineTo(xScale(p.md),yScale(p.slackoff)); }); ctx.stroke();
+  ctx.strokeStyle='#00ff88'; ctx.lineWidth=2; ctx.beginPath();
+  simSorted.forEach((p,i) => { i===0?ctx.moveTo(xScale(p.md),yScale(p.pickup)):ctx.lineTo(xScale(p.md),yScale(p.pickup)); }); ctx.stroke();
+  ctx.fillStyle='#ff8800'; ctx.strokeStyle='#ff8800'; ctx.lineWidth=2; ctx.beginPath();
+  rigSorted.forEach((p,i) => { i===0?ctx.moveTo(xScale(p.depth),yScale(p.rig_avg)):ctx.lineTo(xScale(p.depth),yScale(p.rig_avg)); }); ctx.stroke();
+  rigSorted.forEach(p => { ctx.beginPath(); ctx.arc(xScale(p.depth), yScale(p.rig_avg), 2.5, 0, Math.PI*2); ctx.fill(); });
+  ctx.fillStyle='#ccc'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Measured Depth (m)', W/2, H-8);
+  ctx.save(); ctx.translate(14, H/2); ctx.rotate(-Math.PI/2); ctx.fillText('Hook Load (kDaN)', 0, 0); ctx.restore();
+  }
+  window._drawTDChart = drawTDChart;
+  drawTDChart();
+})();
+</script>
+
+<!-- ============================================================ -->
+<div class="slide" id="slide-28">
+  <h2>Standpipe Pressure</h2>
+
+  <h3>SPP = String Friction + Bit Nozzle &Delta;P + Annulus Friction + Surface Back Pressure</h3>
+
+  <div class="columns" style="align-items: stretch; margin-top: 16px;">
+
+    <div class="column" style="padding: 16px 12px;">
+      <h4>How it works</h4>
+      <ul>
+        <li><strong>Power-law rheology</strong> per fluid layer from Fann 35 readings or PV/YP</li>
+        <li><strong>Turbulent flow detection</strong> via Metzner-Reed Reynolds number with Dodge-Metzner friction factor</li>
+        <li><strong>Bit nozzle &Delta;P</strong> from total flow area and fluid density</li>
+        <li><strong>Geometry-split integration</strong> &mdash; friction split at casing/hole and pipe section boundaries</li>
+      </ul>
+    </div>
+
+    <div class="column" style="padding: 16px 12px;">
+      <h4>Why it matters</h4>
+      <ul>
+        <li><strong>Higher than expected</strong> &mdash; pack-off, plugged nozzle, formation change</li>
+        <li><strong>Lower than expected</strong> &mdash; washout, lost nozzle, lost circulation</li>
+        <li><strong>Changing during displacement</strong> &mdash; expected if the model accounts for it; a problem if it doesn't</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="callout warning" style="margin-top: 24px;">
+    <strong>Current status:</strong> Model currently appears to be out by the surface line friction only &mdash; the pressure loss from the standpipe to the kelly hose is not yet included.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 30: VALIDATION SUMMARY (was slide 18) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-29">
+  <h2>Validation Summary</h2>
+
+  <table>
+    <tr><th>Validation</th><th>Result</th></tr>
+    <tr><td>Fill volume vs trip sheet</td><td style="color: var(--success);">Match</td></tr>
+    <tr><td>Float state / Slugging</td><td style="color: var(--success);">Confirmed with Trip PVT</td></tr>
+    <tr><td>Kill depth (300m vs 1000m)</td><td style="color: var(--success);">No losses at 300m; losses at 1000m</td></tr>
+    <tr><td>Kill mud volume (old vs new model)</td><td style="color: var(--success);">Slug equalization allows ~4 m&sup3; more than old models predicted</td></tr>
+    <tr><td>Reduced kill mud density</td><td style="color: var(--success);">Flow checks successful at calculated kill depth; old model proved wrong</td></tr>
+    <tr><td>Mud cap placement</td><td style="color: var(--success);">Proved importance of spotting muds at the correct depths</td></tr>
+    <tr><td>First slug and backfill trip</td><td style="color: var(--success);">No losses</td></tr>
+    <tr><td>Real-time density adjustment</td><td style="color: var(--success);">Successful, no losses</td></tr>
+    <tr><td>Dead at 2000m with mud cap</td><td style="color: var(--success);">Achieved</td></tr>
+    <tr><td>Fluid blending (coriolis)</td><td style="color: var(--success);">Blended pocket density matched surface readings</td></tr>
+    <tr><td>SPP vs actual rig pressure</td><td style="color: var(--success);">Within expected range at multiple flow rates and depths</td></tr>
+    <tr><td>Hook load vs rig data</td><td style="color: var(--success);">Calibrated friction factors match pickup/slackoff weights</td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 31: SUMMARY (was slide 20) -->
+<!-- ============================================================ -->
+<div class="slide" id="slide-30">
+  <h2>Summary</h2>
+
+  <ol style="font-size: 20px;">
+    <li style="margin-bottom: 16px;"><strong>The math is proven &mdash; the software wasn't keeping up</strong> &mdash; existing models were missing float valve physics, slugging behavior, and multi-fluid rheology. Experience told us kill mud density and swab were being overestimated &mdash; the model confirmed it</li>
+    <li style="margin-bottom: 16px;"><strong>Validated at every step</strong> &mdash; fill volumes matched trip sheets, predicted fluid blends matched coriolis readings at surface, and the trip-in model proved itself on a production casing run</li>
+    <li style="margin-bottom: 16px;"><strong>The app changed how we think</strong> &mdash; we started out trying to solve one problem: how improve slug and backfill. But once we could see the fluid distribution at every depth, we started finding new ways to apply fluids &mdash; killing deeper, reducing stripping pressures, saving time, losing less mud</li>
+    <li style="margin-bottom: 16px;"><strong>Plans change &mdash; the tool has to keep up</strong> &mdash; MWD failures, tight hole, unexpected circulations. Super Simulation chains operations with full fluid carry-over so you can adapt in minutes, not hours</li>
+    <li style="margin-bottom: 16px;"><strong>Confidence drives adoption</strong> &mdash; when the model matches reality, the crew trusts it. When the crew trusts it, execution becomes routine instead of stress</li>
+    <li style="margin-bottom: 16px;"><strong>The model keeps growing</strong> &mdash; torque &amp; drag and standpipe pressure bring the model closer to what the driller needs on the rig floor</li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 32: DEMO (was slide 21) -->
+<!-- ============================================================ -->
+<div class="slide title-slide" id="slide-31">
+  <h1>Demo</h1>
+</div>
+
+<!-- Navigation --><div class="nav">
+  <button onclick="prevSlide()" id="prevBtn">&larr;</button>
+  <span class="counter" id="counter">1 / 31</span>
+  <button onclick="nextSlide()" id="nextBtn">&rarr;</button>
+</div>
+
+<div class="keyboard-hint">Arrow keys or click to navigate</div>
+
+<script>
+  let current = 1;
+  const total = document.querySelectorAll('.slide').length;
+
+  function showSlide(n) {
+    document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+    current = Math.max(1, Math.min(n, total));
+    document.getElementById('slide-' + current).classList.add('active');
+    document.getElementById('counter').textContent = current + ' / ' + total;
+    if (window._drawTDChart) window._drawTDChart();
+  }
+
+  function nextSlide() { showSlide(current + 1); }
+  function prevSlide() { showSlide(current - 1); }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
+    if (e.key === 'Home') { e.preventDefault(); showSlide(1); }
+    if (e.key === 'End') { e.preventDefault(); showSlide(total); }
+  });
+
+  // Touch support
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) { diff > 0 ? nextSlide() : prevSlide(); }
+  });
+</script>
+</body>
+</html>

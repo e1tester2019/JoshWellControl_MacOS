@@ -940,11 +940,16 @@ final class NumericalTripModel: @unchecked Sendable {
             let dL = bitMD - nextMD
             let oldBitMD = bitMD
 
+            // The pipe exiting the well at surface is from the TOP of the string.
+            // Map to original (fixed) section MDs: surfacePipeMD = how far we've pulled out.
+            let surfacePipeMD = input.startBitMD_m - oldBitMD
+
             // Calculate expected fill volumes for this step
             // DP Wet = Pipe OD volume (capacity + displacement)
             // DP Dry = Steel displacement only (metal ring area)
-            let expectedIfClosed = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)  // DP Wet
-            let expectedIfOpen = geom.steelDisplacement_m2(oldBitMD) * dL  // DP Dry
+            // Use surface pipe geometry — that's what physically exits the well.
+            let expectedIfClosed = geom.volumeOfStringOD_m3(surfacePipeMD, surfacePipeMD + dL)  // DP Wet
+            let expectedIfOpen = geom.steelDisplacement_m2(surfacePipeMD) * dL  // DP Dry
             stepExpectedIfClosed_m3 += expectedIfClosed
             stepExpectedIfOpen_m3 += expectedIfOpen
 
@@ -1204,14 +1209,14 @@ final class NumericalTripModel: @unchecked Sendable {
             // Append pocket at new bit with blended color
             addPocketBelowBit(rho: rhoMix, len: lenPocket, bitMD: bitMD, color: mixedColor, pv_cP: mixedPV, yp_Pa: mixedYP)
 
-            // Surface backfill required
+            // Surface backfill required — use surface pipe geometry (what exited the well)
             // Float CLOSED (DP Wet): backfill = pipe OD volume (capacity + displacement)
             // Float OPEN (DP Dry): backfill = steel displacement only
             let needBefore: Double
             if floatClosed {
-                needBefore = geom.volumeOfStringOD_m3(oldBitMD - dL, oldBitMD)  // DP Wet
+                needBefore = geom.volumeOfStringOD_m3(surfacePipeMD, surfacePipeMD + dL)  // DP Wet
             } else {
-                needBefore = geom.steelDisplacement_m2(oldBitMD) * dL  // DP Dry
+                needBefore = geom.steelDisplacement_m2(surfacePipeMD) * dL  // DP Dry
             }
             var need = needBefore
             if need > 1e-12 {

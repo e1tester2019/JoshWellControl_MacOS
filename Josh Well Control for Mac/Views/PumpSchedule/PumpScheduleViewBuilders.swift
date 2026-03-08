@@ -631,10 +631,10 @@ struct PumpScheduleHydraulicsPanelView: View {
                         .monospacedDigit()
                 }
                 HStack {
-                    Text("TCP (total circ)")
+                    Text("SPP")
                         .frame(width: 140, alignment: .trailing)
                         .foregroundStyle(.secondary)
-                    Text(String(format: "%.0f kPa", h.tcp_kPa)).monospacedDigit()
+                    Text(String(format: "%.0f kPa", h.spp_kPa)).monospacedDigit()
                 }
                 HStack {
                     Text("ECD")

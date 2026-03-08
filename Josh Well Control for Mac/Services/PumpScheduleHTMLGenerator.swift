@@ -38,7 +38,7 @@ struct PumpScheduleReportData {
         let ecd_kgm3: Double
         let bhp_kPa: Double
         let sbp_kPa: Double
-        let tcp_kPa: Double
+        let spp_kPa: Double
         let annulusFriction_kPa: Double
         let stringFriction_kPa: Double
 
@@ -79,7 +79,7 @@ struct PumpScheduleReportData {
     var minECD: Double { snapshots.map { $0.ecd_kgm3 }.min() ?? 0 }
     var maxECD: Double { snapshots.map { $0.ecd_kgm3 }.max() ?? 0 }
     var maxBHP: Double { snapshots.map { $0.bhp_kPa }.max() ?? 0 }
-    var maxTCP: Double { snapshots.map { $0.tcp_kPa }.max() ?? 0 }
+    var maxSPP: Double { snapshots.map { $0.spp_kPa }.max() ?? 0 }
     var totalPumpedVolume: Double { snapshots.last?.cumulativePumpedVolume_m3 ?? 0 }
 
     // Total geometry volumes
@@ -195,8 +195,8 @@ class PumpScheduleHTMLGenerator {
                             <div class="metric-unit">kPa</div>
                         </div>
                         <div class="metric-box">
-                            <div class="metric-title">Max TCP</div>
-                            <div class="metric-value">\(String(format: "%.0f", data.maxTCP))</div>
+                            <div class="metric-title">Max SPP</div>
+                            <div class="metric-value">\(String(format: "%.0f", data.maxSPP))</div>
                             <div class="metric-unit">kPa</div>
                         </div>
                         <div class="metric-box">
@@ -251,7 +251,7 @@ class PumpScheduleHTMLGenerator {
                         <div class="info-row"><span>Pumped:</span> <span id="info-pumped">--</span></div>
                         <div class="info-row"><span>ECD:</span> <span id="info-ecd">--</span></div>
                         <div class="info-row"><span>BHP:</span> <span id="info-bhp">--</span></div>
-                        <div class="info-row"><span>TCP:</span> <span id="info-tcp">--</span></div>
+                        <div class="info-row"><span>SPP:</span> <span id="info-tcp">--</span></div>
                         <div class="info-row hl-info" style="display:none"><span>Pickup:</span> <span id="info-pu" style="color:#4caf50">--</span></div>
                         <div class="info-row hl-info" style="display:none"><span>Slack-off:</span> <span id="info-so" style="color:#f44336">--</span></div>
                         <div class="info-row hl-info" style="display:none"><span>Rotating:</span> <span id="info-rot" style="color:#2196f3">--</span></div>
@@ -325,7 +325,7 @@ class PumpScheduleHTMLGenerator {
                                     <th class="pv-col" onclick="sortTable(4)">ECD (kg/m\u{00B3}) \u{21C5}</th>
                                     <th class="pv-col" onclick="sortTable(5)">BHP (kPa) \u{21C5}</th>
                                     <th class="pv-col" onclick="sortTable(6)">SBP (kPa) \u{21C5}</th>
-                                    <th class="pv-col" onclick="sortTable(7)">TCP (kPa) \u{21C5}</th>
+                                    <th class="pv-col" onclick="sortTable(7)">SPP (kPa) \u{21C5}</th>
                                     <th class="pv-col" onclick="sortTable(8)">Ann Friction (kPa) \u{21C5}</th>
                                     <th class="pv-col" onclick="sortTable(9)">Str Friction (kPa) \u{21C5}</th>
                                     <th class="hl-col" onclick="sortTable(10)" style="display:none">Pickup (kDaN) \u{21C5}</th>
@@ -1019,8 +1019,8 @@ class PumpScheduleHTMLGenerator {
                 { data: bhps, label: 'BHP (kPa)', color: '#2196f3' }
             ]);
 
-            charts.tcp = createChart('chart-tcp', 'TCP vs Volume Pumped', cumVolumes, [
-                { data: tcps, label: 'TCP (kPa)', color: '#ff9800' }
+            charts.tcp = createChart('chart-tcp', 'SPP vs Volume Pumped', cumVolumes, [
+                { data: tcps, label: 'SPP (kPa)', color: '#ff9800' }
             ]);
 
             charts.friction = createChart('chart-friction', 'Friction vs Volume Pumped', cumVolumes, [
@@ -1316,7 +1316,7 @@ class PumpScheduleHTMLGenerator {
             let rotStr = snap.rotatingHookLoad_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
             let fhStr = snap.freeHangingWeight_kN.map { String(format: "%.1f", $0 / 10.0) } ?? "null"
             json += """
-            {"stageName":"\(escapeHTML(snap.stageName))","stageIndex":\(snap.stageIndex),"progress":\(f2(snap.progress)),"pumpedVolume":\(f2(snap.pumpedVolume_m3)),"cumulativePumped":\(f2(snap.cumulativePumpedVolume_m3)),"ecd":\(f1(snap.ecd_kgm3)),"bhp":\(f0(snap.bhp_kPa)),"sbp":\(f0(snap.sbp_kPa)),"tcp":\(f0(snap.tcp_kPa)),"annulusFriction":\(f0(snap.annulusFriction_kPa)),"stringFriction":\(f0(snap.stringFriction_kPa)),"pu":\(puStr),"so":\(soStr),"rot":\(rotStr),"fh":\(fhStr),"stringLayers":\(layersToJSON(snap.stringLayers)),"annulusLayers":\(layersToJSON(snap.annulusLayers))}
+            {"stageName":"\(escapeHTML(snap.stageName))","stageIndex":\(snap.stageIndex),"progress":\(f2(snap.progress)),"pumpedVolume":\(f2(snap.pumpedVolume_m3)),"cumulativePumped":\(f2(snap.cumulativePumpedVolume_m3)),"ecd":\(f1(snap.ecd_kgm3)),"bhp":\(f0(snap.bhp_kPa)),"sbp":\(f0(snap.sbp_kPa)),"tcp":\(f0(snap.spp_kPa)),"annulusFriction":\(f0(snap.annulusFriction_kPa)),"stringFriction":\(f0(snap.stringFriction_kPa)),"pu":\(puStr),"so":\(soStr),"rot":\(rotStr),"fh":\(fhStr),"stringLayers":\(layersToJSON(snap.stringLayers)),"annulusLayers":\(layersToJSON(snap.annulusLayers))}
             """
         }
         json += "]"
@@ -1386,7 +1386,7 @@ class PumpScheduleHTMLGenerator {
                 <td class="pv-col">\(String(format: "%.0f", snap.ecd_kgm3))</td>
                 <td class="pv-col">\(String(format: "%.0f", snap.bhp_kPa))</td>
                 <td class="pv-col">\(String(format: "%.0f", snap.sbp_kPa))</td>
-                <td class="pv-col">\(String(format: "%.0f", snap.tcp_kPa))</td>
+                <td class="pv-col">\(String(format: "%.0f", snap.spp_kPa))</td>
                 <td class="pv-col">\(String(format: "%.1f", snap.annulusFriction_kPa))</td>
                 <td class="pv-col">\(String(format: "%.1f", snap.stringFriction_kPa))</td>
                 <td class="hl-col" style="display:none">\(optF1(snap.pickupHookLoad_kN))</td>

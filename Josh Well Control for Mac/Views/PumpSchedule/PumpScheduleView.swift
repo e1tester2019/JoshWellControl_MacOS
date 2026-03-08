@@ -19,40 +19,42 @@ struct PumpScheduleView: View {
     @State private var exportErrorMessage = ""
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                PumpScheduleHeaderView(viewModel: viewModel, project: project)
-                Spacer()
-                Menu {
-                    Button("Export HTML Report") { exportHTMLReport() }
-                    Button("Export Zipped HTML Report") { exportZippedHTMLReport() }
-                } label: {
-                    Text("Export")
-                }
-                .disabled(viewModel.stages.isEmpty)
-            }
-            PumpScheduleStageInfoView(viewModel: viewModel, project: project)
-
-            HStack(alignment: .top, spacing: 12) {
-                VStack(spacing: 12) {
-                    if viewModel.sourceMode == .program {
-                        PumpScheduleProgramEditorView(viewModel: viewModel, project: project)
+        ScrollView {
+            VStack(spacing: 12) {
+                HStack {
+                    PumpScheduleHeaderView(viewModel: viewModel, project: project)
+                    Spacer()
+                    Menu {
+                        Button("Export HTML Report") { exportHTMLReport() }
+                        Button("Export Zipped HTML Report") { exportZippedHTMLReport() }
+                    } label: {
+                        Text("Export")
                     }
-                    PumpScheduleAllStagesView(viewModel: viewModel, project: project)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    PumpScheduleReturnsView(viewModel: viewModel, project: project)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .disabled(viewModel.stages.isEmpty)
                 }
+                PumpScheduleStageInfoView(viewModel: viewModel, project: project)
+
                 HStack(alignment: .top, spacing: 12) {
-                    PumpScheduleVisualizationView(viewModel: viewModel, project: project, maxDepth: maxDepth)
-                        .frame(maxWidth: 900)
-                    PumpScheduleHydraulicsPanelView(viewModel: viewModel, project: project)
-                        .frame(width: 320)
+                    VStack(spacing: 12) {
+                        if viewModel.sourceMode == .program {
+                            PumpScheduleProgramEditorView(viewModel: viewModel, project: project)
+                        }
+                        PumpScheduleAllStagesView(viewModel: viewModel, project: project)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        PumpScheduleReturnsView(viewModel: viewModel, project: project)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    HStack(alignment: .top, spacing: 12) {
+                        PumpScheduleVisualizationView(viewModel: viewModel, project: project, maxDepth: maxDepth)
+                            .frame(maxWidth: 900)
+                        PumpScheduleHydraulicsPanelView(viewModel: viewModel, project: project)
+                            .frame(width: 320)
+                    }
                 }
+                Divider()
             }
-            Divider()
+            .padding(12)
         }
-        .padding(12)
         .onAppear { viewModel.bootstrap(project: project, context: modelContext) }
         .onChange(of: project) { _, newProject in
             viewModel.bootstrap(project: newProject, context: modelContext)
@@ -205,12 +207,12 @@ struct PumpScheduleView: View {
         let savedStageIndex = viewModel.stageIndex
         let savedProgress = viewModel.progress
 
-        // Generate snapshots: for each stage, sample at 0%, 25%, 50%, 75%, 100%
+        // Generate snapshots: for each stage, sample at 5% intervals
         var cumulativeVolume: Double = 0
 
         for stageIdx in 0..<viewModel.stages.count {
             let stage = viewModel.stages[stageIdx]
-            let progressSteps: [Double] = [0.0, 0.25, 0.5, 0.75, 1.0]
+            let progressSteps = stride(from: 0.0, through: 1.0, by: 0.05).map { $0 }
 
             for prog in progressSteps {
                 viewModel.stageIndex = stageIdx
@@ -257,7 +259,7 @@ struct PumpScheduleView: View {
                     ecd_kgm3: h.ecd_kgm3,
                     bhp_kPa: h.bhp_kPa,
                     sbp_kPa: h.sbp_kPa,
-                    tcp_kPa: h.tcp_kPa,
+                    spp_kPa: h.spp_kPa,
                     annulusFriction_kPa: h.annulusFriction_kPa,
                     stringFriction_kPa: h.stringFriction_kPa,
                     pickupHookLoad_kN: viewModel.tdPickupHookLoad_kN,
