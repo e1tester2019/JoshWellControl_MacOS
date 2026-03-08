@@ -84,7 +84,7 @@ class PumpScheduleViewModel {
     var totalFriction_kPa: Double = 0
     var sbp_kPa: Double = 0
     var bhp_kPa: Double = 0
-    var tcp_kPa: Double = 0
+    var spp_kPa: Double = 0
     var ecd_kgm3: Double = 0
 
     // MARK: - Live T&D outputs
@@ -117,7 +117,7 @@ class PumpScheduleViewModel {
         totalFriction_kPa    = h.totalFriction_kPa
         sbp_kPa              = h.sbp_kPa
         bhp_kPa              = h.bhp_kPa
-        tcp_kPa              = h.tcp_kPa
+        spp_kPa              = h.spp_kPa
         ecd_kgm3             = h.ecd_kgm3
 
         // Torque & Drag
@@ -548,6 +548,7 @@ class PumpScheduleViewModel {
         let activeMud = project.activeMud
         let annulusCapacity_m3 = geom.volumeInAnnulus_m3(0.0, bitMD)
         let stringCapacity_m3 = geom.volumeInString_m3(0.0, bitMD)
+        let surfaceLineCapacity_m3 = max(0.0, project.surfaceLineVolume_m3)
 
         // Initial parcel stacks: imported state or default (active mud fills everything)
         var annulusParcelsDeepToShallow: [VolumeParcel]
@@ -617,8 +618,13 @@ class PumpScheduleViewModel {
             }
         }
 
-        // Simulate continuous flow through string -> annulus
+        // Simulate continuous flow through surface line -> string -> annulus
         if totalPumpedVolume > 0 {
+            // Surface line buffer: fluid must pass through before entering the string
+            var surfaceLineParcels: [VolumeParcel] = surfaceLineCapacity_m3 > 1e-9
+                ? [makeParcel(volume: surfaceLineCapacity_m3, color: activeColor, mud: activeMud)]
+                : []
+
             var stringParcels = initialStringParcels
             // Fallback if empty
             if stringParcels.isEmpty {
@@ -627,12 +633,33 @@ class PumpScheduleViewModel {
             var expelledAtBit: [VolumeParcel] = []
 
             for entry in pumpSequence {
-                CirculationService.pushToTopAndOverflow(
-                    stringParcels: &stringParcels,
-                    add: makeParcel(volume: max(0.0, entry.volume), color: entry.color, mud: entry.mud),
-                    capacity_m3: stringCapacity_m3,
-                    expelled: &expelledAtBit
-                )
+                if surfaceLineCapacity_m3 > 1e-9 {
+                    // Push into surface line; overflow enters the string
+                    var exitedSurfaceLine: [VolumeParcel] = []
+                    CirculationService.pushToTopAndOverflow(
+                        stringParcels: &surfaceLineParcels,
+                        add: makeParcel(volume: max(0.0, entry.volume), color: entry.color, mud: entry.mud),
+                        capacity_m3: surfaceLineCapacity_m3,
+                        expelled: &exitedSurfaceLine
+                    )
+                    // What exits the surface line enters the top of the string
+                    for p in exitedSurfaceLine {
+                        CirculationService.pushToTopAndOverflow(
+                            stringParcels: &stringParcels,
+                            add: p,
+                            capacity_m3: stringCapacity_m3,
+                            expelled: &expelledAtBit
+                        )
+                    }
+                } else {
+                    // No surface line — pump directly into string (original behavior)
+                    CirculationService.pushToTopAndOverflow(
+                        stringParcels: &stringParcels,
+                        add: makeParcel(volume: max(0.0, entry.volume), color: entry.color, mud: entry.mud),
+                        capacity_m3: stringCapacity_m3,
+                        expelled: &expelledAtBit
+                    )
+                }
             }
 
             string = segmentsFromStringParcels(stringParcels, bitMD: bitMD, geom: geom, fallbackMud: activeMud, project: project)
@@ -934,112 +961,223 @@ class PumpScheduleViewModel {
         // Helper to get annulus area and fluid density at MD
         let geom = ProjectGeometryService(project: project, currentStringBottomMD: bitMD)
 
-        // Segment-exact hydrostatic (TVD) and segment-wise friction (MD)
-        var annulusHydrostatic_Pa: Double = 0
-        var stringHydrostatic_Pa: Double = 0
-        var annulusFriction_Pa: Double = 0
-        var stringFriction_Pa: Double = 0
+        // Hydrostatic to controlMD, friction to both controlMD (for ECD/BHP) and bitMD (for SPP)
+        var annulusHydrostatic_Pa: Double = 0      // to controlMD (for ECD/BHP)
+        var stringHydrostatic_Pa: Double = 0       // to controlMD (for ECD/BHP)
+        var annulusHydrostaticFull_Pa: Double = 0  // to bitMD (for U-tube SPP)
+        var stringHydrostaticFull_Pa: Double = 0   // to bitMD (for U-tube SPP)
+        var annulusFrictionToControl_Pa: Double = 0
+        var annulusFrictionFull_Pa: Double = 0
+        var stringFrictionFull_Pa: Double = 0
 
+        // Geometry transition boundaries — friction must be computed within uniform-geometry sub-intervals
+        let annBounds = (project.annulus ?? []).flatMap { [$0.topDepth_m, $0.bottomDepth_m] }
+        let dsBounds = (project.drillString ?? []).flatMap { [$0.topDepth_m, $0.bottomDepth_m] }
+        let geomBoundaries = Set(annBounds + dsBounds).sorted()
 
-        // Clip each annulus segment to [0, controlMD] and integrate
+        // Split a [top, bot] range at geometry boundaries into sub-intervals
+        func subIntervals(_ top: Double, _ bot: Double) -> [(Double, Double)] {
+            var breaks = geomBoundaries.filter { $0 > top + 1e-9 && $0 < bot - 1e-9 }
+            breaks.insert(top, at: 0)
+            breaks.append(bot)
+            var result: [(Double, Double)] = []
+            for i in 0..<(breaks.count - 1) {
+                let a = breaks[i], b = breaks[i + 1]
+                if b - a > 1e-9 { result.append((a, b)) }
+            }
+            return result
+        }
+
+        let aplService = APLCalculationService.shared
+
+        // Compute annular friction for a uniform-geometry sub-interval
+        func annulusFricSub(_ m: MudProperties, _ top: Double, _ bot: Double) -> Double {
+            let dMD = bot - top
+            guard pumpRate_m3permin > 0, dMD > 0 else { return 0 }
+            let mdMid = 0.5 * (top + bot)
+            let Do = max(geom.pipeOD_m(mdMid), 0.001)
+            let Dhole = max(geom.holeOD_m(mdMid), Do + 0.0001)
+            let rho = m.density_kgm3
+            if let nAnn = m.n_annulus, let KAnn = m.K_annulus {
+                return aplService.aplFromKN(
+                    length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                    holeDiameter_m: Dhole, pipeDiameter_m: Do,
+                    K: KAnn, n: nAnn, density_kgm3: rho) * 1000.0
+            } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
+                return aplService.aplPowerLaw(
+                    length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                    holeDiameter_m: Dhole, pipeDiameter_m: Do,
+                    dial600: t600, dial300: t300, density_kgm3: rho) * 1000.0
+            } else if let pv = m.pv_Pa_s, let yp = m.yp_Pa, pv > 0 || yp > 0 {
+                let pv_cP = pv * 1000.0
+                let yp_dial = yp / HydraulicsDefaults.fann35_dialToPa
+                let d300 = pv_cP + yp_dial
+                let d600 = 2.0 * pv_cP + yp_dial
+                if d600 > 0, d300 > 0 {
+                    return aplService.aplPowerLaw(
+                        length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                        holeDiameter_m: Dhole, pipeDiameter_m: Do,
+                        dial600: d600, dial300: d300, density_kgm3: rho) * 1000.0
+                }
+            }
+            return 0
+        }
+
+        // Compute annular friction for a fluid segment, split at geometry boundaries
+        func annulusFric(_ seg: Seg, _ top: Double, _ bot: Double) -> Double {
+            guard let m = seg.mud else { return 0 }
+            var total: Double = 0
+            for (a, b) in subIntervals(top, bot) { total += annulusFricSub(m, a, b) }
+            return total
+        }
+
+        // Compute pipe friction for a uniform-geometry sub-interval
+        func stringFricSub(_ m: MudProperties, _ top: Double, _ bot: Double) -> Double {
+            let dMD = bot - top
+            guard pumpRate_m3permin > 0, dMD > 0 else { return 0 }
+            let mdMid = 0.5 * (top + bot)
+            let Di = max(geom.pipeID_m(mdMid), 0.001)
+            let rho = m.density_kgm3
+            if let nPipe = m.n_pipe, let KPipe = m.K_pipe {
+                return aplService.pipeFlowAPLFromKN(
+                    length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                    pipeDiameter_m: Di, K: KPipe, n: nPipe, density_kgm3: rho) * 1000.0
+            } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
+                return aplService.pipeFlowAPLPowerLaw(
+                    length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                    pipeDiameter_m: Di, dial600: t600, dial300: t300, density_kgm3: rho) * 1000.0
+            } else if let pv = m.pv_Pa_s, let yp = m.yp_Pa, pv > 0 || yp > 0 {
+                let pv_cP = pv * 1000.0
+                let yp_dial = yp / HydraulicsDefaults.fann35_dialToPa
+                let d300 = pv_cP + yp_dial
+                let d600 = 2.0 * pv_cP + yp_dial
+                if d600 > 0, d300 > 0 {
+                    return aplService.pipeFlowAPLPowerLaw(
+                        length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
+                        pipeDiameter_m: Di, dial600: d600, dial300: d300, density_kgm3: rho) * 1000.0
+                }
+            }
+            return 0
+        }
+
+        // Compute pipe friction for a fluid segment, split at geometry boundaries
+        func stringFric(_ seg: Seg, _ top: Double, _ bot: Double) -> Double {
+            guard let m = seg.mud else { return 0 }
+            var total: Double = 0
+            for (a, b) in subIntervals(top, bot) { total += stringFricSub(m, a, b) }
+            return total
+        }
+
+        // Integrate annulus: hydrostatic to controlMD, friction to both controlMD and bitMD
         for seg in stacks.annulus {
-            let topMD = max(0.0, min(seg.top, controlMD))
-            let botMD = max(0.0, min(seg.bottom, controlMD))
-            if botMD <= topMD { continue }
+            let segTop = max(0.0, seg.top)
+            let segBot = max(0.0, seg.bottom)
+            guard segBot > segTop else { continue }
 
-            // Hydrostatic: integrate rho*g*dTVD between the TVDs of the clipped segment
-            let tvdTop = project.tvd(of: topMD)
-            let tvdBot = project.tvd(of: botMD)
-            let dTVD = max(0.0, tvdBot - tvdTop)
             let rho = seg.mud?.density_kgm3 ?? 1260
-            annulusHydrostatic_Pa += rho * g * dTVD
 
-            // Friction: along the flow path (MD)
-            let dMD = botMD - topMD
-            if pumpRate_m3permin > 0 && dMD > 0 {
-                let mdMid = 0.5 * (topMD + botMD)
-                let Do = max(geom.pipeOD_m(mdMid), 0.001)
-                let Dhole = max(geom.holeOD_m(mdMid), Do + 0.0001)
-                let aplService = APLCalculationService.shared
+            // Hydrostatic clipped to controlMD (for ECD/BHP)
+            let hTop = min(segTop, controlMD)
+            let hBot = min(segBot, controlMD)
+            if hBot > hTop {
+                let tvdTop = project.tvd(of: hTop)
+                let tvdBot = project.tvd(of: hBot)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                annulusHydrostatic_Pa += rho * g * dTVD
+            }
 
-                if let m = seg.mud {
-                    if let nAnn = m.n_annulus, let KAnn = m.K_annulus {
-                        annulusFriction_Pa += aplService.aplFromKN(
-                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
-                            holeDiameter_m: Dhole, pipeDiameter_m: Do,
-                            K: KAnn, n: nAnn
-                        ) * 1000.0
-                    } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
-                        annulusFriction_Pa += aplService.aplPowerLaw(
-                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
-                            holeDiameter_m: Dhole, pipeDiameter_m: Do,
-                            dial600: t600, dial300: t300
-                        ) * 1000.0
-                    }
-                }
+            // Full-depth hydrostatic (for U-tube SPP)
+            do {
+                let tvdTop = project.tvd(of: segTop)
+                let tvdBot = project.tvd(of: segBot)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                annulusHydrostaticFull_Pa += rho * g * dTVD
+            }
+
+            // Full-path friction (for SPP)
+            let fric = annulusFric(seg, segTop, segBot)
+            annulusFrictionFull_Pa += fric
+
+            // Friction to controlMD (for ECD/BHP)
+            if segBot <= controlMD {
+                annulusFrictionToControl_Pa += fric
+            } else if segTop < controlMD {
+                annulusFrictionToControl_Pa += annulusFric(seg, segTop, controlMD)
             }
         }
 
-        // Clip each string segment to [0, controlMD] and integrate friction inside the drill string
+        // Integrate string: hydrostatic to controlMD, friction to bitMD (full path)
         for seg in stacks.string {
-            let topMD = max(0.0, min(seg.top, controlMD))
-            let botMD = max(0.0, min(seg.bottom, controlMD))
-            if botMD <= topMD { continue }
+            let segTop = max(0.0, seg.top)
+            let segBot = max(0.0, seg.bottom)
+            guard segBot > segTop else { continue }
 
-            let tvdTop = project.tvd(of: topMD)
-            let tvdBot = project.tvd(of: botMD)
-            let dTVD = max(0.0, tvdBot - tvdTop)
             let rhoString = seg.mud?.density_kgm3 ?? project.activeMudDensity_kgm3
-            stringHydrostatic_Pa += rhoString * g * dTVD
 
-            let dMD = botMD - topMD
-            if pumpRate_m3permin > 0 && dMD > 0 {
-                let mdMid = 0.5 * (topMD + botMD)
-                let Di = max(geom.pipeID_m(mdMid), 0.001)
-                let aplService = APLCalculationService.shared
-
-                if let m = seg.mud {
-                    if let nPipe = m.n_pipe, let KPipe = m.K_pipe {
-                        stringFriction_Pa += aplService.pipeFlowAPLFromKN(
-                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
-                            pipeDiameter_m: Di, K: KPipe, n: nPipe
-                        ) * 1000.0
-                    } else if let t600 = m.dial600, let t300 = m.dial300, t600 > 0, t300 > 0 {
-                        stringFriction_Pa += aplService.pipeFlowAPLPowerLaw(
-                            length_m: dMD, flowRate_m3_per_min: pumpRate_m3permin,
-                            pipeDiameter_m: Di, dial600: t600, dial300: t300
-                        ) * 1000.0
-                    }
-                }
+            // Hydrostatic clipped to controlMD (for ECD/BHP)
+            let hTop = min(segTop, controlMD)
+            let hBot = min(segBot, controlMD)
+            if hBot > hTop {
+                let tvdTop = project.tvd(of: hTop)
+                let tvdBot = project.tvd(of: hBot)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                stringHydrostatic_Pa += rhoString * g * dTVD
             }
+
+            // Full-depth hydrostatic (for U-tube SPP)
+            do {
+                let tvdTop = project.tvd(of: segTop)
+                let tvdBot = project.tvd(of: segBot)
+                let dTVD = max(0.0, tvdBot - tvdTop)
+                stringHydrostaticFull_Pa += rhoString * g * dTVD
+            }
+
+            // Full-path friction (for SPP)
+            stringFrictionFull_Pa += stringFric(seg, segTop, segBot)
         }
 
-        let ann_kPa = annulusFriction_Pa / 1000.0
-        let str_kPa = stringFriction_Pa / 1000.0
+        let ann_kPa = annulusFrictionFull_Pa / 1000.0
+        let str_kPa = stringFrictionFull_Pa / 1000.0
         let totalFric_kPa = ann_kPa + str_kPa
 
         // MPD SBP to hit target EMD at control depth.
-        // For bottomhole pressure, only annulus friction contributes (string friction is upstream of the bit).
+        // For bottomhole pressure, only annulus friction to controlMD contributes.
         var sbp_kPa: Double = 0
         if mpdEnabled {
             let targetBHP_Pa = max(0, targetEMD_kgm3) * g * controlTVD
-            let currentBHP_Pa = annulusHydrostatic_Pa + annulusFriction_Pa
+            let currentBHP_Pa = annulusHydrostatic_Pa + annulusFrictionToControl_Pa
             sbp_kPa = max(0, (targetBHP_Pa - currentBHP_Pa) / 1000.0)
         }
 
-        let annulusAtControl_Pa = annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0
-        let stringAtControl_Pa  = stringHydrostatic_Pa + stringFriction_Pa
-        // Delta between string and annulus available for future use:
-        // (stringAtControl_Pa - annulusAtControl_Pa) / 1000.0
+        let annulusAtControl_Pa = annulusHydrostatic_Pa + annulusFrictionToControl_Pa + sbp_kPa * 1000.0
+        let stringAtControl_Pa  = stringHydrostatic_Pa + stringFrictionFull_Pa
 
-        let bhp_kPa = (annulusHydrostatic_Pa / 1000) + sbp_kPa
+        let bhp_kPa = (annulusHydrostatic_Pa + annulusFrictionToControl_Pa) / 1000.0 + sbp_kPa
 
-        // Total circulating pressure at surface: all friction + any surface backpressure.
-        let tcp_kPa = totalFric_kPa + sbp_kPa
+        // Bit nozzle pressure drop
+        var bitNozzleDP_kPa: Double = 0
+        if pumpRate_m3permin > 0 {
+            let dsSorted = (project.drillString ?? []).sorted { $0.bottomDepth_m > $1.bottomDepth_m }
+            if let bitPipe = dsSorted.first, let tfa = bitPipe.totalFlowArea_m2, tfa > 0 {
+                let Q_m3ps = pumpRate_m3permin / 60.0
+                let V_nozzle = Q_m3ps / tfa
+                // Use bottom annulus fluid density for nozzle DP
+                let rho = stacks.annulus.last?.mud?.density_kgm3 ?? 1260.0
+                let Cd = 0.95
+                bitNozzleDP_kPa = (rho * V_nozzle * V_nozzle / (2.0 * Cd * Cd)) / 1000.0
+            }
+        }
 
-        // ECD at control depth: only hydrostatic + annulus friction + SBP affect downhole pressure.
+        // U-tube hydrostatic imbalance: when annulus fluid is heavier than string fluid,
+        // the pump must overcome the difference. Computed to bit depth (full column).
+        let uTube_kPa = (annulusHydrostaticFull_Pa - stringHydrostaticFull_Pa) / 1000.0
+
+        // Standpipe pressure: friction + bit nozzle DP + surface backpressure + U-tube imbalance.
+        let spp_kPa = totalFric_kPa + bitNozzleDP_kPa + sbp_kPa + uTube_kPa
+
+        // ECD at control depth: only hydrostatic + annulus friction to control + SBP affect downhole pressure.
         let ecd_kgm3 = controlTVD > 0
-        ? ((annulusHydrostatic_Pa + annulusFriction_Pa + sbp_kPa * 1000.0) / (g * controlTVD))
+        ? ((annulusHydrostatic_Pa + annulusFrictionToControl_Pa + sbp_kPa * 1000.0) / (g * controlTVD))
         : 0
 
         return HydraulicsReadout(
@@ -1050,7 +1188,7 @@ class PumpScheduleViewModel {
             totalFriction_kPa: totalFric_kPa,
             sbp_kPa: sbp_kPa,
             bhp_kPa: bhp_kPa,
-            tcp_kPa: tcp_kPa,
+            spp_kPa: spp_kPa,
             ecd_kgm3: ecd_kgm3
         )
     }
@@ -1471,6 +1609,6 @@ struct HydraulicsReadout {
     let totalFriction_kPa: Double
     let sbp_kPa: Double
     let bhp_kPa: Double
-    let tcp_kPa: Double
+    let spp_kPa: Double
     let ecd_kgm3: Double
 }
