@@ -419,6 +419,16 @@ struct OperationResultView: View {
                     }
                     .width(min: 70, max: 90)
 
+                    TableColumn("Rate (m\u{00B3}/min)") { step in
+                        Text(String(format: "%.2f", step.pumpRate_m3perMin))
+                    }
+                    .width(min: 70, max: 90)
+
+                    TableColumn("APL (kPa)") { step in
+                        Text(String(format: "%.0f", step.apl_kPa))
+                    }
+                    .width(min: 60, max: 80)
+
                     TableColumn("Pickup (kDaN)") { step in
                         if let v = step.pickupHookLoad_kN {
                             Text(String(format: "%.1f", v / 10.0))

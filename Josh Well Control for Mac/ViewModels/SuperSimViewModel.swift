@@ -348,10 +348,8 @@ class SuperSimViewModel {
     func runFrom(operationIndex: Int, project: ProjectState) {
         guard !isRunning, operationIndex >= 0, operationIndex < operations.count else { return }
 
-        // Bootstrap if needed
-        if initialState == nil {
-            bootstrap(from: project)
-        }
+        // Always re-bootstrap to pick up latest mud placement / project changes
+        bootstrap(from: project)
 
         // Invalidate from this point forward
         invalidateFrom(operationIndex)
@@ -554,6 +552,21 @@ class SuperSimViewModel {
             fallbackTheta300: op.fallbackTheta300 ?? op.baseMudID.flatMap({ mudDialMap[$0]?.d300 }),
             observedInitialPitGain_m3: op.useObservedPitGain ? op.observedInitialPitGain_m3 : nil
         )
+
+        // Build fluid schedule if configured on the operation
+        if !op.fluidSchedule.isEmpty {
+            input.fluidSchedule = op.fluidSchedule.map { item in
+                let rheo = item.mudID.flatMap { mudRheologyMap[$0] }
+                let color = item.mudID.flatMap { mudColorMap[$0] }
+                return NumericalTripModel.FluidScheduleEntry(
+                    density_kgpm3: item.density_kgpm3,
+                    volume_m3: item.volume_m3 > 0 ? item.volume_m3 : .infinity,
+                    color: color,
+                    pv_cP: rheo?.pv_cP ?? 0,
+                    yp_Pa: rheo?.yp_Pa ?? 0
+                )
+            }
+        }
 
         // Super Sim: inject custom initial layers from previous operation's state
         input.initialAnnulusLayers = state.layersAnnulus.isEmpty ? nil : state.layersAnnulus

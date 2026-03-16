@@ -15,6 +15,16 @@ final class NumericalTripModel: @unchecked Sendable {
 
     enum Side { case string, annulus }
 
+    /// A single entry in the fluid pumping schedule.
+    /// Fluids are pumped in order; the last entry pumps indefinitely (volume ignored).
+    struct FluidScheduleEntry: Sendable {
+        var density_kgpm3: Double
+        var volume_m3: Double           // volume to pump before moving to next entry (last entry = unlimited)
+        var color: ColorRGBA? = nil
+        var pv_cP: Double = 0
+        var yp_Pa: Double = 0
+    }
+
     struct ColorRGBA: Equatable, Codable, Sendable {
         var r: Double
         var g: Double
@@ -490,6 +500,10 @@ final class NumericalTripModel: @unchecked Sendable {
         var baseMudYP_Pa: Double = 0
         var fixedBackfillVolume_m3: Double = 0
         var switchToBaseAfterFixed: Bool = true
+
+        /// Ordered fluid schedule: pumped in sequence. Last entry pumps indefinitely.
+        /// When non-empty, overrides backfill/base density fields above.
+        var fluidSchedule: [FluidScheduleEntry] = []
         var targetESDAtTD_kgpm3: Double
         var initialSABP_kPa: Double = 0
         var holdSABPOpen: Bool = false
@@ -812,6 +826,29 @@ final class NumericalTripModel: @unchecked Sendable {
             )
         ]
 
+        // Build fluid schedule: either from explicit schedule or legacy two-fluid fields
+        var schedule: [FluidScheduleEntry]
+        if !input.fluidSchedule.isEmpty {
+            schedule = input.fluidSchedule
+        } else {
+            let hasFixedVolume = input.fixedBackfillVolume_m3 > 1e-12
+            if hasFixedVolume && input.switchToBaseAfterFixed {
+                // Legacy: pump kill volume, then switch to base
+                schedule = [
+                    FluidScheduleEntry(density_kgpm3: input.backfillDensity_kgpm3, volume_m3: input.fixedBackfillVolume_m3, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa),
+                    FluidScheduleEntry(density_kgpm3: input.baseMudDensity_kgpm3, volume_m3: .infinity, color: input.baseMudColor, pv_cP: input.baseMudPV_cP, yp_Pa: input.baseMudYP_Pa)
+                ]
+            } else {
+                // Single fluid (backfill only, no switch)
+                schedule = [
+                    FluidScheduleEntry(density_kgpm3: input.backfillDensity_kgpm3, volume_m3: .infinity, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa)
+                ]
+            }
+        }
+        // Track current position in schedule and remaining volume for current entry
+        var scheduleIndex = 0
+        var scheduleRemaining = schedule[0].volume_m3
+        // Legacy compat: track total backfill remaining for step output
         var backfillRemaining = input.fixedBackfillVolume_m3
 
         // Helper closures
@@ -1220,30 +1257,26 @@ final class NumericalTripModel: @unchecked Sendable {
             }
             var need = needBefore
             if need > 1e-12 {
-                // Determine which density to use for backfill:
-                // - If fixedBackfillVolume was set and we still have some, use backfillDensity
-                // - If fixedBackfillVolume was set but depleted and switchToBaseAfterFixed, use baseMudDensity
-                // - If no fixedBackfillVolume was set (0), always use backfillDensity (user's selected mud)
-                let hasFixedVolume = input.fixedBackfillVolume_m3 > 1e-12
-
-                if hasFixedVolume {
-                    // Original behavior: pump fixed volume of backfill, then switch to base
-                    var useKill = min(need, backfillRemaining)
-                    if !input.switchToBaseAfterFixed { useKill = need }
-                    if useKill > 1e-12 {
-                        annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: useKill, bitMD: bitMD, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa)
-                        backfillRemaining -= useKill
-                        need -= useKill
+                // Pump from fluid schedule: consume entries in order, advance when volume depleted
+                while need > 1e-12, scheduleIndex < schedule.count {
+                    let entry = schedule[scheduleIndex]
+                    let isLast = scheduleIndex == schedule.count - 1
+                    let use = isLast ? need : min(need, scheduleRemaining)
+                    if use > 1e-12 {
+                        annulusStack.addBackfillFromSurface(rho: entry.density_kgpm3, volume_m3: use, bitMD: bitMD, color: entry.color, pv_cP: entry.pv_cP, yp_Pa: entry.yp_Pa)
+                        need -= use
+                        if !isLast { scheduleRemaining -= use }
+                        backfillRemaining = max(0, backfillRemaining - use)
                     }
-                    if need > 1e-12, input.switchToBaseAfterFixed {
-                        annulusStack.addBackfillFromSurface(rho: input.baseMudDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.baseMudColor, pv_cP: input.baseMudPV_cP, yp_Pa: input.baseMudYP_Pa)
-                        need = 0.0
+                    // Advance to next entry if current volume depleted (skip if last — pumps forever)
+                    if !isLast && scheduleRemaining < 1e-12 {
+                        scheduleIndex += 1
+                        if scheduleIndex < schedule.count {
+                            scheduleRemaining = schedule[scheduleIndex].volume_m3
+                        }
+                    } else {
+                        break
                     }
-                } else {
-                    // No fixed volume specified: use backfillDensity for ALL backfill
-                    // This is the common case where user selects a backfill mud in the UI
-                    annulusStack.addBackfillFromSurface(rho: input.backfillDensity_kgpm3, volume_m3: need, bitMD: bitMD, color: input.backfillColor, pv_cP: input.backfillPV_cP, yp_Pa: input.backfillYP_Pa)
-                    need = 0.0
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)
             }

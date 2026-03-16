@@ -60,6 +60,9 @@ final class TripInSimulation {
     /// Pipe weight (kg/m) for displacement calculation
     var pipeWeight_kgm: Double = 35.7
 
+    /// Total flow area at pipe end (m²). nil = full bore (open), 0 = closed end
+    var pipeTFA_m2: Double?
+
     // MARK: - Floated Casing Configuration
 
     /// Whether this is a floated casing run (air in lower section)
@@ -115,6 +118,8 @@ final class TripInSimulation {
     /// T&D rotation efficiency for downward motion (0-1)
     var tdRotationEfficiencyDown: Double = 0.5
     var tdSheaveLineFriction: Double = 0
+    /// Use simplified string config (pipeOD/pipeID) instead of project drill string for T&D
+    var tdUseStringConfig: Bool = false
     /// Hold SABP open (don't apply choke pressure)
     var holdSABPOpen: Bool = false
 

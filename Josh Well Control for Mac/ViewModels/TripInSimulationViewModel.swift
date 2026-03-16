@@ -28,6 +28,7 @@ class TripInSimulationViewModel {
     var pipeOD_m: Double = 0.1778   // 7"
     var pipeID_m: Double = 0.1572   // 6.184"
     var pipeWeight_kgm: Double = 35.7
+    var pipeTFA_m2: Double?  // Total flow area at pipe end (nil = full bore)
 
     // Floated casing
     var isFloatedCasing: Bool = false
@@ -55,6 +56,7 @@ class TripInSimulationViewModel {
     var tdRotationEfficiencyUp: Double = 0.5
     var tdRotationEfficiencyDown: Double = 0.5
     var tdSheaveLineFriction: Double = 0
+    var tdUseStringConfig: Bool = false  // true = use pipeOD/pipeID, false = use project drill string
 
     // Fluids
     var fillMudID: UUID?  // Selected fill-up mud from project muds
@@ -296,16 +298,32 @@ class TripInSimulationViewModel {
 
         // Build geometry service for per-step surge calculation
         let dsSections: [DrillStringSection]
-        if let projectDS = project.drillString, !projectDS.isEmpty {
-            dsSections = projectDS
-        } else {
+        if tdUseStringConfig {
+            // User chose simplified string config (pipeOD/pipeID/weight/TFA)
             let syntheticDS = DrillStringSection(
-                name: "Trip-In String",
+                name: stringName.isEmpty ? "Trip-In String" : stringName,
                 topDepth_m: 0,
                 length_m: endBitMD_m,
                 outerDiameter_m: pipeOD_m,
-                innerDiameter_m: pipeID_m
+                innerDiameter_m: pipeID_m,
+                unitWeight_kg_per_m: pipeWeight_kgm
             )
+            syntheticDS.totalFlowArea_m2 = pipeTFA_m2
+            dsSections = [syntheticDS]
+        } else if let projectDS = project.drillString, !projectDS.isEmpty {
+            // Use project drill string segments
+            dsSections = projectDS
+        } else {
+            // No project drill string — fall back to string config
+            let syntheticDS = DrillStringSection(
+                name: stringName.isEmpty ? "Trip-In String" : stringName,
+                topDepth_m: 0,
+                length_m: endBitMD_m,
+                outerDiameter_m: pipeOD_m,
+                innerDiameter_m: pipeID_m,
+                unitWeight_kg_per_m: pipeWeight_kgm
+            )
+            syntheticDS.totalFlowArea_m2 = pipeTFA_m2
             dsSections = [syntheticDS]
         }
         let surgeGeom = ProjectGeometryService(
@@ -377,10 +395,10 @@ class TripInSimulationViewModel {
         )
         serviceInput.holdSABPOpen = holdSABPOpen
 
-        // Wire T&D if enabled
+        // Wire T&D if enabled (uses same dsSections as surge — respects string config toggle)
         if tdEnabled {
             let surveys = project.surveys ?? []
-            let drillStringForTD = project.drillString ?? dsSections
+            let drillStringForTD = dsSections
             let annulusSections = project.annulus ?? []
             if !surveys.isEmpty && !drillStringForTD.isEmpty {
                 serviceInput.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
@@ -481,6 +499,7 @@ class TripInSimulationViewModel {
         simulation.pipeOD_m = pipeOD_m
         simulation.pipeID_m = pipeID_m
         simulation.pipeWeight_kgm = pipeWeight_kgm
+        simulation.pipeTFA_m2 = pipeTFA_m2
         simulation.isFloatedCasing = isFloatedCasing
         simulation.floatSubMD_m = floatSubMD_m
         simulation.crackFloat_kPa = crackFloat_kPa
@@ -501,6 +520,7 @@ class TripInSimulationViewModel {
         simulation.tdRotationEfficiencyUp = tdRotationEfficiencyUp
         simulation.tdRotationEfficiencyDown = tdRotationEfficiencyDown
         simulation.tdSheaveLineFriction = tdSheaveLineFriction
+        simulation.tdUseStringConfig = tdUseStringConfig
         simulation.holdSABPOpen = holdSABPOpen
         simulation.updatedAt = .now
 
@@ -521,6 +541,7 @@ class TripInSimulationViewModel {
         pipeOD_m = simulation.pipeOD_m
         pipeID_m = simulation.pipeID_m
         pipeWeight_kgm = simulation.pipeWeight_kgm
+        pipeTFA_m2 = simulation.pipeTFA_m2
         isFloatedCasing = simulation.isFloatedCasing
         floatSubMD_m = simulation.floatSubMD_m
         crackFloat_kPa = simulation.crackFloat_kPa
@@ -541,6 +562,7 @@ class TripInSimulationViewModel {
         tdRotationEfficiencyUp = simulation.tdRotationEfficiencyUp
         tdRotationEfficiencyDown = simulation.tdRotationEfficiencyDown
         tdSheaveLineFriction = simulation.tdSheaveLineFriction
+        tdUseStringConfig = simulation.tdUseStringConfig
         holdSABPOpen = simulation.holdSABPOpen
         return true
     }

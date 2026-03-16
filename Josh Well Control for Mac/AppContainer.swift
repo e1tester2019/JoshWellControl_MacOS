@@ -32,7 +32,10 @@ enum AppContainer {
     // v17: Removed simulation result persistence; inputs-only
     // v18: Added tripSpeed_m_per_min to TripInSimulation
     // v19: Added tdAplEccentricity, tdPressureAreaBuoyancy to TripSimulation and TripInSimulation
-    private static let schemaVersion = 19
+    // v20: Added RigDataImport for rig data vs sim comparison
+    // v21: Added correctionDepth_m, correctionOffset_kDaN to RigDataImport
+    // v22: Added tdUseStringConfig, pipeTFA_m2 to TripInSimulation
+    private static let schemaVersion = 22
     private static let schemaVersionKey = "AppContainerSchemaVersion"
     private static let resetPendingKey = "AppContainerResetPending"
 
@@ -174,7 +177,9 @@ enum AppContainer {
             // Shift Calendar
             ShiftEntry.self,
             // Formation Overlay
-            FormationTop.self
+            FormationTop.self,
+            // Rig Data Import
+            RigDataImport.self
         ]
         let fullSchema = Schema(models)
 

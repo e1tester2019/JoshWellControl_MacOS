@@ -569,6 +569,19 @@ struct SuperSimTimelineChart: View {
                         hoveredPoint = nil
                     }
                 }
+                .onTapGesture { location in
+                    if let plotFrame = proxy.plotFrame {
+                        let plotAreaOrigin = geo[plotFrame].origin
+                        let x = location.x - plotAreaOrigin.x
+                        if let stepValue: Double = proxy.value(atX: x) {
+                            let step = Int(stepValue.rounded())
+                            if let point = data.first(where: { $0.globalIndex == step })
+                                ?? data.min(by: { abs($0.globalIndex - step) < abs($1.globalIndex - step) }) {
+                                viewModel.globalStepSliderValue = Double(point.globalIndex)
+                            }
+                        }
+                    }
+                }
         }
     }
 

@@ -613,6 +613,7 @@ class CirculationService {
         tdRotationEfficiencyUp: Double = 1.0,
         tdRotationEfficiencyDown: Double = 1.0,
         tdSheaveLineFriction: Double = 0,
+        surfaceLineVolume_m3: Double = 0,
         progressCallback: ((_ pumped: Double, _ total: Double) -> Void)? = nil
     ) -> PreviewResult {
         guard !pumpQueue.isEmpty else {
@@ -721,6 +722,16 @@ class CirculationService {
 
         var overflowAtSurface: [VolumeParcel] = []
 
+        // Surface line buffer: fluid must pass through before entering the string
+        let surfaceLineCap = max(0.0, surfaceLineVolume_m3)
+        var surfaceLineParcels: [VolumeParcel] = surfaceLineCap > 1e-9
+            ? [VolumeParcel(
+                volume_m3: surfaceLineCap,
+                colorR: 0.5, colorG: 0.5, colorB: 0.5, colorA: 0.35,
+                rho_kgpm3: activeMudDensity_kgpm3, mudID: nil
+            )]
+            : []
+
         // Helper: convert current annulus parcels + open hole to pocket layer snapshots for ESD
         func currentPocketLayers() -> [TripLayerSnapshot] {
             let annulusSnapshots = snapshotsFromAnnulusParcels(
@@ -793,14 +804,32 @@ class CirculationService {
 
                 progressCallback?(cumulativeVolume, totalQueueVolume)
 
-                // 1. Push pumped fluid into STRING at surface
+                // 1. Push pumped fluid through surface line (if any) then into STRING
                 var expelledAtBit: [VolumeParcel] = []
-                pushToTopAndOverflow(
-                    stringParcels: &stringParcels,
-                    add: VolumeParcel(volume_m3: thisStepVolume, fluid: operation.fluid),
-                    capacity_m3: stringCapacity,
-                    expelled: &expelledAtBit
-                )
+                if surfaceLineCap > 1e-9 {
+                    var exitedSurfaceLine: [VolumeParcel] = []
+                    pushToTopAndOverflow(
+                        stringParcels: &surfaceLineParcels,
+                        add: VolumeParcel(volume_m3: thisStepVolume, fluid: operation.fluid),
+                        capacity_m3: surfaceLineCap,
+                        expelled: &exitedSurfaceLine
+                    )
+                    for p in exitedSurfaceLine {
+                        pushToTopAndOverflow(
+                            stringParcels: &stringParcels,
+                            add: p,
+                            capacity_m3: stringCapacity,
+                            expelled: &expelledAtBit
+                        )
+                    }
+                } else {
+                    pushToTopAndOverflow(
+                        stringParcels: &stringParcels,
+                        add: VolumeParcel(volume_m3: thisStepVolume, fluid: operation.fluid),
+                        capacity_m3: stringCapacity,
+                        expelled: &expelledAtBit
+                    )
+                }
 
                 // 2. String overflow exits at bit → enters ANNULUS from bottom
                 var displacedDescription = ""

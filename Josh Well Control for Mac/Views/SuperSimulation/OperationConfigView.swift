@@ -12,7 +12,8 @@ struct OperationConfigView: View {
     var project: ProjectState
     
     @FocusState private var focusedField: Field?
-    
+    @State private var showKillMudSolver = false
+
     enum Field: Hashable {
         case startMD, endMD, targetESD, step, tripSpeed, controlMD, crackFloat
         case displacementVolume, eccentricity, pitGain
@@ -118,19 +119,133 @@ struct OperationConfigView: View {
                 .frame(width: 240)
                 .pickerStyle(.menu)
             }
-            GridRow {
-                Text("Backfill Mud:")
-                    .frame(width: 140, alignment: .trailing)
-                Picker("", selection: $operation.backfillMudID) {
-                    Text("Select Mud").tag(nil as UUID?)
-                    ForEach(sortedMuds, id: \.id) { mud in
-                        Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3)) kg/m\u{00B3}")
-                            .tag(mud.id as UUID?)
+            if operation.fluidSchedule.isEmpty {
+                // Legacy: single backfill mud
+                GridRow {
+                    Text("Backfill Mud:")
+                        .frame(width: 140, alignment: .trailing)
+                    HStack(spacing: 6) {
+                        Picker("", selection: $operation.backfillMudID) {
+                            Text("Select Mud").tag(nil as UUID?)
+                            ForEach(sortedMuds, id: \.id) { mud in
+                                Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3)) kg/m\u{00B3}")
+                                    .tag(mud.id as UUID?)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 200)
+                        .pickerStyle(.menu)
+                        Button {
+                            var items: [FluidScheduleItem] = []
+                            if let bfID = operation.backfillMudID {
+                                let bfMud = sortedMuds.first(where: { $0.id == bfID })
+                                items.append(FluidScheduleItem(
+                                    mudID: bfID,
+                                    mudName: bfMud?.name ?? "",
+                                    density_kgpm3: operation.backfillDensity_kgpm3
+                                ))
+                            } else {
+                                items.append(FluidScheduleItem())
+                            }
+                            operation.fluidSchedule = items
+                        } label: {
+                            Image(systemName: "list.bullet")
+                        }
+                        .help("Switch to multi-phase fluid schedule")
                     }
                 }
-                .labelsHidden()
-                .frame(width: 240)
-                .pickerStyle(.menu)
+            } else {
+                // Multi-phase fluid schedule editor
+                GridRow {
+                    Text("Pump Schedule:")
+                        .frame(width: 140, alignment: .trailing)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(operation.fluidSchedule.indices, id: \.self) { i in
+                            HStack(spacing: 6) {
+                                // Reorder buttons
+                                VStack(spacing: 0) {
+                                    Button {
+                                        operation.fluidSchedule.swapAt(i, i - 1)
+                                    } label: {
+                                        Image(systemName: "chevron.up")
+                                            .font(.caption2)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(i == 0)
+                                    .opacity(i == 0 ? 0.25 : 1)
+                                    Button {
+                                        operation.fluidSchedule.swapAt(i, i + 1)
+                                    } label: {
+                                        Image(systemName: "chevron.down")
+                                            .font(.caption2)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(i == operation.fluidSchedule.count - 1)
+                                    .opacity(i == operation.fluidSchedule.count - 1 ? 0.25 : 1)
+                                }
+                                .frame(width: 14)
+                                Text("\(i + 1).")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18, alignment: .trailing)
+                                    .monospacedDigit()
+                                Picker("", selection: Binding(
+                                    get: { operation.fluidSchedule[i].mudID },
+                                    set: { newID in
+                                        operation.fluidSchedule[i].mudID = newID
+                                        if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
+                                            operation.fluidSchedule[i].density_kgpm3 = mud.density_kgm3
+                                            operation.fluidSchedule[i].mudName = mud.name
+                                        }
+                                    }
+                                )) {
+                                    Text("Select Mud").tag(nil as UUID?)
+                                    ForEach(sortedMuds, id: \.id) { mud in
+                                        Text("\(mud.name): \(String(format: "%.0f", mud.density_kgm3))")
+                                            .tag(mud.id as UUID?)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 180)
+                                .pickerStyle(.menu)
+                                if i < operation.fluidSchedule.count - 1 {
+                                    TextField("Vol", value: $operation.fluidSchedule[i].volume_m3, format: .number.precision(.fractionLength(2)))
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 60)
+                                    Text("m\u{00B3}")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("\u{2192} remaining")
+                                        .foregroundStyle(.secondary)
+                                        .italic()
+                                }
+                                Button {
+                                    operation.fluidSchedule.remove(at: i)
+                                } label: {
+                                    Image(systemName: "minus.circle")
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        HStack(spacing: 8) {
+                            Button {
+                                operation.fluidSchedule.append(FluidScheduleItem())
+                            } label: {
+                                Label("Add Phase", systemImage: "plus.circle")
+                            }
+                            .controlSize(.small)
+                            Button {
+                                operation.fluidSchedule = []
+                            } label: {
+                                Text("Use single backfill")
+                            }
+                            .controlSize(.small)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             GridRow {
                 Text("Step Size (m):")
@@ -267,19 +382,21 @@ struct OperationConfigView: View {
                         .frame(width: 120)
                 }
             }
-            GridRow {
-                Text("")
-                    .frame(width: 140, alignment: .trailing)
-                Toggle("Switch to active after displacement", isOn: $operation.switchToActiveAfterDisplacement)
-                    .controlSize(.small)
-                    .help("Pump backfill mud for the drill string displacement volume, then switch to active mud for the remaining pit gain portion")
-                    .onChange(of: operation.switchToActiveAfterDisplacement) { _, newValue in
-                        if newValue && operation.overrideDisplacementVolume_m3 < 0.001 {
-                            operation.overrideDisplacementVolume_m3 = computedDisplacementVolume
+            if operation.fluidSchedule.isEmpty {
+                GridRow {
+                    Text("")
+                        .frame(width: 140, alignment: .trailing)
+                    Toggle("Switch to active after displacement", isOn: $operation.switchToActiveAfterDisplacement)
+                        .controlSize(.small)
+                        .help("Pump backfill mud for the drill string displacement volume, then switch to active mud for the remaining pit gain portion")
+                        .onChange(of: operation.switchToActiveAfterDisplacement) { _, newValue in
+                            if newValue && operation.overrideDisplacementVolume_m3 < 0.001 {
+                                operation.overrideDisplacementVolume_m3 = computedDisplacementVolume
+                            }
                         }
-                    }
+                }
             }
-            if operation.switchToActiveAfterDisplacement {
+            if operation.fluidSchedule.isEmpty && operation.switchToActiveAfterDisplacement {
                 GridRow {
                     Text("")
                         .frame(width: 140, alignment: .trailing)
@@ -347,6 +464,16 @@ struct OperationConfigView: View {
                         #endif
                 }
             }
+            GridRow {
+                Text("")
+                    .frame(width: 140, alignment: .trailing)
+                Button {
+                    showKillMudSolver = true
+                } label: {
+                    Label("Kill Mud Solver", systemImage: "target")
+                }
+                .controlSize(.small)
+            }
         }
         .onChange(of: operation.baseMudID) { _, newID in
             if let newID, let mud = sortedMuds.first(where: { $0.id == newID }) {
@@ -360,6 +487,45 @@ struct OperationConfigView: View {
                 operation.backfillColorG = mud.colorG
                 operation.backfillColorB = mud.colorB
                 operation.backfillColorA = mud.colorA
+            }
+        }
+        .sheet(isPresented: $showKillMudSolver) {
+            let activeMud = sortedMuds.first(where: { $0.id == operation.baseMudID })
+            KillMudSolverView(
+                project: project,
+                startMD_m: operation.startMD_m,
+                endMD_m: operation.endMD_m,
+                controlMD_m: operation.controlMD_m,
+                targetESD_kgpm3: operation.targetESD_kgpm3,
+                baseMudDensity_kgpm3: activeMud?.density_kgm3 ?? operation.baseMudDensity_kgpm3,
+                baseMudPV_cP: (activeMud?.pv_Pa_s ?? 0) * 1000,
+                baseMudYP_Pa: activeMud?.yp_Pa ?? 0,
+                crackFloat_kPa: operation.crackFloat_kPa,
+                tripSpeed_m_per_s: abs(operation.tripSpeed_m_per_s),
+                eccentricityFactor: operation.eccentricityFactor,
+                step_m: operation.step_m
+            ) { result in
+                // Apply solver result: build fluid schedule with pipe kill + annulus kill + active mud
+                var schedule: [FluidScheduleItem] = []
+                // Pipe kill phase
+                schedule.append(FluidScheduleItem(
+                    mudName: String(format: "Kill %.0f", result.pipeKillDensity_kgpm3),
+                    density_kgpm3: result.pipeKillDensity_kgpm3,
+                    volume_m3: result.pipeKillVolume_m3
+                ))
+                // Annulus kill phase
+                schedule.append(FluidScheduleItem(
+                    mudName: String(format: "Kill %.0f", result.annulusKillDensity_kgpm3),
+                    density_kgpm3: result.annulusKillDensity_kgpm3,
+                    volume_m3: result.annulusKillVolume_m3
+                ))
+                // Active mud (remaining)
+                schedule.append(FluidScheduleItem(
+                    mudID: operation.baseMudID,
+                    mudName: activeMud?.name ?? "Active",
+                    density_kgpm3: activeMud?.density_kgm3 ?? operation.baseMudDensity_kgpm3
+                ))
+                operation.fluidSchedule = schedule
             }
         }
     }

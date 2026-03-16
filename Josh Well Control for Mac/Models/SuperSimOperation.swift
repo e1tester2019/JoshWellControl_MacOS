@@ -26,6 +26,15 @@ enum OperationType: String, Codable, CaseIterable {
     }
 }
 
+/// A single entry in a fluid pumping schedule for a trip operation.
+struct FluidScheduleItem: Identifiable, Codable {
+    var id: UUID = UUID()
+    var mudID: UUID?
+    var mudName: String = ""
+    var density_kgpm3: Double = 1200
+    var volume_m3: Double = 0        // 0 = pump indefinitely (last entry)
+}
+
 struct SuperSimOperation: Identifiable {
     let id: UUID
     var type: OperationType
@@ -55,6 +64,10 @@ struct SuperSimOperation: Identifiable {
     var switchToActiveAfterDisplacement: Bool = false
     var useOverrideDisplacementVolume: Bool = false
     var overrideDisplacementVolume_m3: Double = 0
+
+    /// Ordered fluid schedule for trip out. When non-empty, overrides backfill/base mud fields.
+    /// Last entry pumps indefinitely (volume ignored).
+    var fluidSchedule: [FluidScheduleItem] = []
     var holdSABPOpen: Bool = false
     var eccentricityFactor: Double = 1.2
     var fallbackTheta600: Double? = nil

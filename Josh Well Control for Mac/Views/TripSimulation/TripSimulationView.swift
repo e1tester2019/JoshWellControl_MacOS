@@ -58,17 +58,25 @@ struct TripSimulationView: View {
     @State private var exportErrorMessage = ""
     @State private var hookLoadSelectedDepth: Double?
 
+    // Rig data comparison state
+    @State private var selectedRigImportID: UUID?
+    @State private var comparisonResult: ComparisonResult?
+    @State private var rigImportProcessing = false
+    @State private var rigImportError: String?
+
     // Consolidated sheet state
     private enum SheetType: Identifiable {
         case optimizer
         case pumpSchedule
         case circulation
+        case killMudSolver
 
         var id: String {
             switch self {
             case .optimizer: return "optimizer"
             case .pumpSchedule: return "pumpSchedule"
             case .circulation: return "circulation"
+            case .killMudSolver: return "killMudSolver"
             }
         }
     }
@@ -125,6 +133,19 @@ struct TripSimulationView: View {
                 }
             }
         }
+        .onChange(of: project.id) { _, _ in
+            // Project switched — reload cached ViewModel and saved inputs
+            let newVM = TripSimViewModelCache.get(for: project.id)
+            viewmodel = newVM
+            if viewmodel.steps.isEmpty && viewmodel.startBitMD_m == 0 {
+                if !viewmodel.loadSavedInputs(project: project) {
+                    viewmodel.bootstrap(from: project)
+                }
+            }
+            // Reset rig comparison state
+            selectedRigImportID = nil
+            comparisonResult = nil
+        }
         .onChange(of: viewmodel.selectedIndex) { _, newVal in
             viewmodel.stepSlider = Double(newVal ?? 0)
             // Reset ballooning actual volume to simulated value when step changes
@@ -144,6 +165,25 @@ struct TripSimulationView: View {
                 pumpScheduleSheet
             case .circulation:
                 circulationSheet
+            case .killMudSolver:
+                let activeMud = project.activeMud
+                KillMudSolverView(
+                    project: project,
+                    startMD_m: viewmodel.startBitMD_m,
+                    endMD_m: viewmodel.endMD_m,
+                    controlMD_m: viewmodel.shoeMD_m,
+                    targetESD_kgpm3: viewmodel.targetESDAtTD_kgpm3,
+                    baseMudDensity_kgpm3: activeMud?.density_kgm3 ?? viewmodel.baseMudDensity_kgpm3,
+                    baseMudPV_cP: (activeMud?.pv_Pa_s ?? 0) * 1000,
+                    baseMudYP_Pa: activeMud?.yp_Pa ?? 0,
+                    crackFloat_kPa: viewmodel.crackFloat_kPa,
+                    tripSpeed_m_per_s: abs(project.settings.tripSpeed_m_per_s),
+                    eccentricityFactor: viewmodel.eccentricityFactor,
+                    step_m: viewmodel.step_m
+                ) { result in
+                    // Apply solver result: set backfill density from the best annulus kill
+                    viewmodel.backfillDensity_kgpm3 = result.annulusKillDensity_kgpm3
+                }
             }
         }
     }
@@ -436,6 +476,14 @@ struct TripSimulationView: View {
                     activeSheet = .optimizer
                 } label: {
                     Label("Optimizer", systemImage: "function")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    activeSheet = .killMudSolver
+                } label: {
+                    Label("Kill Mud Solver", systemImage: "target")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -1746,8 +1794,11 @@ struct TripSimulationView: View {
             // Table or Hook Load chart
             GeometryReader { g in
                 if viewmodel.showHookLoadChart {
-                    hookLoadChart
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 8) {
+                        hookLoadChart
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        rigDataComparisonSection
+                    }
                 } else if !viewmodel.steps.isEmpty {
                     VStack(spacing: 8) {
                         stepsTable
@@ -1998,7 +2049,22 @@ struct TripSimulationView: View {
                 points.append(HookLoadPoint(depth: d, value: v / 10.0, series: "Free Hanging"))
             }
         }
+        // Overlay rig data if available (negated depth to match chart convention)
+        if let rigImport = selectedRigImport {
+            for stand in rigImport.correctedStandData {
+                points.append(HookLoadPoint(depth: -stand.standMidMD_m, value: stand.avgHL_kDaN, series: "Rig Avg"))
+            }
+        }
         return points
+    }
+
+    private var selectedRigImport: RigDataImport? {
+        guard let id = selectedRigImportID else { return nil }
+        return (project.rigDataImports ?? []).first { $0.id == id }
+    }
+
+    private var rigImportsForTripOut: [RigDataImport] {
+        (project.rigDataImports ?? []).filter { $0.tripType == "out" }.sorted { $0.createdAt > $1.createdAt }
     }
 
     /// The depth cursor driven by the step slider (negated to match chart convention)
@@ -2014,11 +2080,19 @@ struct TripSimulationView: View {
 
     private var hookLoadChart: some View {
         let data = hookLoadChartData
+        let simData = data.filter { $0.series != "Rig Avg" }
+        let rigAvgData = data.filter { $0.series == "Rig Avg" }
+        // Error bar data from rig import (negated depth to match chart)
+        let rigErrorBars: [(depth: Double, min: Double, max: Double)] = {
+            guard let ri = selectedRigImport else { return [] }
+            return ri.correctedStandData.map { (depth: -$0.standMidMD_m, min: $0.minHL_kDaN, max: $0.maxHL_kDaN) }
+        }()
         let minX = data.map(\.depth).min() ?? -1
         let maxX = data.map(\.depth).max() ?? 0
         return GroupBox("Hook Load vs Depth") {
             Chart {
-                ForEach(data) { point in
+                // Sim lines
+                ForEach(simData) { point in
                     LineMark(
                         x: .value("Depth", point.depth),
                         y: .value("Hook Load", point.value)
@@ -2036,6 +2110,27 @@ struct TripSimulationView: View {
                     }
                 }
 
+                // Rig error bars (min-max range)
+                ForEach(Array(rigErrorBars.enumerated()), id: \.offset) { _, bar in
+                    RectangleMark(
+                        x: .value("Depth", bar.depth),
+                        yStart: .value("Min", bar.min),
+                        yEnd: .value("Max", bar.max),
+                        width: 4
+                    )
+                    .foregroundStyle(Color.orange.opacity(0.3))
+                }
+
+                // Rig average points
+                ForEach(rigAvgData) { point in
+                    PointMark(
+                        x: .value("Depth", point.depth),
+                        y: .value("Hook Load", point.value)
+                    )
+                    .foregroundStyle(by: .value("Series", point.series))
+                    .symbolSize(20)
+                }
+
                 // Vertical cursor line at selected depth
                 if let sel = activeHookLoadDepth {
                     RuleMark(x: .value("Cursor", sel))
@@ -2049,7 +2144,8 @@ struct TripSimulationView: View {
                 "Pickup": Color.green,
                 "Slack-off": Color.red,
                 "Rotating": Color.blue,
-                "Free Hanging": Color.gray
+                "Free Hanging": Color.gray,
+                "Rig Avg": Color.orange
             ])
             .chartXScale(domain: minX ... maxX)
             .chartXAxis {
@@ -2118,8 +2214,265 @@ struct TripSimulationView: View {
         case "Slack-off": return .red
         case "Rotating": return .blue
         case "Free Hanging": return .gray
+        case "Rig Avg": return .orange
         default: return .primary
         }
+    }
+
+    // MARK: - Rig Data Comparison Section
+
+    private var rigDataComparisonSection: some View {
+        GroupBox("Rig Data Comparison") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("Rig Import:", selection: $selectedRigImportID) {
+                        Text("None").tag(nil as UUID?)
+                        ForEach(rigImportsForTripOut) { imp in
+                            Text(imp.name.isEmpty ? imp.sourceFileName : imp.name).tag(imp.id as UUID?)
+                        }
+                    }
+                    .frame(maxWidth: 300)
+
+                    Button("Import CSV...") {
+                        importRigCSV(tripType: "out")
+                    }
+
+                    if selectedRigImport != nil {
+                        Button("Export HTML") {
+                            exportComparisonHTML()
+                        }
+
+                        Button(role: .destructive) {
+                            deleteSelectedRigImport()
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                    }
+                }
+
+                if let ri = selectedRigImport {
+                    HStack(spacing: 16) {
+                        Text("\(ri.standCount) stands")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Depth: \(String(format: "%.0f", ri.minBitDepth_m)) - \(String(format: "%.0f", ri.maxBitDepth_m)) m")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(ri.filteredRows)/\(ri.totalRawRows) rows used")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Text("HL Correction:").font(.caption)
+                        HStack(spacing: 4) {
+                            Text("Depth").font(.caption2).foregroundStyle(.secondary)
+                            TextField("m", value: Binding(get: { ri.correctionDepth_m }, set: { ri.correctionDepth_m = $0; recomputeComparison() }), format: .number)
+                                .frame(width: 60)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption)
+                        }
+                        HStack(spacing: 4) {
+                            Text("Offset").font(.caption2).foregroundStyle(.secondary)
+                            TextField("kDaN", value: Binding(get: { ri.correctionOffset_kDaN }, set: { ri.correctionOffset_kDaN = $0; recomputeComparison() }), format: .number)
+                                .frame(width: 60)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption)
+                        }
+                        Text("Subtracts offset from data \u{2265} depth")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                if let comp = comparisonResult, !comp.stands.isEmpty {
+                    Divider()
+                    Text("Residual Statistics (Rig \u{2212} Sim Pickup)")
+                        .font(.caption.bold())
+                    if !comp.zoneStats.isEmpty {
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                            GridRow {
+                                Text("Zone").font(.caption2.bold()).frame(width: 60, alignment: .leading)
+                                Text("N").font(.caption2.bold()).frame(width: 30, alignment: .trailing)
+                                Text("Mean").font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text("P10").font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text("P50").font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text("P90").font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text("StdDev").font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                            }
+                            ForEach(comp.zoneStats) { stat in
+                                GridRow {
+                                    Text(stat.zone).font(.caption2).frame(width: 60, alignment: .leading)
+                                    Text("\(stat.count)").font(.caption2).frame(width: 30, alignment: .trailing)
+                                    Text(String(format: "%.1f", stat.meanResidual)).font(.caption2).frame(width: 50, alignment: .trailing)
+                                    Text(String(format: "%.1f", stat.p10)).font(.caption2).frame(width: 50, alignment: .trailing)
+                                    Text(String(format: "%.1f", stat.p50)).font(.caption2).frame(width: 50, alignment: .trailing)
+                                    Text(String(format: "%.1f", stat.p90)).font(.caption2).frame(width: 50, alignment: .trailing)
+                                    Text(String(format: "%.1f", stat.stddev)).font(.caption2).frame(width: 50, alignment: .trailing)
+                                }
+                            }
+                            GridRow {
+                                Text(comp.overallStats.zone).font(.caption2.bold()).frame(width: 60, alignment: .leading)
+                                Text("\(comp.overallStats.count)").font(.caption2.bold()).frame(width: 30, alignment: .trailing)
+                                Text(String(format: "%.1f", comp.overallStats.meanResidual)).font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text(String(format: "%.1f", comp.overallStats.p10)).font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text(String(format: "%.1f", comp.overallStats.p50)).font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text(String(format: "%.1f", comp.overallStats.p90)).font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                                Text(String(format: "%.1f", comp.overallStats.stddev)).font(.caption2.bold()).frame(width: 50, alignment: .trailing)
+                            }
+                        }
+                    }
+
+                    Divider()
+                    Text("Per-Stand Comparison")
+                        .font(.caption.bold())
+                    ScrollView {
+                        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+                            GridRow {
+                                Text("MD (m)").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                                Text("Zone").font(.caption2.bold()).frame(width: 50, alignment: .leading)
+                                Text("Rig Avg").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                                Text("Rig Min").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                                Text("Rig Max").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                                Text("Sim").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                                Text("Residual").font(.caption2.bold()).frame(width: 55, alignment: .trailing)
+                            }
+                            ForEach(comp.stands) { s in
+                                GridRow {
+                                    Text(String(format: "%.0f", s.depth_m)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                    Text(s.zone.rawValue).font(.caption2).frame(width: 50, alignment: .leading)
+                                        .foregroundStyle(s.zone == .vertical ? .blue : s.zone == .build ? .orange : .green)
+                                    Text(String(format: "%.1f", s.rigAvg_kDaN)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                    Text(String(format: "%.1f", s.rigMin_kDaN)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                    Text(String(format: "%.1f", s.rigMax_kDaN)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                    Text(String(format: "%.1f", s.simValue_kDaN)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                    Text(String(format: "%+.1f", s.residual_kDaN)).font(.caption2.monospacedDigit()).frame(width: 55, alignment: .trailing)
+                                        .foregroundStyle(s.residual_kDaN > 0 ? .red : .green)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                }
+            }
+        }
+        .onChange(of: selectedRigImportID) { recomputeComparison() }
+        .onChange(of: viewmodel.steps.count) { recomputeComparison() }
+        .alert("Import Error", isPresented: Binding(get: { rigImportError != nil }, set: { if !$0 { rigImportError = nil } })) {
+            Button("OK") { rigImportError = nil }
+        } message: {
+            Text(rigImportError ?? "")
+        }
+    }
+
+    private func importRigCSV(tripType: String) {
+        guard let result = RigDataImportService.shared.pickCSVFile() else { return }
+        rigImportProcessing = true
+
+        Task {
+            let rows = RigDataImportService.shared.parseCSV(result.text)
+            guard !rows.isEmpty else {
+                await MainActor.run {
+                    rigImportProcessing = false
+                    rigImportError = "Could not parse CSV. Expected columns: Bit Depth, Hook Load, Block Height."
+                }
+                return
+            }
+
+            let config = RigImportConfig(tripType: tripType)
+            let processed = RigDataImportService.shared.process(rows: rows, config: config)
+
+            await MainActor.run {
+                let imp = RigDataImport()
+                imp.name = result.fileName.replacingOccurrences(of: ".csv", with: "")
+                imp.tripType = tripType
+                imp.sourceFileName = result.fileName
+                imp.standData = processed.stands
+                imp.maxBitDepth_m = processed.maxBitDepth_m
+                imp.minBitDepth_m = processed.minBitDepth_m
+                imp.totalRawRows = processed.totalRawRows
+                imp.filteredRows = processed.filteredRows
+                imp.project = project
+                if project.rigDataImports == nil { project.rigDataImports = [] }
+                project.rigDataImports?.append(imp)
+                modelContext.insert(imp)
+                try? modelContext.save()
+                selectedRigImportID = imp.id
+                rigImportProcessing = false
+            }
+        }
+    }
+
+    private func deleteSelectedRigImport() {
+        guard let imp = selectedRigImport else { return }
+        selectedRigImportID = nil
+        comparisonResult = nil
+        modelContext.delete(imp)
+        try? modelContext.save()
+    }
+
+    private func recomputeComparison() {
+        guard let ri = selectedRigImport, !viewmodel.steps.isEmpty else {
+            comparisonResult = nil
+            return
+        }
+
+        let simSteps = viewmodel.steps.compactMap { step -> (md: Double, pickup_kN: Double, slackOff_kN: Double, freeHanging_kN: Double)? in
+            guard let p = step.pickupHookLoad_kN,
+                  let s = step.slackOffHookLoad_kN,
+                  let f = step.freeHangingWeight_kN else { return nil }
+            return (step.bitMD_m, p, s, f)
+        }
+
+        let surveys = (project.surveys ?? []).map { (md: $0.md, inc_deg: $0.inc) }
+
+        comparisonResult = SimVsRigComparisonService.shared.compare(
+            rigImport: ri,
+            simSteps: simSteps,
+            surveys: surveys,
+            tripType: "out"
+        )
+    }
+
+    private func exportComparisonHTML() {
+        guard let ri = selectedRigImport, let comp = comparisonResult else { return }
+
+        let simSteps = viewmodel.steps.compactMap { step -> (md: Double, pickup_kN: Double, slackOff_kN: Double, freeHanging_kN: Double)? in
+            guard let p = step.pickupHookLoad_kN,
+                  let s = step.slackOffHookLoad_kN,
+                  let f = step.freeHangingWeight_kN else { return nil }
+            return (step.bitMD_m, p, s, f)
+        }
+
+        let wellName = project.well?.name ?? "Unknown Well"
+        let surveys = (project.surveys ?? []).sorted { $0.md < $1.md }
+        var zoneBoundaries: [(md: Double, zone: String)] = []
+        var lastZone = ""
+        for s in surveys {
+            let z = WellZone.from(inclination_deg: s.inc).rawValue
+            if z != lastZone {
+                zoneBoundaries.append((s.md, z))
+                lastZone = z
+            }
+        }
+
+        let htmlData = SimVsRigHTMLData(
+            wellName: wellName,
+            importName: ri.name,
+            tripType: "out",
+            generatedDate: Date(),
+            simMD: simSteps.map(\.md),
+            simPickup_kDaN: simSteps.map { $0.pickup_kN / 10.0 },
+            simSlackOff_kDaN: simSteps.map { $0.slackOff_kN / 10.0 },
+            simFreeHanging_kDaN: simSteps.map { $0.freeHanging_kN / 10.0 },
+            stands: ri.correctedStandData,
+            staticWeights: [],
+            zoneBoundaries: zoneBoundaries,
+            comparison: comp
+        )
+
+        let html = SimVsRigHTMLGenerator.shared.generateHTML(for: htmlData)
+        SimVsRigHTMLGenerator.shared.exportHTML(html, defaultName: "sim_vs_rig_trip_out_\(wellName.replacingOccurrences(of: " ", with: "_")).html")
     }
 
     // MARK: - Drawing helpers
