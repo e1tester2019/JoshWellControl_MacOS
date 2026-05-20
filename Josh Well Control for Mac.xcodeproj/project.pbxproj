@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		3CFE0006FE0AFE0A00FE0A00 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3C2EC4502EB6A34900CB0A94 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3C2EC4572EB6A34900CB0A94;
+			remoteInfo = "Josh Well Control for Mac";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		3C2EC4582EB6A34900CB0A94 /* Josh Well Control for Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Josh Well Control for Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3CFE0002FE0AFE0A00FE0A00 /* FixtureEmitter.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FixtureEmitter.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = "Josh Well Control for Mac";
 			sourceTree = "<group>";
 		};
+		3CFE0003FE0AFE0A00FE0A00 /* FixtureEmitter */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FixtureEmitter;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3C2EC4552EB6A34900CB0A94 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3CFE0005FE0AFE0A00FE0A00 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				3C2EC45A2EB6A34900CB0A94 /* Josh Well Control for Mac */,
+				3CFE0003FE0AFE0A00FE0A00 /* FixtureEmitter */,
 				3C2EC4592EB6A34900CB0A94 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				3C2EC4582EB6A34900CB0A94 /* Josh Well Control for Mac.app */,
+				3CFE0002FE0AFE0A00FE0A00 /* FixtureEmitter.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,28 @@
 			productReference = 3C2EC4582EB6A34900CB0A94 /* Josh Well Control for Mac.app */;
 			productType = "com.apple.product-type.application";
 		};
+		3CFE0001FE0AFE0A00FE0A00 /* FixtureEmitter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3CFE000AFE0AFE0A00FE0A00 /* Build configuration list for PBXNativeTarget "FixtureEmitter" */;
+			buildPhases = (
+				3CFE0004FE0AFE0A00FE0A00 /* Sources */,
+				3CFE0005FE0AFE0A00FE0A00 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3CFE0007FE0AFE0A00FE0A00 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3CFE0003FE0AFE0A00FE0A00 /* FixtureEmitter */,
+			);
+			name = FixtureEmitter;
+			packageProductDependencies = (
+			);
+			productName = FixtureEmitter;
+			productReference = 3CFE0002FE0AFE0A00FE0A00 /* FixtureEmitter.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +129,10 @@
 				TargetAttributes = {
 					3C2EC4572EB6A34900CB0A94 = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					3CFE0001FE0AFE0A00FE0A00 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = 3C2EC4572EB6A34900CB0A94;
 					};
 				};
 			};
@@ -100,6 +151,7 @@
 			projectRoot = "";
 			targets = (
 				3C2EC4572EB6A34900CB0A94 /* Josh Well Control for Mac */,
+				3CFE0001FE0AFE0A00FE0A00 /* FixtureEmitter */,
 			);
 		};
 /* End PBXProject section */
@@ -122,7 +174,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		3CFE0004FE0AFE0A00FE0A00 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3CFE0007FE0AFE0A00FE0A00 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3C2EC4572EB6A34900CB0A94 /* Josh Well Control for Mac */;
+			targetProxy = 3CFE0006FE0AFE0A00FE0A00 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3C2EC4632EB6A34A00CB0A94 /* Debug */ = {
@@ -369,6 +436,61 @@
 			};
 			name = Release;
 		};
+		3CFE0008FE0AFE0A00FE0A00 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 54XURC799W;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "joshsallows.FixtureEmitter";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Josh Well Control for Mac.app/Contents/MacOS/Josh Well Control for Mac";
+			};
+			name = Debug;
+		};
+		3CFE0009FE0AFE0A00FE0A00 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 54XURC799W;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "joshsallows.FixtureEmitter";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Josh Well Control for Mac.app/Contents/MacOS/Josh Well Control for Mac";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -386,6 +508,15 @@
 			buildConfigurations = (
 				3C2EC4662EB6A34A00CB0A94 /* Debug */,
 				3C2EC4672EB6A34A00CB0A94 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3CFE000AFE0AFE0A00FE0A00 /* Build configuration list for PBXNativeTarget "FixtureEmitter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3CFE0008FE0AFE0A00FE0A00 /* Debug */,
+				3CFE0009FE0AFE0A00FE0A00 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
