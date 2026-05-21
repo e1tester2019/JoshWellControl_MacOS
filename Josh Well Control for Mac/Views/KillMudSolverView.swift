@@ -316,6 +316,18 @@ struct KillMudSolverView: View {
                 }
                 .width(min: 80, max: 110)
 
+                TableColumn("Ann Vol (m\u{00B3})") { r in
+                    Text(r.annulusKillVolume_m3.isInfinite ? "\u{221E}" : String(format: "%.1f", r.annulusKillVolume_m3))
+                        .monospacedDigit()
+                }
+                .width(min: 70, max: 90)
+
+                TableColumn("Backfill Ht (m)") { r in
+                    Text(String(format: "%.0f", r.killTVD_m))
+                        .monospacedDigit()
+                }
+                .width(min: 80, max: 110)
+
                 TableColumn("Kill Depth (m)") { r in
                     Text(String(format: "%.0f", r.sustainedKillDepth_m))
                         .monospacedDigit()

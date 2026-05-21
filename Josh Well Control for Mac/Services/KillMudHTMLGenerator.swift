@@ -72,8 +72,10 @@ class KillMudHTMLGenerator {
                 <div class="data-item"><span class="data-label">Target ESD (PP+O/K)</span><span class="data-val">\(f1(d.targetESD_kgpm3)) kg/m\u{00B3}</span></div>
                 <div class="data-item"><span class="data-label">Bit Depth</span><span class="data-val">\(f0(d.bitMD_m)) m</span></div>
                 <div class="data-item"><span class="data-label">Crack Float</span><span class="data-val">\(f0(d.crackFloat_kPa)) kPa</span></div>
-                <div class="data-item"><span class="data-label">Pipe Capacity</span><span class="data-val">\(f4(d.geometry.pipeCapacity_m3_per_m)) m\u{00B3}/m</span></div>
-                <div class="data-item"><span class="data-label">Csg Capacity</span><span class="data-val">\(f4(d.geometry.casingCapacity_m3_per_m)) m\u{00B3}/m</span></div>
+                <div class="data-item"><span class="data-label">Pipe Capacity</span><span class="data-val">\(f5(d.geometry.pipeCapacity_m3_per_m)) m\u{00B3}/m</span></div>
+                <div class="data-item"><span class="data-label">Csg Capacity</span><span class="data-val">\(f5(d.geometry.casingCapacity_m3_per_m)) m\u{00B3}/m</span></div>
+                <div class="data-item"><span class="data-label">OH Capacity</span><span class="data-val">\(f5(d.geometry.ohCapacity_m3_per_m)) m\u{00B3}/m</span></div>
+                <div class="data-item"><span class="data-label">Avg Capacity (wt\u{2019}d)</span><span class="data-val">\(f5(d.geometry.avgCapacity_m3_per_m)) m\u{00B3}/m</span></div>
                 <div class="data-item"><span class="data-label">Pipe Displacement</span><span class="data-val">\(f2(d.geometry.steelDisplacement_m3)) m\u{00B3}</span></div>
                 <div class="data-item"><span class="data-label">g (constant)</span><span class="data-val">0.00981</span></div>
             </div>
@@ -221,11 +223,11 @@ class KillMudHTMLGenerator {
 
             <div class="calc-step">
                 <div class="step-header">I. Kill String Height</div>
-                <div class="step-formula">KS Height = KS Volume \u{00F7} Csg Capacity</div>
+                <div class="step-formula">KS Height = KS Volume \u{00F7} Avg Capacity</div>
                 <div class="step-inputs">
                     <input type="text" inputmode="decimal" id="i1" class="in" placeholder="KS Vol (H)" oninput="calcI()">
                     <span class="op">\u{00F7}</span>
-                    <input type="text" inputmode="decimal" id="i2" class="in" placeholder="Csg Capacity" oninput="calcI()">
+                    <input type="text" inputmode="decimal" id="i2" class="in" placeholder="Avg Capacity" oninput="calcI()">
                     <span class="op">=</span>
                     <span class="result" id="rI">\u{2014}</span>
                     <span class="unit">m</span>
@@ -288,11 +290,11 @@ class KillMudHTMLGenerator {
 
             <div class="calc-step">
                 <div class="step-header">M. Displacement Height</div>
-                <div class="step-formula">Disp Height = Disp Volume \u{00F7} Csg Capacity</div>
+                <div class="step-formula">Disp Height = Disp Volume \u{00F7} Avg Capacity</div>
                 <div class="step-inputs">
                     <input type="text" inputmode="decimal" id="m1" class="in" placeholder="Disp Vol" oninput="calcM()">
                     <span class="op">\u{00F7}</span>
-                    <input type="text" inputmode="decimal" id="m2" class="in" placeholder="Csg Capacity" oninput="calcM()">
+                    <input type="text" inputmode="decimal" id="m2" class="in" placeholder="Avg Capacity" oninput="calcM()">
                     <span class="op">=</span>
                     <span class="result" id="rM">\u{2014}</span>
                     <span class="unit">m</span>
@@ -365,8 +367,8 @@ class KillMudHTMLGenerator {
             <table class="options-table">
                 <thead>
                     <tr>
-                        <th>Ann \u{03C1} (kg/m\u{00B3})</th><th>Kill Depth (m)</th>
-                        <th>Max ESD</th><th>Max SABP (kPa)</th><th>Status</th>
+                        <th>Ann \u{03C1} (kg/m\u{00B3})</th><th>Ann Vol (m\u{00B3})</th><th>Backfill Ht (m)</th>
+                        <th>Kill Depth (m)</th><th>Max ESD</th><th>Max SABP (kPa)</th><th>Status</th>
                     </tr>
                 </thead>
                 <tbody>\(resultsRowsHTML)</tbody>
@@ -441,8 +443,10 @@ class KillMudHTMLGenerator {
             else if r.relived { status = "\u{21A9}\u{FE0F} Re-lives" }
             else { status = "\u{2705} OK" }
             let esdClass = r.maxESDAtControl_kgpm3 > d.fracGradientESD_kgpm3 ? " class=\"warn\"" : ""
+            let volStr = r.annulusKillVolume_m3.isInfinite ? "\u{221E}" : f1(r.annulusKillVolume_m3)
             return """
             <tr><td>\(f0(r.annulusKillDensity_kgpm3))</td>
+            <td>\(volStr)</td><td>\(f0(r.killTVD_m))</td>
             <td>\(f0(r.sustainedKillDepth_m))</td><td\(esdClass)>\(f1(r.maxESDAtControl_kgpm3))</td>
             <td>\(f0(r.maxSABP_kPa))</td><td>\(status)</td></tr>
             """
@@ -453,6 +457,7 @@ class KillMudHTMLGenerator {
     private func f1(_ v: Double) -> String { String(format: "%.1f", v) }
     private func f2(_ v: Double) -> String { String(format: "%.2f", v) }
     private func f4(_ v: Double) -> String { String(format: "%.4f", v) }
+    private func f5(_ v: Double) -> String { String(format: "%.5f", v) }
 
     private func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")

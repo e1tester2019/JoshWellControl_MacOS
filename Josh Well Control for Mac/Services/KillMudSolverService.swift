@@ -97,6 +97,8 @@ struct KillMudSolverService {
         var slugTopMD_m: Double            // MD where pipe kill mud starts (below air gap)
         var kopMD_m: Double                // Kickoff point MD
         var casingCapacity_m3_per_m: Double = 0 // Full bore area of casing (m³/m)
+        var ohCapacity_m3_per_m: Double = 0    // Full bore area of open hole (m³/m)
+        var avgCapacity_m3_per_m: Double = 0   // Length-weighted avg full bore capacity (cased + OH)
 
         // Excel-style derived values
         var pipeCapacity_m3_per_m: Double = 0   // Pipe bore cross-section area
@@ -334,13 +336,41 @@ struct KillMudSolverService {
             return boreVolToControl / max(1, input.controlMD_m)
         }()
 
+        // Open hole capacity: full bore area from deepest open hole section
+        let ohCapacity: Double = {
+            if let ohSec = input.annulusSections.filter({ !$0.isCased }).max(by: { $0.topDepth_m + $0.length_m < $1.topDepth_m + $1.length_m }) {
+                let id = ohSec.innerDiameter_m
+                return .pi / 4.0 * id * id
+            }
+            return casingCapacity
+        }()
+
+        // TVD-weighted average capacity (hydrostatic depends on TVD, not MD)
+        let avgCapacity: Double = {
+            var casedTVD = 0.0
+            var ohTVD = 0.0
+            for sec in input.annulusSections {
+                let tvdTop = tvdSampler.tvd(of: sec.topDepth_m)
+                let tvdBot = tvdSampler.tvd(of: sec.topDepth_m + sec.length_m)
+                let deltaTVD = max(0, tvdBot - tvdTop)
+                if sec.isCased {
+                    casedTVD += deltaTVD
+                } else {
+                    ohTVD += deltaTVD
+                }
+            }
+            let totalTVD = casedTVD + ohTVD
+            guard totalTVD > 0 else { return casingCapacity }
+            return (casingCapacity * casedTVD + ohCapacity * ohTVD) / totalTVD
+        }()
+
         // --- Excel-style derived values ---
         let pipeCapacity = pipeKillBottomMD > 0 ? pipeKillVolume / pipeKillBottomMD : 0
         let killDepth = max(0, pipeKillBottomMD - slugTopMD)
         let killStringVol = geom.volumeInString_m3(slugTopMD, pipeKillBottomMD)
-        let killStringHeight = casingCapacity > 0 ? killStringVol / casingCapacity : 0
+        let killStringHeight = avgCapacity > 0 ? killStringVol / avgCapacity : 0
         let pipeKillPressure = killStringHeight * (pipeDensity - input.baseMudDensity_kgpm3) * g
-        let dispHeight = casingCapacity > 0 ? steelDisplacement / casingCapacity : 0
+        let dispHeight = avgCapacity > 0 ? steelDisplacement / avgCapacity : 0
 
         let solverGeom = SolverGeometry(
             pipeDensity_kgpm3: pipeDensity,
@@ -358,6 +388,8 @@ struct KillMudSolverService {
             slugTopMD_m: slugTopMD,
             kopMD_m: kopMD,
             casingCapacity_m3_per_m: casingCapacity,
+            ohCapacity_m3_per_m: ohCapacity,
+            avgCapacity_m3_per_m: avgCapacity,
             pipeCapacity_m3_per_m: pipeCapacity,
             drainHeight_m: drainHeight_tvd,
             killDepth_m: killDepth,
@@ -368,10 +400,14 @@ struct KillMudSolverService {
             zones: zones
         )
 
-        // --- Density sweep: run sim at each annulus density, full column (to surface) ---
+        // --- Density sweep: run sim at each annulus density using displacement volume ---
+        // Backfill volume is fixed (steel displacement + slug drop).
+        // Varying the density changes how much pressure that column provides.
         let sweepStart = input.sweepStartDensity_kgpm3
         let sweepEnd = input.sweepEndDensity_kgpm3
         let sweepStep = max(input.sweepStep_kgpm3, 1)
+        let backfillVolume = steelDisplacement + slugDrop_m3
+        let backfillHeight = avgCapacity > 0 ? backfillVolume / avgCapacity : 0
         var results: [SolverResult] = []
 
         var annDensity = sweepStart
@@ -380,7 +416,7 @@ struct KillMudSolverService {
                 pipeDensity: pipeDensity,
                 pipeVolume: pipeKillVolume,
                 annDensity: annDensity,
-                annVolume: .infinity,
+                annVolume: backfillVolume,
                 input: input,
                 tvdSampler: tvdSampler,
                 geom: geom,
@@ -393,8 +429,8 @@ struct KillMudSolverService {
                 pipeKillDensity_kgpm3: pipeDensity,
                 pipeKillVolume_m3: pipeKillVolume,
                 annulusKillDensity_kgpm3: annDensity,
-                annulusKillVolume_m3: .infinity,
-                killTVD_m: controlTVD,
+                annulusKillVolume_m3: backfillVolume,
+                killTVD_m: backfillHeight,
                 sustainedKillDepth_m: validated.sustainedKillDepth_m,
                 maxESDAtControl_kgpm3: validated.maxESD,
                 maxSABP_kPa: validated.maxSABP,
