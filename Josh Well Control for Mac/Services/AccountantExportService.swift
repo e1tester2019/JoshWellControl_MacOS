@@ -45,8 +45,35 @@ class AccountantExportService {
     }
 
     #if os(macOS)
+    /// Reports overall progress (0.0–1.0) and a short status message to the caller.
+    typealias ExportProgressHandler = @MainActor (Double, String) -> Void
+
     @MainActor
-    func exportPackage(data: ExportData, to url: URL) async throws {
+    func exportPackage(
+        data: ExportData,
+        to url: URL,
+        progress: ExportProgressHandler? = nil
+    ) async throws {
+        // Phase budget (sums to 1.0). Mileage dominates because each GPS-tracked
+        // trip generates a MapKit snapshot, which is by far the slowest step.
+        let phaseSetup       = 0.00...0.05
+        let phaseMileage     = 0.05...0.65
+        let phaseReport      = 0.65...0.70
+        let phaseReceipts    = 0.70...0.85
+        let phaseInvoices    = 0.85...0.92
+        let phaseZip         = 0.92...0.99
+
+        @MainActor func report(_ value: Double, _ message: String) {
+            progress?(min(max(value, 0.0), 1.0), message)
+        }
+
+        @MainActor func progressValue(in range: ClosedRange<Double>, fraction: Double) -> Double {
+            let f = min(max(fraction, 0.0), 1.0)
+            return range.lowerBound + (range.upperBound - range.lowerBound) * f
+        }
+
+        report(phaseSetup.lowerBound, "Preparing export…")
+
         let fileManager = FileManager.default
 
         // Create temp directory
@@ -65,7 +92,7 @@ class AccountantExportService {
         try fileManager.createDirectory(at: invoicesDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: mileageDir, withIntermediateDirectories: true)
 
-        // Yield to allow UI to update
+        report(phaseSetup.upperBound, "Preparing export…")
         await Task.yield()
 
         // Generate mileage detail pages and map images
@@ -74,15 +101,29 @@ class AccountantExportService {
         // Process mileage logs with rate limiting for MapKit stability
         let logsWithGPS = data.mileageLogs.filter { $0.hasGPSData }
         let totalWithGPS = logsWithGPS.count
+        let mileageCount = data.mileageLogs.count
+
+        if mileageCount == 0 {
+            report(phaseMileage.upperBound, "No mileage logs")
+        }
 
         for (index, log) in data.mileageLogs.enumerated() {
             let tripNumber = index + 1
             let detailFilename = "trip_\(tripNumber).html"
             mileageLinks[log.id] = detailFilename
 
-            // Generate map image if GPS data available
+            report(
+                progressValue(in: phaseMileage, fraction: Double(index) / Double(max(mileageCount, 1))),
+                "Mileage trip \(tripNumber) of \(mileageCount)"
+            )
+
+            // Generate map image if GPS data available.
+            // Snapshot the SwiftData-backed route data into plain values *before*
+            // the Task.sleep below — otherwise a CloudKit zone purge during the
+            // sleep can invalidate TripRoutePoint rows, and the snapshot
+            // service's later access to point.timestamp will trap.
             var mapFilename: String? = nil
-            if log.hasGPSData {
+            if log.hasGPSData, let mapInput = MileageMapData(from: log) {
                 do {
                     // Add delay between map generations to prevent MapKit crashes
                     if index > 0 && totalWithGPS > 1 {
@@ -90,7 +131,7 @@ class AccountantExportService {
                     }
 
                     let mapData = try await MapSnapshotServiceMacOS.shared.generateJPEGData(
-                        for: log,
+                        data: mapInput,
                         options: .large
                     )
 
@@ -121,6 +162,7 @@ class AccountantExportService {
             try await Task.sleep(nanoseconds: 250_000_000) // 250ms
         }
 
+        report(phaseMileage.upperBound, "Generating financial report…")
         await Task.yield()
 
         // Generate and save HTML report
@@ -133,11 +175,14 @@ class AccountantExportService {
         let cssFile = tempDir.appendingPathComponent("styles.css")
         try css.write(to: cssFile, atomically: true, encoding: .utf8)
 
+        report(phaseReport.upperBound, "Writing receipts…")
         await Task.yield()
 
         // Export receipts - MUST be sorted by date to match HTML generation
+        let sortedExpenses = data.expenses.sorted(by: { $0.date < $1.date })
+        let receiptCandidateCount = sortedExpenses.count
         var receiptIndex = 1
-        for expense in data.expenses.sorted(by: { $0.date < $1.date }) {
+        for (i, expense) in sortedExpenses.enumerated() {
             if let receiptData = expense.receiptImageData {
                 let ext = expense.receiptIsPDF ? "pdf" : "jpg"
                 let filename = String(format: "%03d_%@_%@.%@",
@@ -150,19 +195,35 @@ class AccountantExportService {
                 try receiptData.write(to: receiptFile)
                 receiptIndex += 1
             }
+            if receiptCandidateCount > 0 {
+                report(
+                    progressValue(in: phaseReceipts, fraction: Double(i + 1) / Double(receiptCandidateCount)),
+                    "Receipt \(i + 1) of \(receiptCandidateCount)"
+                )
+            }
         }
 
+        report(phaseReceipts.upperBound, "Writing invoice PDFs…")
         await Task.yield()
 
         // Export invoice PDFs
-        for invoice in data.invoices {
+        let invoiceCount = data.invoices.count
+        for (i, invoice) in data.invoices.enumerated() {
             if let pdfData = InvoicePDFGenerator.shared.generatePDF(for: invoice) {
                 let filename = "Invoice_\(invoice.invoiceNumber).pdf"
                 let invoiceFile = invoicesDir.appendingPathComponent(filename)
                 try pdfData.write(to: invoiceFile)
             }
+            if invoiceCount > 0 {
+                report(
+                    progressValue(in: phaseInvoices, fraction: Double(i + 1) / Double(invoiceCount)),
+                    "Invoice \(i + 1) of \(invoiceCount)"
+                )
+            }
             await Task.yield()
         }
+
+        report(phaseInvoices.upperBound, "Creating ZIP archive…")
 
         // Create ZIP archive using system zip command
         let zipProcess = Process()
@@ -176,6 +237,9 @@ class AccountantExportService {
         if zipProcess.terminationStatus != 0 {
             throw NSError(domain: "AccountantExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create ZIP archive"])
         }
+
+        report(phaseZip.upperBound, "Finishing…")
+        report(1.0, "Export complete")
     }
     #endif
 
@@ -820,7 +884,7 @@ class AccountantExportService {
                 monthlyKm[month, default: 0] += log.effectiveDistance
 
                 // Group by destination
-                let destination = log.endLocation.isEmpty ? "Unknown" : log.endLocation
+                let destination = log.endLocation.isEmpty ? "Unspecified" : log.endLocation
                 destinationKm[destination, default: 0] += log.effectiveDistance
             }
 
@@ -909,7 +973,7 @@ class AccountantExportService {
             }
 
             // Get unique values for mileage filters
-            let uniqueDestinations = Set(data.mileageLogs.map { $0.endLocation.isEmpty ? "Unknown" : $0.endLocation }).sorted()
+            let uniqueDestinations = Set(data.mileageLogs.map { $0.endLocation.isEmpty ? "Unspecified" : $0.endLocation }).sorted()
             let uniquePurposes = Set(data.mileageLogs.compactMap { $0.purpose.isEmpty ? nil : $0.purpose }).sorted()
             let uniqueMileageMonths = Set(data.mileageLogs.map {
                 let formatter = DateFormatter()
@@ -1026,7 +1090,7 @@ class AccountantExportService {
                 } else {
                     detailLink = "—"
                 }
-                let destination = log.endLocation.isEmpty ? "Unknown" : log.endLocation
+                let destination = log.endLocation.isEmpty ? "Unspecified" : log.endLocation
                 html += """
                             <tr data-month="\(mileageMonthFormatter.string(from: log.date))" data-destination="\(destination)" data-purpose="\(log.purpose)" data-gps="\(log.hasGPSData ? "yes" : "no")" data-km="\(log.effectiveDistance)">
                                 <td>\(dateFormatter.string(from: log.date))</td>

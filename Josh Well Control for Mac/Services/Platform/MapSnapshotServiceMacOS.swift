@@ -10,6 +10,44 @@ import Foundation
 import MapKit
 import AppKit
 
+/// Plain-value snapshot of the data needed to render a trip map.
+///
+/// Captured synchronously on the main actor so the renderer never reads from
+/// SwiftData models after an `await`. Without this, a CloudKit zone purge
+/// (NSCloudKitMirroringDelegate -> PFCloudKitMetadataPurger) can wipe a
+/// TripRoutePoint's backing row mid-export, and the next access to
+/// `point.timestamp` traps with a SwiftData assertion failure.
+struct MileageMapData {
+    let startCoordinate: CLLocationCoordinate2D
+    let endCoordinate: CLLocationCoordinate2D
+    let routePoints: [CLLocationCoordinate2D]
+
+    @MainActor
+    init?(from log: MileageLog) {
+        guard let startLat = log.startLatitude,
+              let startLon = log.startLongitude,
+              let endLat = log.endLatitude,
+              let endLon = log.endLongitude else {
+            return nil
+        }
+        self.startCoordinate = CLLocationCoordinate2D(latitude: startLat, longitude: startLon)
+        self.endCoordinate = CLLocationCoordinate2D(latitude: endLat, longitude: endLon)
+
+        if let points = log.routePoints, !points.isEmpty {
+            var triples: [(timestamp: Date, latitude: Double, longitude: Double)] = []
+            triples.reserveCapacity(points.count)
+            for point in points {
+                triples.append((point.timestamp, point.latitude, point.longitude))
+            }
+            self.routePoints = triples
+                .sorted { $0.timestamp < $1.timestamp }
+                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        } else {
+            self.routePoints = []
+        }
+    }
+}
+
 /// Service for generating static map snapshots for export on macOS
 /// Options for map snapshot generation - defined outside class to avoid actor isolation
 struct MapSnapshotOptions {
@@ -53,31 +91,25 @@ final class MapSnapshotServiceMacOS {
         for mileageLog: MileageLog,
         options: MapSnapshotOptions? = nil
     ) async throws -> NSImage {
-        let opts = options ?? MapSnapshotOptions.standard
-        guard let startLat = mileageLog.startLatitude,
-              let startLon = mileageLog.startLongitude,
-              let endLat = mileageLog.endLatitude,
-              let endLon = mileageLog.endLongitude else {
+        guard let data = MileageMapData(from: mileageLog) else {
             throw SnapshotError.missingCoordinates
         }
+        return try await generateSnapshot(data: data, options: options)
+    }
 
-        let start = CLLocationCoordinate2D(latitude: startLat, longitude: startLon)
-        let end = CLLocationCoordinate2D(latitude: endLat, longitude: endLon)
-
-        // Gather route points if available
-        let routeCoordinates: [CLLocationCoordinate2D]
-        if let points = mileageLog.routePoints, !points.isEmpty {
-            routeCoordinates = points
-                .sorted { $0.timestamp < $1.timestamp }
-                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-        } else {
-            routeCoordinates = [start, end]
-        }
+    func generateSnapshot(
+        data: MileageMapData,
+        options: MapSnapshotOptions? = nil
+    ) async throws -> NSImage {
+        let opts = options ?? MapSnapshotOptions.standard
+        let route = data.routePoints.isEmpty
+            ? [data.startCoordinate, data.endCoordinate]
+            : data.routePoints
 
         return try await generateSnapshot(
-            startCoordinate: start,
-            endCoordinate: end,
-            routePoints: routeCoordinates,
+            startCoordinate: data.startCoordinate,
+            endCoordinate: data.endCoordinate,
+            routePoints: route,
             options: opts
         )
     }
@@ -119,7 +151,18 @@ final class MapSnapshotServiceMacOS {
         options: MapSnapshotOptions? = nil,
         compressionFactor: CGFloat = 0.85
     ) async throws -> Data {
-        let image = try await generateSnapshot(for: mileageLog, options: options ?? MapSnapshotOptions.standard)
+        guard let data = MileageMapData(from: mileageLog) else {
+            throw SnapshotError.missingCoordinates
+        }
+        return try await generateJPEGData(data: data, options: options, compressionFactor: compressionFactor)
+    }
+
+    func generateJPEGData(
+        data: MileageMapData,
+        options: MapSnapshotOptions? = nil,
+        compressionFactor: CGFloat = 0.85
+    ) async throws -> Data {
+        let image = try await generateSnapshot(data: data, options: options ?? MapSnapshotOptions.standard)
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionFactor]) else {

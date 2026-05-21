@@ -762,35 +762,13 @@ struct MileageMapView: View {
     let mileageLog: MileageLog
 
     @State private var cameraPosition: MapCameraPosition = .automatic
-
-    private var startCoordinate: CLLocationCoordinate2D? {
-        guard let lat = mileageLog.startLatitude,
-              let lon = mileageLog.startLongitude else { return nil }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-
-    private var endCoordinate: CLLocationCoordinate2D? {
-        guard let lat = mileageLog.endLatitude,
-              let lon = mileageLog.endLongitude else { return nil }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-
-    private var routeCoordinates: [CLLocationCoordinate2D] {
-        guard let points = mileageLog.routePoints, !points.isEmpty else {
-            // Just use start and end
-            var coords: [CLLocationCoordinate2D] = []
-            if let start = startCoordinate { coords.append(start) }
-            if let end = endCoordinate { coords.append(end) }
-            return coords
-        }
-        return points
-            .sorted { $0.timestamp < $1.timestamp }
-            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-    }
+    @State private var startCoordinate: CLLocationCoordinate2D?
+    @State private var endCoordinate: CLLocationCoordinate2D?
+    @State private var routeCoordinates: [CLLocationCoordinate2D] = []
+    @State private var didLoad = false
 
     var body: some View {
         Map(position: $cameraPosition) {
-            // Start marker
             if let start = startCoordinate {
                 Annotation("Start", coordinate: start) {
                     ZStack {
@@ -804,7 +782,6 @@ struct MileageMapView: View {
                 }
             }
 
-            // End marker
             if let end = endCoordinate {
                 Annotation("End", coordinate: end) {
                     ZStack {
@@ -818,7 +795,6 @@ struct MileageMapView: View {
                 }
             }
 
-            // Route line
             if routeCoordinates.count >= 2 {
                 MapPolyline(coordinates: routeCoordinates)
                     .stroke(.blue, lineWidth: 4)
@@ -826,7 +802,39 @@ struct MileageMapView: View {
         }
         .mapStyle(.standard)
         .onAppear {
+            // Read SwiftData once and cache. If we accessed mileageLog.routePoints
+            // (which sorts thousands of points) from inside `body`, every parent
+            // re-render — e.g. a keystroke in the editor's Start/End text fields —
+            // would re-fault and re-sort the relationship, freezing input.
+            guard !didLoad else { return }
+            didLoad = true
+            loadCoordinates()
             calculateCameraPosition()
+        }
+    }
+
+    private func loadCoordinates() {
+        if let lat = mileageLog.startLatitude, let lon = mileageLog.startLongitude {
+            startCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        if let lat = mileageLog.endLatitude, let lon = mileageLog.endLongitude {
+            endCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+
+        if let points = mileageLog.routePoints, !points.isEmpty {
+            var triples: [(timestamp: Date, latitude: Double, longitude: Double)] = []
+            triples.reserveCapacity(points.count)
+            for point in points {
+                triples.append((point.timestamp, point.latitude, point.longitude))
+            }
+            routeCoordinates = triples
+                .sorted { $0.timestamp < $1.timestamp }
+                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        } else {
+            var coords: [CLLocationCoordinate2D] = []
+            if let s = startCoordinate { coords.append(s) }
+            if let e = endCoordinate { coords.append(e) }
+            routeCoordinates = coords
         }
     }
 
@@ -852,15 +860,12 @@ struct MileageMapView: View {
         var latDelta = (maxLat - minLat) * (1 + padding)
         var lonDelta = (maxLon - minLon) * (1 + padding)
 
-        // Ensure minimum span
         latDelta = max(latDelta, 0.01)
         lonDelta = max(lonDelta, 0.01)
 
         let center = CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon)
         let span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
-        let region = MKCoordinateRegion(center: center, span: span)
-
-        cameraPosition = .region(region)
+        cameraPosition = .region(MKCoordinateRegion(center: center, span: span))
     }
 }
 

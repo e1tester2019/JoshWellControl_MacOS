@@ -26,6 +26,8 @@ struct CompanyStatementView: View {
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date.now)
     @State private var statementType: CompanyStatementPDFGenerator.StatementType = .yearly
     @State private var isExporting = false
+    @State private var exportProgress: Double = 0
+    @State private var exportProgressMessage: String = "Preparing export…"
     @State private var exportError: String?
     @State private var showingExportError = false
     @State private var showingMileageDetail = false
@@ -109,6 +111,11 @@ struct CompanyStatementView: View {
         .sheet(isPresented: $showingMileageDetail) {
             MileageDetailSheet(mileageLogs: mileageLogsForYear, year: selectedYear)
         }
+        .loadingOverlay(
+            isShowing: isExporting,
+            message: exportProgressMessage,
+            progress: exportProgress > 0 ? exportProgress : nil
+        )
     }
 
     // MARK: - Yearly Statement
@@ -545,6 +552,8 @@ struct CompanyStatementView: View {
 
     private func exportForAccountant() {
         isExporting = true
+        exportProgress = 0
+        exportProgressMessage = "Preparing export…"
 
         // Filter data for selected year
         let calendar = Calendar.current
@@ -584,14 +593,23 @@ struct CompanyStatementView: View {
             if response == .OK, let url = panel.url {
                 Task {
                     do {
-                        try await AccountantExportService.shared.exportPackage(data: exportData, to: url)
+                        try await AccountantExportService.shared.exportPackage(
+                            data: exportData,
+                            to: url,
+                            progress: { value, message in
+                                exportProgress = value
+                                exportProgressMessage = message
+                            }
+                        )
                         await MainActor.run {
                             isExporting = false
+                            exportProgress = 0
                             NSWorkspace.shared.activateFileViewerSelecting([url])
                         }
                     } catch {
                         await MainActor.run {
                             isExporting = false
+                            exportProgress = 0
                             exportError = error.localizedDescription
                             showingExportError = true
                         }
@@ -599,6 +617,7 @@ struct CompanyStatementView: View {
                 }
             } else {
                 isExporting = false
+                exportProgress = 0
             }
         }
         #elseif os(iOS)
