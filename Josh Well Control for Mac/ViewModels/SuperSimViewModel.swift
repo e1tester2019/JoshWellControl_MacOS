@@ -573,6 +573,21 @@ class SuperSimViewModel {
         input.initialStringLayers = state.layersString.isEmpty ? nil : state.layersString
         input.initialPocketLayers = state.layersPocket.isEmpty ? nil : state.layersPocket
 
+        // Trip-out column mixing — first cut at modeling the rate-dependent dispersion
+        // that happens during slow-flow operations. Boundary mixing disabled (no measurable
+        // effect with the discrete-parcel column). Inversion rectification uses the *bounded*
+        // variant: only this many meters at each side of an inverted boundary get blended,
+        // so the bulk of each layer is preserved. Starting values to tune against Pason —
+        // expect ~5 m mix-zone and ~100 kg/m³ threshold to be in the right ballpark.
+        input.annulusMixingLength_m = 0
+        // Inversion rectification disabled — the symmetric smoother below handles
+        // both inverted and stable boundaries with the same model.
+        input.annulusInversionThreshold_kgpm3 = 0
+        input.annulusInversionMixZone_m = 0
+        // Symmetric column smoothing per trip-out step. Models Taylor dispersion at
+        // every parcel boundary. Small per-step zone; cumulative over many steps.
+        input.annulusSymmetricMixZone_m = 5.0
+
         // Wire T&D if enabled
         if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {
             input.tdSurveys = TorqueDragEngine.surveyPoints(from: surveys, tvdSampler: tvdSampler)
@@ -992,6 +1007,21 @@ class SuperSimViewModel {
         input.initialAnnulusLayers = state.layersAnnulus.isEmpty ? nil : state.layersAnnulus
         input.initialStringLayers = state.layersString.isEmpty ? nil : state.layersString
         input.initialPocketLayers = state.layersPocket.isEmpty ? nil : state.layersPocket
+
+        // Trip-out column mixing — first cut at modeling the rate-dependent dispersion
+        // that happens during slow-flow operations. Boundary mixing disabled (no measurable
+        // effect with the discrete-parcel column). Inversion rectification uses the *bounded*
+        // variant: only this many meters at each side of an inverted boundary get blended,
+        // so the bulk of each layer is preserved. Starting values to tune against Pason —
+        // expect ~5 m mix-zone and ~100 kg/m³ threshold to be in the right ballpark.
+        input.annulusMixingLength_m = 0
+        // Inversion rectification disabled — the symmetric smoother below handles
+        // both inverted and stable boundaries with the same model.
+        input.annulusInversionThreshold_kgpm3 = 0
+        input.annulusInversionMixZone_m = 0
+        // Symmetric column smoothing per trip-out step. Models Taylor dispersion at
+        // every parcel boundary. Small per-step zone; cumulative over many steps.
+        input.annulusSymmetricMixZone_m = 5.0
 
         // Wire T&D if enabled
         if op.tdEnabled && !surveys.isEmpty && !drillString.isEmpty {

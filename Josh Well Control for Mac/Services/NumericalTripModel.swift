@@ -272,6 +272,290 @@ final class NumericalTripModel: @unchecked Sendable {
             return P
         }
 
+        /// Blends the top `mixLength_m` of the annulus into a single
+        /// volume-weighted layer. Models turbulent mixing where backfill
+        /// enters the annulus at surface during POOH — replaces the unphysical
+        /// step-function parcel boundary with a graduated density transition
+        /// as repeated calls each step smear the boundary deeper.
+        func mixTopMeters(_ mixLength_m: Double, bitMD: Double) {
+            precondition(side == .annulus, "mixTopMeters is annulus-only")
+            guard mixLength_m > 0, !layers.isEmpty, bitMD > 1e-9 else { return }
+            let topMD = layers[0].topMD
+            let bottomMD = min(topMD + mixLength_m, bitMD)
+            guard bottomMD > topMD + 1e-9 else { return }
+            blendRange(topMD: topMD, bottomMD: bottomMD, bitMD: bitMD)
+        }
+
+        /// Blends the bottom `mixLength_m` (immediately above the bit) into a
+        /// single volume-weighted layer. Models turbulent mixing where
+        /// drilling-string mud enters the annulus through the bit during POOH
+        /// with an open float.
+        func mixBottomMeters(_ mixLength_m: Double, bitMD: Double) {
+            precondition(side == .annulus, "mixBottomMeters is annulus-only")
+            guard mixLength_m > 0, !layers.isEmpty, bitMD > 1e-9 else { return }
+            let bottomMD = bitMD
+            let topMD = max(0, bottomMD - mixLength_m)
+            guard bottomMD > topMD + 1e-9 else { return }
+            blendRange(topMD: topMD, bottomMD: bottomMD, bitMD: bitMD)
+        }
+
+        /// Symmetric column smoothing: for every adjacent parcel pair (regardless of
+        /// density direction or magnitude), blend `zone_m` meters on each side of the
+        /// boundary into a single volume-weighted layer in the middle. Models the
+        /// Taylor dispersion + turbulent mixing that smears every parcel interface
+        /// during low-velocity column movement (slow trip-in flow). Bulk of each
+        /// layer is preserved outside the mixing zone.
+        ///
+        /// `maxIterations` defaults to 1 because this is called repeatedly during
+        /// trip-out (per step), and per-step mixing accumulates over many steps.
+        /// Iterating more inside a single call would over-mix.
+        func smoothAllBoundaries(zone_m: Double, bitMD: Double, maxIterations: Int = 1) {
+            precondition(side == .annulus, "smoothAllBoundaries is annulus-only")
+            guard zone_m > 0, !layers.isEmpty else { return }
+            for _ in 0..<maxIterations {
+                var didMix = false
+                var i = 0
+                while i < layers.count - 1 {
+                    let upper = layers[i]
+                    let lower = layers[i+1]
+                    if abs(upper.rho - lower.rho) > 1e-6 {
+                        let upperLen = upper.bottomMD - upper.topMD
+                        let lowerLen = lower.bottomMD - lower.topMD
+                        let mixUpperLen = min(zone_m, upperLen)
+                        let mixLowerLen = min(zone_m, lowerLen)
+                        let mixUpperTopMD = upper.bottomMD - mixUpperLen
+                        let mixLowerBottomMD = lower.topMD + mixLowerLen
+                        let vU = geom.volumeInAnnulus_m3(mixUpperTopMD, upper.bottomMD)
+                        let vL = geom.volumeInAnnulus_m3(lower.topMD, mixLowerBottomMD)
+                        let totalV = vU + vL
+                        guard totalV > 1e-12 else { i += 1; continue }
+                        let blendedRho = (vU * upper.rho + vL * lower.rho) / totalV
+                        let blendedPV = (vU * upper.pv_cP + vL * lower.pv_cP) / totalV
+                        let blendedYP = (vU * upper.yp_Pa + vL * lower.yp_Pa) / totalV
+                        var blendedColor: ColorRGBA? = nil
+                        if let cU = upper.color, let cL = lower.color {
+                            blendedColor = ColorRGBA(
+                                r: (vU * cU.r + vL * cL.r) / totalV,
+                                g: (vU * cU.g + vL * cL.g) / totalV,
+                                b: (vU * cU.b + vL * cL.b) / totalV,
+                                a: (vU * cU.a + vL * cL.a) / totalV
+                            )
+                        } else {
+                            blendedColor = upper.color ?? lower.color
+                        }
+                        let blended = Layer(
+                            rho: blendedRho,
+                            topMD: mixUpperTopMD, bottomMD: mixLowerBottomMD,
+                            color: blendedColor, pv_cP: blendedPV, yp_Pa: blendedYP
+                        )
+                        var replacement: [Layer] = []
+                        if mixUpperTopMD > upper.topMD + 1e-9 {
+                            var u = upper
+                            u.bottomMD = mixUpperTopMD
+                            replacement.append(u)
+                        }
+                        replacement.append(blended)
+                        if mixLowerBottomMD < lower.bottomMD - 1e-9 {
+                            var l = lower
+                            l.topMD = mixLowerBottomMD
+                            replacement.append(l)
+                        }
+                        layers.replaceSubrange(i...i+1, with: replacement)
+                        didMix = true
+                        i += replacement.count
+                    } else {
+                        i += 1
+                    }
+                }
+                if !didMix { break }
+            }
+            ensureInvariants(bitMD: bitMD)
+        }
+
+        /// Rectifies density inversions with a **bounded mixing zone**: when an
+        /// inversion is detected, only the `mixZone_m` adjacent to the boundary
+        /// of each layer gets blended; the bulk of each layer is preserved.
+        /// Models the localized convection that happens at parcel interfaces in
+        /// reality without diluting the bulk of either layer.
+        func rectifyInversionsBounded(threshold_kgpm3: Double, mixZone_m: Double, bitMD: Double, maxIterations: Int = 50) {
+            precondition(side == .annulus, "rectifyInversionsBounded is annulus-only")
+            guard mixZone_m > 0, threshold_kgpm3 > 0, !layers.isEmpty else { return }
+            for _ in 0..<maxIterations {
+                var didMix = false
+                var i = 0
+                while i < layers.count - 1 {
+                    let upper = layers[i]
+                    let lower = layers[i+1]
+                    if upper.rho > lower.rho + threshold_kgpm3 {
+                        let upperLen = upper.bottomMD - upper.topMD
+                        let lowerLen = lower.bottomMD - lower.topMD
+                        let mixUpperLen = min(mixZone_m, upperLen)
+                        let mixLowerLen = min(mixZone_m, lowerLen)
+                        let mixUpperTopMD = upper.bottomMD - mixUpperLen
+                        let mixLowerBottomMD = lower.topMD + mixLowerLen
+                        let vU = geom.volumeInAnnulus_m3(mixUpperTopMD, upper.bottomMD)
+                        let vL = geom.volumeInAnnulus_m3(lower.topMD, mixLowerBottomMD)
+                        let totalV = vU + vL
+                        guard totalV > 1e-12 else { i += 1; continue }
+                        let blendedRho = (vU * upper.rho + vL * lower.rho) / totalV
+                        let blendedPV = (vU * upper.pv_cP + vL * lower.pv_cP) / totalV
+                        let blendedYP = (vU * upper.yp_Pa + vL * lower.yp_Pa) / totalV
+                        var blendedColor: ColorRGBA? = nil
+                        if let cU = upper.color, let cL = lower.color {
+                            blendedColor = ColorRGBA(
+                                r: (vU * cU.r + vL * cL.r) / totalV,
+                                g: (vU * cU.g + vL * cL.g) / totalV,
+                                b: (vU * cU.b + vL * cL.b) / totalV,
+                                a: (vU * cU.a + vL * cL.a) / totalV
+                            )
+                        } else {
+                            blendedColor = upper.color ?? lower.color
+                        }
+                        let blended = Layer(
+                            rho: blendedRho,
+                            topMD: mixUpperTopMD, bottomMD: mixLowerBottomMD,
+                            color: blendedColor, pv_cP: blendedPV, yp_Pa: blendedYP
+                        )
+                        // Build replacement: [preservedUpper?, blended, preservedLower?]
+                        var replacement: [Layer] = []
+                        if mixUpperTopMD > upper.topMD + 1e-9 {
+                            var u = upper
+                            u.bottomMD = mixUpperTopMD
+                            replacement.append(u)
+                        }
+                        replacement.append(blended)
+                        if mixLowerBottomMD < lower.bottomMD - 1e-9 {
+                            var l = lower
+                            l.topMD = mixLowerBottomMD
+                            replacement.append(l)
+                        }
+                        layers.replaceSubrange(i...i+1, with: replacement)
+                        didMix = true
+                        // Advance past the replacement so we don't re-process the blended layer in this pass
+                        i += replacement.count
+                    } else {
+                        i += 1
+                    }
+                }
+                if !didMix { break }
+            }
+            ensureInvariants(bitMD: bitMD)
+        }
+
+        /// Rectifies density inversions in the annulus column (heavy mud
+        /// sitting above lighter mud — gravitationally unstable). Only pairs
+        /// where the upper layer exceeds the lower by more than `threshold_kgpm3`
+        /// are merged; this preserves small natural variations that real
+        /// columns hold but eliminates large unphysical inversions that
+        /// buoyancy-driven convection would resolve in minutes.
+        func rectifyInversions(threshold_kgpm3: Double, bitMD: Double, maxIterations: Int = 100) {
+            precondition(side == .annulus, "rectifyInversions is annulus-only")
+            guard !layers.isEmpty else { return }
+            for _ in 0..<maxIterations {
+                var didMix = false
+                var i = 0
+                while i < layers.count - 1 {
+                    let upper = layers[i]
+                    let lower = layers[i+1]
+                    if upper.rho > lower.rho + threshold_kgpm3 {
+                        let vU = geom.volumeInAnnulus_m3(upper.topMD, upper.bottomMD)
+                        let vL = geom.volumeInAnnulus_m3(lower.topMD, lower.bottomMD)
+                        let totalV = vU + vL
+                        guard totalV > 1e-12 else { i += 1; continue }
+                        let blendedRho = (vU * upper.rho + vL * lower.rho) / totalV
+                        let blendedPV = (vU * upper.pv_cP + vL * lower.pv_cP) / totalV
+                        let blendedYP = (vU * upper.yp_Pa + vL * lower.yp_Pa) / totalV
+                        var blendedColor: ColorRGBA? = nil
+                        if let cU = upper.color, let cL = lower.color {
+                            blendedColor = ColorRGBA(
+                                r: (vU * cU.r + vL * cL.r) / totalV,
+                                g: (vU * cU.g + vL * cL.g) / totalV,
+                                b: (vU * cU.b + vL * cL.b) / totalV,
+                                a: (vU * cU.a + vL * cL.a) / totalV
+                            )
+                        } else {
+                            blendedColor = upper.color ?? lower.color
+                        }
+                        layers[i] = Layer(
+                            rho: blendedRho,
+                            topMD: upper.topMD, bottomMD: lower.bottomMD,
+                            color: blendedColor, pv_cP: blendedPV, yp_Pa: blendedYP
+                        )
+                        layers.remove(at: i+1)
+                        didMix = true
+                        // Don't advance i — the new blended layer may invert with the next one.
+                    } else {
+                        i += 1
+                    }
+                }
+                if !didMix { break }
+            }
+            ensureInvariants(bitMD: bitMD)
+        }
+
+        private func blendRange(topMD: Double, bottomMD: Double, bitMD: Double) {
+            var totalVol = 0.0
+            var weightedMass = 0.0
+            var weightedPV = 0.0
+            var weightedYP = 0.0
+            var wR = 0.0, wG = 0.0, wB = 0.0, wA = 0.0
+            var hasColor = false
+
+            for layer in layers {
+                let lo = max(layer.topMD, topMD)
+                let hi = min(layer.bottomMD, bottomMD)
+                guard hi > lo + 1e-12 else { continue }
+                let v = geom.volumeInAnnulus_m3(lo, hi)
+                guard v > 1e-12 else { continue }
+                totalVol += v
+                weightedMass += v * layer.rho
+                weightedPV += v * layer.pv_cP
+                weightedYP += v * layer.yp_Pa
+                if let c = layer.color {
+                    wR += v * c.r; wG += v * c.g; wB += v * c.b; wA += v * c.a
+                    hasColor = true
+                }
+            }
+            guard totalVol > 1e-12 else { return }
+
+            let blendedRho = weightedMass / totalVol
+            let blendedPV = weightedPV / totalVol
+            let blendedYP = weightedYP / totalVol
+            let blendedColor: ColorRGBA? = hasColor
+                ? ColorRGBA(r: wR/totalVol, g: wG/totalVol, b: wB/totalVol, a: wA/totalVol)
+                : nil
+
+            var rebuilt: [Layer] = []
+            for layer in layers {
+                let lo = max(layer.topMD, topMD)
+                let hi = min(layer.bottomMD, bottomMD)
+                let inside = hi > lo + 1e-12
+                if !inside {
+                    rebuilt.append(layer)
+                    continue
+                }
+                // Keep portion above the blend range, if any.
+                if layer.topMD < topMD - 1e-12 {
+                    var above = layer
+                    above.bottomMD = topMD
+                    rebuilt.append(above)
+                }
+                // Keep portion below the blend range, if any.
+                if layer.bottomMD > bottomMD + 1e-12 {
+                    var below = layer
+                    below.topMD = bottomMD
+                    rebuilt.append(below)
+                }
+                // The inside portion is dropped — replaced by the single blended layer.
+            }
+            rebuilt.append(Layer(
+                rho: blendedRho, topMD: topMD, bottomMD: bottomMD,
+                color: blendedColor, pv_cP: blendedPV, yp_Pa: blendedYP
+            ))
+            layers = rebuilt
+            ensureInvariants(bitMD: bitMD)
+        }
+
         func ensureInvariants(bitMD: Double) {
             guard !layers.isEmpty else { return }
             for i in layers.indices {
@@ -490,6 +774,30 @@ final class NumericalTripModel: @unchecked Sendable {
         var crackFloat_kPa: Double
         var noFloat: Bool = false              // When true, float is always open (continuous drain)
         var step_m: Double = 10.0
+        /// When positive, after each step's backfill is added at surface and each step's
+        /// string-drain at the bit, blend that many MD-meters of the annulus into a single
+        /// volume-weighted layer. Models the turbulent mixing zone at parcel boundaries
+        /// that the discrete-parcel model otherwise omits. 0 disables (legacy behavior).
+        var annulusMixingLength_m: Double = 0
+        /// When positive, after each trip-out step, rectify density inversions in the annulus
+        /// column by blending adjacent layers where the upper layer's density exceeds the
+        /// lower by more than this threshold (kg/m³). Models buoyancy-driven convection that
+        /// resolves large unstable configurations in minutes (small inversions, below the
+        /// threshold, persist as they would in a real column over operational timescales).
+        /// 0 disables (legacy behavior).
+        var annulusInversionThreshold_kgpm3: Double = 0
+        /// When > 0 alongside `annulusInversionThreshold_kgpm3`, uses the bounded variant:
+        /// only this many MD-meters at the boundary of each inverted pair get blended; the
+        /// bulk of each layer is preserved. Models localized convection at the parcel
+        /// interface, avoiding the over-dilution that full-layer merges produce.
+        var annulusInversionMixZone_m: Double = 0
+        /// When > 0, after each trip-out step, blend this many MD-meters at every
+        /// adjacent-parcel boundary in the annulus (regardless of density direction or
+        /// magnitude). Models the Taylor dispersion + turbulent mixing that smears all
+        /// parcel interfaces during low-velocity column movement. Applied per step, so
+        /// the per-step zone should be small — the cumulative effect over hundreds of
+        /// trip-out steps is what produces the graduated column. 0 disables.
+        var annulusSymmetricMixZone_m: Double = 0
         var baseMudDensity_kgpm3: Double
         var backfillDensity_kgpm3: Double
         var backfillColor: ColorRGBA? = nil
@@ -1054,6 +1362,10 @@ final class NumericalTripModel: @unchecked Sendable {
                 Pstr_bit = stringStack.pressureAtBit_kPa(sabp_kPa: 0, bitMD: oldBitMD)
                 floatClosed = (Pstr_bit <= Pann_bit + floatTolerance_kPa)
 
+                if input.annulusMixingLength_m > 0 && eqSlugDrained_m3 > 1e-9 {
+                    annulusStack.mixBottomMeters(input.annulusMixingLength_m, bitMD: oldBitMD)
+                }
+
                 // Add slug contribution from this step's equalization
                 // Slug drains from string → pushes annulus up → overflow at surface (pit gain)
                 stepSlugContribution_m3 += eqSlugDrained_m3
@@ -1279,6 +1591,29 @@ final class NumericalTripModel: @unchecked Sendable {
                     }
                 }
                 annulusStack.ensureInvariants(bitMD: bitMD)
+                if input.annulusMixingLength_m > 0 {
+                    annulusStack.mixTopMeters(input.annulusMixingLength_m, bitMD: bitMD)
+                }
+                if input.annulusInversionThreshold_kgpm3 > 0 {
+                    if input.annulusInversionMixZone_m > 0 {
+                        annulusStack.rectifyInversionsBounded(
+                            threshold_kgpm3: input.annulusInversionThreshold_kgpm3,
+                            mixZone_m: input.annulusInversionMixZone_m,
+                            bitMD: bitMD
+                        )
+                    } else {
+                        annulusStack.rectifyInversions(
+                            threshold_kgpm3: input.annulusInversionThreshold_kgpm3,
+                            bitMD: bitMD
+                        )
+                    }
+                }
+                if input.annulusSymmetricMixZone_m > 0 {
+                    annulusStack.smoothAllBoundaries(
+                        zone_m: input.annulusSymmetricMixZone_m,
+                        bitMD: bitMD
+                    )
+                }
             }
 
             // Track actual backfill used for this 1m step
