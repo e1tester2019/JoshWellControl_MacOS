@@ -48,6 +48,7 @@ enum TripInService {
         let surfaceTorque_kNm: Double?
         let bucklingOnsetMD: Double?
         let stretch_m: Double?
+        let description: String
     }
 
     struct TripInInput {
@@ -393,6 +394,18 @@ enum TripInService {
                 tdStretch = multi.slackOffStretch_m
             }
 
+            // Density of the topmost annulus parcel = what's at the flowline as
+            // pipe-steel displacement pushes mud out the top this step.
+            let topMostAnnulusLayer = displacedPockets
+                .filter { $0.bottomMD <= bitMD + 0.01 }
+                .min(by: { $0.topMD < $1.topMD })
+            let stepDescription: String
+            if let top = topMostAnnulusLayer {
+                stepDescription = "Out: \(Int(top.rho_kgpm3.rounded())) kg/m\u{00B3}"
+            } else {
+                stepDescription = ""
+            }
+
             steps.append(TripInStepResult(
                 stepIndex: index,
                 bitMD_m: bitMD,
@@ -421,7 +434,8 @@ enum TripInService {
                 freeHangingWeight_kN: tdFreeHanging,
                 surfaceTorque_kNm: tdTorque,
                 bucklingOnsetMD: tdBucklingMD,
-                stretch_m: tdStretch
+                stretch_m: tdStretch,
+                description: stepDescription
             ))
         }
 

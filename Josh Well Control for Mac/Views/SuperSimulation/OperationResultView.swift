@@ -237,62 +237,69 @@ struct OperationResultView: View {
                 }
                 #else
                 Table(viewModel.tripInSteps) {
-                    TableColumn("MD (m)") { step in
-                        Text(String(format: "%.0f", step.bitMD_m))
-                    }
-                    .width(min: 60, max: 80)
-
-                    TableColumn("TVD (m)") { step in
-                        Text(String(format: "%.0f", step.bitTVD_m))
-                    }
-                    .width(min: 60, max: 80)
-
-                    TableColumn("ESD Ctrl") { step in
-                        Text(String(format: "%.1f", step.ESDAtControl_kgpm3))
-                    }
-                    .width(min: 60, max: 80)
-
-                    TableColumn("Fill (m\u{00B3})") { step in
-                        Text(String(format: "%.2f", step.cumulativeFillVolume_m3))
-                    }
-                    .width(min: 60, max: 80)
-
-                    TableColumn("Disp (m\u{00B3})") { step in
-                        Text(String(format: "%.2f", step.cumulativeDisplacementReturns_m3))
-                    }
-                    .width(min: 60, max: 80)
-
-                    TableColumn("Choke (kPa)") { step in
-                        Text(String(format: "%.0f", step.requiredChokePressure_kPa))
-                    }
-                    .width(min: 70, max: 90)
-
-                    TableColumn("Float") { step in
-                        Text(step.floatState)
-                    }
-                    .width(min: 70, max: 100)
-
-                    TableColumn("HP Below (kPa)") { step in
-                        let sum = step.layersPocket
-                            .filter { $0.topMD >= step.bitMD_m }
-                            .reduce(0.0) { $0 + $1.deltaHydroStatic_kPa }
-                        Text(String(format: "%.0f", sum))
-                    }
-                    .width(min: 80, max: 110)
-
-                    TableColumn("Pickup (kDaN)") { step in
-                        if let v = step.pickupHookLoad_kN {
-                            Text(String(format: "%.1f", v / 10.0))
+                    Group {
+                        TableColumn("MD (m)") { (step: TripInService.TripInStepResult) in
+                            Text(String(format: "%.0f", step.bitMD_m))
                         }
-                    }
-                    .width(min: 60, max: 80)
+                        .width(min: 60, max: 80)
 
-                    TableColumn("Slack-off (kDaN)") { step in
-                        if let v = step.slackOffHookLoad_kN {
-                            Text(String(format: "%.1f", v / 10.0))
+                        TableColumn("TVD (m)") { step in
+                            Text(String(format: "%.0f", step.bitTVD_m))
                         }
+                        .width(min: 60, max: 80)
+
+                        TableColumn("ESD Ctrl") { step in
+                            Text(String(format: "%.1f", step.ESDAtControl_kgpm3))
+                        }
+                        .width(min: 60, max: 80)
+
+                        TableColumn("Fill (m\u{00B3})") { step in
+                            Text(String(format: "%.2f", step.cumulativeFillVolume_m3))
+                        }
+                        .width(min: 60, max: 80)
+
+                        TableColumn("Disp (m\u{00B3})") { step in
+                            Text(String(format: "%.2f", step.cumulativeDisplacementReturns_m3))
+                        }
+                        .width(min: 60, max: 80)
+
+                        TableColumn("Choke (kPa)") { step in
+                            Text(String(format: "%.0f", step.requiredChokePressure_kPa))
+                        }
+                        .width(min: 70, max: 90)
+
+                        TableColumn("Float") { step in
+                            Text(step.floatState)
+                        }
+                        .width(min: 70, max: 100)
+
+                        TableColumn("HP Below (kPa)") { step in
+                            let sum = step.layersPocket
+                                .filter { $0.topMD >= step.bitMD_m }
+                                .reduce(0.0) { $0 + $1.deltaHydroStatic_kPa }
+                            Text(String(format: "%.0f", sum))
+                        }
+                        .width(min: 80, max: 110)
+
+                        TableColumn("Pickup (kDaN)") { step in
+                            if let v = step.pickupHookLoad_kN {
+                                Text(String(format: "%.1f", v / 10.0))
+                            }
+                        }
+                        .width(min: 60, max: 80)
+
+                        TableColumn("Slack-off (kDaN)") { step in
+                            if let v = step.slackOffHookLoad_kN {
+                                Text(String(format: "%.1f", v / 10.0))
+                            }
+                        }
+                        .width(min: 60, max: 80)
                     }
-                    .width(min: 60, max: 80)
+
+                    TableColumn("Description") { step in
+                        Text(step.description)
+                    }
+                    .width(min: 100)
                 }
                 .frame(minHeight: 200, maxHeight: 400)
                 #endif

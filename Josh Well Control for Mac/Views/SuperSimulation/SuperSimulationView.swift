@@ -162,6 +162,10 @@ struct SuperSimulationView: View {
                             Button("Export Zipped HTML") {
                                 viewModel.exportZippedHTMLReport(project: project)
                             }
+                            Divider()
+                            Button("Export Density-Out TSV (Sim vs Actual)") {
+                                viewModel.exportDensityOutTSV(project: project)
+                            }
                         } label: {
                             Image(systemName: "doc.richtext")
                         }

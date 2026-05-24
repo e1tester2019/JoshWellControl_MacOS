@@ -2211,5 +2211,25 @@ class SuperSimViewModel {
         }
         #endif
     }
+
+    func exportDensityOutTSV(project: ProjectState) {
+        guard totalGlobalSteps > 0 else { return }
+        let reportData = buildReportData(project: project)
+        let tsv = SimComparisonExporter.exportSuperSimDensityOut(reportData: reportData)
+
+        let wellName = (project.well?.name ?? "SuperSim").replacingOccurrences(of: " ", with: "_")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+        let defaultName = "SuperSimDensityOut_\(wellName)_\(dateStr).tsv"
+
+        Task {
+            await FileService.shared.saveTextFile(
+                text: tsv,
+                defaultName: defaultName,
+                allowedFileTypes: ["tsv", "txt"]
+            )
+        }
+    }
 }
 
