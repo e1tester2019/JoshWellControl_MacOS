@@ -15,6 +15,19 @@ protocol TrajectorySampler {
 
 struct TripDirection { enum Kind { case pullOutOfHole, runInHole } }
 
+/// Value-type sample carrying the full per-sample swab/surge `profile`.
+/// Mirrors the @Model `TripSample` scalars plus the segment-by-segment profile
+/// that `TripSample` does not persist. Lets callers (e.g. fixture emitters) read
+/// the detailed column without a SwiftData schema change.
+struct TripSampleDetail {
+    let bitMD_m: Double
+    let tvd_m: Double
+    let total_kPa: Double
+    let recommendedSABP_kPa: Double
+    let nonLaminar: Bool
+    let profile: [SwabSegmentResult]
+}
+
 struct TrippingSimulator {
     let calc = SwabCalculator()
 
@@ -48,6 +61,40 @@ struct TrippingSimulator {
         traj: TrajectorySampler?,       // optional
         surgeLowerLimitMD: Double       // for RIH, usually casing shoe or TD
     ) throws -> [TripSample] {
+        // Persisted @Model samples are the scalar projection of the detailed run.
+        try simulateDetailed(
+            project: project, finalLayers: finalLayers, annulus: annulus,
+            string: string, direction: direction, startBitMD: startBitMD,
+            endBitMD: endBitMD, mdStep: mdStep, hoistSpeed_mpermin: hoistSpeed_mpermin,
+            theta600: theta600, theta300: theta300,
+            eccentricityFactor: eccentricityFactor, traj: traj,
+            surgeLowerLimitMD: surgeLowerLimitMD
+        ).map {
+            TripSample(bitMD_m: $0.bitMD_m, tvd_m: $0.tvd_m,
+                       total_kPa: $0.total_kPa,
+                       recommendedSABP_kPa: $0.recommendedSABP_kPa,
+                       nonLaminar: $0.nonLaminar)
+        }
+    }
+
+    /// Same march as `simulate`, but returns value-type samples that retain the
+    /// per-sample swab/surge `profile` (segment-by-segment column). `simulate` is
+    /// the scalar projection of this; both share one code path.
+    func simulateDetailed(
+        project: ProjectState,
+        finalLayers: [FinalFluidLayer],
+        annulus: [AnnulusSection],
+        string: [DrillStringSection],
+        direction: TripDirection.Kind,
+        startBitMD: Double,
+        endBitMD: Double,
+        mdStep: Double,                 // e.g. 5 m
+        hoistSpeed_mpermin: Double,     // positive magnitude; sign from direction
+        theta600: Double, theta300: Double,
+        eccentricityFactor: Double,
+        traj: TrajectorySampler?,       // optional
+        surgeLowerLimitMD: Double       // for RIH, usually casing shoe or TD
+    ) throws -> [TripSampleDetail] {
 
         guard mdStep > 0 else { return [] }
 
@@ -60,9 +107,9 @@ struct TrippingSimulator {
         let ascending = direction == .runInHole
         let stepSign = ascending ? +1.0 : -1.0
         var bit = startBitMD
-        var out: [TripSample] = []
+        var out: [TripSampleDetail] = []
 
-        func onePass(domain: LayerDomain, bitMD: Double) throws -> TripSample {
+        func onePass(domain: LayerDomain, bitMD: Double) throws -> TripSampleDetail {
             // Update string bottom to current bit
             geom.currentStringBottomMD = bitMD
 
@@ -90,7 +137,8 @@ struct TrippingSimulator {
             return .init(bitMD_m: bitMD, tvd_m: (traj?.TVDofMD(bitMD) ?? bitMD),
                          total_kPa: estimate.totalSwab_kPa,
                          recommendedSABP_kPa: estimate.recommendedSABP_kPa,
-                         nonLaminar: estimate.nonLaminarFlag)
+                         nonLaminar: estimate.nonLaminarFlag,
+                         profile: estimate.profile)
         }
 
         // March bit depth in mdStep increments

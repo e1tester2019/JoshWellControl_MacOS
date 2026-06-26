@@ -213,7 +213,7 @@ final class TrippingSimulatorFixtures: XCTestCase {
             ? .runInHole : .pullOutOfHole
 
         let sim = TrippingSimulator()
-        let samples = try sim.simulate(
+        let samples = try sim.simulateDetailed(
             project: project,
             finalLayers: finalLayers,
             annulus: annulus,
@@ -267,13 +267,26 @@ final class TrippingSimulatorFixtures: XCTestCase {
             "surgeLowerLimitMD": spec.surgeLowerLimitMD,
         ]
 
-        let samplesJSON: [[String: Any]] = samples.map {
+        let samplesJSON: [[String: Any]] = samples.map { sample in
             [
-                "bitMD_m": $0.bitMD_m,
-                "tvd_m": $0.tvd_m,
-                "total_kPa": $0.total_kPa,
-                "recommendedSABP_kPa": $0.recommendedSABP_kPa,
-                "nonLaminar": $0.nonLaminar,
+                "bitMD_m": sample.bitMD_m,
+                "tvd_m": sample.tvd_m,
+                "total_kPa": sample.total_kPa,
+                "recommendedSABP_kPa": sample.recommendedSABP_kPa,
+                "nonLaminar": sample.nonLaminar,
+                // Per-sample swab/surge column (matches SwabCalculator fixture shape).
+                "profile": sample.profile.map { seg in
+                    [
+                        "MD_m": seg.MD_m,
+                        "TVD_m": seg.TVD_m,
+                        "Dh_m": seg.Dh_m,
+                        "Va_mps": seg.Va_mps,
+                        "dPperM_PaPerM": seg.dPperM_PaPerM,
+                        "CumSwab_kPa": seg.CumSwab_kPa,
+                        "Laminar": seg.Laminar,
+                        "Re_g": seg.Re_g,
+                    ]
+                },
             ]
         }
 

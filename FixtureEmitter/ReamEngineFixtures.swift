@@ -414,6 +414,17 @@ final class ReamEngineFixtures: XCTestCase {
             "cumulativeBackfill_m3": s.cumulativeBackfill_m3,
             "expectedFillIfClosed_m3": s.expectedFillIfClosed_m3,
             "expectedFillIfOpen_m3": s.expectedFillIfOpen_m3,
+            // Per-step fluid column (full LayerRow fields incl. colour) + totals.
+            "layers": [
+                "pocket": s.layersPocket.map { encodeLayerRow($0) },
+                "annulus": s.layersAnnulus.map { encodeLayerRow($0) },
+                "string": s.layersString.map { encodeLayerRow($0) },
+            ],
+            "totals": [
+                "pocket": encodeTotals(s.totalsPocket),
+                "annulus": encodeTotals(s.totalsAnnulus),
+                "string": encodeTotals(s.totalsString),
+            ],
         ]
     }
 
@@ -438,6 +449,60 @@ final class ReamEngineFixtures: XCTestCase {
             "cumulativeDisplacementReturns_m3": s.cumulativeDisplacementReturns_m3,
             "isBelowTarget": s.isBelowTarget,
             "floatState": s.floatState,
+            // Per-step fluid column (pocket layers, trip-in snapshot format).
+            "layers": [
+                "pocket": s.layersPocket.map { encodeSnapshot($0) },
+            ],
         ]
+    }
+
+    // MARK: - Layer / totals / snapshot encoders
+
+    fileprivate static func encodeColor(_ c: NumericalTripModel.ColorRGBA?) -> [String: Any]? {
+        guard let c else { return nil }
+        return ["r": c.r, "g": c.g, "b": c.b, "a": c.a]
+    }
+
+    fileprivate static func encodeLayerRow(_ r: NumericalTripModel.LayerRow) -> [String: Any] {
+        var d: [String: Any] = [
+            "side": r.side,
+            "topMD": r.topMD,
+            "bottomMD": r.bottomMD,
+            "topTVD": r.topTVD,
+            "bottomTVD": r.bottomTVD,
+            "rho_kgpm3": r.rho_kgpm3,
+            "deltaHydroStatic_kPa": r.deltaHydroStatic_kPa,
+            "volume_m3": r.volume_m3,
+            "pv_cP": r.pv_cP,
+            "yp_Pa": r.yp_Pa,
+        ]
+        if let c = encodeColor(r.color) { d["color"] = c }
+        return d
+    }
+
+    fileprivate static func encodeTotals(_ t: NumericalTripModel.Totals) -> [String: Any] {
+        ["count": t.count, "tvd_m": t.tvd_m, "deltaP_kPa": t.deltaP_kPa]
+    }
+
+    fileprivate static func encodeSnapshot(_ s: TripLayerSnapshot) -> [String: Any] {
+        var d: [String: Any] = [
+            "side": s.side,
+            "topMD": s.topMD,
+            "bottomMD": s.bottomMD,
+            "topTVD": s.topTVD,
+            "bottomTVD": s.bottomTVD,
+            "rho_kgpm3": s.rho_kgpm3,
+            "deltaHydroStatic_kPa": s.deltaHydroStatic_kPa,
+            "volume_m3": s.volume_m3,
+        ]
+        if let v = s.pv_cP { d["pv_cP"] = v }
+        if let v = s.yp_Pa { d["yp_Pa"] = v }
+        if let v = s.dial600 { d["dial600"] = v }
+        if let v = s.dial300 { d["dial300"] = v }
+        if let r = s.colorR, let g = s.colorG, let b = s.colorB {
+            d["color"] = ["r": r, "g": g, "b": b, "a": s.colorA ?? 1]
+        }
+        if let v = s.isInAnnulus { d["isInAnnulus"] = v }
+        return d
     }
 }

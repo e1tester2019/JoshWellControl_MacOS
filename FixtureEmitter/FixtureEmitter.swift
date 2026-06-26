@@ -31,7 +31,7 @@ enum FixtureWriter {
     /// Default output directory matches the SwiftFixtureCLI default so both
     /// emitters land in the same Fixtures/ tree consumed by the C# tests.
     static let defaultRoot = URL(fileURLWithPath:
-        "/Users/joshsallows/RiderProjects/supersim/tests/SuperSim.Core.Tests/Fixtures")
+        "/Users/joshsallows/developer/drillersedge/packages/core/test/fixtures")
 
     static func write(service: String,
                       caseName: String,

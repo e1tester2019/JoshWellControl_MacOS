@@ -249,6 +249,34 @@ final class TripInServiceFixtures: XCTestCase {
             "surgePressure_kPa": s.surgePressure_kPa,
             "surgeECD_kgm3": s.surgeECD_kgm3,
             "dynamicESDAtControl_kgpm3": s.dynamicESDAtControl_kgpm3,
+            // Per-step fluid column (pocket layers carried/displaced this step).
+            "layers": [
+                "pocket": s.layersPocket.map { encodeSnapshot($0) },
+            ],
         ]
+    }
+
+    /// Serialize a TripLayerSnapshot — same field set as NumericalTripModel's
+    /// LayerRow (colour + rheology emitted only when present).
+    fileprivate static func encodeSnapshot(_ s: TripLayerSnapshot) -> [String: Any] {
+        var d: [String: Any] = [
+            "side": s.side,
+            "topMD": s.topMD,
+            "bottomMD": s.bottomMD,
+            "topTVD": s.topTVD,
+            "bottomTVD": s.bottomTVD,
+            "rho_kgpm3": s.rho_kgpm3,
+            "deltaHydroStatic_kPa": s.deltaHydroStatic_kPa,
+            "volume_m3": s.volume_m3,
+        ]
+        if let v = s.pv_cP { d["pv_cP"] = v }
+        if let v = s.yp_Pa { d["yp_Pa"] = v }
+        if let v = s.dial600 { d["dial600"] = v }
+        if let v = s.dial300 { d["dial300"] = v }
+        if let r = s.colorR, let g = s.colorG, let b = s.colorB {
+            d["color"] = ["r": r, "g": g, "b": b, "a": s.colorA ?? 1]
+        }
+        if let v = s.isInAnnulus { d["isInAnnulus"] = v }
+        return d
     }
 }
